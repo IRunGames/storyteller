@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useSession, signIn, signOut } from "next-auth/react";
 import { io, Socket } from "socket.io-client";
 import type { ChatMessage, RoomState } from "@storyteller/shared";
 
@@ -10,15 +11,18 @@ import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import IconButton from "@mui/material/IconButton";
+import Button from "@mui/material/Button";
 import Paper from "@mui/material/Paper";
 import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
+import Avatar from "@mui/material/Avatar";
 import SendIcon from "@mui/icons-material/Send";
 import CircleIcon from "@mui/icons-material/Circle";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
 
 export default function Home() {
+  const { data: session, status } = useSession();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -27,6 +31,8 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (status !== "authenticated") return;
+
     const s = io(SOCKET_URL, { autoConnect: true });
 
     s.on("connect", () => setConnected(true));
@@ -45,7 +51,7 @@ export default function Home() {
 
     setSocket(s);
     return () => { s.disconnect(); };
-  }, []);
+  }, [status]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -57,6 +63,26 @@ export default function Home() {
     setInput("");
   };
 
+  if (status === "loading") {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
+        <Typography>Loading...</Typography>
+      </Box>
+    );
+  }
+
+  if (!session) {
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "100vh", gap: 2 }}>
+        <Typography variant="h4">Storyteller</Typography>
+        <Typography color="text.secondary">Sign in to start your adventure</Typography>
+        <Button variant="contained" onClick={() => signIn("google")}>
+          Sign in with Google
+        </Button>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <AppBar position="static" elevation={0}>
@@ -64,13 +90,24 @@ export default function Home() {
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
             Storyteller
           </Typography>
-          <Chip
-            icon={<CircleIcon sx={{ fontSize: 12 }} />}
-            label={connected ? "Connected" : "Disconnected"}
-            color={connected ? "success" : "error"}
-            size="small"
-            variant="outlined"
-          />
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Chip
+              icon={<CircleIcon sx={{ fontSize: 12 }} />}
+              label={connected ? "Connected" : "Disconnected"}
+              color={connected ? "success" : "error"}
+              size="small"
+              variant="outlined"
+            />
+            <Chip
+              avatar={<Avatar src={session.user?.image ?? undefined} alt={session.user?.name ?? ""} />}
+              label={session.user?.name}
+              size="small"
+              variant="outlined"
+            />
+            <Button size="small" color="inherit" onClick={() => signOut()}>
+              Sign out
+            </Button>
+          </Stack>
         </Toolbar>
       </AppBar>
 
