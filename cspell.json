@@ -1,0 +1,12 @@
+{
+  "version": "0.2",
+  "ignorePaths": [
+    "**/package.json",
+    "package-lock.json",
+    "node_modules",
+    ".git/{info,lfs,logs,refs,objects}/**",
+    ".git/{index,*refs,*HEAD}",
+    ".vscode",
+    ".vscode-insiders"
+  ]
+}

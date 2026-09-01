@@ -12,8 +12,6 @@
     "status": "dbmate status",
     "redo": "dbmate rollback && dbmate migrate",
     "db:structure:dump": "dbmate dump",
-    "db:structure:load": "dbmate load",
-    "exmigrate": "docker exec -it metaphase_formforge_1 bash -c \"cd apps/formforgedb && yarn migrate\"",
-    "dbsh": "docker exec -it metaphase_formforge_1 sh -c 'cd apps/formforgedb && exec sh' "
+    "db:structure:load": "dbmate load"
   }
 }
