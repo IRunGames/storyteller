@@ -1,28 +1,38 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useSession, signIn, signOut } from "next-auth/react";
+import {
+  Avatar,
+  Badge,
+  Box,
+  Button,
+  Flex,
+  Heading,
+  HStack,
+  IconButton,
+  Input,
+  Spinner,
+  Text,
+  VStack,
+  Wrap,
+} from "@chakra-ui/react";
 import { io, Socket } from "socket.io-client";
 import type { ChatMessage, RoomState } from "@storyteller/shared";
-
-import Box from "@mui/material/Box";
-import AppBar from "@mui/material/AppBar";
-import Toolbar from "@mui/material/Toolbar";
-import Typography from "@mui/material/Typography";
-import TextField from "@mui/material/TextField";
-import IconButton from "@mui/material/IconButton";
-import Button from "@mui/material/Button";
-import Paper from "@mui/material/Paper";
-import Chip from "@mui/material/Chip";
-import Stack from "@mui/material/Stack";
-import Avatar from "@mui/material/Avatar";
-import SendIcon from "@mui/icons-material/Send";
-import CircleIcon from "@mui/icons-material/Circle";
+import { signIn, signOut, useSession } from "@/lib/auth-client";
+import { ColorModeButton } from "@/components/ui/color-mode";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
 
+function SendIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" />
+    </svg>
+  );
+}
+
 export default function Home() {
-  const { data: session, status } = useSession();
+  const { data: session, isPending } = useSession();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -31,7 +41,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (status !== "authenticated") return;
+    if (!session) return;
 
     const s = io(SOCKET_URL, { autoConnect: true });
 
@@ -51,7 +61,7 @@ export default function Home() {
 
     setSocket(s);
     return () => { s.disconnect(); };
-  }, [status]);
+  }, [session]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -63,95 +73,114 @@ export default function Home() {
     setInput("");
   };
 
-  if (status === "loading") {
+  if (isPending) {
     return (
-      <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
-        <Typography>Loading...</Typography>
-      </Box>
+      <Flex h="100vh" align="center" justify="center">
+        <Spinner size="lg" />
+      </Flex>
     );
   }
 
   if (!session) {
     return (
-      <Box sx={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "100vh", gap: 2 }}>
-        <Typography variant="h4">Storyteller</Typography>
-        <Typography color="text.secondary">Sign in to start your adventure</Typography>
-        <Button variant="contained" onClick={() => signIn("google")}>
+      <VStack h="100vh" justify="center" gap="4">
+        <Heading size="3xl">Storyteller</Heading>
+        <Text color="fg.muted">Sign in to start your adventure</Text>
+        <Button
+          onClick={() =>
+            signIn.social({ provider: "google", callbackURL: "/" })
+          }
+        >
           Sign in with Google
         </Button>
-      </Box>
+        <ColorModeButton />
+      </VStack>
     );
   }
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <AppBar position="static" elevation={0}>
-        <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Storyteller
-          </Typography>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Chip
-              icon={<CircleIcon sx={{ fontSize: 12 }} />}
-              label={connected ? "Connected" : "Disconnected"}
-              color={connected ? "success" : "error"}
-              size="small"
-              variant="outlined"
-            />
-            <Chip
-              avatar={<Avatar src={session.user?.image ?? undefined} alt={session.user?.name ?? ""} />}
-              label={session.user?.name}
-              size="small"
-              variant="outlined"
-            />
-            <Button size="small" color="inherit" onClick={() => signOut()}>
-              Sign out
-            </Button>
-          </Stack>
-        </Toolbar>
-      </AppBar>
+    <Flex direction="column" h="100vh">
+      <HStack
+        as="header"
+        gap="4"
+        minH="16"
+        px="4"
+        borderBottomWidth="1px"
+        bg="bg.subtle"
+      >
+        <Heading size="lg" flexGrow="1">
+          Storyteller
+        </Heading>
+        <Badge colorPalette={connected ? "green" : "red"}>
+          <Box boxSize="2" rounded="full" bg="currentColor" />
+          {connected ? "Connected" : "Disconnected"}
+        </Badge>
+        <HStack gap="2">
+          <Avatar.Root size="xs">
+            <Avatar.Fallback name={session.user.name} />
+            <Avatar.Image src={session.user.image ?? undefined} />
+          </Avatar.Root>
+          <Text textStyle="sm">{session.user.name}</Text>
+        </HStack>
+        <ColorModeButton />
+        <Button variant="ghost" size="sm" onClick={() => signOut()}>
+          Sign out
+        </Button>
+      </HStack>
 
       {/* Users online */}
       {users.length > 0 && (
-        <Stack direction="row" spacing={1} sx={{ px: 2, py: 1 }}>
+        <Wrap gap="2" px="4" py="2">
           {users.map((u) => (
-            <Chip key={u} label={u.slice(0, 8)} size="small" variant="outlined" />
+            <Badge key={u} variant="outline">
+              {u.slice(0, 8)}
+            </Badge>
           ))}
-        </Stack>
+        </Wrap>
       )}
 
       {/* Messages */}
-      <Box sx={{ flex: 1, overflow: "auto", px: 2, py: 1 }}>
+      <Box flex="1" overflowY="auto" px="4" py="2">
         {messages.map((msg, i) => (
-          <Paper
+          <Box
             key={i}
-            variant="outlined"
-            sx={{ px: 2, py: 1, mb: 1, maxWidth: "80%" }}
+            as="article"
+            maxW="80%"
+            mb="2"
+            px="4"
+            py="2"
+            borderWidth="1px"
+            rounded="md"
+            bg="bg.panel"
           >
-            <Typography variant="caption" color="text.secondary">
+            <Text textStyle="xs" color="fg.muted">
               {msg.userId.slice(0, 8)}
-            </Typography>
-            <Typography variant="body1">{msg.text}</Typography>
-          </Paper>
+            </Text>
+            <Text>{msg.text}</Text>
+          </Box>
         ))}
         <div ref={messagesEndRef} />
       </Box>
 
       {/* Input */}
-      <Box sx={{ display: "flex", gap: 1, p: 2, borderTop: 1, borderColor: "divider" }}>
-        <TextField
-          fullWidth
-          size="small"
+      <HStack gap="2" p="4" borderTopWidth="1px">
+        <Input
           placeholder="Type a message..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && sendMessage()}
           autoComplete="off"
         />
-        <IconButton color="primary" onClick={sendMessage} disabled={!input.trim()}>
+        <IconButton
+          onClick={sendMessage}
+          disabled={!input.trim()}
+          aria-label="Send message"
+          variant="ghost"
+          rounded="full"
+        >
           <SendIcon />
         </IconButton>
-      </Box>
-    </Box>
+      </HStack>
+    </Flex>
   );
 }

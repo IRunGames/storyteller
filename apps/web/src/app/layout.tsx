@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { SessionProvider } from "next-auth/react";
-import ThemeRegistry from "@/theme/ThemeRegistry";
+import { Provider } from "@/components/ui/provider";
 
 export const metadata: Metadata = {
   title: "Storyteller",
@@ -13,11 +12,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body>
-        <SessionProvider>
-          <ThemeRegistry>{children}</ThemeRegistry>
-        </SessionProvider>
+        <Provider>{children}</Provider>
       </body>
     </html>
   );

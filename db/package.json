@@ -1,0 +1,19 @@
+{
+  "name": "db",
+  "packageManager": "yarn@4.6.0",
+  "dependencies": {
+    "dbmate": "2.28.0"
+  },
+  "scripts": {
+    "new": "dbmate new",
+    "migrate": "dbmate migrate",
+    "db:migrate": "dbmate migrate && echo 'STEVEN MADE ME DO IT!'",
+    "rollback": "dbmate rollback",
+    "status": "dbmate status",
+    "redo": "dbmate rollback && dbmate migrate",
+    "db:structure:dump": "dbmate dump",
+    "db:structure:load": "dbmate load",
+    "exmigrate": "docker exec -it metaphase_formforge_1 bash -c \"cd apps/formforgedb && yarn migrate\"",
+    "dbsh": "docker exec -it metaphase_formforge_1 sh -c 'cd apps/formforgedb && exec sh' "
+  }
+}

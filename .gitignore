@@ -4,3 +4,5 @@ dist
 .turbo
 .env
 .env.local
+.neon
+.DS_Store
