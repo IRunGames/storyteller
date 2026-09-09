@@ -1,6 +1,5 @@
 import { relations, sql } from "drizzle-orm";
 import {
-  bigint,
   boolean,
   doublePrecision,
   index,
@@ -44,9 +43,6 @@ export const user = pgTable("users", {
   idUserType: integer("id_user_type").default(1).notNull(),
   tags: integer("tags"),
   isActive: boolean("is_active").default(true).notNull(),
-
-  // Retired bigint surrogate key, kept for rows that predate the uuid swap.
-  legacyIdUser: bigint("legacy_id_user", { mode: "number" }),
 });
 
 export const session = pgTable(

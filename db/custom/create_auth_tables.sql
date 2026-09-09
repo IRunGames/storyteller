@@ -87,12 +87,7 @@ create table users
     is_active      boolean                  default true              not null,
 
     created_at     timestamp with time zone default now()             not null,
-    updated_at     timestamp with time zone default now()             not null,
-
-    -- Retired bigint surrogate key. Nothing populates it now that users is
-    -- rebuilt empty, but schema.ts declares it, and Drizzle selects every
-    -- declared column: drop it and every query on `user` fails.
-    legacy_id_user bigint
+    updated_at     timestamp with time zone default now()             not null
 );
 
 
