@@ -5,6 +5,14 @@ import { db, schema } from "@/db";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
+  advanced: {
+    database: {
+      // With provider "pg" the adapter reports supportsUUIDs, so Better Auth
+      // leaves `id` out of the INSERT and Postgres fills it from
+      // DEFAULT gen_random_uuid(). Every auth table needs that default.
+      generateId: "uuid",
+    },
+  },
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID as string,

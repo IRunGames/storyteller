@@ -1,76 +1,114 @@
 import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  boolean,
+  doublePrecision,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
 
-export const user = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
+// The exported names (user, session, account, verification) are Better Auth's
+// model names and must stay singular — the Drizzle adapter looks the tables up
+// by these keys. SQL table and column names are ours; the adapter only ever
+// touches Drizzle Column objects, never bare identifier strings, so the two
+// naming schemes are free to disagree.
+//
+// Primary keys carry no value from the app: `generateId: "uuid"` in auth.ts
+// means Postgres generates them via DEFAULT gen_random_uuid().
+
+export const user = pgTable("users", {
+  // Better Auth field -> users column
+  id: uuid("id_user").primaryKey().defaultRandom(),
+  name: varchar("user_name").notNull(),
+  email: varchar("user_email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
-  image: text("image"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
+  image: varchar("avatar_link"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull(),
+
+  // Columns the app owns. Better Auth ignores these; to read them off the
+  // session user, declare them in `user.additionalFields` in auth.ts too.
+  nickName: varchar("nick_name"),
+  lastLogin: timestamp("last_login", { withTimezone: true }).defaultNow().notNull(),
+  hoursPlayed: doublePrecision("hours_played").default(0).notNull(),
+  idUserType: integer("id_user_type").default(1).notNull(),
+  tags: integer("tags"),
+  isActive: boolean("is_active").default(true).notNull(),
+
+  // Retired bigint surrogate key, kept for rows that predate the uuid swap.
+  legacyIdUser: bigint("legacy_id_user", { mode: "number" }),
 });
 
 export const session = pgTable(
-  "session",
+  "sessions",
   {
-    id: text("id").primaryKey(),
-    expiresAt: timestamp("expires_at").notNull(),
+    id: uuid("id_session").primaryKey().defaultRandom(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     token: text("token").notNull().unique(),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at")
-      .$onUpdate(() => /* @__PURE__ */ new Date())
-      .notNull(),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
-    userId: text("user_id")
+    userId: uuid("id_user")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
   },
-  (table) => [index("session_userId_idx").on(table.userId)],
+  (table) => [
+    index("sessions_id_user_idx").on(table.userId),
+    index("sessions_expires_at_idx").on(table.expiresAt),
+  ],
 );
 
 export const account = pgTable(
-  "account",
+  "accounts",
   {
-    id: text("id").primaryKey(),
+    id: uuid("id_account").primaryKey().defaultRandom(),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
-    userId: text("user_id")
+    userId: uuid("id_user")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     idToken: text("id_token"),
-    accessTokenExpiresAt: timestamp("access_token_expires_at"),
-    refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
     scope: text("scope"),
     password: text("password"),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at")
-      .$onUpdate(() => /* @__PURE__ */ new Date())
-      .notNull(),
-  },
-  (table) => [index("account_userId_idx").on(table.userId)],
-);
-
-export const verification = pgTable(
-  "verification",
-  {
-    id: text("id").primaryKey(),
-    identifier: text("identifier").notNull(),
-    value: text("value").notNull(),
-    expiresAt: timestamp("expires_at").notNull(),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at")
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },
-  (table) => [index("verification_identifier_idx").on(table.identifier)],
+  (table) => [index("accounts_id_user_idx").on(table.userId)],
+);
+
+export const verification = pgTable(
+  "verifications",
+  {
+    id: uuid("id_verification").primaryKey().defaultRandom(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+  },
+  (table) => [index("verifications_identifier_idx").on(table.identifier)],
 );
 
 export const userRelations = relations(user, ({ many }) => ({

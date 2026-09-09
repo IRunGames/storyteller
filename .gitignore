@@ -6,3 +6,9 @@ dist
 .env.local
 .neon
 .DS_Store
+
+# TypeScript incremental build cache; rewritten on every compile
+*.tsbuildinfo
+
+# Legacy formforge SQL kept locally for reference only
+db/formforge/
