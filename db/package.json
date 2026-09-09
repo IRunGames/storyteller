@@ -7,7 +7,6 @@
   "scripts": {
     "new": "dbmate new",
     "migrate": "dbmate migrate",
-    "db:migrate": "dbmate migrate && echo 'STEVEN MADE ME DO IT!'",
     "rollback": "dbmate rollback",
     "status": "dbmate status",
     "redo": "dbmate rollback && dbmate migrate",
