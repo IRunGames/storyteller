@@ -9,7 +9,7 @@ export const auth = betterAuth({
     database: {
       // With provider "pg" the adapter reports supportsUUIDs, so Better Auth
       // leaves `id` out of the INSERT and Postgres fills it from
-      // DEFAULT gen_random_uuid(). Every auth table needs that default.
+      // DEFAULT uuidv7(). Every auth table needs that default.
       generateId: "uuid",
     },
   },

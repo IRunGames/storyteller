@@ -1,3 +1,4 @@
+-- migrate:up
 -- Rebuild users on a uuid primary key, and add the three tables Better Auth
 -- owns outright: sessions, accounts, verifications.
 --
@@ -192,3 +193,6 @@ create table if not exists verifications
 
 create index if not exists verifications_identifier_idx
     on verifications (identifier);
+
+-- migrate:down
+

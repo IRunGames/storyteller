@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -19,15 +19,17 @@ import {
 // naming schemes are free to disagree.
 //
 // Primary keys carry no value from the app: `generateId: "uuid"` in auth.ts
-// means Postgres generates them via DEFAULT gen_random_uuid().
+// means Postgres generates them via DEFAULT uuidv7() (db/custom/
+// create_auth_tables.sql). uuidv7 is time-ordered, so inserts append to the
+// right edge of the primary key index instead of scattering across it.
 
 export const user = pgTable("users", {
   // Better Auth field -> users column
-  id: uuid("id_user").primaryKey().defaultRandom(),
-  name: varchar("user_name").notNull(),
-  email: varchar("user_email").notNull().unique(),
+  id: uuid("id_user").primaryKey().default(sql`uuidv7()`),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
-  image: varchar("avatar_link"),
+  image: text("image"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
@@ -50,7 +52,7 @@ export const user = pgTable("users", {
 export const session = pgTable(
   "sessions",
   {
-    id: uuid("id_session").primaryKey().defaultRandom(),
+    id: uuid("id_session").primaryKey().default(sql`uuidv7()`),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     token: text("token").notNull().unique(),
     ipAddress: text("ip_address"),
@@ -73,7 +75,7 @@ export const session = pgTable(
 export const account = pgTable(
   "accounts",
   {
-    id: uuid("id_account").primaryKey().defaultRandom(),
+    id: uuid("id_account").primaryKey().default(sql`uuidv7()`),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
     userId: uuid("id_user")
@@ -98,7 +100,7 @@ export const account = pgTable(
 export const verification = pgTable(
   "verifications",
   {
-    id: uuid("id_verification").primaryKey().defaultRandom(),
+    id: uuid("id_verification").primaryKey().default(sql`uuidv7()`),
     identifier: text("identifier").notNull(),
     value: text("value").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
