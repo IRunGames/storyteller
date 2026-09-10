@@ -1,3 +1,13 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE FUNCTION', clock_timestamp();
+
+    -- No DROP: once _p_attach_status_transition_triggers has run, every
+    -- workflow-bearing table has a trigger depending on this function and
+    -- DROP FUNCTION fails. CREATE OR REPLACE swaps the body in place.
+
+    -- ------------------------------------------------------------
 /*
 ====================================================================
 - Description -
@@ -138,7 +148,7 @@ BEGIN
 
     -- Build the inner activityData
     activity_data := jsonb_build_object(
-            'id_user', current_user,
+            'user_id', current_user,
             'timestamp', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSZ'),
             'previous_status', old_status,
             'new_status', new_status
@@ -168,3 +178,10 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_FUNCTION.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

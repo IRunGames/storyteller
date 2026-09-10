@@ -1,3 +1,11 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE PROCEDURE', clock_timestamp();
+
+    DROP PROCEDURE IF EXISTS _p_update_workflow_columns;
+
+    -- ------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE _p_update_workflow_columns()
 LANGUAGE plpgsql
 AS $$
@@ -15,29 +23,21 @@ column like 'processor_status', the '_status' suffix is removed and the
 columns are created as processor_<status>_at (e.g. processor_pending_at).
 
 - Steps Performed -
-1. Retrieve the global setting `timestamp_with_timezone` to determine
+1. Retrieve the global setting `use_timestamp_with_timezone` to determine 
    the type of timestamp columns.
-2. Iterate through all tables listed in _tables with a linked workflow
+2. Iterate through all tables listed in _tables with a linked workflow 
    in s_status_workflows (using the ANY operator on the workflow IDs array).
 3. Retrieve valid statuses for each table's workflow from s_statuses.
-4. For each status, determine the appropriate timestamp column name based
+4. For each status, determine the appropriate timestamp column name based 
    on the workflow’s status column name.
-5. Create each missing timestamp column, and convert any existing one whose
-   type no longer matches the setting.
-
-- Note -
-The setting is honoured on every run, not only when a column is first
-created: flipping `timestamp_with_timezone` and re-running converts the
-existing status timestamps to match. The conversion is done in place with
-ALTER COLUMN ... TYPE, so the recorded times survive it -- unlike the
-drop-and-recreate the sibling procedures still use.
+5. Check if each required timestamp column exists and create any missing ones.
 ====================================================================
 */
 DECLARE
     tbl RECORD;
     valid_statuses TEXT[];
     status TEXT;
-    existing_type TEXT;
+    column_exists BOOLEAN;
     use_timestamp_with_timezone BOOLEAN;
     column_definition TEXT;
     status_prefix TEXT;
@@ -50,14 +50,14 @@ BEGIN
     WHERE key = 'timestamp_with_timezone';
 
     -- Determine the column definition based on the setting.
-    -- The bare type, spelled the way Postgres reports it: it is now compared
-    -- against a column's actual type, not just interpolated into ADD COLUMN,
-    -- and the short form 'timestamp' never equals the reported 'timestamp
-    -- without time zone'. DEFAULT NULL is applied at the ADD COLUMN below.
+    -- Spelled out for consistency with the sibling procedures. Here it is only
+    -- ever interpolated into ADD COLUMN, never compared against a reported
+    -- type, so the short form worked -- but keeping one spelling across all
+    -- four means a future comparison cannot inherit that trap.
     IF use_timestamp_with_timezone THEN
-        column_definition := 'timestamp with time zone';
+        column_definition := 'timestamp with time zone DEFAULT NULL';
     ELSE
-        column_definition := 'timestamp without time zone';
+        column_definition := 'timestamp without time zone DEFAULT NULL';
     END IF;
 
     -- Loop through all tables with a linked status workflow.
@@ -98,43 +98,36 @@ BEGIN
             END IF;
             RAISE NOTICE 'Checking for column: % in table %', timestamp_column_name, tbl.table_name;
 
-            -- One lookup answers both questions: NULL means the column is
-            -- absent, anything else is its current type. Resolves through
-            -- search_path, unlike the bare information_schema query this
-            -- replaced, which matched on table_name across every schema.
-            existing_type := _column_data_type(tbl.table_name, timestamp_column_name);
+            -- Check if the column already exists in the table.
+            EXECUTE format(
+                'SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = %L AND column_name = %L
+                )',
+                tbl.table_name, timestamp_column_name
+            ) INTO column_exists;
 
-            IF existing_type IS NULL THEN
+            -- Add the column if it doesn't exist.
+            IF NOT column_exists THEN
                 RAISE NOTICE 'Adding column: % to table %', timestamp_column_name, tbl.table_name;
                 EXECUTE format(
-                    'ALTER TABLE %I ADD COLUMN %I %s DEFAULT NULL',
+                    'ALTER TABLE %I ADD COLUMN %I %s',
                     tbl.table_name, timestamp_column_name, column_definition
                 );
                 RAISE NOTICE 'Column % added to table %', timestamp_column_name, tbl.table_name;
-
-            ELSIF existing_type <> column_definition THEN
-                -- The setting has changed since the column was built. Convert
-                -- in place rather than dropping and re-adding: these columns
-                -- record when a row entered a status, and that history is not
-                -- reconstructable once discarded.
-                --
-                -- `AT TIME ZONE 'UTC'` converts in whichever direction is
-                -- needed -- it reads a naive timestamp as UTC, and renders an
-                -- aware one as UTC -- so one expression serves both flips.
-                RAISE NOTICE 'Column % in table % is %; converting to %.',
-                    timestamp_column_name, tbl.table_name, existing_type, column_definition;
-                EXECUTE format(
-                    'ALTER TABLE %I ALTER COLUMN %I TYPE %s USING %I AT TIME ZONE ''UTC''',
-                    tbl.table_name, timestamp_column_name, column_definition, timestamp_column_name
-                );
-                RAISE NOTICE 'Column % converted in table %', timestamp_column_name, tbl.table_name;
-
             ELSE
-                RAISE NOTICE 'Column % already exists with the correct type in table %',
-                    timestamp_column_name, tbl.table_name;
+                RAISE NOTICE 'Column % already exists in table %', timestamp_column_name, tbl.table_name;
             END IF;
         END LOOP;
     END LOOP;
 
     RAISE NOTICE 'Workflow columns updated successfully.';
 END $$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_PROCEDURE.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

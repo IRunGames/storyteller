@@ -1,3 +1,11 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE PROCEDURE', clock_timestamp();
+
+    DROP PROCEDURE IF EXISTS _p_update_tables;
+
+    -- ------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE _p_update_tables()
 LANGUAGE plpgsql
 AS $$
@@ -323,3 +331,10 @@ BEGIN
     -- End the action log
     PERFORM _action_log_end(idLog, processed_count, affected_count);
 END $$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_PROCEDURE.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

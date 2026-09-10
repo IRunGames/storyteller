@@ -1,3 +1,11 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE PROCEDURE', clock_timestamp();
+
+    DROP PROCEDURE IF EXISTS _p_update_tables_timestamps;
+
+    -- ------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE _p_update_tables_timestamps()
 LANGUAGE plpgsql
 AS $procedure$
@@ -132,3 +140,10 @@ BEGIN
 
     RAISE NOTICE 'Procedure "_p_update_tables_timestamps" completed successfully.';
 END $procedure$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_PROCEDURE.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

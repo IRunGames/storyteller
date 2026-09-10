@@ -1,3 +1,11 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE PROCEDURE', clock_timestamp();
+
+    DROP PROCEDURE IF EXISTS _p_update_tables;
+
+    -- ------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE _p_update_tables()
 LANGUAGE plpgsql
 AS $$
@@ -70,17 +78,11 @@ BEGIN
     FROM _global_settings
     WHERE key = 'timestamp_with_timezone';
 
-    -- Determine the column definition based on the setting.
-    --
-    -- Spelled the way Postgres reports it, not the short form. This value is
-    -- matched against information_schema.data_type below to decide the has_*
-    -- flags, and 'timestamp' never equals the reported 'timestamp without time
-    -- zone' -- so with the setting off, has_timestamps and has_archival came
-    -- out FALSE for tables that did have the columns.
+    -- Determine the column definition based on the setting
     IF use_timestamp_with_timezone THEN
         column_definition := 'timestamp with time zone';
     ELSE
-        column_definition := 'timestamp without time zone';
+        column_definition := 'timestamp';
     END IF;
     PERFORM _action_log_step(idLog, CONCAT('Determined column type: ', column_definition), '_global_settings', 0);
 
@@ -323,3 +325,10 @@ BEGIN
     -- End the action log
     PERFORM _action_log_end(idLog, processed_count, affected_count);
 END $$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_PROCEDURE.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

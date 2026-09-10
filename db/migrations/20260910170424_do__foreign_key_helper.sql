@@ -1,3 +1,11 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE FUNCTION', clock_timestamp();
+
+    DROP FUNCTION IF EXISTS _foreign_key_helper;
+
+    -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION _constraint_exists(
     p_table_name TEXT,
     p_constraint_name TEXT
@@ -203,3 +211,10 @@ BEGIN
         p_on_delete := p_on_delete
     );
 END $$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_FUNCTION.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

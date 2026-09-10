@@ -1,3 +1,11 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE PROCEDURE', clock_timestamp();
+
+    DROP PROCEDURE IF EXISTS _p_update_tables_archives;
+
+    -- ------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE _p_update_tables_archives()
 LANGUAGE plpgsql
 AS $$
@@ -44,18 +52,11 @@ BEGIN
 
     RAISE NOTICE 'Use timestamp with time zone: %', use_timestamp_with_timezone;
 
-    -- Determine the column type based on the setting.
-    --
-    -- Spelled the way Postgres reports it, not the short form. The comparison
-    -- below is against _column_data_type(), which returns the canonical name,
-    -- so 'timestamp' would never match a timestamp column -- and the mismatch
-    -- branch DROPs and re-ADDs the column, silently discarding every
-    -- archived_at value on each run. The setting is unset by default, which
-    -- lands here, so the short form was the path most databases took.
+    -- Determine the column type based on the setting
     IF use_timestamp_with_timezone THEN
         column_definition := 'timestamp with time zone';
     ELSE
-        column_definition := 'timestamp without time zone';
+        column_definition := 'timestamp';
     END IF;
 
     -- Loop through tables where needs_archival is TRUE
@@ -68,7 +69,11 @@ BEGIN
 
         -- Check `archived_at` column
         RAISE NOTICE 'Checking "archived_at" column in table: %', tbl.table_name;
-        column_type := _column_data_type(tbl.table_name, 'archived_at');
+        SELECT data_type
+        INTO column_type
+        FROM information_schema.columns
+        WHERE table_name = tbl.table_name
+          AND column_name = 'archived_at';
 
         -- If `archived_at` exists but is not of the desired type, drop and recreate it
         IF column_type IS NOT NULL AND column_type != column_definition THEN
@@ -96,7 +101,11 @@ BEGIN
 
         -- id_archived_by_user (UUID, nullable)
         RAISE NOTICE 'Checking "id_archived_by_user" column in table: %', tbl.table_name;
-        column_type := _column_data_type(tbl.table_name, 'id_archived_by_user');
+        SELECT data_type
+        INTO column_type
+        FROM information_schema.columns
+        WHERE table_name = tbl.table_name
+          AND column_name = 'id_archived_by_user';
 
         IF column_type IS NULL THEN
             RAISE NOTICE '"id_archived_by_user" column does not exist in table: %. Adding it as UUID.', tbl.table_name;
@@ -134,7 +143,11 @@ BEGIN
 
         -- Check `is_archived` column
         RAISE NOTICE 'Checking "is_archived" column in table: %', tbl.table_name;
-        column_type := _column_data_type(tbl.table_name, 'is_archived');
+        SELECT data_type
+        INTO column_type
+        FROM information_schema.columns
+        WHERE table_name = tbl.table_name
+          AND column_name = 'is_archived';
 
         -- If `is_archived` exists but is not BOOLEAN, drop and recreate it
         IF column_type IS NOT NULL AND column_type != 'boolean' THEN
@@ -196,3 +209,10 @@ BEGIN
 
     RAISE NOTICE 'Archival updates completed successfully.';
 END $$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_PROCEDURE.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

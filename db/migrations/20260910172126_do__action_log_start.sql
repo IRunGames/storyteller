@@ -1,3 +1,11 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE FUNCTION', clock_timestamp();
+
+    DROP FUNCTION IF EXISTS _action_log_start;
+
+    -- ------------------------------------------------------------
 /**
   _action_log_start
 
@@ -58,3 +66,10 @@ BEGIN
     RETURN idLog;
 END;
 $function$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_FUNCTION.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

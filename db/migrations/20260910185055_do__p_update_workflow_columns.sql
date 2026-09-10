@@ -1,3 +1,11 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE PROCEDURE', clock_timestamp();
+
+    DROP PROCEDURE IF EXISTS _p_update_workflow_columns;
+
+    -- ------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE _p_update_workflow_columns()
 LANGUAGE plpgsql
 AS $$
@@ -138,3 +146,10 @@ BEGIN
 
     RAISE NOTICE 'Workflow columns updated successfully.';
 END $$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_PROCEDURE.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

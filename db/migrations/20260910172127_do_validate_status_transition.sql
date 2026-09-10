@@ -1,3 +1,13 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE FUNCTION', clock_timestamp();
+
+    -- No DROP: once _p_attach_status_transition_triggers has run, every
+    -- workflow-bearing table has a trigger depending on this function and
+    -- DROP FUNCTION fails. CREATE OR REPLACE swaps the body in place.
+
+    -- ------------------------------------------------------------
 /*
 ====================================================================
 - Description -
@@ -168,3 +178,10 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_FUNCTION.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+
