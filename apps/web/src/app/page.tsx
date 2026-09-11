@@ -16,12 +16,14 @@ import {
   VStack,
   Wrap,
 } from "@chakra-ui/react";
-import { io, Socket } from "socket.io-client";
-import type { ChatMessage, RoomState } from "@storyteller/shared";
 import { signIn, signOut, useSession } from "@/lib/auth-client";
 import { ColorModeButton } from "@/components/ui/color-mode";
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+interface ChatMessage {
+  userId: string;
+  text: string;
+  timestamp: number;
+}
 
 function SendIcon() {
   return (
@@ -33,43 +35,23 @@ function SendIcon() {
 
 export default function Home() {
   const { data: session, isPending } = useSession();
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [users, setUsers] = useState<string[]>([]);
+  // TODO: populate from the messaging service's presence feed.
+  const [users] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!session) return;
-
-    const s = io(SOCKET_URL, { autoConnect: true });
-
-    s.on("connect", () => setConnected(true));
-    s.on("disconnect", () => setConnected(false));
-
-    s.on("chat:message", (msg: ChatMessage) => {
-      setMessages((prev) => [...prev, msg]);
-    });
-
-    s.on("room:state", (state: RoomState) => {
-      setMessages(state.messages);
-      setUsers(state.users);
-    });
-
-    s.on("room:users", (u: string[]) => setUsers(u));
-
-    setSocket(s);
-    return () => { s.disconnect(); };
-  }, [session]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const sendMessage = () => {
-    if (!input.trim() || !socket) return;
-    socket.emit("chat:message", { text: input });
+    if (!input.trim() || !session) return;
+    // TODO: deliver through the messaging service.
+    setMessages((prev) => [
+      ...prev,
+      { userId: session.user.id, text: input, timestamp: Date.now() },
+    ]);
     setInput("");
   };
 
@@ -111,10 +93,6 @@ export default function Home() {
         <Heading size="lg" flexGrow="1">
           Storyteller
         </Heading>
-        <Badge colorPalette={connected ? "green" : "red"}>
-          <Box boxSize="2" rounded="full" bg="currentColor" />
-          {connected ? "Connected" : "Disconnected"}
-        </Badge>
         <HStack gap="2">
           <Avatar.Root size="xs">
             <Avatar.Fallback name={session.user.name} />
