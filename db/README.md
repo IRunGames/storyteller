@@ -80,9 +80,26 @@ To create or update a VIEW:
 bun run migrate
 ```
 
+### Make a one-time migration
+
+A migration that runs once and is never re-run — renaming a table, dropping
+one, adding a constraint — goes straight into `migrations`. There is no source
+file in `custom/` to keep in step with it, and nothing to re-execute later.
+
+1. `just new <migration_name>` (or `bun run new <migration_name>`) to scaffold
+   the file, which arrives with the `-- migrate:up` / `-- migrate:down` headers
+   already in place.
+2. Write the SQL directly into it. Keep it **idempotent** — `IF NOT EXISTS`,
+   or a `DO` block that checks before it acts — so a re-run is harmless.
+3. Run the migrations, `just migrate`.
+
 ### Make a custom migration
 
-To create a migration based on some custom migration code (must contain the comments for up and down!!!!)
+`custom/` is for SQL that may be **repeated or revised and re-executed**: the
+table-creation scripts, the foundation capture, anything you expect to edit and
+run again. One-time changes do not belong here — see above.
+
+To wrap such a file into a migration (it must contain the comments for up and down!!!!)
 
 1. create a `.sql` file in the `custom` folder.
 2. make sure it contains the headers for dbmate, e.g. `-- migrate:up`

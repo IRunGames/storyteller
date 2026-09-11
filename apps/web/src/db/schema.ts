@@ -40,7 +40,7 @@ export const user = pgTable("users", {
   nickName: varchar("nick_name"),
   lastLogin: timestamp("last_login", { withTimezone: true }).defaultNow().notNull(),
   hoursPlayed: doublePrecision("hours_played").default(0).notNull(),
-  idUserType: integer("id_user_type").default(1).notNull(),
+  idUserType: integer("id_user_type").default(-1).notNull(),
   tags: integer("tags"),
   isActive: boolean("is_active").default(true).notNull(),
 });

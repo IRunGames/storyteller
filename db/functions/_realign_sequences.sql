@@ -34,7 +34,7 @@
 
   Examples:
     SELECT * FROM _realign_sequences();
-    SELECT * FROM _realign_sequences(ARRAY['s_hand_types', '_table_types']);
+    SELECT * FROM _realign_sequences(ARRAY['s_hand_types', 's_card_types']);
  */
 CREATE OR REPLACE FUNCTION _realign_sequences(
     _table_names VARCHAR[] DEFAULT NULL
