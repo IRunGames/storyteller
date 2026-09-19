@@ -32,6 +32,15 @@ window.matchMedia ??= ((query: string) => ({
   dispatchEvent: () => false,
 })) as typeof window.matchMedia;
 
+// jsdom has no ResizeObserver. Chakra's floating layers (Menu, Tooltip,
+// Popover) watch their trigger with one to keep the popup aligned; a no-op
+// observer lets them open without ever repositioning.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
 // next-themes renders a <script> for flash-free theming, which React warns
 // about on every client render. It is inert under jsdom and there is no prop
 // to disable it, so drop this one exact message and let everything else

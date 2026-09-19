@@ -24,6 +24,33 @@ describe("proxy", () => {
     );
   });
 
+  for (const path of [
+    "/play",
+    "/characters",
+    "/library",
+    "/profile",
+    "/home/anything/nested",
+    "/some-page-that-does-not-exist-yet",
+  ]) {
+    it(`protects ${path}`, () => {
+      // Anything not listed as public needs a session, so a page added under
+      // app/(app)/ is covered without a change here.
+      const response = proxy(request(path));
+
+      expect(response.headers.get("location")).toBe(
+        `${ORIGIN}/login?redirectTo=${encodeURIComponent(path)}`,
+      );
+    });
+  }
+
+  for (const path of ["/", "/signup", "/signup/"]) {
+    it(`lets a visitor without a cookie reach ${path}`, () => {
+      const response = proxy(request(path));
+
+      expect(response.headers.get("location")).toBeNull();
+    });
+  }
+
   it("lets a visitor with a cookie through to a protected route", () => {
     const response = proxy(request("/home", { sessionCookie: true }));
 

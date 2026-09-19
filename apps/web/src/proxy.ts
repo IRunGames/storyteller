@@ -19,14 +19,22 @@ import { getSessionCookie } from "better-auth/cookies";
 // the stale cookie from getSession(), but a Server Component cannot set
 // cookies, so it survives. (auth)/layout does the authoritative bounce instead.
 
-/** Requires a session. Keep in sync with app/(app)/. */
-const PROTECTED_ROUTES = ["/home", "/play"];
+/**
+ * Reachable without a session. Everything else the matcher below lets through
+ * needs one, so a new page under app/(app)/ is protected without touching this
+ * file; a new public page must be added here. Keep in sync with app/(public)/
+ * and app/(auth)/.
+ */
+const PUBLIC_ROUTES = ["/", "/login", "/signup"];
 
 const SIGNED_OUT_HOME = "/login";
 
-function matches(pathname: string, routes: string[]) {
-  return routes.some(
-    (route) => pathname === route || pathname.startsWith(`${route}/`),
+function isPublic(pathname: string) {
+  return PUBLIC_ROUTES.some(
+    (route) =>
+      pathname === route ||
+      // "/" is only itself: every path starts with "/".
+      (route !== "/" && pathname.startsWith(`${route}/`)),
   );
 }
 
@@ -34,7 +42,7 @@ export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSessionCookie = Boolean(getSessionCookie(request));
 
-  if (!hasSessionCookie && matches(pathname, PROTECTED_ROUTES)) {
+  if (!hasSessionCookie && !isPublic(pathname)) {
     const target = new URL(SIGNED_OUT_HOME, request.url);
     // Preserve where they were headed so login can return them there.
     target.searchParams.set("redirectTo", pathname);
