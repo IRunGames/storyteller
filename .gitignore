@@ -12,3 +12,5 @@ dist
 
 # Legacy formforge SQL kept locally for reference only
 db/formforge/
+.vercel
+.env*

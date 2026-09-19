@@ -8,6 +8,37 @@ set positional-arguments
 default:
     @just --list --unsorted
 
+# Start the web app's dev server on http://localhost:3000 (via turbo)
+[group('web')]
+dev:
+    npm run dev
+
+# Run the web app's tests
+# Pass node --test flags through, e.g. `just test --test-name-pattern LoginForm`
+[group('web')]
+[working-directory: 'apps/web']
+test *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    npm test -- "$@"
+
+# The repo root is linked to the storyteller-web project (.vercel/), whose
+# Root Directory is apps/web. Pass vercel flags through, e.g. `just deploy --force`
+# Deploy the web app to Vercel production, running the tests first
+[group('web')]
+deploy *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just test
+    npx --yes vercel@latest deploy --prod "$@"
+
+# Deploy a preview build of the web app to Vercel (no tests, no production traffic)
+[group('web')]
+preview *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    npx --yes vercel@latest deploy "$@"
+
 # Wrap a custom SQL file (db/custom/) into a dbmate migration
 [group('db')]
 [working-directory: 'db']

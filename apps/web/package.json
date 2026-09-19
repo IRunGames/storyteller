@@ -7,23 +7,31 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --import tsx --disable-warning=ExperimentalWarning --experimental-test-module-mocks --import ./src/test/setup.ts --test \"src/**/*.test.ts?(x)\"",
     "auth:generate": "npx @better-auth/cli@latest generate --config src/lib/auth.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@chakra-ui/react": "^3.36.1",
     "@emotion/react": "^11.14.0",
+    "@hookform/resolvers": "^5.9.1",
     "better-auth": "^1.7.2",
     "drizzle-orm": "^0.45.2",
     "next": "^16.1.6",
     "next-themes": "^0.4.6",
     "pg": "^8.23.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "react-hook-form": "^7.88.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@next/env": "^16.1.6",
     "@next/eslint-plugin-next": "^16.3.5",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/node": "^22",
     "@types/pg": "^8.15.6",
     "@types/react": "^19",
@@ -31,6 +39,10 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.10.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "expect": "^30.5.1",
+    "global-jsdom": "^30.0.0",
+    "jsdom": "^30.0.1",
+    "tsx": "^4.23.13",
     "typescript": "^5",
     "typescript-eslint": "^8.70.0"
   }

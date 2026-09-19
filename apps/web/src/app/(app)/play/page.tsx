@@ -5,7 +5,6 @@ import {
   Avatar,
   Badge,
   Box,
-  Button,
   Flex,
   Heading,
   HStack,
@@ -13,11 +12,11 @@ import {
   Input,
   Spinner,
   Text,
-  VStack,
   Wrap,
 } from "@chakra-ui/react";
-import { signIn, signOut, useSession } from "@/lib/auth-client";
+import { useSession } from "@/lib/auth-client";
 import { ColorModeButton } from "@/components/ui/color-mode";
+import { SignOutButton } from "@/components/auth/sign-out-button";
 
 interface ChatMessage {
   userId: string;
@@ -55,28 +54,14 @@ export default function Home() {
     setInput("");
   };
 
-  if (isPending) {
+  // (app)/layout.tsx already proved a session exists server-side, so there is
+  // no signed-out state to render here — only the brief client-side window
+  // before useSession() has hydrated its copy.
+  if (isPending || !session) {
     return (
       <Flex h="100vh" align="center" justify="center">
         <Spinner size="lg" />
       </Flex>
-    );
-  }
-
-  if (!session) {
-    return (
-      <VStack h="100vh" justify="center" gap="4">
-        <Heading size="3xl">Storyteller</Heading>
-        <Text color="fg.muted">Sign in to start your adventure</Text>
-        <Button
-          onClick={() =>
-            signIn.social({ provider: "google", callbackURL: "/" })
-          }
-        >
-          Sign in with Google
-        </Button>
-        <ColorModeButton />
-      </VStack>
     );
   }
 
@@ -101,9 +86,7 @@ export default function Home() {
           <Text textStyle="sm">{session.user.name}</Text>
         </HStack>
         <ColorModeButton />
-        <Button variant="ghost" size="sm" onClick={() => signOut()}>
-          Sign out
-        </Button>
+        <SignOutButton />
       </HStack>
 
       {/* Users online */}

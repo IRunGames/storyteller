@@ -1,0 +1,26 @@
+# Only apps/web is built on Vercel (the project's Root Directory), but the CLI
+# uploads from the linked repo root. Skip everything the web build never reads.
+# node_modules and .git are excluded by default.
+
+# Database migrations, routines and legacy SQL live in Postgres, not the app.
+# Anchored: a bare "db" would also drop apps/web/src/db, which the build needs.
+/db
+
+# Repo tooling and notes
+.claude
+.vscode
+.turbo
+.neon
+.env*
+.DS_Store
+EMAILTODO.md
+justfile
+cspell.json
+skills-lock.json
+
+# Web app files that are docs or local build output
+apps/web/docs
+apps/web/technologies.md
+apps/web/.next
+apps/web/.turbo
+apps/web/tsconfig.tsbuildinfo

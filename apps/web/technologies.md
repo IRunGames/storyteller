@@ -4,7 +4,8 @@
 
 - NextJS
 - Drizzle for queries and mutations
-- Zod for SQL checking
+- Zod for SQL checking and form schemas
+- react-hook-form for form state, wired to Zod via @hookform/resolvers
 - postgres for database
 - better-auth for authentication (drizzle adapter)
 - Charkra ui v3
