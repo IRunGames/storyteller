@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   doublePrecision,
   index,
@@ -109,6 +110,74 @@ export const verification = pgTable(
   (table) => [index("verifications_identifier_idx").on(table.identifier)],
 );
 
+// ---------------------------------------------------------------------------
+// Game tables. Built by dbmate (db/custom/create_foundation_tables.sql and
+// later migrations); described here so the app can query them with types.
+// ---------------------------------------------------------------------------
+
+// Each primary key below carries the same DB-generated default the live
+// sequence/identity produces, so inserts may omit it (see the uuid PKs above,
+// which do the same with `.default(sql\`uuidv7()\`)`).
+
+export const systems = pgTable("systems", {
+  idSystem: integer("id_system")
+    .primaryKey()
+    .default(sql`nextval('systems_id_system_seq'::regclass)`),
+  systemName: varchar("system_name").notNull(),
+  systemVersion: varchar("system_version"),
+  variant: varchar("variant"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+export const games = pgTable("games", {
+  idGame: integer("id_game")
+    .primaryKey()
+    .default(sql`nextval('games_id_game_seq'::regclass)`),
+  gameTitle: varchar("game_title").notNull(),
+  summary: text("summary"),
+  hoursPlayed: doublePrecision("hours_played").default(0).notNull(),
+  idSystem: integer("id_system"),
+  imageUrl: text("image_url"),
+  isActive: boolean("is_active").default(true).notNull(),
+  isLookingForPlayers: boolean("is_looking_for_players").default(false).notNull(),
+  lastPlayed: timestamp("last_played", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// id_game is bigint on the child tables but integer on games itself; mode
+// "number" keeps both sides comparable in the query builder.
+export const gamePlayers = pgTable("game_players", {
+  idGamePlayer: integer("id_game_player")
+    .primaryKey()
+    .default(sql`nextval('game_players_id_game_player_seq'::regclass)`),
+  idGame: bigint("id_game", { mode: "number" }).notNull(),
+  idUser: uuid("id_user").notNull(),
+  idCharacter: bigint("id_character", { mode: "number" }),
+  hoursPlayed: doublePrecision("hours_played"),
+  joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const gameFavorites = pgTable("game_favorites", {
+  idGameFavorite: integer("id_game_favorite").primaryKey().generatedByDefaultAsIdentity(),
+  idGame: bigint("id_game", { mode: "number" }).notNull(),
+  idUser: uuid("id_user").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+export type Game = typeof games.$inferSelect;
+export type System = typeof systems.$inferSelect;
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
@@ -126,4 +195,23 @@ export const accountRelations = relations(account, ({ one }) => ({
     fields: [account.userId],
     references: [user.id],
   }),
+}));
+
+export const gamesRelations = relations(games, ({ one, many }) => ({
+  system: one(systems, {
+    fields: [games.idSystem],
+    references: [systems.idSystem],
+  }),
+  players: many(gamePlayers),
+  favorites: many(gameFavorites),
+}));
+
+export const gamePlayersRelations = relations(gamePlayers, ({ one }) => ({
+  game: one(games, { fields: [gamePlayers.idGame], references: [games.idGame] }),
+  user: one(user, { fields: [gamePlayers.idUser], references: [user.id] }),
+}));
+
+export const gameFavoritesRelations = relations(gameFavorites, ({ one }) => ({
+  game: one(games, { fields: [gameFavorites.idGame], references: [games.idGame] }),
+  user: one(user, { fields: [gameFavorites.idUser], references: [user.id] }),
 }));

@@ -14,6 +14,7 @@
 - real-time comms mqtt
 - bun for running scripts and migrations
 - bunx dbmate for migrations
+- Data access: every read and write is a server action in the route's `actions.ts`, starting with `requireUser()` from `src/lib/authorize.ts`, which checks the session and the user row (exists, active) before the query runs. No separate query layer.
 
 ## Hosting
 

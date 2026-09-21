@@ -99,16 +99,26 @@ file in `custom/` to keep in step with it, and nothing to re-execute later.
 table-creation scripts, the foundation capture, anything you expect to edit and
 run again. One-time changes do not belong here — see above.
 
-To wrap such a file into a migration (it must contain the comments for up and down!!!!)
+To wrap such a file into a migration (it must **not** contain the comments for
+up and down — the script adds them)
 
 1. create a `.sql` file in the `custom` folder.
-2. make sure it contains the headers for dbmate, e.g. `-- migrate:up`
+2. write only the SQL: **no** dbmate markers. `make_custom.sh` wraps the file in
+   `-- migrate:up` / `-- migrate:down` itself, so a file that carries them of
+   its own would end up with them twice.
 3. Run the `make_custom.sh` script in the `db` folder with the name of the view file as the argument.
 
 - e.g. `./make_custom.sh my_custom_script.sql`
 
 4. Check the migration to make sure it's correct.
 5. run the migrations, `bun run migrate`
+
+New tables should register with the metatable rather than declaring audit
+columns by hand: `CALL _p_update_tables();`, then
+`UPDATE _tables SET needs_timestamps = TRUE, needs_user_ids = TRUE WHERE table_name = '<table>';`,
+then `CALL _p_update_tables_timestamps(); CALL _p_update_tables_user_ids();`.
+See `custom/create_game_favorites_table.sql` for the full pattern including
+the guard that fails loudly if the table was not registered.
 
 ---
 

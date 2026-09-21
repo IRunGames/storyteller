@@ -54,3 +54,23 @@ export function MenuIcon() {
     </svg>
   );
 }
+
+// Heart for the story card's favorite toggle. `filled` mirrors aria-pressed on
+// the button; the button carries the accessible name.
+export function HeartIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 20.5 C7.5 16.8 4 13.9 4 9.9 A4 4 0 0 1 12 8 A4 4 0 0 1 20 9.9 C20 13.9 16.5 16.8 12 20.5 Z" />
+    </svg>
+  );
+}

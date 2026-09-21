@@ -103,7 +103,21 @@ describe("AppHeader", () => {
     renderWithProviders(<AppHeader user={user} />);
 
     await u.click(screen.getByRole("button", { name: "Account menu" }));
-    await u.click(await screen.findByRole("menuitem", { name: "Logout" }));
+    const logout = await screen.findByRole("menuitem", { name: "Logout" });
+
+    // The menu only selects the highlighted item, and a single synthetic hover
+    // does not reliably highlight it: on open, Zag schedules a frame that sets
+    // its input modality to "virtual", which makes the item ignore pointer
+    // moves, and only a move to a *new* position sets it back to "pointer".
+    // A real pointer keeps moving, so keep nudging it until the highlight has
+    // rendered, then click.
+    let step = 0;
+    await waitFor(async () => {
+      step += 1;
+      await u.pointer({ target: logout, coords: { clientX: step, clientY: step } });
+      expect(logout).toHaveAttribute("data-highlighted");
+    });
+    await u.click(logout);
 
     await waitFor(() => expect(signOut.mock.callCount()).toBe(1));
     await waitFor(() => expect(router.push.mock.callCount()).toBe(1));

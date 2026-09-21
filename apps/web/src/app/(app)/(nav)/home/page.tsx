@@ -1,26 +1,47 @@
 import NextLink from "next/link";
-import { Button, Center, Heading, Stack, Text } from "@chakra-ui/react";
+import { Button, Container, Flex, Heading, Stack } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
+import { StoriesBoard } from "@/components/stories/stories-board";
+import {
+  listFavoriteStories,
+  listLookingForPlayers,
+  listMyStories,
+  setFavorite,
+} from "./actions";
 
-// Placeholder home for signed-in users — where /login and /signup send people.
-// requireSession() here rather than trusting the group layout: the layout's
-// redirect does not prevent this page from rendering. It is memoised, so this
-// costs no extra round trip.
+// The Stories page: the signed-in home and the "Stories" nav item are the
+// same route. requireSession() here rather than trusting the group layout;
+// see lib/require-session.ts for why. Every action re-checks the user against
+// the database before touching data.
 export default async function HomePage() {
-  const session = await requireSession();
+  await requireSession();
+
+  const [favorites, mine, open] = await Promise.all([
+    listFavoriteStories(0),
+    listMyStories(0),
+    listLookingForPlayers(0),
+  ]);
 
   return (
-    <Center flex="1" px="4" py="12">
-      <Stack gap="8" maxW="lg" textAlign="center" align="center">
-        <Stack gap="2">
-          <Heading size="3xl">Welcome, {session.user.name}</Heading>
-          <Text color="fg.muted">Your story starts here soon.</Text>
-        </Stack>
+    <Container maxW="7xl" py="8">
+      <Stack gap="10">
+        <Flex justify="space-between" align="center" wrap="wrap" gap="4">
+          <Heading size="3xl">Stories</Heading>
+          <Button asChild>
+            <NextLink href="/home/new">New story</NextLink>
+          </Button>
+        </Flex>
 
-        <Button asChild>
-          <NextLink href="/play">Open the chat</NextLink>
-        </Button>
+        <StoriesBoard
+          initial={{ favorites, mine, open }}
+          loadMore={{
+            favorites: listFavoriteStories,
+            mine: listMyStories,
+            open: listLookingForPlayers,
+          }}
+          setFavorite={setFavorite}
+        />
       </Stack>
-    </Center>
+    </Container>
   );
 }
