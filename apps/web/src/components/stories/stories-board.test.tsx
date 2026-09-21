@@ -64,7 +64,7 @@ describe("StoriesBoard", () => {
       setFavorite,
     });
 
-    await user.click(within(section("My Stories")).getAllByRole("button", { name: "Add to favorites" })[1]);
+    await user.click(within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })[1]);
 
     await waitFor(() => expect(setFavorite.mock.calls[0].arguments).toEqual([2, true]));
     const favoriteTitles = within(section("Favorite Stories"))
@@ -72,7 +72,7 @@ describe("StoriesBoard", () => {
       .map((a) => within(a).getByRole("link").textContent);
     expect(favoriteTitles).toEqual(["Story 2", "Story 50"]);
     expect(
-      within(section("My Stories")).getByRole("button", { name: "Remove from favorites" }),
+      within(section("My Stories")).getByRole("button", { name: "Remove from Favorites" }),
     ).toBeInTheDocument();
   });
 
@@ -80,22 +80,22 @@ describe("StoriesBoard", () => {
     const user = userEvent.setup();
     renderBoard({ initial: { favorites: stories(1, 2, true), mine: stories(2, 1).map((s) => ({ ...s, isFavorite: s.idGame === 2 })), open: [] } });
 
-    await user.click(within(section("Favorite Stories")).getByRole("button", { name: "Remove from favorites" }));
+    await user.click(within(section("Favorite Stories")).getByRole("button", { name: "Remove from Favorites" }));
 
     await waitFor(() =>
       expect(screen.queryByRole("region", { name: "Favorite Stories" })).not.toBeInTheDocument(),
     );
-    expect(within(section("My Stories")).getAllByRole("button", { name: "Add to favorites" })).toHaveLength(2);
+    expect(within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })).toHaveLength(2);
   });
 
   it("reverts the heart when the action fails", async () => {
     const user = userEvent.setup();
     renderBoard({ setFavorite: async () => { throw new Error("nope"); } });
 
-    await user.click(within(section("My Stories")).getAllByRole("button", { name: "Add to favorites" })[0]);
+    await user.click(within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })[0]);
 
     await waitFor(() =>
-      expect(within(section("My Stories")).getAllByRole("button", { name: "Add to favorites" })).toHaveLength(3),
+      expect(within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })).toHaveLength(3),
     );
     expect(screen.queryByRole("region", { name: "Favorite Stories" })).not.toBeInTheDocument();
   });
@@ -119,15 +119,15 @@ describe("StoriesBoard", () => {
     const user = userEvent.setup();
     renderBoard({ initial: { favorites: [], mine: stories(1, 7), open: stories(1, 7) } });
 
-    await user.click(within(section("My Stories")).getByRole("button", { name: "Add to favorites" }));
+    await user.click(within(section("My Stories")).getByRole("button", { name: "Add to Favorites" }));
 
     await waitFor(() =>
       expect(
-        within(section("My Stories")).getByRole("button", { name: "Remove from favorites" }),
+        within(section("My Stories")).getByRole("button", { name: "Remove from Favorites" }),
       ).toBeInTheDocument(),
     );
     expect(
-      within(section("Looking for Players")).getByRole("button", { name: "Remove from favorites" }),
+      within(section("Looking for Players")).getByRole("button", { name: "Remove from Favorites" }),
     ).toBeInTheDocument();
     expect(within(section("Favorite Stories")).getByRole("link", { name: "Story 7" })).toBeInTheDocument();
   });
@@ -142,7 +142,7 @@ describe("StoriesBoard", () => {
 
     // The optimistic add puts an eleventh card in the list that never came
     // from a page; asking the server for row 11 would skip one.
-    await user.click(within(section("My Stories")).getByRole("button", { name: "Add to favorites" }));
+    await user.click(within(section("My Stories")).getByRole("button", { name: "Add to Favorites" }));
     await waitFor(() =>
       expect(within(section("Favorite Stories")).getAllByRole("article")).toHaveLength(PAGE_SIZE + 1),
     );
@@ -166,7 +166,7 @@ describe("StoriesBoard", () => {
 
     for (let left = PAGE_SIZE; left > 0; left--) {
       await user.click(
-        within(section("Favorite Stories")).getAllByRole("button", { name: "Remove from favorites" })[0],
+        within(section("Favorite Stories")).getAllByRole("button", { name: "Remove from Favorites" })[0],
       );
       await waitFor(() =>
         expect(within(section("Favorite Stories")).queryAllByRole("article")).toHaveLength(left - 1),

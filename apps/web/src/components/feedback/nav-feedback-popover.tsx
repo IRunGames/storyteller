@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -40,8 +40,13 @@ const RATINGS = [
   { value: false, label: "Not good", hint: "Not good", Icon: ThumbsDown },
 ] as const;
 
+// Tooltip and popover each stamp an id on the one button and look their trigger
+// up by that id when positioning. Left to their own ids, the tooltip's wins
+// and the popover anchors to nothing, opening at the page corner. Handing both
+// the same trigger id keeps them pointed at the same element.
 export function NavFeedbackPopover({ pathname }: Props) {
   const [open, setOpen] = useState(false);
+  const triggerId = useId();
 
   const {
     control,
@@ -93,10 +98,15 @@ export function NavFeedbackPopover({ pathname }: Props) {
       open={open}
       onOpenChange={(details) => (details.open ? setOpen(true) : close())}
       positioning={{ placement: "bottom-end" }}
+      ids={{ trigger: triggerId }}
     >
       {/* Both triggers use asChild, so their props merge onto the one button:
           hover shows the tooltip, click opens the popover. */}
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+      <Tooltip.Root
+        openDelay={200}
+        positioning={{ placement: "top" }}
+        ids={{ trigger: triggerId }}
+      >
         <Tooltip.Trigger asChild>
           <Popover.Trigger asChild>
             <IconButton

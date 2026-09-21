@@ -72,7 +72,10 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
 - **Every icon button has a tooltip, placed above it:** `Tooltip.Root
   openDelay={200} positioning={{ placement: "top" }}`. When the button also
   opens a menu or popover, nest `Tooltip.Trigger asChild` around
-  `Menu.Trigger asChild` so both merge onto the one button
+  `Menu.Trigger asChild` so both merge onto the one button, **and give both
+  roots the same `ids={{ trigger }}`** from `useId()`. Each machine looks its
+  trigger up by id when positioning; with separate ids the tooltip's wins and
+  the menu opens at the page corner
   ([`nav-theme-menu.tsx`](../src/components/nav/nav-theme-menu.tsx)).
 - **Icon-only choices are buttons with `role="radio"`** inside a
   `role="radiogroup"`, with `aria-checked` mirrored by a `filled` icon, rather

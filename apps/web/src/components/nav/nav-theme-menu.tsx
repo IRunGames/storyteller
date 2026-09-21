@@ -1,6 +1,7 @@
 "use client";
 
 import { ClientOnly, IconButton, Menu, Portal, Skeleton, Tooltip } from "@chakra-ui/react";
+import { useId } from "react";
 import { Moon, Sun } from "lucide-react";
 import { useColorMode, type ColorMode } from "@/components/ui/color-mode";
 
@@ -10,17 +11,26 @@ const THEMES: { value: ColorMode; label: string }[] = [
 ];
 
 // A selector rather than a toggle so a third theme is one more entry in THEMES.
+// Tooltip and menu each stamp an id on the one button and look their trigger
+// up by that id when positioning. Left to their own ids, the tooltip's wins
+// and the menu anchors to nothing, opening at the page corner. Handing both
+// the same trigger id keeps them pointed at the same element.
 export function NavThemeMenu() {
   const { colorMode, setColorMode } = useColorMode();
+  const triggerId = useId();
 
   return (
     // The resolved theme is unknown during SSR, so the icon can only be
     // chosen on the client — same reason ColorModeButton does this.
     <ClientOnly fallback={<Skeleton boxSize="11" rounded="10px" />}>
-      <Menu.Root positioning={{ placement: "bottom-end" }}>
+      <Menu.Root positioning={{ placement: "bottom-end" }} ids={{ trigger: triggerId }}>
         {/* Both triggers use asChild, so their props merge onto the one
             button: hover shows the tooltip, click opens the menu. */}
-        <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+        <Tooltip.Root
+          openDelay={200}
+          positioning={{ placement: "top" }}
+          ids={{ trigger: triggerId }}
+        >
           <Tooltip.Trigger asChild>
             <Menu.Trigger asChild>
               <IconButton

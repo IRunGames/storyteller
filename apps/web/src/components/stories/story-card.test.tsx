@@ -111,8 +111,10 @@ describe("StoryCard", () => {
     const onToggleFavorite = mock.fn<(s: typeof story, next: boolean) => void>();
     renderWithProviders(<StoryCard story={story} onToggleFavorite={onToggleFavorite} />);
 
-    const heart = screen.getByRole("button", { name: "Add to favorites" });
+    const heart = screen.getByRole("button", { name: "Add to Favorites" });
     expect(heart).toHaveAttribute("aria-pressed", "false");
+    await user.hover(heart);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Add to Favorites");
     await user.click(heart);
 
     expect(onToggleFavorite.mock.calls[0].arguments).toEqual([story, true]);
@@ -125,8 +127,10 @@ describe("StoryCard", () => {
       <StoryCard story={{ ...story, isFavorite: true }} onToggleFavorite={onToggleFavorite} />,
     );
 
-    const heart = screen.getByRole("button", { name: "Remove from favorites" });
+    const heart = screen.getByRole("button", { name: "Remove from Favorites" });
     expect(heart).toHaveAttribute("aria-pressed", "true");
+    await user.hover(heart);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Remove from Favorites");
     await user.click(heart);
 
     expect(onToggleFavorite.mock.calls[0].arguments[1]).toBe(false);
@@ -141,7 +145,7 @@ describe("StoryCard", () => {
 
     // aria-disabled, not disabled: the button keeps its place in the tab order
     // so a keyboard user is not thrown to the top of the page mid-toggle.
-    const heart = screen.getByRole("button", { name: "Add to favorites" });
+    const heart = screen.getByRole("button", { name: "Add to Favorites" });
     expect(heart).toHaveAttribute("aria-disabled", "true");
 
     await user.click(heart);

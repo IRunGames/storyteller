@@ -75,7 +75,7 @@ describe("StorySection", () => {
     const onToggleFavorite = mock.fn<(s: StoryCardData, next: boolean) => void>();
     renderSection({ onToggleFavorite });
 
-    await user.click(screen.getAllByRole("button", { name: "Add to favorites" })[1]);
+    await user.click(screen.getAllByRole("button", { name: "Add to Favorites" })[1]);
     expect(onToggleFavorite.mock.calls[0].arguments[0].idGame).toBe(2);
     expect(onToggleFavorite.mock.calls[0].arguments[1]).toBe(true);
   });
@@ -83,7 +83,7 @@ describe("StorySection", () => {
   it("disables only the hearts that are pending", () => {
     renderSection({ pendingFavorites: new Set([2]) });
 
-    const hearts = screen.getAllByRole("button", { name: "Add to favorites" });
+    const hearts = screen.getAllByRole("button", { name: "Add to Favorites" });
     expect(hearts[0]).not.toHaveAttribute("aria-disabled", "true");
     expect(hearts[1]).toHaveAttribute("aria-disabled", "true");
     expect(hearts[2]).not.toHaveAttribute("aria-disabled", "true");

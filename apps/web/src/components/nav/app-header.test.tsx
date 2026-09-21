@@ -1,10 +1,11 @@
 import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
+import type { CurrentUser } from "@/lib/current-user";
 import { Toaster, toaster } from "@/components/ui/toaster";
 
 const router = {
@@ -18,7 +19,7 @@ const signOut = mock.fn<() => Promise<{ data: object; error: null }>>(
   async () => ({ data: {}, error: null }),
 );
 
-const user = {
+const user: CurrentUser = {
   id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
   name: "Paul Stafford",
   email: "storyteller@irun.games",
@@ -39,9 +40,9 @@ let AppHeader: typeof import("./app-header").AppHeader;
 
 // The header reads the signed-in user from UserProvider, as it would under
 // (app)/layout.tsx, rather than from a prop.
-function renderHeader() {
+function renderHeader(who: CurrentUser = user) {
   return renderWithProviders(
-    <UserProvider user={user}>
+    <UserProvider user={who}>
       <AppHeader />
     </UserProvider>,
   );
@@ -134,6 +135,47 @@ describe("AppHeader", () => {
 
     await waitFor(() =>
       expect(document.documentElement).toHaveClass("light"),
+    );
+  });
+
+  it("names the account button with the nickname, else the name, else the email", async () => {
+    const u = userEvent.setup();
+    const avatar = () => screen.getByRole("button", { name: "Account menu" });
+
+    renderHeader({ ...user, nickName: "Gandalf" });
+    await u.hover(avatar());
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Gandalf");
+    await u.unhover(avatar());
+    cleanup();
+
+    renderHeader({ ...user, nickName: null });
+    await u.hover(avatar());
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Paul Stafford");
+    await u.unhover(avatar());
+    cleanup();
+
+    renderHeader({ ...user, nickName: "", name: "" });
+    await u.hover(avatar());
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("storyteller@irun.games");
+  });
+
+  it("keeps each menu anchored to its own button despite the tooltip", async () => {
+    // Tooltip and menu both stamp an id on the shared button and look their
+    // trigger up by it. If they disagree, the menu cannot find its anchor and
+    // opens at the top-left corner of the page.
+    const u = userEvent.setup();
+    renderHeader();
+
+    const theme = await screen.findByRole("button", { name: "Choose theme" });
+    await u.click(theme);
+    const themeMenu = await screen.findByRole("menu");
+    expect(themeMenu).toHaveAttribute("aria-labelledby", theme.id);
+    await u.keyboard("{Escape}");
+
+    const account = screen.getByRole("button", { name: "Account menu" });
+    await u.click(account);
+    await waitFor(() =>
+      expect(screen.getByRole("menu")).toHaveAttribute("aria-labelledby", account.id),
     );
   });
 

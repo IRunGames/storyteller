@@ -11,6 +11,7 @@ import {
   Portal,
   Stack,
   Text,
+  Tooltip,
 } from "@chakra-ui/react";
 import {
   SUMMARY_PREVIEW_CHARS,
@@ -57,6 +58,9 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
   const system = systemLabel(story);
   const summary = story.summary ?? "";
   const isLong = summary.length > SUMMARY_PREVIEW_CHARS;
+
+  // One string for the accessible name and the tooltip, so they never drift.
+  const favoriteLabel = story.isFavorite ? "Remove from Favorites" : "Add to Favorites";
 
   return (
     <LinkBox
@@ -162,9 +166,11 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         // aria-disabled rather than disabled: a disabled button drops out of
         // the tab order, so a keyboard user loses their place mid-toggle. The
         // click handler enforces it instead.
+        <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+          <Tooltip.Trigger asChild>
         <IconButton
           type="button"
-          aria-label={story.isFavorite ? "Remove from favorites" : "Add to favorites"}
+          aria-label={favoriteLabel}
           aria-pressed={story.isFavorite}
           variant="ghost"
           size="sm"
@@ -187,6 +193,13 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         >
           <Heart size={22} fill={story.isFavorite ? "currentColor" : "none"} />
         </IconButton>
+          </Tooltip.Trigger>
+          <Portal>
+            <Tooltip.Positioner>
+              <Tooltip.Content>{favoriteLabel}</Tooltip.Content>
+            </Tooltip.Positioner>
+          </Portal>
+        </Tooltip.Root>
       )}
     </LinkBox>
   );
