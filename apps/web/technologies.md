@@ -9,6 +9,7 @@
 - postgres for database
 - better-auth for authentication (drizzle adapter)
 - Charkra ui v3
+- lucide-react for icons; the only hand-drawn SVGs are logos (the brand mark in `src/components/nav/icons.tsx`, the Google mark in the sign-in button)
 - next-themes
   > For SSR: the recommended pattern reads the active theme from a cookie during your Next.js RootLayout render and injects the matching theme CSS inline in <head>, so the server-rendered HTML is already correct on first paint — same flash-free approach you'd expect from MUI's SSR theme setup.
 - real-time comms mqtt

@@ -18,7 +18,7 @@ import {
   systemLabel,
   type StoryCardData,
 } from "@/lib/stories";
-import { HeartIcon } from "@/components/nav/icons";
+import { Heart } from "lucide-react";
 
 /**
  * Escapes only what can terminate or confuse a CSS `url("…")` string.
@@ -185,7 +185,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
             onToggleFavorite(story, !story.isFavorite);
           }}
         >
-          <HeartIcon filled={story.isFavorite} />
+          <Heart size={22} fill={story.isFavorite ? "currentColor" : "none"} />
         </IconButton>
       )}
     </LinkBox>

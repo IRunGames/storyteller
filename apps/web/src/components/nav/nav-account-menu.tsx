@@ -3,13 +3,10 @@
 import NextLink from "next/link";
 import { Avatar, Menu, Portal, chakra } from "@chakra-ui/react";
 import { useSignOut } from "@/components/auth/sign-out-button";
+import { useUser } from "@/components/auth/user-provider";
 
-export interface HeaderUser {
-  name: string;
-  image?: string | null;
-}
-
-export function AccountMenu({ user }: { user: HeaderUser }) {
+export function NavAccountMenu() {
+  const user = useUser();
   const { signOut, isSigningOut } = useSignOut();
 
   return (

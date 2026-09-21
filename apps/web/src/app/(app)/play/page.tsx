@@ -10,11 +10,11 @@ import {
   HStack,
   IconButton,
   Input,
-  Spinner,
   Text,
   Wrap,
 } from "@chakra-ui/react";
-import { useSession } from "@/lib/auth-client";
+import { useUser } from "@/components/auth/user-provider";
+import { Send } from "lucide-react";
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 
@@ -24,16 +24,8 @@ interface ChatMessage {
   timestamp: number;
 }
 
-function SendIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" />
-    </svg>
-  );
-}
-
 export default function Home() {
-  const { data: session, isPending } = useSession();
+  const user = useUser();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // TODO: populate from the messaging service's presence feed.
   const [users] = useState<string[]>([]);
@@ -45,25 +37,14 @@ export default function Home() {
   }, [messages]);
 
   const sendMessage = () => {
-    if (!input.trim() || !session) return;
+    if (!input.trim()) return;
     // TODO: deliver through the messaging service.
     setMessages((prev) => [
       ...prev,
-      { userId: session.user.id, text: input, timestamp: Date.now() },
+      { userId: user.id, text: input, timestamp: Date.now() },
     ]);
     setInput("");
   };
-
-  // (app)/layout.tsx already proved a session exists server-side, so there is
-  // no signed-out state to render here — only the brief client-side window
-  // before useSession() has hydrated its copy.
-  if (isPending || !session) {
-    return (
-      <Flex h="100vh" align="center" justify="center">
-        <Spinner size="lg" />
-      </Flex>
-    );
-  }
 
   return (
     <Flex direction="column" h="100vh">
@@ -80,10 +61,10 @@ export default function Home() {
         </Heading>
         <HStack gap="2">
           <Avatar.Root size="xs">
-            <Avatar.Fallback name={session.user.name} />
-            <Avatar.Image src={session.user.image ?? undefined} />
+            <Avatar.Fallback name={user.name} />
+            <Avatar.Image src={user.image ?? undefined} />
           </Avatar.Root>
-          <Text textStyle="sm">{session.user.name}</Text>
+          <Text textStyle="sm">{user.name}</Text>
         </HStack>
         <ColorModeButton />
         <SignOutButton />
@@ -139,7 +120,7 @@ export default function Home() {
           variant="ghost"
           rounded="full"
         >
-          <SendIcon />
+          <Send />
         </IconButton>
       </HStack>
     </Flex>

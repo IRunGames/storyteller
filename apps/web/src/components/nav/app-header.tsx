@@ -1,18 +1,19 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Box, HStack, IconButton, Tooltip } from "@chakra-ui/react";
-import { AccountMenu, type HeaderUser } from "./account-menu";
+import { HStack } from "@chakra-ui/react";
+import { NavFeedbackPopover } from "@/components/feedback/nav-feedback-popover";
+import { NavAccountMenu } from "./nav-account-menu";
 import { BrandMark } from "./brand-mark";
-import { BellIcon } from "./icons";
 import { NAV_ITEMS, isActive } from "./nav-items";
 import { NavDrawer } from "./nav-drawer";
 import { NavLink } from "./nav-link";
-import { ThemeMenu } from "./theme-menu";
+import { NavNotificationsBell } from "./nav-notifications-bell";
+import { NavThemeMenu } from "./nav-theme-menu";
 
 // The signed-in app's menu bar. Play has its own layout and does not mount
 // this; every page under (app)/(nav)/ does.
-export function AppHeader({ user }: { user: HeaderUser }) {
+export function AppHeader() {
   const pathname = usePathname();
 
   return (
@@ -42,30 +43,13 @@ export function AppHeader({ user }: { user: HeaderUser }) {
         </HStack>
       </HStack>
 
-      <HStack gap="4">
-        <ThemeMenu />
-        <Tooltip.Root openDelay={200}>
-          <Tooltip.Trigger asChild>
-            {/* A disabled button swallows pointer events, so the wrapper is
-                what the tooltip listens to. */}
-            <Box as="span" display="inline-flex">
-              <IconButton
-                aria-label="Notifications"
-                variant="ghost"
-                boxSize="11"
-                rounded="10px"
-                color="nav.icon"
-                disabled
-              >
-                <BellIcon />
-              </IconButton>
-            </Box>
-          </Tooltip.Trigger>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Coming soon</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Tooltip.Root>
-        <AccountMenu user={user} />
+      {/* 4px, not 0: the items are ghost buttons whose hover backgrounds would
+          otherwise touch. */}
+      <HStack gap="1">
+        <NavFeedbackPopover pathname={pathname} />
+        <NavThemeMenu />
+        <NavNotificationsBell />
+        <NavAccountMenu />
         <NavDrawer pathname={pathname} />
       </HStack>
     </HStack>

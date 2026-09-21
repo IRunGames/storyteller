@@ -4,7 +4,7 @@ import { useState } from "react";
 import { CloseButton, Drawer, IconButton, Portal, Stack } from "@chakra-ui/react";
 import { NAV_ITEMS, isActive } from "./nav-items";
 import { NavLink } from "./nav-link";
-import { MenuIcon } from "./icons";
+import { Menu as MenuIcon } from "lucide-react";
 
 // Below md the inline links are hidden and this hamburger takes their place.
 export function NavDrawer({ pathname }: { pathname: string }) {

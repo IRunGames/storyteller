@@ -14,3 +14,9 @@ dist
 db/formforge/
 .vercel
 .env*
+
+# Local Claude Code instructions
+CLAUDE.md
+
+# Per-developer editor settings
+.vscode/settings.json

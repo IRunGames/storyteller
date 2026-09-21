@@ -178,6 +178,21 @@ export const gameFavorites = pgTable("game_favorites", {
 export type Game = typeof games.$inferSelect;
 export type System = typeof systems.$inferSelect;
 
+// Thumbs up / down left from the menu bar's feedback popover. The submitter is
+// id_created_by_user, the standard audit column, rather than a column of its
+// own.
+export const feedback = pgTable("feedback", {
+  idFeedback: integer("id_feedback").primaryKey().generatedByDefaultAsIdentity(),
+  isPositive: boolean("is_positive").notNull(),
+  pagePath: text("page_path").notNull(),
+  feedback: text("feedback"),
+  ipAddress: text("ip_address"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
@@ -214,4 +229,8 @@ export const gamePlayersRelations = relations(gamePlayers, ({ one }) => ({
 export const gameFavoritesRelations = relations(gameFavorites, ({ one }) => ({
   game: one(games, { fields: [gameFavorites.idGame], references: [games.idGame] }),
   user: one(user, { fields: [gameFavorites.idUser], references: [user.id] }),
+}));
+
+export const feedbackRelations = relations(feedback, ({ one }) => ({
+  user: one(user, { fields: [feedback.idCreatedByUser], references: [user.id] }),
 }));
