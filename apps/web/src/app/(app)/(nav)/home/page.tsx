@@ -23,7 +23,7 @@ export default async function HomePage() {
   ]);
 
   return (
-    <Container maxW="7xl" py="8">
+    <Container maxW="full" py="8">
       <Stack gap="10">
         <Flex justify="space-between" align="center" wrap="wrap" gap="4">
           <Heading size="3xl">Stories</Heading>

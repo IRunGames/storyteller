@@ -2,8 +2,10 @@
 
 import NextLink from "next/link";
 import {
+  Badge,
   Box,
   Button,
+  HStack,
   IconButton,
   LinkBox,
   LinkOverlay,
@@ -19,7 +21,7 @@ import {
   systemLabel,
   type StoryCardData,
 } from "@/lib/stories";
-import { Heart } from "lucide-react";
+import { Heart, Play } from "lucide-react";
 
 /**
  * Escapes only what can terminate or confuse a CSS `url("…")` string.
@@ -153,9 +155,48 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
           </Box>
         )}
 
-        <Text textStyle="xs" color="whiteAlpha.800" alignSelf="flex-end" mt="auto">
-          {formatLastPlayed(story.lastPlayed)}
-        </Text>
+        {/* Bottom row: on the left an Inactive pill for a retired story, else
+            the owner's Play button, else nothing; the date on the right. In
+            the flow rather than floated like the heart, so it can never fall
+            outside the card. The button sits above the LinkOverlay's ::before
+            so the click is its own, like "more". */}
+        <HStack justify="space-between" align="center" mt="auto">
+          {!story.isActive ? (
+            <Badge size="sm" variant="solid" colorPalette="gray">
+              Inactive
+            </Badge>
+          ) : story.isOwner ? (
+            <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+              <Tooltip.Trigger asChild>
+                <IconButton
+                  asChild
+                  aria-label="Play"
+                  size="sm"
+                  rounded="full"
+                  position="relative"
+                  zIndex="1"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                >
+                  <NextLink href={`/play?game=${story.idGame}`}>
+                    <Play size={18} />
+                  </NextLink>
+                </IconButton>
+              </Tooltip.Trigger>
+              <Portal>
+                <Tooltip.Positioner>
+                  <Tooltip.Content>Start playing</Tooltip.Content>
+                </Tooltip.Positioner>
+              </Portal>
+            </Tooltip.Root>
+          ) : (
+            <Box />
+          )}
+          <Text textStyle="xs" color="whiteAlpha.800">
+            {formatLastPlayed(story.lastPlayed)}
+          </Text>
+        </HStack>
       </Stack>
 
       {onToggleFavorite && (

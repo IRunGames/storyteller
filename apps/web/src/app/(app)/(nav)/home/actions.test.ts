@@ -32,11 +32,13 @@ let tables: DbModule["schema"];
 const TITLE_A = "Fixture A — other's game, seed user plays in it, LFP, active";
 const TITLE_B = "Fixture B — other's game, seed user only favorites it";
 const TITLE_C = "Fixture C — other's game, LFP but inactive";
+const TITLE_D = "Fixture D — seed user's own game, inactive";
 
 let otherUserId = "";
 let gameA = 0;
 let gameB = 0;
 let gameC = 0;
+let gameD = 0;
 let fixtureGameIds: number[] = [];
 
 describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
@@ -68,6 +70,7 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
           isLookingForPlayers: true,
           isActive: false,
         },
+        { gameTitle: TITLE_D, idCreatedByUser: SEED_USER, isActive: false },
       ])
       .returning({ idGame: tables.games.idGame, gameTitle: tables.games.gameTitle });
 
@@ -79,7 +82,8 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     gameA = idFor(TITLE_A);
     gameB = idFor(TITLE_B);
     gameC = idFor(TITLE_C);
-    fixtureGameIds = [gameA, gameB, gameC];
+    gameD = idFor(TITLE_D);
+    fixtureGameIds = [gameA, gameB, gameC, gameD];
 
     // The seed user plays in A but does not own it: this is the only row that
     // exercises the exists(plays-in) branch of listMyStories.
@@ -109,8 +113,9 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   });
 
   it("lists the seed user's stories newest-updated first, ten at a time", async () => {
-    const first = await actions.listMyStories(0);
-    const second = await actions.listMyStories(10);
+    // Half the seed games are inactive, so ask for all of them here.
+    const first = await actions.listMyStories(0, true);
+    const second = await actions.listMyStories(10, true);
 
     expect(first).toHaveLength(10);
     expect(second.length).toBeGreaterThanOrEqual(4);
@@ -131,7 +136,11 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   });
 
   it("joins the system onto each card", async () => {
-    const all = [...(await actions.listMyStories(0)), ...(await actions.listMyStories(10))];
+    // The Devil's Spine is inactive in the seed, so include inactive games.
+    const all = [
+      ...(await actions.listMyStories(0, true)),
+      ...(await actions.listMyStories(10, true)),
+    ];
     const numenera = all.find((s) => s.gameTitle === "The Devil's Spine");
 
     expect(numenera).toMatchObject({
@@ -200,6 +209,28 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
 
     const favorites = await actions.listFavoriteStories(0);
     expect(favorites.find((s) => s.idGame === gameB)?.isFavorite).toBe(true);
+  });
+
+  it("hides the caller's inactive stories unless asked to show them", async () => {
+    const all = async (showInactive: boolean) => [
+      ...(await actions.listMyStories(0, showInactive)),
+      ...(await actions.listMyStories(10, showInactive)),
+    ];
+
+    const hidden = (await all(false)).map((s) => s.idGame);
+    expect(hidden).not.toContain(gameD);
+    expect(hidden).toContain(gameA);
+
+    const shown = await all(true);
+    expect(shown.map((s) => s.idGame)).toContain(gameD);
+    expect(shown.find((s) => s.idGame === gameD)?.isActive).toBe(false);
+    expect(shown.find((s) => s.idGame === gameA)?.isActive).toBe(true);
+  });
+
+  it("marks each card with whether the caller owns it", async () => {
+    const mine = [...(await actions.listMyStories(0)), ...(await actions.listMyStories(10))];
+    expect(mine.find((s) => s.idGame === -1)?.isOwner).toBe(true); // seed user created it
+    expect(mine.find((s) => s.idGame === gameA)?.isOwner).toBe(false); // only plays in it
   });
 
   it("adds and removes a favorite for the caller only, idempotently", async () => {

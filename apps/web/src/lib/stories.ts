@@ -15,6 +15,10 @@ export type StoryCardData = {
   systemVersion: string | null;
   variant: string | null;
   isFavorite: boolean;
+  /** The caller created this game; only they get the Play button. */
+  isOwner: boolean;
+  /** False for a story the storyteller has retired; hidden from My Stories by default. */
+  isActive: boolean;
 };
 
 /** "Cypher System · Numenera (Revised)", or null when the game has no system. */

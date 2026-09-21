@@ -18,6 +18,8 @@ function stories(count: number, from = 1): StoryCardData[] {
     systemVersion: null,
     variant: null,
     isFavorite: false,
+    isOwner: false,
+    isActive: true,
   }));
 }
 

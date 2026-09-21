@@ -4,7 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
-import { PAGE_SIZE, type SectionKey, type StoryCardData } from "@/lib/stories";
+import { PAGE_SIZE, type StoryCardData } from "@/lib/stories";
 import { StoriesBoard } from "./stories-board";
 
 function stories(count: number, from = 1, isFavorite = false): StoryCardData[] {
@@ -18,10 +18,12 @@ function stories(count: number, from = 1, isFavorite = false): StoryCardData[] {
     systemVersion: null,
     variant: null,
     isFavorite,
+    isOwner: false,
+    isActive: true,
   }));
 }
 
-const emptyLoaders: Record<SectionKey, (offset: number) => Promise<StoryCardData[]>> = {
+const emptyLoaders: Parameters<typeof StoriesBoard>[0]["loadMore"] = {
   favorites: async () => [],
   mine: async () => [],
   open: async () => [],
@@ -41,6 +43,37 @@ function renderBoard(overrides: Partial<Parameters<typeof StoriesBoard>[0]> = {}
 const section = (name: string) => screen.getByRole("region", { name });
 
 describe("StoriesBoard", () => {
+  it("offers a Show inactive switch on My Stories only, which reloads that list", async () => {
+    const user = userEvent.setup();
+    const mine = mock.fn(async (_offset: number, showInactive?: boolean) =>
+      showInactive ? stories(4, 20).map((s, i) => ({ ...s, isActive: i !== 3 })) : stories(2, 20),
+    );
+    renderBoard({
+      initial: { favorites: stories(1, 50, true), mine: stories(3), open: stories(1, 90) },
+      loadMore: { ...emptyLoaders, mine },
+    });
+
+    expect(screen.getAllByRole("switch", { name: "Show inactive" })).toHaveLength(1);
+    const toggle = within(section("My Stories")).getByRole("switch", { name: "Show inactive" });
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+
+    await waitFor(() => expect(mine.mock.callCount()).toBe(1));
+    expect(mine.mock.calls[0].arguments).toEqual([0, true]);
+    await waitFor(() =>
+      expect(within(section("My Stories")).getAllByRole("article")).toHaveLength(4),
+    );
+    expect(toggle).toBeChecked();
+
+    await user.click(toggle);
+    await waitFor(() => expect(mine.mock.callCount()).toBe(2));
+    expect(mine.mock.calls[1].arguments).toEqual([0, false]);
+    await waitFor(() =>
+      expect(within(section("My Stories")).getAllByRole("article")).toHaveLength(2),
+    );
+  });
+
   it("hides Favorite Stories when there are none and orders the rest", () => {
     renderBoard();
 
@@ -111,7 +144,8 @@ describe("StoriesBoard", () => {
     await user.click(within(section("My Stories")).getByRole("button", { name: "More" }));
 
     await waitFor(() => expect(within(section("My Stories")).getAllByRole("article")).toHaveLength(PAGE_SIZE + 2));
-    expect(mineLoader.mock.calls[0].arguments).toEqual([PAGE_SIZE]);
+    // My Stories also passes the Show inactive switch's state, off by default.
+    expect(mineLoader.mock.calls[0].arguments).toEqual([PAGE_SIZE, false]);
     expect(within(section("My Stories")).queryByRole("button", { name: "More" })).not.toBeInTheDocument();
   });
 

@@ -17,6 +17,8 @@ const story: StoryCardData = {
   systemVersion: "Revised",
   variant: "Numenera",
   isFavorite: false,
+  isOwner: false,
+  isActive: true,
 };
 
 describe("StoryCard", () => {
@@ -134,6 +136,29 @@ describe("StoryCard", () => {
     await user.click(heart);
 
     expect(onToggleFavorite.mock.calls[0].arguments[1]).toBe(false);
+  });
+
+  it("labels an inactive story", () => {
+    renderWithProviders(<StoryCard story={story} />);
+    expect(screen.queryByText("Inactive")).not.toBeInTheDocument();
+
+    renderWithProviders(<StoryCard story={{ ...story, isActive: false, isOwner: true }} />);
+    expect(screen.getByText("Inactive")).toBeInTheDocument();
+    // The pill takes the Play button's place: a retired story is not played.
+    expect(screen.queryByRole("link", { name: "Play" })).not.toBeInTheDocument();
+  });
+
+  it("offers Play to the owner only, with a tooltip, linking to the table", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<StoryCard story={story} />);
+    expect(screen.queryByRole("link", { name: "Play" })).not.toBeInTheDocument();
+
+    renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
+    const play = screen.getByRole("link", { name: "Play" });
+    expect(play).toHaveAttribute("href", "/play?game=-13");
+
+    await user.hover(play);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Start playing");
   });
 
   it("disables the heart while a toggle is pending", async () => {

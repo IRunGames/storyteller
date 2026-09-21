@@ -46,6 +46,10 @@ function cardColumns(userId: string) {
     systemVersion: systems.systemVersion,
     variant: systems.variant,
     isFavorite: favoritedBy(userId),
+    // NULL = userId is NULL in SQL, and Boolean(null) is false, so a game with
+    // no recorded creator has no owner rather than an error.
+    isOwner: eq(games.idCreatedByUser, userId).mapWith(Boolean),
+    isActive: games.isActive,
   };
 }
 
@@ -62,18 +66,28 @@ function cardQuery(userId: string) {
     .leftJoin(systems, eq(games.idSystem, systems.idSystem));
 }
 
-/** Games the user created or plays in. */
-export async function listMyStories(offset: number): Promise<StoryCardData[]> {
+/**
+ * Games the user created or plays in. Inactive ones are left out unless the
+ * "Show inactive" switch asks for them, so a retired story does not crowd the
+ * list but is never lost.
+ */
+export async function listMyStories(
+  offset: number,
+  showInactive = false,
+): Promise<StoryCardData[]> {
   const user = await requireUser();
   const skip = offsetSchema.parse(offset);
+  const includeInactive = z.boolean().parse(showInactive);
 
   const playsIn = db
     .select({ one: gamePlayers.idGamePlayer })
     .from(gamePlayers)
     .where(and(eq(gamePlayers.idGame, games.idGame), eq(gamePlayers.idUser, user.id)));
 
+  const involved = or(eq(games.idCreatedByUser, user.id), exists(playsIn));
+
   return cardQuery(user.id)
-    .where(or(eq(games.idCreatedByUser, user.id), exists(playsIn)))
+    .where(includeInactive ? involved : and(involved, eq(games.isActive, true)))
     .orderBy(...cardOrder)
     .limit(PAGE_SIZE)
     .offset(skip);

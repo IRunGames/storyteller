@@ -1,12 +1,14 @@
 "use client";
 
-import { useId } from "react";
-import { Box, Button, Heading, SimpleGrid, Stack, Text } from "@chakra-ui/react";
+import { useId, type ReactNode } from "react";
+import { Box, Button, Grid, Heading, HStack, Stack, Text } from "@chakra-ui/react";
 import type { StoryCardData } from "@/lib/stories";
 import { StoryCard } from "./story-card";
 
 type Props = {
   title: string;
+  /** Rendered on the heading row, right of the title: a filter switch, say. */
+  headerControl?: ReactNode;
   stories: StoryCardData[];
   hasMore: boolean;
   isLoadingMore: boolean;
@@ -21,6 +23,7 @@ type Props = {
 // one section changes what another section shows.
 export function StorySection({
   title,
+  headerControl,
   stories,
   hasMore,
   isLoadingMore,
@@ -32,14 +35,28 @@ export function StorySection({
 
   return (
     <Stack as="section" aria-labelledby={headingId} gap="4">
-      <Heading id={headingId} size="xl">
-        {title}
-      </Heading>
+      <HStack justify="space-between" align="center" wrap="wrap" gap="4">
+        <Heading id={headingId} size="xl">
+          {title}
+        </Heading>
+        {headerControl}
+      </HStack>
 
       {stories.length === 0 ? (
         <Text color="fg.muted">Nothing here yet.</Text>
       ) : (
-        <SimpleGrid columns={{ base: 1, md: 2, lg: 3, xl: 4 }} gap="4">
+        // Two regimes. Up to lg the grid has a fixed column count and the
+        // cards stretch to fill it: one tall card on a phone, two on a
+        // tablet. From lg up a card may grow only from 16rem to 20rem, and
+        // any further width becomes another column rather than wider cards.
+        <Grid
+          templateColumns={{
+            base: "1fr",
+            md: "repeat(2, minmax(0, 1fr))",
+            lg: "repeat(auto-fill, minmax(16rem, 20rem))",
+          }}
+          gap="4"
+        >
           {stories.map((story) => (
             <StoryCard
               key={story.idGame}
@@ -48,7 +65,7 @@ export function StorySection({
               favoritePending={pendingFavorites.has(story.idGame)}
             />
           ))}
-        </SimpleGrid>
+        </Grid>
       )}
 
       {hasMore && (

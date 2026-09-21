@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Stack } from "@chakra-ui/react";
+import { Stack, Switch } from "@chakra-ui/react";
 import {
   PAGE_SIZE,
   SECTION_ORDER,
@@ -15,8 +15,15 @@ type Loader = (offset: number) => Promise<StoryCardData[]>;
 
 type Props = {
   initial: Record<SectionKey, StoryCardData[]>;
-  /** Server actions, one per section; called with the number already shown. */
-  loadMore: Record<SectionKey, Loader>;
+  /**
+   * Server actions, one per section; called with the number already shown.
+   * My Stories also takes the "Show inactive" switch's state.
+   */
+  loadMore: {
+    favorites: Loader;
+    mine: (offset: number, showInactive: boolean) => Promise<StoryCardData[]>;
+    open: Loader;
+  };
   /** Server action that writes the caller's favorite. */
   setFavorite: (idGame: number, isFavorite: boolean) => Promise<{ isFavorite: boolean }>;
 };
@@ -81,7 +88,14 @@ function withFavorite(state: BoardState, story: StoryCardData, isFavorite: boole
 export function StoriesBoard({ initial, loadMore, setFavorite }: Props) {
   const [board, setBoard] = useState(() => initialState(initial));
   const [pendingFavorites, setPendingFavorites] = useState<ReadonlySet<number>>(new Set());
+  const [showInactive, setShowInactive] = useState(false);
   const [, startTransition] = useTransition();
+
+  // The one loader whose result depends on client state. Bound here so the
+  // paging code below does not need to know which section has a switch.
+  function load(key: SectionKey, offset: number, inactive = showInactive) {
+    return key === "mine" ? loadMore.mine(offset, inactive) : loadMore[key](offset);
+  }
 
   function onMore(key: SectionKey) {
     // The server pages by row count, not by what the client happens to show:
@@ -90,7 +104,7 @@ export function StoriesBoard({ initial, loadMore, setFavorite }: Props) {
     setBoard((b) => ({ ...b, [key]: { ...b[key], isLoadingMore: true } }));
     startTransition(async () => {
       try {
-        const page = await loadMore[key](offset);
+        const page = await load(key, offset);
         setBoard((b) => {
           // The page may still contain a card an optimistic favorite already
           // put in the list: keep one copy, so a story never appears twice.
@@ -109,6 +123,31 @@ export function StoriesBoard({ initial, loadMore, setFavorite }: Props) {
       } catch {
         // Leave the section as it was; the button stays so they can retry.
         setBoard((b) => ({ ...b, [key]: { ...b[key], isLoadingMore: false } }));
+      }
+    });
+  }
+
+  // Flipping the switch changes which rows the server counts, so My Stories
+  // starts over from offset 0 rather than paging on from where it was.
+  function onToggleInactive(inactive: boolean) {
+    setShowInactive(inactive);
+    setBoard((b) => ({ ...b, mine: { ...b.mine, isLoadingMore: true } }));
+    startTransition(async () => {
+      try {
+        const page = await load("mine", 0, inactive);
+        setBoard((b) => ({
+          ...b,
+          mine: {
+            stories: page,
+            serverOffset: page.length,
+            hasMore: page.length === PAGE_SIZE,
+            isLoadingMore: false,
+          },
+        }));
+      } catch {
+        // Keep what was showing; the switch still reflects the request, so
+        // flipping it again retries.
+        setBoard((b) => ({ ...b, mine: { ...b.mine, isLoadingMore: false } }));
       }
     });
   }
@@ -146,6 +185,23 @@ export function StoriesBoard({ initial, loadMore, setFavorite }: Props) {
           <StorySection
             key={key}
             title={SECTION_TITLES[key]}
+            headerControl={
+              key === "mine" ? (
+                <Switch.Root
+                  checked={showInactive}
+                  onCheckedChange={(details) => onToggleInactive(details.checked)}
+                  size="sm"
+                >
+                  {/* Chakra renders a checkbox input; role="switch" is the
+                      ARIA pattern for an on/off toggle and what tests query. */}
+                  <Switch.HiddenInput role="switch" />
+                  <Switch.Control>
+                    <Switch.Thumb />
+                  </Switch.Control>
+                  <Switch.Label>Show inactive</Switch.Label>
+                </Switch.Root>
+              ) : undefined
+            }
             stories={stories}
             hasMore={hasMore}
             isLoadingMore={isLoadingMore}
