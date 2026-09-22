@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { Container, Heading, Stack, Text } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
 import { systemLabel } from "@/lib/stories";
-import { getStory } from "../actions";
+import { sa_getStory } from "../actions";
 
 // Placeholder so a card click lands somewhere. The real story page comes later.
 export default async function StoryPage({ params }: { params: Promise<{ id: string }> }) {
@@ -15,7 +15,7 @@ export default async function StoryPage({ params }: { params: Promise<{ id: stri
   if (!/^-?\d+$/.test(id)) notFound();
   const idGame = Number(id);
 
-  const story = await getStory(idGame);
+  const story = await sa_getStory(idGame);
   if (!story) notFound();
 
   const system = systemLabel(story);

@@ -9,6 +9,8 @@ type Props = {
   title: string;
   /** Rendered on the heading row, right of the title: a filter switch, say. */
   headerControl?: ReactNode;
+  /** What to say when there are no stories; a hint with a link, say. */
+  emptyText?: ReactNode;
   stories: StoryCardData[];
   hasMore: boolean;
   isLoadingMore: boolean;
@@ -24,6 +26,7 @@ type Props = {
 export function StorySection({
   title,
   headerControl,
+  emptyText = "Nothing here yet.",
   stories,
   hasMore,
   isLoadingMore,
@@ -43,7 +46,7 @@ export function StorySection({
       </HStack>
 
       {stories.length === 0 ? (
-        <Text color="fg.muted">Nothing here yet.</Text>
+        <Text color="fg.muted">{emptyText}</Text>
       ) : (
         // Two regimes. Up to lg the grid has a fixed column count and the
         // cards stretch to fill it: one tall card on a phone, two on a

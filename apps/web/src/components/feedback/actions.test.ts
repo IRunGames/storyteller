@@ -46,7 +46,7 @@ describe("feedback actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =
   });
 
   it("stores a rating with its text, page and submitter", async () => {
-    const result = await actions.submitFeedback({
+    const result = await actions.sa_submitFeedback({
       isPositive: true,
       feedback: "  Loved the new cards.  ",
       pagePath: "/home",
@@ -69,7 +69,7 @@ describe("feedback actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =
   });
 
   it("stores an empty text as null", async () => {
-    await actions.submitFeedback({ isPositive: false, feedback: "", pagePath: "/library" });
+    await actions.sa_submitFeedback({ isPositive: false, feedback: "", pagePath: "/library" });
 
     const [row] = await db
       .select({ feedback: tables.feedback.feedback, isPositive: tables.feedback.isPositive })
@@ -84,7 +84,7 @@ describe("feedback actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =
       .from(tables.feedback)
       .where(eq(tables.feedback.idCreatedByUser, SEED_USER));
 
-    const result = await actions.submitFeedback({ feedback: "", pagePath: "/home" });
+    const result = await actions.sa_submitFeedback({ feedback: "", pagePath: "/home" });
     expect(result).toEqual({
       ok: false,
       errors: { isPositive: "Pick thumbs up or thumbs down." },

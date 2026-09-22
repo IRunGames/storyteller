@@ -21,7 +21,7 @@ export type SubmitFeedbackResult =
  * id_created_by_user, stamped from the database row rather than anything the
  * client sent; the IP is kept only as a record and never trusted for anything.
  */
-export async function submitFeedback(input: unknown): Promise<SubmitFeedbackResult> {
+export async function sa_submitFeedback(input: unknown): Promise<SubmitFeedbackResult> {
   const user = await requireUser();
 
   const parsed = feedbackSchema.safeParse(input);

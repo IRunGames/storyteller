@@ -193,6 +193,38 @@ export const feedback = pgTable("feedback", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
+// Announcements for the home page. Shown from startsAt until expiresAt (null
+// = never). The three archive columns and their triggers come from the
+// metatable's needs_archival flag, so an item is taken down by setting
+// isArchived rather than by deleting the row.
+export const news = pgTable("news", {
+  idNews: integer("id_news").primaryKey().generatedByDefaultAsIdentity(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  isArchived: boolean("is_archived").default(false).notNull(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  idArchivedByUser: uuid("id_archived_by_user"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// Which news items a user has read: opened the story, or pressed Read on
+// it. The row existing is the whole fact; there is no dismissed flag.
+// id_user is the reader as the row's subject, as on game_favorites.
+export const newsReads = pgTable("news_reads", {
+  idNewsRead: integer("id_news_read").primaryKey().generatedByDefaultAsIdentity(),
+  idNews: integer("id_news").notNull(),
+  idUser: uuid("id_user").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
@@ -233,4 +265,15 @@ export const gameFavoritesRelations = relations(gameFavorites, ({ one }) => ({
 
 export const feedbackRelations = relations(feedback, ({ one }) => ({
   user: one(user, { fields: [feedback.idCreatedByUser], references: [user.id] }),
+}));
+
+export const newsRelations = relations(news, ({ one, many }) => ({
+  author: one(user, { fields: [news.idCreatedByUser], references: [user.id] }),
+  archivedBy: one(user, { fields: [news.idArchivedByUser], references: [user.id] }),
+  reads: many(newsReads),
+}));
+
+export const newsReadsRelations = relations(newsReads, ({ one }) => ({
+  news: one(news, { fields: [newsReads.idNews], references: [news.idNews] }),
+  user: one(user, { fields: [newsReads.idUser], references: [user.id] }),
 }));

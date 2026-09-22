@@ -3,10 +3,10 @@ export interface NavItem {
   href: string;
 }
 
-// "Stories" and the signed-in home are the same page.
+// The signed-in home (/home) is not listed: the brand mark links there.
 export const NAV_ITEMS: readonly NavItem[] = [
   { label: "Play", href: "/play" },
-  { label: "Stories", href: "/home" },
+  { label: "Stories", href: "/stories" },
   { label: "Characters", href: "/characters" },
   { label: "Library", href: "/library" },
 ];

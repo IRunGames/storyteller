@@ -20,6 +20,7 @@ function stories(count: number, from = 1): StoryCardData[] {
     isFavorite: false,
     isOwner: false,
     isActive: true,
+    storytellerName: null,
   }));
 }
 
@@ -42,6 +43,12 @@ function renderSection(overrides: Partial<Parameters<typeof StorySection>[0]> = 
 }
 
 describe("StorySection", () => {
+  it("lets the caller replace the empty-state text", () => {
+    renderSection({ stories: [], emptyText: "Heart something first." });
+    expect(screen.getByText("Heart something first.")).toBeInTheDocument();
+    expect(screen.queryByText("Nothing here yet.")).not.toBeInTheDocument();
+  });
+
   it("shows an empty state when there are no stories", () => {
     renderSection({ stories: [] });
 

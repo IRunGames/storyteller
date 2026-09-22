@@ -13,7 +13,7 @@ const router = {
   refresh: mock.fn<() => void>(),
 };
 
-let pathname = "/home";
+let pathname = "/stories";
 
 const signOut = mock.fn<() => Promise<{ data: object; error: null }>>(
   async () => ({ data: {}, error: null }),
@@ -30,7 +30,7 @@ const user: CurrentUser = {
 // The popover imports its server action itself, so the whole actions module
 // is mocked rather than handed in as a prop.
 type SubmitFeedback = import("@/components/feedback/actions").SubmitFeedbackResult;
-const submitFeedback = mock.fn<(values: unknown) => Promise<SubmitFeedback>>(
+const sa_submitFeedback = mock.fn<(values: unknown) => Promise<SubmitFeedback>>(
   async () => ({ ok: true }),
 );
 
@@ -54,18 +54,18 @@ describe("AppHeader", () => {
       namedExports: { useRouter: () => router, usePathname: () => pathname },
     });
     mock.module("@/lib/auth-client", { namedExports: { signOut } });
-    mock.module("@/components/feedback/actions", { namedExports: { submitFeedback } });
+    mock.module("@/components/feedback/actions", { namedExports: { sa_submitFeedback } });
 
     ({ AppHeader } = await import("./app-header"));
   });
 
   beforeEach(() => {
-    pathname = "/home";
+    pathname = "/stories";
     router.push.mock.resetCalls();
     router.refresh.mock.resetCalls();
     signOut.mock.resetCalls();
-    submitFeedback.mock.resetCalls();
-    submitFeedback.mock.mockImplementation(async () => ({ ok: true }));
+    sa_submitFeedback.mock.resetCalls();
+    sa_submitFeedback.mock.mockImplementation(async () => ({ ok: true }));
   });
 
   // The toaster is a module-level store, so a toast raised in one test would
@@ -83,7 +83,7 @@ describe("AppHeader", () => {
 
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["Play", "/play"],
-      ["Stories", "/home"],
+      ["Stories", "/stories"],
       ["Characters", "/characters"],
       ["Library", "/library"],
     ]);
@@ -105,6 +105,13 @@ describe("AppHeader", () => {
     expect(screen.getByRole("link", { name: "Storyteller" })).not.toHaveAttribute(
       "aria-current",
     );
+  });
+
+  it("stays pinned to the top while the page scrolls under it", () => {
+    renderHeader();
+
+    const header = screen.getByRole("banner");
+    expect(header).toHaveStyle({ position: "sticky", top: "0px" });
   });
 
   it("treats a nested path as part of its section", () => {
@@ -324,11 +331,11 @@ describe("AppHeader", () => {
 
       await u.click(within(dialog).getByRole("button", { name: "Send" }));
 
-      await waitFor(() => expect(submitFeedback.mock.callCount()).toBe(1));
-      expect(submitFeedback.mock.calls[0].arguments[0]).toEqual({
+      await waitFor(() => expect(sa_submitFeedback.mock.callCount()).toBe(1));
+      expect(sa_submitFeedback.mock.calls[0].arguments[0]).toEqual({
         isPositive: true,
         feedback: "",
-        pagePath: "/home",
+        pagePath: "/stories",
       });
     });
 
@@ -347,8 +354,8 @@ describe("AppHeader", () => {
       await u.type(within(dialog).getByRole("textbox", { name: /Feedback/ }), "Nice cards");
       await u.click(within(dialog).getByRole("button", { name: "Send" }));
 
-      await waitFor(() => expect(submitFeedback.mock.callCount()).toBe(1));
-      expect(submitFeedback.mock.calls[0].arguments[0]).toEqual({
+      await waitFor(() => expect(sa_submitFeedback.mock.callCount()).toBe(1));
+      expect(sa_submitFeedback.mock.calls[0].arguments[0]).toEqual({
         isPositive: false,
         feedback: "Nice cards",
         pagePath: "/characters/42",
@@ -367,7 +374,7 @@ describe("AppHeader", () => {
     });
 
     it("keeps the popover open when the action fails", async () => {
-      submitFeedback.mock.mockImplementation(async () => ({ ok: false, errors: {} }));
+      sa_submitFeedback.mock.mockImplementation(async () => ({ ok: false, errors: {} }));
       const { u, dialog } = await openFeedback();
 
       await u.click(within(dialog).getByRole("button", { name: "Send" }));
@@ -379,7 +386,7 @@ describe("AppHeader", () => {
     });
 
     it("shows a field error the action sends back", async () => {
-      submitFeedback.mock.mockImplementation(async () => ({
+      sa_submitFeedback.mock.mockImplementation(async () => ({
         ok: false,
         errors: { feedback: "Too long" },
       }));

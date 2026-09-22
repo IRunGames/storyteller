@@ -16,7 +16,7 @@ import {
   Textarea,
   Tooltip,
 } from "@chakra-ui/react";
-import { submitFeedback } from "./actions";
+import { sa_submitFeedback } from "./actions";
 import { feedbackSchema, type FeedbackValues } from "@/lib/feedback-schemas";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { toaster } from "@/components/ui/toaster";
@@ -69,7 +69,7 @@ export function NavFeedbackPopover({ pathname }: Props) {
   }
 
   async function submit(values: FeedbackValues) {
-    const result = await submitFeedback({ ...values, pagePath: pathname });
+    const result = await sa_submitFeedback({ ...values, pagePath: pathname });
 
     // Success closes the popover at once and says thanks in a toast, so the
     // acknowledgement outlives the popover instead of the popover lingering

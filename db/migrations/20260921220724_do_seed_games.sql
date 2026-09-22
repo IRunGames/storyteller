@@ -1,3 +1,18 @@
+-- migrate:up
+DO $$
+DECLARE
+    row_count BIGINT;
+BEGIN
+    RAISE NOTICE '[%] START SEEDING', clock_timestamp();
+    SET session_replication_role = 'replica';
+
+    RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
+
+    DELETE FROM games WHERE id_game < 0;
+
+    RAISE NOTICE '+++    [%] Seeding games', clock_timestamp();
+
+    -- ------------------------------------------------------------
     -- Seed data for `games`: the campaigns listed under the Stories menu of
     -- https://rpg.irun.games, owned by the storyteller@irun.games user, plus
     -- fixture games (-15 onward) owned by the users in db/seeds/seed_users.sql,
@@ -103,3 +118,16 @@
         (-21, 'Beneath the Floorboards',     -83, 'https://thumb.wikimedia.org/wikipedia/commons/thumb/1/17/Glenfinnan_Viaduct.jpg/1920px-Glenfinnan_Viaduct.jpg',
           NULL,
           0, true,  false, DEFAULT,            '00000000-0000-7000-8000-000000000007', '00000000-0000-7000-8000-000000000007');
+    -- ------------------------------------------------------------
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+
+    RAISE NOTICE '>>>    [%] Rows inserted: %', CLOCK_TIMESTAMP(), row_count;
+
+    -- ------------------------------------------------------------
+    SET session_replication_role = 'origin';
+
+    RAISE NOTICE '[%] DONE SEEDING', clock_timestamp();
+END $$;
+
+-- migrate:down
+

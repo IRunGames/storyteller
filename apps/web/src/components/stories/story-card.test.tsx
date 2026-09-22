@@ -19,6 +19,7 @@ const story: StoryCardData = {
   isFavorite: false,
   isOwner: false,
   isActive: true,
+  storytellerName: "Pol",
 };
 
 describe("StoryCard", () => {
@@ -27,7 +28,7 @@ describe("StoryCard", () => {
 
     expect(screen.getByRole("link", { name: "The Devil's Spine" })).toHaveAttribute(
       "href",
-      "/home/-13",
+      "/stories/-13",
     );
     expect(screen.getByText("Cypher System · Numenera (Revised)")).toBeInTheDocument();
     expect(screen.getByText("Jun 25, 2015")).toBeInTheDocument();
@@ -146,6 +147,19 @@ describe("StoryCard", () => {
     expect(screen.getByText("Inactive")).toBeInTheDocument();
     // The pill takes the Play button's place: a retired story is not played.
     expect(screen.queryByRole("link", { name: "Play" })).not.toBeInTheDocument();
+  });
+
+  it("names the storyteller when someone else runs the story", () => {
+    renderWithProviders(<StoryCard story={story} />);
+    expect(screen.getByText("Storyteller: Pol")).toBeInTheDocument();
+  });
+
+  it("leaves the storyteller line out for the owner, or when the game has no creator", () => {
+    renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
+    expect(screen.queryByText(/Storyteller:/)).not.toBeInTheDocument();
+
+    renderWithProviders(<StoryCard story={{ ...story, storytellerName: null }} />);
+    expect(screen.queryByText(/Storyteller:/)).not.toBeInTheDocument();
   });
 
   it("offers Play to the owner only, with a tooltip, linking to the table", async () => {

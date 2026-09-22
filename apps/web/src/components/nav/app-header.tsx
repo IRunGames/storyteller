@@ -17,8 +17,16 @@ export function AppHeader() {
   const pathname = usePathname();
 
   return (
+    // Sticky rather than fixed so it keeps its place in the flow and the page
+    // needs no top padding to clear it. zIndex "sticky" (1100) sits above
+    // in-page content such as the cards' floating buttons (zIndex 1) and
+    // below every portalled layer (popover, tooltip, modal), so a menu opened
+    // from the header still draws over it.
     <HStack
       as="header"
+      position="sticky"
+      top="0"
+      zIndex="sticky"
       h="16"
       px={{ base: "4", md: "10" }}
       justify="space-between"

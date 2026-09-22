@@ -19,6 +19,12 @@ export type StoryCardData = {
   isOwner: boolean;
   /** False for a story the storyteller has retired; hidden from My Stories by default. */
   isActive: boolean;
+  /**
+   * How the storyteller is known: their nickname, else their name. Null when
+   * the game has no recorded creator. The card shows it only when the viewer
+   * is not the storyteller; their own name on their own story says nothing.
+   */
+  storytellerName: string | null;
 };
 
 /** "Cypher System · Numenera (Revised)", or null when the game has no system. */

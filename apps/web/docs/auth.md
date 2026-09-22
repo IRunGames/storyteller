@@ -19,14 +19,28 @@ Two sign-in methods are enabled: **email + password** (minimum 8 characters) and
 
 Route groups set the access tier. The group name is not part of the URL.
 
+### Public pages
+
+These are the only pages reachable without a session.
+
 | URL | Source | Who can reach it |
 |---|---|---|
 | `/` | [`(public)/page.tsx`](<../src/app/(public)/page.tsx>) | Anyone, signed in or not |
 | `/login` | [`(auth)/login/`](<../src/app/(auth)/login/page.tsx>) | Signed-out only — signed-in users bounce to `/home` |
 | `/signup` | [`(auth)/signup/`](<../src/app/(auth)/signup/page.tsx>) | Signed-out only — same bounce |
-| `/home` | [`(app)/home/page.tsx`](<../src/app/(app)/home/page.tsx>) | Signed-in only (placeholder page) |
-| `/play` | [`(app)/play/page.tsx`](<../src/app/(app)/play/page.tsx>) | Signed-in only (the chat UI) |
 | `/api/auth/*` | [`api/auth/[...all]/route.ts`](<../src/app/api/auth/[...all]/route.ts>) | Better Auth's own handler |
+
+### Private pages
+
+Everything else lives under `(app)`, whose
+[`layout.tsx`](<../src/app/(app)/layout.tsx>) requires a session and mounts
+`UserProvider`. Within it there are two groups; a new signed-in page goes in
+one of them and is protected by being there.
+
+| Group | Source | What it holds |
+|---|---|---|
+| `(app)/(nav)` | [`(nav)/layout.tsx`](<../src/app/(app)/(nav)/layout.tsx>) | Every signed-in page that carries the menu bar: the landing page after login (`/home`) and the sections the bar links to |
+| `(app)/play` | [`play/page.tsx`](<../src/app/(app)/play/page.tsx>) | The chat UI, with its own full-screen layout and no menu bar |
 
 ## The flow
 

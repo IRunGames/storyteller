@@ -1,220 +1,83 @@
 "use server";
 
-import { redirect } from "next/navigation";
-import { and, asc, desc, eq, exists, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/authorize";
-import { PAGE_SIZE, systemLabel, type StoryCardData } from "@/lib/stories";
-import { newStorySchema } from "@/lib/story-schemas";
+import { NEWS_LIMIT, type NewsItem } from "@/lib/news";
 
-const { games, systems, gamePlayers, gameFavorites } = schema;
+const { news, newsReads } = schema;
 
-// Every export here is a server action: it is the only way the Stories pages
-// touch the database, and each one starts by proving who is asking.
+// The only way the home page touches the news tables; requireUser() proves
+// who is asking before anything is read or written.
 
-const offsetSchema = z.number().int().min(0);
-
-// games.id_game is int4. An id outside that range is not "not found yet" to
-// Postgres, it is a query error, so it gets filtered out before the query
-// rather than after.
-const idGameSchema = z.number().int().min(-2147483648).max(2147483647);
-
-// Whether the caller has favorited the game on the current outer row. It is
-// a correlated EXISTS rather than a join so a favorite never duplicates or
-// drops a card, and it is scoped to the caller: nobody sees anyone else's
-// hearts.
-function favoritedBy(userId: string) {
-  return exists(
-    db
-      .select({ one: gameFavorites.idGameFavorite })
-      .from(gameFavorites)
-      .where(and(eq(gameFavorites.idGame, games.idGame), eq(gameFavorites.idUser, userId))),
-  ).mapWith(Boolean);
-}
-
-// One projection shared by every list and by getStory, so the card never sees
-// a shape that differs by section.
-function cardColumns(userId: string) {
-  return {
-    idGame: games.idGame,
-    gameTitle: games.gameTitle,
-    summary: games.summary,
-    imageUrl: games.imageUrl,
-    lastPlayed: games.lastPlayed,
-    systemName: systems.systemName,
-    systemVersion: systems.systemVersion,
-    variant: systems.variant,
-    isFavorite: favoritedBy(userId),
-    // NULL = userId is NULL in SQL, and Boolean(null) is false, so a game with
-    // no recorded creator has no owner rather than an error.
-    isOwner: eq(games.idCreatedByUser, userId).mapWith(Boolean),
-    isActive: games.isActive,
-  };
-}
-
-// updated_at ties are common — the seed inserts every game in one statement,
-// so all 14 share a timestamp — and a LIMIT/OFFSET pair over an unstable sort
-// can hand the same row to two different pages. id_game breaks the tie so the
-// sections page reliably.
-const cardOrder = [desc(games.updatedAt), desc(games.idGame)];
-
-function cardQuery(userId: string) {
-  return db
-    .select(cardColumns(userId))
-    .from(games)
-    .leftJoin(systems, eq(games.idSystem, systems.idSystem));
-}
+// news.id_news is int4. An id outside that range is a query error to Postgres,
+// not "no such row", so it is refused before the query rather than after.
+const idNewsSchema = z.number().int().min(-2147483648).max(2147483647);
 
 /**
- * Games the user created or plays in. Inactive ones are left out unless the
- * "Show inactive" switch asks for them, so a retired story does not crowd the
- * list but is never lost.
+ * The announcements to show the caller right now: started, not expired, not
+ * archived, and not yet read by them, newest start first. The clock is the
+ * database's (now()), not Node's, so a row inserted by a migration and a row
+ * inserted by the app agree on "now".
  */
-export async function listMyStories(
-  offset: number,
-  showInactive = false,
-): Promise<StoryCardData[]> {
+export async function sa_listNews(): Promise<NewsItem[]> {
   const user = await requireUser();
-  const skip = offsetSchema.parse(offset);
-  const includeInactive = z.boolean().parse(showInactive);
 
-  const playsIn = db
-    .select({ one: gamePlayers.idGamePlayer })
-    .from(gamePlayers)
-    .where(and(eq(gamePlayers.idGame, games.idGame), eq(gamePlayers.idUser, user.id)));
-
-  const involved = or(eq(games.idCreatedByUser, user.id), exists(playsIn));
-
-  return cardQuery(user.id)
-    .where(includeInactive ? involved : and(involved, eq(games.isActive, true)))
-    .orderBy(...cardOrder)
-    .limit(PAGE_SIZE)
-    .offset(skip);
-}
-
-/** Games the user has favorited. */
-export async function listFavoriteStories(offset: number): Promise<StoryCardData[]> {
-  const user = await requireUser();
-  const skip = offsetSchema.parse(offset);
+  const now = sql`now()`;
+  // Correlated and scoped to the caller, like favoritedBy() on the Stories
+  // page: another user's reads never hide anything from this one.
+  const readByCaller = db
+    .select({ one: newsReads.idNewsRead })
+    .from(newsReads)
+    .where(and(eq(newsReads.idNews, news.idNews), eq(newsReads.idUser, user.id)));
 
   return db
-    .select(cardColumns(user.id))
-    .from(games)
-    .innerJoin(
-      gameFavorites,
-      and(eq(gameFavorites.idGame, games.idGame), eq(gameFavorites.idUser, user.id)),
-    )
-    .leftJoin(systems, eq(games.idSystem, systems.idSystem))
-    .orderBy(...cardOrder)
-    .limit(PAGE_SIZE)
-    .offset(skip);
-}
-
-/** Active games whose storyteller has flagged them as open to new players. */
-export async function listLookingForPlayers(offset: number): Promise<StoryCardData[]> {
-  const user = await requireUser();
-  const skip = offsetSchema.parse(offset);
-
-  return cardQuery(user.id)
-    .where(and(eq(games.isLookingForPlayers, true), eq(games.isActive, true)))
-    .orderBy(...cardOrder)
-    .limit(PAGE_SIZE)
-    .offset(skip);
-}
-
-export async function getStory(idGame: number): Promise<StoryCardData | null> {
-  const user = await requireUser();
-
-  // An unusable id is simply not a story: safeParse rather than parse, so the
-  // page's notFound() handles it instead of a raw ZodError becoming a 500.
-  const id = idGameSchema.safeParse(idGame);
-  if (!id.success) return null;
-
-  const [story] = await cardQuery(user.id).where(eq(games.idGame, id.data)).limit(1);
-  return story ?? null;
-}
-
-export async function listSystems(): Promise<{ idSystem: number; label: string }[]> {
-  await requireUser();
-
-  const rows = await db
     .select({
-      idSystem: systems.idSystem,
-      systemName: systems.systemName,
-      systemVersion: systems.systemVersion,
-      variant: systems.variant,
+      idNews: news.idNews,
+      title: news.title,
+      body: news.body,
+      startsAt: news.startsAt,
     })
-    .from(systems)
-    .orderBy(asc(systems.systemName), asc(systems.systemVersion), asc(systems.variant));
-
-  return rows.map((row) => ({ idSystem: row.idSystem, label: systemLabel(row) ?? row.systemName }));
-}
-
-export type CreateStoryResult = { ok: false; errors: Record<string, string> };
-
-/**
- * Validates and inserts a new game owned by the caller, then redirects to the
- * Stories page. Validation failures come back as field errors for the form;
- * on success the redirect throws, so this never resolves with ok: true.
- */
-export async function createStory(input: unknown): Promise<CreateStoryResult> {
-  const user = await requireUser();
-
-  const parsed = newStorySchema.safeParse(input);
-  if (!parsed.success) {
-    const errors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = issue.path.join(".");
-      errors[key] ??= issue.message;
-    }
-    return { ok: false, errors };
-  }
-
-  const values = parsed.data;
-  await db.insert(games).values({
-    gameTitle: values.title,
-    idSystem: values.idSystem,
-    summary: values.summary || null,
-    imageUrl: values.imageUrl || null,
-    isLookingForPlayers: values.isLookingForPlayers,
-    idCreatedByUser: user.id,
-    idUpdatedByUser: user.id,
-  });
-
-  redirect("/home");
+    .from(news)
+    .where(
+      and(
+        eq(news.isArchived, false),
+        lte(news.startsAt, now),
+        or(isNull(news.expiresAt), gt(news.expiresAt, now)),
+        notExists(readByCaller),
+      ),
+    )
+    // id_news breaks a starts_at tie so the order is stable between renders.
+    .orderBy(desc(news.startsAt), desc(news.idNews))
+    .limit(NEWS_LIMIT);
 }
 
 /**
- * Adds or removes the caller's favorite on a story. Idempotent in both
- * directions: adding twice relies on the (id_game, id_user) unique constraint
- * and removing an absent row is a no-op. Only ever touches rows for user.id.
+ * Records that the caller has read these items, so sa_listNews() stops
+ * returning them. A card calls it when its story is opened or its Read
+ * button is pressed, never for merely being on screen. Idempotent: the
+ * (id_news, id_user) unique constraint absorbs a repeat, so opening a story
+ * twice is harmless. Only ever writes rows for user.id. An unknown id is
+ * refused by the foreign key, and that is a bug in the caller rather than
+ * something to handle here.
  */
-export async function setFavorite(
-  idGame: number,
-  isFavorite: boolean,
-): Promise<{ isFavorite: boolean }> {
+export async function sa_markNewsRead(idNews: number[]): Promise<{ ok: true }> {
   const user = await requireUser();
-  const id = idGameSchema.parse(idGame);
-  const wanted = z.boolean().parse(isFavorite);
+  const ids = z.array(idNewsSchema).max(NEWS_LIMIT).parse(idNews);
+  if (ids.length === 0) return { ok: true };
 
-  const [game] = await db
-    .select({ idGame: games.idGame })
-    .from(games)
-    .where(eq(games.idGame, id))
-    .limit(1);
-  if (!game) throw new Error("Story not found");
+  await db
+    .insert(newsReads)
+    .values(
+      ids.map((id) => ({
+        idNews: id,
+        idUser: user.id,
+        idCreatedByUser: user.id,
+        idUpdatedByUser: user.id,
+      })),
+    )
+    .onConflictDoNothing({ target: [newsReads.idNews, newsReads.idUser] });
 
-  if (wanted) {
-    await db
-      .insert(gameFavorites)
-      .values({ idGame: id, idUser: user.id, idCreatedByUser: user.id, idUpdatedByUser: user.id })
-      .onConflictDoNothing({ target: [gameFavorites.idGame, gameFavorites.idUser] });
-  } else {
-    await db
-      .delete(gameFavorites)
-      .where(and(eq(gameFavorites.idGame, id), eq(gameFavorites.idUser, user.id)));
-  }
-
-  return { isFavorite: wanted };
+  return { ok: true };
 }

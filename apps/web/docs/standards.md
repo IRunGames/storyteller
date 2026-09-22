@@ -98,13 +98,18 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
 
 - **Pages and layouts are server components.** They read the session, load
   data through actions, and hand the results to a client component as props.
-  See [`home/page.tsx`](<../src/app/(app)/(nav)/home/page.tsx>).
+  See [`stories/page.tsx`](<../src/app/(app)/(nav)/stories/page.tsx>).
 - **Every read and write is a server action** in the route's `actions.ts`,
   `"use server"` at the top, and every exported function starts with
   `const user = await requireUser()` from
   [`authorize.ts`](../src/lib/authorize.ts). That checks the session _and_ the
   `users` row (exists, active), so a stale cookie for a deactivated account
   does nothing. There is no separate query layer.
+- **Every exported action is named with the `sa_` prefix**: `sa_listNews`,
+  `sa_setFavorite`, `sa_submitFeedback`. A call site and a `mock.module` then
+  both show at a glance that the call crosses the network. Only the export is
+  prefixed: a prop that carries one (`onCreate`, `setFavorite={sa_setFavorite}`),
+  a local helper and a result type keep their own names.
 - **A client component imports the action it calls** straight from its
   `actions.ts`, as [`nav-feedback-popover.tsx`](../src/components/feedback/nav-feedback-popover.tsx)
   does from the file beside it. Do not thread an action down as a prop through a layout or parent that
@@ -143,7 +148,7 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
 - **Type `useForm` with `z.input` for the fields and `z.infer` for the
   submitted values** when a preprocess changes the shape (a `<select>` posts a
   string; the schema wants a number or null). See
-  [`new-story-form.tsx`](<../src/app/(app)/(nav)/home/new/new-story-form.tsx>).
+  [`new-story-form.tsx`](<../src/app/(app)/(nav)/stories/new/new-story-form.tsx>).
 - **Chakra checkboxes and radios go through `Controller`,** not `register()`:
   Chakra's hidden input carries `value="on"`, which react-hook-form would hand
   to the schema instead of the checked flag.
@@ -173,7 +178,7 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   `verification`): the adapter looks tables up by these keys.
 - **Queries live in the action that needs them.** Share a projection with a
   helper (`cardColumns` in
-  [`home/actions.ts`](<../src/app/(app)/(nav)/home/actions.ts>)) rather than a
+  [`stories/actions.ts`](<../src/app/(app)/(nav)/stories/actions.ts>)) rather than a
   repository class. Use a correlated `exists()` for "does the caller have
   one of these", so a join never duplicates or drops a row.
 - **Pagination needs a stable sort:** order by the timestamp _and_ the id,
@@ -195,7 +200,11 @@ The full guide is [`db/README.md`](../../../db/README.md). The short version:
   metatable (`CALL _p_update_tables()`, `UPDATE _tables SET needs_timestamps,
 needs_user_ids`), fails loudly if the registration did not take, and calls
   `_p_update_tables_timestamps()` and `_p_update_tables_user_ids()` to add the
-  audit columns, the `set_updated_at` trigger and the foreign keys.
+  audit columns, the `set_updated_at` trigger and the foreign keys. A table
+  whose rows are taken down rather than deleted also sets `needs_archival` and
+  calls `_p_update_tables_archives()` for `is_archived`, `archived_at` and
+  `id_archived_by_user`, as
+  [`create_news_table.sql`](../../../db/custom/create_news_table.sql) does.
 - **A one-time change** (rename, drop, add a constraint or column) goes
   straight into `db/migrations` with `just new <name>`; there is no source in
   `custom/` to keep in step with it.

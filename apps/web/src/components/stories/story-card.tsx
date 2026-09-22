@@ -105,12 +105,17 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         <Stack gap="0" pr="12">
           <Text as="h3" textStyle="lg" fontWeight="semibold" lineClamp={2}>
             <LinkOverlay asChild>
-              <NextLink href={`/home/${story.idGame}`}>{story.gameTitle}</NextLink>
+              <NextLink href={`/stories/${story.idGame}`}>{story.gameTitle}</NextLink>
             </LinkOverlay>
           </Text>
           {system && (
             <Text textStyle="xs" color="whiteAlpha.800">
               {system}
+            </Text>
+          )}
+          {!story.isOwner && story.storytellerName && (
+            <Text textStyle="xs" color="whiteAlpha.800">
+              Storyteller: {story.storytellerName}
             </Text>
           )}
         </Stack>

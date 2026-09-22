@@ -20,6 +20,7 @@ function stories(count: number, from = 1, isFavorite = false): StoryCardData[] {
     isFavorite,
     isOwner: false,
     isActive: true,
+    storytellerName: null,
   }));
 }
 
