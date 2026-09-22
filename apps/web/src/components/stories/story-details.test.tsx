@@ -18,6 +18,8 @@ const story: StoryCardData = {
   isOwner: false,
   isActive: true,
   storytellerName: "PalmDave",
+  hasOpenSession: false,
+  playerCount: 2,
 };
 
 const players: StoryPlayer[] = [

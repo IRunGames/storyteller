@@ -20,6 +20,8 @@ function stories(count: number, from = 1): StoryCardData[] {
     isOwner: false,
     isActive: true,
     storytellerName: null,
+    hasOpenSession: false,
+    playerCount: 0,
   }));
 }
 
@@ -30,7 +32,7 @@ const sa_setFavorite = mock.fn(async (_idGame: number, isFavorite: boolean) => (
 
 let HomeFavorites: typeof import("./home-favorites").HomeFavorites;
 
-const section = () => screen.getByRole("region", { name: "Favorite Stories" });
+const section = () => screen.getByRole("region", { name: "Favorites" });
 
 describe("HomeFavorites", () => {
   before(async () => {

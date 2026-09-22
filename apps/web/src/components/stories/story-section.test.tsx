@@ -21,6 +21,8 @@ function stories(count: number, from = 1): StoryCardData[] {
     isOwner: false,
     isActive: true,
     storytellerName: null,
+    hasOpenSession: false,
+    playerCount: 0,
   }));
 }
 

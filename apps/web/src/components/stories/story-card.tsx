@@ -5,6 +5,7 @@ import {
   Badge,
   Box,
   Button,
+  Grid,
   HStack,
   IconButton,
   LinkBox,
@@ -14,6 +15,7 @@ import {
   Stack,
   Text,
   Tooltip,
+  VisuallyHidden,
 } from "@chakra-ui/react";
 import {
   SUMMARY_PREVIEW_CHARS,
@@ -22,7 +24,7 @@ import {
   systemLabel,
   type StoryCardData,
 } from "@/lib/stories";
-import { Heart, Play } from "lucide-react";
+import { Heart, LogIn, Play, Slash, User } from "lucide-react";
 
 type Props = {
   story: StoryCardData;
@@ -42,6 +44,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
 
   // One string for the accessible name and the tooltip, so they never drift.
   const favoriteLabel = story.isFavorite ? "Remove from Favorites" : "Add to Favorites";
+  const playersLabel = `${story.playerCount} ${story.playerCount === 1 ? "player" : "players"}`;
 
   return (
     <LinkBox
@@ -140,11 +143,22 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         )}
 
         {/* Bottom row: on the left an Inactive pill for a retired story, else
-            the owner's Play button, else nothing; the date on the right. In
-            the flow rather than floated like the heart, so it can never fall
-            outside the card. The button sits above the LinkOverlay's ::before
-            so the click is its own, like "more". */}
-        <HStack justify="space-between" align="center" mt="auto">
+            the owner's Play button, else Join for anyone else while the
+            game's current session is open, else nothing; the player count in
+            the middle; the date on the right. A grid with equal outer
+            columns keeps the count centred whatever the sides hold, and
+            justifyItems start stops the round Play button being stretched to
+            its column's width. In the flow rather than floated like the
+            heart, so it can never fall outside the card. The buttons sit
+            above the LinkOverlay's ::before so the click is their own, like
+            "more". */}
+        <Grid
+          templateColumns="1fr auto 1fr"
+          alignItems="center"
+          justifyItems="start"
+          gap="2"
+          mt="auto"
+        >
           {!story.isActive ? (
             <Badge size="sm" variant="solid" colorPalette="gray">
               Inactive
@@ -174,13 +188,71 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
                 </Tooltip.Positioner>
               </Portal>
             </Tooltip.Root>
+          ) : story.hasOpenSession ? (
+            // Both routes lead to the same table; the owner's Play opens it as
+            // storyteller, this one joins what they have already opened.
+            <Button
+              asChild
+              size="sm"
+              rounded="full"
+              position="relative"
+              zIndex="1"
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+            >
+              <NextLink href={`/play/${story.idGame}`}>
+                <LogIn size={16} />
+                Join
+              </NextLink>
+            </Button>
           ) : (
             <Box />
           )}
-          <Text textStyle="xs" color="whiteAlpha.800">
+          {/* The number alone says nothing to a screen reader, so the unit
+              is there too, hidden from sight; the icon is decorative. With
+              nobody at the table the person is struck through and the digit
+              left off, since the strike already says zero: Lucide has no
+              crossed-out person, so its Slash is laid over its User. */}
+          <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+            <Tooltip.Trigger asChild>
+              <HStack
+                as="span"
+                aria-label={playersLabel}
+                gap="1"
+                px="2"
+                py="0.5"
+                rounded="full"
+                bg="blackAlpha.500"
+                textStyle="xs"
+                fontWeight="semibold"
+                color="whiteAlpha.900"
+                justifySelf="center"
+                position="relative"
+                zIndex="1"
+              >
+                <Box as="span" position="relative" display="inline-flex">
+                  <User size={14} />
+                  {story.playerCount === 0 && (
+                    <Box as="span" position="absolute" inset="0" display="inline-flex">
+                      <Slash size={14} />
+                    </Box>
+                  )}
+                </Box>
+                {story.playerCount > 0 && <Text as="span">{story.playerCount}</Text>}
+                <VisuallyHidden>{playersLabel}</VisuallyHidden>
+              </HStack>
+            </Tooltip.Trigger>
+            <Portal>
+              <Tooltip.Positioner>
+                <Tooltip.Content>Player Count</Tooltip.Content>
+              </Tooltip.Positioner>
+            </Portal>
+          </Tooltip.Root>
+          <Text textStyle="xs" color="whiteAlpha.800" justifySelf="end">
             {formatLastPlayed(story.lastPlayed)}
           </Text>
-        </HStack>
+        </Grid>
       </Stack>
 
       {onToggleFavorite && (

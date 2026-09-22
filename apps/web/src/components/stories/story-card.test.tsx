@@ -20,6 +20,8 @@ const story: StoryCardData = {
   isOwner: false,
   isActive: true,
   storytellerName: "Pol",
+  hasOpenSession: false,
+  playerCount: 2,
 };
 
 describe("StoryCard", () => {
@@ -173,6 +175,56 @@ describe("StoryCard", () => {
 
     await user.hover(play);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Start playing");
+  });
+
+  it("offers Join in Play's place to a non-owner while a session is open", () => {
+    renderWithProviders(<StoryCard story={story} />);
+    expect(screen.queryByRole("link", { name: "Join" })).not.toBeInTheDocument();
+
+    renderWithProviders(<StoryCard story={{ ...story, hasOpenSession: true }} />);
+    expect(screen.getByRole("link", { name: "Join" })).toHaveAttribute("href", "/play/-13");
+    expect(screen.queryByRole("link", { name: "Play" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Play for the owner even while their session is open", () => {
+    renderWithProviders(<StoryCard story={{ ...story, isOwner: true, hasOpenSession: true }} />);
+    expect(screen.getByRole("link", { name: "Play" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Join" })).not.toBeInTheDocument();
+  });
+
+  it("shows no Join on an inactive story", () => {
+    renderWithProviders(<StoryCard story={{ ...story, isActive: false, hasOpenSession: true }} />);
+    expect(screen.getByText("Inactive")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Join" })).not.toBeInTheDocument();
+  });
+
+  it("shows the player count in a bubble, named for a screen reader, with a tooltip", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<StoryCard story={story} />);
+    const bubble = screen.getByLabelText("2 players");
+    expect(bubble).toHaveTextContent("2");
+    await user.hover(bubble);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Player Count");
+    await user.unhover(bubble);
+
+    renderWithProviders(<StoryCard story={{ ...story, idGame: -14, playerCount: 1 }} />);
+    expect(screen.getByLabelText("1 player")).toHaveTextContent("1");
+
+    renderWithProviders(<StoryCard story={{ ...story, idGame: -15, playerCount: 0 }} />);
+    const empty = screen.getByLabelText("0 players");
+    // Nobody at the table: the person is struck through and no digit shown,
+    // so the hidden screen-reader label is the pill's only text.
+    expect(empty.textContent).toBe("0 players");
+    expect(empty.querySelector(".lucide-slash")).toBeInTheDocument();
+    expect(screen.getByLabelText("2 players").querySelector(".lucide-slash")).toBeNull();
+  });
+
+  it("keeps the Play button round rather than stretched across its column", () => {
+    renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
+    const play = screen.getByRole("link", { name: "Play" });
+    // A grid item stretches to its column unless told otherwise; the cell
+    // must start-align so the round button keeps its width.
+    expect(play.parentElement).toHaveStyle({ justifyItems: "start" });
   });
 
   it("disables the heart while a toggle is pending", async () => {

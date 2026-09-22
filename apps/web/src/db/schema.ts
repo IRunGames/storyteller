@@ -145,6 +145,9 @@ export const games = pgTable("games", {
   isActive: boolean("is_active").default(true).notNull(),
   isLookingForPlayers: boolean("is_looking_for_players").default(false).notNull(),
   lastPlayed: timestamp("last_played", { withTimezone: true }).defaultNow().notNull(),
+  // The session currently at the table, if any; null between sessions.
+  // game_sessions keeps the history, this is only the one in progress.
+  idGameSession: integer("id_game_session"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -280,6 +283,10 @@ export const gamesRelations = relations(games, ({ one, many }) => ({
   players: many(gamePlayers),
   favorites: many(gameFavorites),
   sessions: many(gameSessions),
+  currentSession: one(gameSessions, {
+    fields: [games.idGameSession],
+    references: [gameSessions.idGameSession],
+  }),
 }));
 
 export const gamePlayersRelations = relations(gamePlayers, ({ one }) => ({

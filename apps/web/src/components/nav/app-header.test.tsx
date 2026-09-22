@@ -91,6 +91,75 @@ describe("AppHeader", () => {
     expect(links[0]).not.toHaveAttribute("aria-current");
   });
 
+  it("opens Find a Story from the chevron beside Stories", async () => {
+    const u = userEvent.setup();
+    renderHeader();
+
+    // The pill itself is still the link to /stories; only the chevron opens
+    // the menu, so the sub-page costs one extra click and the page none.
+    await u.click(screen.getByRole("button", { name: "More in Stories" }));
+
+    const find = await screen.findByRole("menuitem", { name: "Find a Story" });
+    expect(find).toHaveAttribute("href", "/stories/find");
+    expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+  });
+
+  it("points the chevron up while its menu is open and down again when it closes", async () => {
+    const u = userEvent.setup();
+    renderHeader();
+
+    const chevron = screen.getByRole("button", { name: "More in Stories" });
+    expect(chevron.querySelector(".lucide-chevron-down")).toBeInTheDocument();
+    expect(chevron.querySelector(".lucide-chevron-up")).not.toBeInTheDocument();
+
+    await u.click(chevron);
+    const menu = await screen.findByRole("menu");
+    expect(chevron.querySelector(".lucide-chevron-up")).toBeInTheDocument();
+    expect(chevron.querySelector(".lucide-chevron-down")).not.toBeInTheDocument();
+
+    // Zag moves focus into the menu and starts listening for Escape one
+    // animation frame after opening. Press Escape inside that frame and
+    // nothing hears it; a person cannot, but this test can, so wait for the
+    // focus that arrives in the same frame.
+    await waitFor(() => expect(menu).toHaveFocus());
+    await u.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(chevron.querySelector(".lucide-chevron-down")).toBeInTheDocument(),
+    );
+    expect(chevron.querySelector(".lucide-chevron-up")).not.toBeInTheDocument();
+  });
+
+  it("marks Stories and its Find a Story entry current on the find page", async () => {
+    const u = userEvent.setup();
+    pathname = "/stories/find";
+    renderHeader();
+
+    expect(screen.getByRole("link", { name: "Stories" })).toHaveAttribute("aria-current", "page");
+
+    await u.click(screen.getByRole("button", { name: "More in Stories" }));
+    expect(await screen.findByRole("menuitem", { name: "Find a Story" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("lists Find a Story under Stories in the drawer", async () => {
+    const u = userEvent.setup();
+    renderHeader();
+
+    await u.click(screen.getByRole("button", { name: "Open menu" }));
+
+    const drawer = await screen.findByRole("dialog", { name: "Menu" });
+    const links = Array.from(drawer.querySelectorAll("a"));
+    expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["Play", "/play"],
+      ["Stories", "/stories"],
+      ["Find a Story", "/stories/find"],
+      ["Characters", "/characters"],
+      ["Library", "/library"],
+    ]);
+  });
+
   it("highlights the brand mark on the home page it links to, and only there", () => {
     pathname = "/home";
     renderHeader();
@@ -246,6 +315,9 @@ describe("AppHeader", () => {
     await u.click(theme);
     const themeMenu = await screen.findByRole("menu");
     expect(themeMenu).toHaveAttribute("aria-labelledby", theme.id);
+    // Escape is only heard once Zag has focused the menu, a frame after it
+    // opens; see the chevron test above.
+    await waitFor(() => expect(themeMenu).toHaveFocus());
     await u.keyboard("{Escape}");
 
     const account = screen.getByRole("button", { name: "Account menu" });

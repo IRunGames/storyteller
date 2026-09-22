@@ -95,11 +95,43 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       { idGame: gameB, idUser: SEED_USER },
       { idGame: gameA, idUser: otherUserId },
     ]);
+
+    // A is at the table: its current session is open. B's current session has
+    // already finished, which is what pins the status predicate rather than
+    // a bare "has a current session".
+    const [openSession] = await db
+      .insert(tables.gameSessions)
+      .values({ idGame: gameA })
+      .returning({ id: tables.gameSessions.idGameSession });
+    const [doneSession] = await db
+      .insert(tables.gameSessions)
+      .values({ idGame: gameB })
+      .returning({ id: tables.gameSessions.idGameSession });
+    await db
+      .update(tables.gameSessions)
+      .set({ status: "done" })
+      .where(eq(tables.gameSessions.idGameSession, doneSession.id));
+    await db
+      .update(tables.games)
+      .set({ idGameSession: openSession.id })
+      .where(eq(tables.games.idGame, gameA));
+    await db
+      .update(tables.games)
+      .set({ idGameSession: doneSession.id })
+      .where(eq(tables.games.idGame, gameB));
   });
 
   after(async () => {
     if (!db) return;
     if (fixtureGameIds.length) {
+      // Sessions first: games.id_game_session points at them.
+      await db
+        .update(tables.games)
+        .set({ idGameSession: null })
+        .where(inArray(tables.games.idGame, fixtureGameIds));
+      await db
+        .delete(tables.gameSessions)
+        .where(inArray(tables.gameSessions.idGame, fixtureGameIds));
       await db
         .delete(tables.gameFavorites)
         .where(inArray(tables.gameFavorites.idGame, fixtureGameIds));
@@ -226,6 +258,29 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
 
     const favorites = await actions.sa_listFavoriteStories(0);
     expect(favorites.find((s) => s.idGame === gameB)?.isFavorite).toBe(true);
+  });
+
+  it("marks a card whose current session is open, and not one whose session is done", async () => {
+    const open = await actions.sa_listLookingForPlayers(0);
+    expect(open.find((s) => s.idGame === gameA)?.hasOpenSession).toBe(true);
+
+    const favorites = await actions.sa_listFavoriteStories(0);
+    expect(favorites.find((s) => s.idGame === gameB)?.hasOpenSession).toBe(false);
+
+    // No current session at all.
+    expect((await actions.sa_getStory(-1))?.hasOpenSession).toBe(false);
+  });
+
+  it("counts each card's players", async () => {
+    const all = [
+      ...(await actions.sa_listMyStories(0, true)),
+      ...(await actions.sa_listMyStories(10, true)),
+    ];
+    // Vampire seats two in db/seeds/seed_game_players.sql; Something Wicked
+    // seats nobody; the seed user is fixture A's only player.
+    expect(all.find((s) => s.idGame === -15)?.playerCount).toBe(2);
+    expect(all.find((s) => s.idGame === -1)?.playerCount).toBe(0);
+    expect(all.find((s) => s.idGame === gameA)?.playerCount).toBe(1);
   });
 
   it("hides the caller's inactive stories unless asked to show them", async () => {

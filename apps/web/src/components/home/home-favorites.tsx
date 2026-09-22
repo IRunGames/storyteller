@@ -12,7 +12,7 @@ type Props = {
   initial: StoryCardData[];
 };
 
-// The home page's Favorite Stories block. A cut-down StoriesBoard: only one
+// The home page's Favorites block. A cut-down StoriesBoard: only one
 // list, and every card on it is a favorite, so a heart click can only ever
 // remove. The bookkeeping rule is the same one the board follows —
 // `serverOffset` counts rows the server sent, not cards on screen, so a

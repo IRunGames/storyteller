@@ -8,7 +8,7 @@ import { requireUser } from "@/lib/authorize";
 import { PAGE_SIZE, systemLabel, type StoryCardData, type StoryPlayer } from "@/lib/stories";
 import { newStorySchema } from "@/lib/story-schemas";
 
-const { games, systems, gamePlayers, gameFavorites, user: users } = schema;
+const { games, systems, gamePlayers, gameFavorites, gameSessions, user: users } = schema;
 
 // Every export here is a server action: it is the only way the Stories pages
 // touch the database, and each one starts by proving who is asking.
@@ -33,6 +33,26 @@ function favoritedBy(userId: string) {
   ).mapWith(Boolean);
 }
 
+// Whether the game's current session (games.id_game_session) is open. A
+// correlated EXISTS like favoritedBy, and it reads the pointer rather than
+// searching game_sessions for an open row: the pointer is what the table
+// runs on, so the card and the table can never disagree.
+const hasOpenSession = exists(
+  db
+    .select({ one: gameSessions.idGameSession })
+    .from(gameSessions)
+    .where(
+      and(eq(gameSessions.idGameSession, games.idGameSession), eq(gameSessions.status, "open")),
+    ),
+).mapWith(Boolean);
+
+// How many game_players rows the game has. A correlated subquery rather than
+// a join with GROUP BY, so the paging LIMIT still counts games, not players.
+// count() comes back as a bigint string from pg; the card wants a number.
+const playerCount = sql<number>`(
+  select count(*) from ${gamePlayers} where ${gamePlayers.idGame} = ${games.idGame}
+)`.mapWith(Number);
+
 // One projection shared by every list and by sa_getStory, so the card never sees
 // a shape that differs by section.
 function cardColumns(userId: string) {
@@ -53,6 +73,8 @@ function cardColumns(userId: string) {
     // The same preference the account menu uses (nickname, else name), and
     // NULLIF so a nickname that was blanked out does not win over the name.
     storytellerName: sql<string | null>`coalesce(nullif(${users.nickName}, ''), ${users.name})`,
+    hasOpenSession,
+    playerCount,
   };
 }
 

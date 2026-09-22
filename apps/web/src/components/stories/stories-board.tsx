@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Stack, Switch } from "@chakra-ui/react";
 import {
   PAGE_SIZE,
-  SECTION_ORDER,
+  SECTION_EMPTY_TEXT,
   SECTION_TITLES,
   type SectionKey,
   type StoryCardData,
@@ -13,17 +13,23 @@ import { StorySection } from "./story-section";
 
 type Loader = (offset: number) => Promise<StoryCardData[]>;
 
-type Props = {
-  initial: Record<SectionKey, StoryCardData[]>;
-  /**
-   * Server actions, one per section; called with the number already shown.
-   * My Stories also takes the "Show inactive" switch's state.
-   */
-  loadMore: {
-    favorites: Loader;
-    mine: (offset: number, showInactive: boolean) => Promise<StoryCardData[]>;
-    open: Loader;
-  };
+/**
+ * Server actions, one per section; called with the number already shown.
+ * My Stories also takes the "Show inactive" switch's state.
+ */
+type Loaders = {
+  favorites: Loader;
+  mine: (offset: number, showInactive: boolean) => Promise<StoryCardData[]>;
+  open: Loader;
+};
+
+// K is the sections a page shows (STORIES_SECTIONS, FIND_SECTIONS), so a page
+// must hand over exactly the first pages and loaders for those and no others.
+type Props<K extends SectionKey> = {
+  /** Which blocks to show, in order. */
+  sections: readonly K[];
+  initial: Record<K, StoryCardData[]>;
+  loadMore: Pick<Loaders, K>;
   /** Server action that writes the caller's favorite. */
   setFavorite: (idGame: number, isFavorite: boolean) => Promise<{ isFavorite: boolean }>;
 };
@@ -41,11 +47,14 @@ type SectionState = {
   hasMore: boolean;
   isLoadingMore: boolean;
 };
-type BoardState = Record<SectionKey, SectionState>;
+type BoardState<K extends SectionKey> = Record<K, SectionState>;
 
-function initialState(initial: Props["initial"]): BoardState {
-  const state = {} as BoardState;
-  for (const key of SECTION_ORDER) {
+function initialState<K extends SectionKey>(
+  sections: readonly K[],
+  initial: Record<K, StoryCardData[]>,
+): BoardState<K> {
+  const state = {} as BoardState<K>;
+  for (const key of sections) {
     const stories = initial[key];
     // A page shorter than PAGE_SIZE means the well is dry.
     state[key] = {
@@ -61,43 +70,68 @@ function initialState(initial: Props["initial"]): BoardState {
 /**
  * Applies a favorite change everywhere it shows: the heart on every copy of
  * the story, and membership of the Favorites list (prepended on add, removed
- * on remove). Pure, so the failure path can call it again with the old value.
+ * on remove) when that list is on the page. Pure, so the failure path can call
+ * it again with the old value.
  *
  * Deliberately leaves `serverOffset` alone: nothing here came from a page, so
  * the next More must still ask for the row after the last one the server sent.
  */
-function withFavorite(state: BoardState, story: StoryCardData, isFavorite: boolean): BoardState {
+function withFavorite<K extends SectionKey>(
+  state: BoardState<K>,
+  sections: readonly K[],
+  story: StoryCardData,
+  isFavorite: boolean,
+): BoardState<K> {
   const flip = (list: StoryCardData[]) =>
     list.map((s) => (s.idGame === story.idGame ? { ...s, isFavorite } : s));
 
-  const next = {} as BoardState;
-  for (const key of SECTION_ORDER) next[key] = { ...state[key], stories: flip(state[key].stories) };
+  const next = {} as BoardState<K>;
+  for (const key of sections) next[key] = { ...state[key], stories: flip(state[key].stories) };
 
-  const favorites = next.favorites.stories;
-  if (isFavorite && !favorites.some((s) => s.idGame === story.idGame)) {
-    next.favorites.stories = [{ ...story, isFavorite: true }, ...favorites];
+  // Widened because a generic K cannot say whether "favorites" is among the
+  // keys; on Find a Story it is not, and the heart just fills.
+  const favorites: SectionState | undefined = (next as Partial<BoardState<SectionKey>>).favorites;
+  if (!favorites) return next;
+
+  if (isFavorite && !favorites.stories.some((s) => s.idGame === story.idGame)) {
+    favorites.stories = [{ ...story, isFavorite: true }, ...favorites.stories];
   } else if (!isFavorite) {
-    next.favorites.stories = favorites.filter((s) => s.idGame !== story.idGame);
+    favorites.stories = favorites.stories.filter((s) => s.idGame !== story.idGame);
   }
   return next;
 }
 
-// The Stories page below its header. Owns all three lists because a heart
-// clicked in one section changes another; every write and every further page
-// still goes through a server action that re-checks the session.
-export function StoriesBoard({ initial, loadMore, setFavorite }: Props) {
-  const [board, setBoard] = useState(() => initialState(initial));
+// The Stories page and Find a Story below their headers. Owns every list it
+// shows because a heart clicked in one section changes another; every write
+// and every further page still goes through a server action that re-checks
+// the session.
+export function StoriesBoard<K extends SectionKey>({
+  sections,
+  initial,
+  loadMore,
+  setFavorite,
+}: Props<K>) {
+  const [board, setBoard] = useState(() => initialState(sections, initial));
   const [pendingFavorites, setPendingFavorites] = useState<ReadonlySet<number>>(new Set());
   const [showInactive, setShowInactive] = useState(false);
   const [, startTransition] = useTransition();
 
-  // The one loader whose result depends on client state. Bound here so the
-  // paging code below does not need to know which section has a switch.
-  function load(key: SectionKey, offset: number, inactive = showInactive) {
-    return key === "mine" ? loadMore.mine(offset, inactive) : loadMore[key](offset);
+  // Widened to every loader: `sections` and `loadMore` share K, so a shown
+  // section always has its loader, but a generic K cannot tell TypeScript
+  // which key carries the loader with the extra argument. My Stories is the
+  // one whose result depends on client state, bound here so the paging code
+  // below does not need to know which section has a switch.
+  function load(key: K, offset: number, inactive = showInactive) {
+    const loaders = loadMore as Loaders;
+    const byKey: Record<SectionKey, Loader> = {
+      favorites: loaders.favorites,
+      mine: (o) => loaders.mine(o, inactive),
+      open: loaders.open,
+    };
+    return byKey[key](offset);
   }
 
-  function onMore(key: SectionKey) {
+  function onMore(key: K) {
     // The server pages by row count, not by what the client happens to show:
     // an optimistic favorite would otherwise skip or repeat a row.
     const offset = board[key].serverOffset;
@@ -130,14 +164,16 @@ export function StoriesBoard({ initial, loadMore, setFavorite }: Props) {
   // Flipping the switch changes which rows the server counts, so My Stories
   // starts over from offset 0 rather than paging on from where it was.
   function onToggleInactive(inactive: boolean) {
+    // Only ever called from the switch, which only My Stories renders.
+    const mine = "mine" as K;
     setShowInactive(inactive);
-    setBoard((b) => ({ ...b, mine: { ...b.mine, isLoadingMore: true } }));
+    setBoard((b) => ({ ...b, [mine]: { ...b[mine], isLoadingMore: true } }));
     startTransition(async () => {
       try {
-        const page = await load("mine", 0, inactive);
+        const page = await load(mine, 0, inactive);
         setBoard((b) => ({
           ...b,
-          mine: {
+          [mine]: {
             stories: page,
             serverOffset: page.length,
             hasMore: page.length === PAGE_SIZE,
@@ -147,7 +183,7 @@ export function StoriesBoard({ initial, loadMore, setFavorite }: Props) {
       } catch {
         // Keep what was showing; the switch still reflects the request, so
         // flipping it again retries.
-        setBoard((b) => ({ ...b, mine: { ...b.mine, isLoadingMore: false } }));
+        setBoard((b) => ({ ...b, [mine]: { ...b[mine], isLoadingMore: false } }));
       }
     });
   }
@@ -155,13 +191,13 @@ export function StoriesBoard({ initial, loadMore, setFavorite }: Props) {
   function onToggleFavorite(story: StoryCardData, isFavorite: boolean) {
     if (pendingFavorites.has(story.idGame)) return;
     setPendingFavorites((p) => new Set(p).add(story.idGame));
-    setBoard((b) => withFavorite(b, story, isFavorite));
+    setBoard((b) => withFavorite(b, sections, story, isFavorite));
     startTransition(async () => {
       try {
         await setFavorite(story.idGame, isFavorite);
       } catch {
         // Put it back the way it was.
-        setBoard((b) => withFavorite(b, story, !isFavorite));
+        setBoard((b) => withFavorite(b, sections, story, !isFavorite));
       } finally {
         setPendingFavorites((p) => {
           const next = new Set(p);
@@ -174,7 +210,7 @@ export function StoriesBoard({ initial, loadMore, setFavorite }: Props) {
 
   return (
     <Stack gap="10">
-      {SECTION_ORDER.map((key) => {
+      {sections.map((key) => {
         const { stories, hasMore, isLoadingMore } = board[key];
         // Favorites earn their place at the top; an empty block there would
         // only push My Stories down for everyone who has not hearted anything.
@@ -185,6 +221,7 @@ export function StoriesBoard({ initial, loadMore, setFavorite }: Props) {
           <StorySection
             key={key}
             title={SECTION_TITLES[key]}
+            emptyText={SECTION_EMPTY_TEXT[key]}
             headerControl={
               key === "mine" ? (
                 <Switch.Root

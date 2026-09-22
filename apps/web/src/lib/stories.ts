@@ -25,6 +25,13 @@ export type StoryCardData = {
    * is not the storyteller; their own name on their own story says nothing.
    */
   storytellerName: string | null;
+  /**
+   * The game's current session is open, so play is under way at its table.
+   * A non-owner gets a Join button in the Play button's place.
+   */
+  hasOpenSession: boolean;
+  /** How many players sit at the table; the storyteller is not one of them. */
+  playerCount: number;
 };
 
 /** One row of a story's Players section. */
@@ -79,11 +86,23 @@ export function formatLastPlayed(date: Date): string {
   return lastPlayedFormat.format(date);
 }
 
-/** The three blocks of the Stories page, in the order they render. */
+/** Every titled block a stories board can show. */
 export type SectionKey = "favorites" | "mine" | "open";
-export const SECTION_ORDER: readonly SectionKey[] = ["favorites", "mine", "open"];
 export const SECTION_TITLES: Record<SectionKey, string> = {
-  favorites: "Favorite Stories",
+  favorites: "Favorites",
   mine: "My Stories",
   open: "Looking for Players",
 };
+export const SECTION_EMPTY_TEXT: Record<SectionKey, string> = {
+  favorites: "Nothing here yet.",
+  mine: "Nothing here yet.",
+  open: "No stories are looking for players right now.",
+};
+
+/**
+ * Which blocks each page shows, in order. The Stories page is the caller's
+ * own shelf; the stories other storytellers have opened to players are a
+ * page of their own, Find a Story, under Stories in the menu.
+ */
+export const STORIES_SECTIONS = ["favorites", "mine"] as const;
+export const FIND_SECTIONS = ["open"] as const;

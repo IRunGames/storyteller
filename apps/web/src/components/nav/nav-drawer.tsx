@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CloseButton, Drawer, IconButton, Portal, Stack } from "@chakra-ui/react";
+import { Box, CloseButton, Drawer, IconButton, Portal, Stack } from "@chakra-ui/react";
 import { NAV_ITEMS, isActive } from "./nav-items";
 import { NavLink } from "./nav-link";
 import { Menu as MenuIcon } from "lucide-react";
@@ -38,14 +38,29 @@ export function NavDrawer({ pathname }: { pathname: string }) {
             <Drawer.Body>
               <Stack as="nav" aria-label="Primary" gap="2">
                 {NAV_ITEMS.map((item) => (
-                  <NavLink
-                    key={item.href}
-                    href={item.href}
-                    active={isActive(pathname, item.href)}
-                    onNavigate={() => setOpen(false)}
-                  >
-                    {item.label}
-                  </NavLink>
+                  <Stack key={item.href} gap="2">
+                    <NavLink
+                      href={item.href}
+                      active={isActive(pathname, item.href)}
+                      onNavigate={() => setOpen(false)}
+                    >
+                      {item.label}
+                    </NavLink>
+                    {/* The drawer has the room the header lacks, so a
+                        section's sub-pages are listed under it, indented,
+                        rather than folded into a menu. */}
+                    {item.children?.map((child) => (
+                      <Box key={child.href} ps="6">
+                        <NavLink
+                          href={child.href}
+                          active={isActive(pathname, child.href)}
+                          onNavigate={() => setOpen(false)}
+                        >
+                          {child.label}
+                        </NavLink>
+                      </Box>
+                    ))}
+                  </Stack>
                 ))}
               </Stack>
             </Drawer.Body>

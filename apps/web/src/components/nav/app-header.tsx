@@ -9,6 +9,7 @@ import { NAV_ITEMS, isActive } from "./nav-items";
 import { NavDrawer } from "./nav-drawer";
 import { NavLink } from "./nav-link";
 import { NavNotificationsBell } from "./nav-notifications-bell";
+import { NavSubMenu } from "./nav-sub-menu";
 import { NavThemeMenu } from "./nav-theme-menu";
 
 // The signed-in app's menu bar. The table at /play/[id] has its own header
@@ -40,13 +41,14 @@ export function AppHeader() {
         <BrandMark active={isActive(pathname, "/home")} />
         <HStack as="nav" aria-label="Primary" gap="2" hideBelow="md">
           {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.href}
-              href={item.href}
-              active={isActive(pathname, item.href)}
-            >
-              {item.label}
-            </NavLink>
+            // A section with sub-pages keeps its pill as the link and grows a
+            // chevron that opens them; gap 0 so the two read as one control.
+            <HStack key={item.href} gap="0">
+              <NavLink href={item.href} active={isActive(pathname, item.href)}>
+                {item.label}
+              </NavLink>
+              {item.children && <NavSubMenu item={item} pathname={pathname} />}
+            </HStack>
           ))}
         </HStack>
       </HStack>
