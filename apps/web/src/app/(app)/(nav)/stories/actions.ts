@@ -5,7 +5,7 @@ import { and, asc, desc, eq, exists, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/authorize";
-import { PAGE_SIZE, systemLabel, type StoryCardData } from "@/lib/stories";
+import { PAGE_SIZE, systemLabel, type StoryCardData, type StoryPlayer } from "@/lib/stories";
 import { newStorySchema } from "@/lib/story-schemas";
 
 const { games, systems, gamePlayers, gameFavorites, user: users } = schema;
@@ -60,7 +60,7 @@ function cardColumns(userId: string) {
 // so all 14 share a timestamp — and a LIMIT/OFFSET pair over an unstable sort
 // can hand the same row to two different pages. id_game breaks the tie so the
 // sections page reliably.
-const cardOrder = [desc(games.updatedAt), desc(games.idGame)];
+const cardOrder = [desc(games.updatedAt), desc(games.gameTitle)];
 
 // Left joins, so a game with no system or whose creator row is gone still
 // makes a card. Every list starts here; a section adds its own join or WHERE.
@@ -138,6 +138,33 @@ export async function sa_getStory(idGame: number): Promise<StoryCardData | null>
   return story ?? null;
 }
 
+/**
+ * Who plays in a story, oldest member first. The storyteller is not among
+ * them: they own the game through games.id_created_by_user and have no
+ * game_players row (db/seeds/seed_game_players.sql says the same).
+ */
+export async function sa_listStoryPlayers(idGame: number): Promise<StoryPlayer[]> {
+  await requireUser();
+
+  // As in sa_getStory: an id Postgres cannot compare is not a story, so it
+  // has no players rather than raising.
+  const id = idGameSchema.safeParse(idGame);
+  if (!id.success) return [];
+
+  const name = sql<string>`coalesce(nullif(${users.nickName}, ''), ${users.name})`;
+
+  return (
+    db
+      .select({ idUser: users.id, name, image: users.image })
+      .from(gamePlayers)
+      .innerJoin(users, eq(gamePlayers.idUser, users.id))
+      .where(eq(gamePlayers.idGame, id.data))
+      // joined_at ties are the norm for rows seeded or added together, and the
+      // row id says nothing a reader would recognise, so the name breaks them.
+      .orderBy(asc(gamePlayers.joinedAt), asc(name))
+  );
+}
+
 export async function sa_listSystems(): Promise<{ idSystem: number; label: string }[]> {
   await requireUser();
 
@@ -151,7 +178,10 @@ export async function sa_listSystems(): Promise<{ idSystem: number; label: strin
     .from(systems)
     .orderBy(asc(systems.systemName), asc(systems.systemVersion), asc(systems.variant));
 
-  return rows.map((row) => ({ idSystem: row.idSystem, label: systemLabel(row) ?? row.systemName }));
+  return rows.map((row) => ({
+    idSystem: row.idSystem,
+    label: systemLabel(row) ?? row.systemName,
+  }));
 }
 
 export type CreateStoryResult = { ok: false; errors: Record<string, string> };
@@ -211,8 +241,15 @@ export async function sa_setFavorite(
   if (wanted) {
     await db
       .insert(gameFavorites)
-      .values({ idGame: id, idUser: user.id, idCreatedByUser: user.id, idUpdatedByUser: user.id })
-      .onConflictDoNothing({ target: [gameFavorites.idGame, gameFavorites.idUser] });
+      .values({
+        idGame: id,
+        idUser: user.id,
+        idCreatedByUser: user.id,
+        idUpdatedByUser: user.id,
+      })
+      .onConflictDoNothing({
+        target: [gameFavorites.idGame, gameFavorites.idUser],
+      });
   } else {
     await db
       .delete(gameFavorites)

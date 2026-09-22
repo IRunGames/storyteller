@@ -123,6 +123,9 @@ rows are taken down rather than deleted also sets `needs_archival = TRUE` and
 calls `_p_update_tables_archives()`, which adds `is_archived`, `archived_at`
 and `id_archived_by_user` with the triggers that keep them in step; see
 `custom/create_news_table.sql`.
+A table whose rows move through statuses maps itself to a workflow in the same
+`UPDATE _tables` and calls the workflow procedures; see
+`custom/create_game_sessions_table.sql` and `STATUS_WORKFLOWS.md`.
 
 ---
 

@@ -5,6 +5,7 @@ import {
   doublePrecision,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -175,6 +176,33 @@ export const gameFavorites = pgTable("game_favorites", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
+// One sitting of a game. status runs through the game_sessions workflow in
+// the database (open <-> suspended, either -> done; open is the default): a
+// CHECK limits the values, a trigger rejects any other transition, and a
+// trigger stamps openAt / suspendedAt / doneAt as the row enters each status,
+// appending the change to activityLog. length is generated in Postgres as the
+// whole minutes from openAt to doneAt, so it is null until the session is
+// done and is never written from here.
+export const gameSessionStatuses = ["open", "suspended", "done"] as const;
+export type GameSessionStatus = (typeof gameSessionStatuses)[number];
+
+export const gameSessions = pgTable("game_sessions", {
+  idGameSession: integer("id_game_session").primaryKey().generatedByDefaultAsIdentity(),
+  idGame: integer("id_game").notNull(),
+  status: varchar("status", { enum: gameSessionStatuses }).default("open").notNull(),
+  openAt: timestamp("open_at", { withTimezone: true }),
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+  doneAt: timestamp("done_at", { withTimezone: true }),
+  length: integer("length").generatedAlwaysAs(
+    sql`round(EXTRACT(EPOCH FROM (done_at - open_at)) / 60)::integer`,
+  ),
+  activityLog: jsonb("activity_log").default(sql`'[]'::jsonb`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
 export type Game = typeof games.$inferSelect;
 export type System = typeof systems.$inferSelect;
 
@@ -251,6 +279,7 @@ export const gamesRelations = relations(games, ({ one, many }) => ({
   }),
   players: many(gamePlayers),
   favorites: many(gameFavorites),
+  sessions: many(gameSessions),
 }));
 
 export const gamePlayersRelations = relations(gamePlayers, ({ one }) => ({
@@ -261,6 +290,11 @@ export const gamePlayersRelations = relations(gamePlayers, ({ one }) => ({
 export const gameFavoritesRelations = relations(gameFavorites, ({ one }) => ({
   game: one(games, { fields: [gameFavorites.idGame], references: [games.idGame] }),
   user: one(user, { fields: [gameFavorites.idUser], references: [user.id] }),
+}));
+
+export const gameSessionsRelations = relations(gameSessions, ({ one }) => ({
+  game: one(games, { fields: [gameSessions.idGame], references: [games.idGame] }),
+  storyteller: one(user, { fields: [gameSessions.idCreatedByUser], references: [user.id] }),
 }));
 
 export const feedbackRelations = relations(feedback, ({ one }) => ({

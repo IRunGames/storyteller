@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
 
-import { formatLastPlayed, systemLabel } from "./stories";
+import { cssUrlValue, formatLastPlayed, systemLabel } from "./stories";
 
 describe("systemLabel", () => {
   it("returns null when there is no system", () => {
@@ -24,5 +24,17 @@ describe("systemLabel", () => {
 describe("formatLastPlayed", () => {
   it("formats as a short month, day and year", () => {
     expect(formatLastPlayed(new Date("2015-06-25T12:00:00Z"))).toBe("Jun 25, 2015");
+  });
+});
+
+describe("cssUrlValue", () => {
+  it("escapes what could end a CSS url string", () => {
+    expect(cssUrlValue('https://x.test/a"b\\c\nd\re\ff.jpg')).toBe(
+      "https://x.test/a%22b%5Cc%0Ad%0De%0Cf.jpg",
+    );
+  });
+
+  it("leaves percent-escapes alone", () => {
+    expect(cssUrlValue("https://x.test/my%20cover.jpg")).toBe("https://x.test/my%20cover.jpg");
   });
 });

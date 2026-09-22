@@ -179,6 +179,23 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     expect(await actions.sa_getStory(3000000000)).toBeNull();
   });
 
+  it("lists a story's players by display name, in the order they joined", async () => {
+    // Vampire (-15) seats PaulKhash and Pol in db/seeds/seed_game_players.sql,
+    // with one joined_at between them, so the name breaks the tie. Pol is the
+    // seed user, who has no nickname, so their name is used.
+    const players = await actions.sa_listStoryPlayers(-15);
+
+    expect(players).toEqual([
+      { idUser: expect.any(String), name: "PaulKhash", image: null },
+      { idUser: SEED_USER, name: "Pol", image: null },
+    ]);
+  });
+
+  it("returns no players for a story without any, or with an unusable id", async () => {
+    expect(await actions.sa_listStoryPlayers(-1)).toEqual([]);
+    expect(await actions.sa_listStoryPlayers(3000000000)).toEqual([]);
+  });
+
   it("lists systems with a display label", async () => {
     const systems = await actions.sa_listSystems();
     expect(systems.length).toBeGreaterThan(100);

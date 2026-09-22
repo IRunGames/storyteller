@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
-import { Container, Heading, Stack, Text } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
-import { systemLabel } from "@/lib/stories";
-import { sa_getStory } from "../actions";
+import { StoryDetails } from "@/components/stories/story-details";
+import { sa_getStory, sa_listStoryPlayers } from "../actions";
 
-// Placeholder so a card click lands somewhere. The real story page comes later.
+// One story, behind a card's title. requireSession() here rather than
+// trusting the group layout; see lib/require-session.ts for why. Both actions
+// re-check the user against the database before touching data.
 export default async function StoryPage({ params }: { params: Promise<{ id: string }> }) {
   await requireSession();
 
@@ -15,18 +16,8 @@ export default async function StoryPage({ params }: { params: Promise<{ id: stri
   if (!/^-?\d+$/.test(id)) notFound();
   const idGame = Number(id);
 
-  const story = await sa_getStory(idGame);
+  const [story, players] = await Promise.all([sa_getStory(idGame), sa_listStoryPlayers(idGame)]);
   if (!story) notFound();
 
-  const system = systemLabel(story);
-
-  return (
-    <Container maxW="3xl" py="8">
-      <Stack gap="2">
-        <Heading size="3xl">{story.gameTitle}</Heading>
-        {system && <Text color="fg.muted">{system}</Text>}
-        {story.summary && <Text>{story.summary}</Text>}
-      </Stack>
-    </Container>
-  );
+  return <StoryDetails story={story} players={players} />;
 }

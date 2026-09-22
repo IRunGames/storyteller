@@ -17,33 +17,12 @@ import {
 } from "@chakra-ui/react";
 import {
   SUMMARY_PREVIEW_CHARS,
+  cssUrlValue,
   formatLastPlayed,
   systemLabel,
   type StoryCardData,
 } from "@/lib/stories";
 import { Heart, Play } from "lucide-react";
-
-/**
- * Escapes only what can terminate or confuse a CSS `url("…")` string.
- *
- * React writes the cover URL into a server-rendered `style` attribute, and the
- * HTML parser decodes that attribute before the CSS parser ever sees it — so a
- * stored URL containing a raw `"` would close the string and inject arbitrary
- * declarations into every viewer's page. A backslash escapes the next
- * character, and a newline, carriage return or form feed terminates the string
- * outright — CSS Syntax Level 3 preprocessing folds U+000C FORM FEED into a
- * newline before tokenizing, so it breaks out exactly like `\n` does, and
- * nothing upstream strips it (the URL parser only removes tab, LF and CR).
- *
- * Deliberately NOT encodeURI: that also rewrites `%` to `%25`, which breaks
- * every legitimate URL that already carries percent-escapes (`%20` for spaces,
- * unicode file names, encoded query strings) — common enough on image hosts
- * that it would be a real regression. story-schemas.ts pins the protocol to
- * http(s) as the other half of this fix.
- */
-function cssUrlValue(url: string): string {
-  return url.replace(/["\\\n\r\f]/g, (char) => encodeURIComponent(char));
-}
 
 type Props = {
   story: StoryCardData;
