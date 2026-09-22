@@ -184,7 +184,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
                     event.stopPropagation();
                   }}
                 >
-                  <NextLink href={`/play?game=${story.idGame}`}>
+                  <NextLink href={`/play/${story.idGame}`}>
                     <Play size={18} />
                   </NextLink>
                 </IconButton>

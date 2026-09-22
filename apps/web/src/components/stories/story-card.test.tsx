@@ -169,7 +169,7 @@ describe("StoryCard", () => {
 
     renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
     const play = screen.getByRole("link", { name: "Play" });
-    expect(play).toHaveAttribute("href", "/play?game=-13");
+    expect(play).toHaveAttribute("href", "/play/-13");
 
     await user.hover(play);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Start playing");

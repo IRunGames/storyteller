@@ -11,8 +11,8 @@ import { NavLink } from "./nav-link";
 import { NavNotificationsBell } from "./nav-notifications-bell";
 import { NavThemeMenu } from "./nav-theme-menu";
 
-// The signed-in app's menu bar. Play has its own layout and does not mount
-// this; every page under (app)/(nav)/ does.
+// The signed-in app's menu bar. The table at /play/[id] has its own header
+// and does not mount this; every page under (app)/(nav)/ does.
 export function AppHeader() {
   const pathname = usePathname();
 

@@ -24,7 +24,12 @@ interface ChatMessage {
   timestamp: number;
 }
 
-export default function Home() {
+// The table: where a story is played. It draws its own chrome instead of the
+// menu bar, so its page sits under (app)/play/[id] rather than (app)/(nav).
+// The chat is a placeholder until the messaging service lands; the page
+// already knows which game this is and will hand it over once there is
+// something to do with it.
+export function PlayTable() {
   const user = useUser();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // TODO: populate from the messaging service's presence feed.
