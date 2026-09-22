@@ -29,7 +29,7 @@ export function AppHeader() {
       borderColor="nav.border"
     >
       <HStack gap="9">
-        <BrandMark />
+        <BrandMark active={isActive(pathname, "/home")} />
         <HStack as="nav" aria-label="Primary" gap="2" hideBelow="md">
           {NAV_ITEMS.map((item) => (
             <NavLink

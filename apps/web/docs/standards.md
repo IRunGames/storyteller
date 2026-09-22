@@ -52,8 +52,21 @@ how we use it. Authentication has its own page, [`auth.md`](auth.md).
 rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
 - **Colour comes from semantic tokens** in [`theme.ts`](../src/theme.ts).
   Only the header reads `nav.*`; everything else keeps Chakra's defaults
-  (`fg.muted`, `whiteAlpha.*`). Tokens carry a `base` and `_dark` value, and
-  `next-themes` switches them by setting a class on `<html>`.
+  (`fg.muted`, `whiteAlpha.*`). Tokens carry a `base` and `_dark` value plus
+  `_halloween` and `_blackberry` where the theme has its own tint, and
+  `next-themes` switches them by setting a class on `<html>`. The two extra
+  themes are dark themes: the `dark` condition matches their classes too, so
+  a token with no `_halloween` value falls back to its `_dark` one. The list
+  of themes is [`themes.ts`](../src/lib/themes.ts); the provider hands it to
+  `next-themes` so the old class is removed on a switch.
+- **Anything that differs per theme is a CSS rule on the theme class**
+  (`css={{ ".halloween &": { display: "none" } }}` in
+  [`brand-mark.tsx`](../src/components/nav/brand-mark.tsx)), not a branch on
+  the theme in JavaScript, which would need `ClientOnly`. The selector is
+  spelled out because Chakra only types the `_halloween` condition after its
+  typegen CLI has run, which we do not do; tokens in `theme.ts` are untyped
+  and use `_halloween` directly. The snippet's `useColorModeValue` only knows
+  light and dark, so do not reach for it.
 - **State the server cannot know is rendered inside `ClientOnly`** with a
   `Skeleton` fallback, as the theme menu does: the resolved theme is unknown
   during SSR.

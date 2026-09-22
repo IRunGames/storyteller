@@ -1,22 +1,32 @@
 "use client";
 
 import { ClientOnly, IconButton, Menu, Portal, Skeleton, Tooltip } from "@chakra-ui/react";
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
+import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
-import { useColorMode, type ColorMode } from "@/components/ui/color-mode";
+import { THEMES, type Theme } from "@/lib/themes";
+import { BerryIcon, PumpkinIcon } from "./icons";
 
-const THEMES: { value: ColorMode; label: string }[] = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-];
+// The button shows the icon of the theme in force. The pumpkin and berry are
+// the Halloween and Blackberry brand marks reused, which is why they are not
+// Lucide icons.
+const ICONS: Record<Theme, ReactNode> = {
+  light: <Sun />,
+  dark: <Moon />,
+  halloween: <PumpkinIcon />,
+  blackberry: <BerryIcon />,
+};
 
-// A selector rather than a toggle so a third theme is one more entry in THEMES.
+// A selector rather than a toggle so a new theme is one more entry in THEMES.
+// It reads next-themes directly rather than through the color-mode snippet,
+// whose ColorMode type only knows light and dark.
 // Tooltip and menu each stamp an id on the one button and look their trigger
 // up by that id when positioning. Left to their own ids, the tooltip's wins
 // and the menu anchors to nothing, opening at the page corner. Handing both
 // the same trigger id keeps them pointed at the same element.
 export function NavThemeMenu() {
-  const { colorMode, setColorMode } = useColorMode();
+  const { resolvedTheme, setTheme } = useTheme();
+  const theme = (resolvedTheme ?? "dark") as Theme;
   const triggerId = useId();
 
   return (
@@ -40,7 +50,7 @@ export function NavThemeMenu() {
                 rounded="10px"
                 color="nav.icon"
               >
-                {colorMode === "dark" ? <Moon /> : <Sun />}
+                {ICONS[theme] ?? <Moon />}
               </IconButton>
             </Menu.Trigger>
           </Tooltip.Trigger>
@@ -51,14 +61,11 @@ export function NavThemeMenu() {
         <Portal>
           <Menu.Positioner>
             <Menu.Content>
-              <Menu.RadioItemGroup
-                value={colorMode}
-                onValueChange={(e) => setColorMode(e.value)}
-              >
-                {THEMES.map((theme) => (
-                  <Menu.RadioItem key={theme.value} value={theme.value}>
+              <Menu.RadioItemGroup value={theme} onValueChange={(e) => setTheme(e.value)}>
+                {THEMES.map((entry) => (
+                  <Menu.RadioItem key={entry.value} value={entry.value}>
                     <Menu.ItemIndicator />
-                    <Menu.ItemText>{theme.label}</Menu.ItemText>
+                    <Menu.ItemText>{entry.label}</Menu.ItemText>
                   </Menu.RadioItem>
                 ))}
               </Menu.RadioItemGroup>

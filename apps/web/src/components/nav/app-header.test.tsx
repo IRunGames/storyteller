@@ -91,6 +91,22 @@ describe("AppHeader", () => {
     expect(links[0]).not.toHaveAttribute("aria-current");
   });
 
+  it("highlights the brand mark on the home page it links to, and only there", () => {
+    pathname = "/home";
+    renderHeader();
+    expect(screen.getByRole("link", { name: "Storyteller" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    cleanup();
+
+    pathname = "/stories";
+    renderHeader();
+    expect(screen.getByRole("link", { name: "Storyteller" })).not.toHaveAttribute(
+      "aria-current",
+    );
+  });
+
   it("treats a nested path as part of its section", () => {
     pathname = "/characters/42";
     renderHeader();
@@ -129,13 +145,66 @@ describe("AppHeader", () => {
     await u.click(await screen.findByRole("button", { name: "Choose theme" }));
 
     const light = await screen.findByRole("menuitemradio", { name: "Light" });
-    expect(screen.getByRole("menuitemradio", { name: "Dark" })).toBeInTheDocument();
+    const items = screen.getAllByRole("menuitemradio");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Light",
+      "Dark",
+      "Halloween",
+      "Blackberry",
+    ]);
 
     await u.click(light);
 
     await waitFor(() =>
       expect(document.documentElement).toHaveClass("light"),
     );
+  });
+
+  it("puts the chosen theme's class on <html> and takes the old one off", async () => {
+    const u = userEvent.setup();
+    renderHeader();
+
+    await u.click(await screen.findByRole("button", { name: "Choose theme" }));
+    await u.click(await screen.findByRole("menuitemradio", { name: "Halloween" }));
+    await waitFor(() => expect(document.documentElement).toHaveClass("halloween"));
+
+    await u.click(await screen.findByRole("button", { name: "Choose theme" }));
+    await u.click(await screen.findByRole("menuitemradio", { name: "Blackberry" }));
+    await waitFor(() => expect(document.documentElement).toHaveClass("blackberry"));
+    // next-themes only clears classes it knows about, so a theme missing from
+    // the provider's list would leave both on the element at once.
+    expect(document.documentElement).not.toHaveClass("halloween");
+  });
+
+  it("shows the brand mark of the theme in force: sparkle, pumpkin or berry", async () => {
+    const u = userEvent.setup();
+    renderHeader();
+
+    const brand = screen.getByRole("link", { name: "Storyteller" });
+    const sparkle = brand.querySelector('[data-icon="sparkle"]')!;
+    const pumpkin = brand.querySelector('[data-icon="pumpkin"]')!;
+    const berry = brand.querySelector('[data-icon="berry"]')!;
+
+    async function choose(label: string, className: string) {
+      await u.click(await screen.findByRole("button", { name: "Choose theme" }));
+      await u.click(await screen.findByRole("menuitemradio", { name: label }));
+      await waitFor(() => expect(document.documentElement).toHaveClass(className));
+    }
+
+    await choose("Dark", "dark");
+    expect(sparkle).toBeVisible();
+    expect(pumpkin).not.toBeVisible();
+    expect(berry).not.toBeVisible();
+
+    await choose("Halloween", "halloween");
+    expect(pumpkin).toBeVisible();
+    expect(sparkle).not.toBeVisible();
+    expect(berry).not.toBeVisible();
+
+    await choose("Blackberry", "blackberry");
+    expect(berry).toBeVisible();
+    expect(sparkle).not.toBeVisible();
+    expect(pumpkin).not.toBeVisible();
   });
 
   it("names the account button with the nickname, else the name, else the email", async () => {
