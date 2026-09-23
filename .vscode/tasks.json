@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "just dev",
+      "detail": "Start the Storyteller web server on http://localhost:3000",
+      "type": "shell",
+      "command": "just dev",
+      "group": { "kind": "build", "isDefault": true },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "next-dev",
+        "pattern": { "regexp": "^$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Starting\\.\\.\\.",
+          "endsPattern": "Ready in"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "just sqllog",
+      "detail": "Log every SQL statement Postgres runs and tail the log; logging is switched off when the task is terminated",
+      "type": "shell",
+      "command": "just sqllog",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    }
+  ]
+}

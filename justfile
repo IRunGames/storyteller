@@ -95,6 +95,22 @@ psql *args:
     esac
     exec "$PSQL" "$url" "$@"
 
+# Logging is switched back off when the tail exits, however it exits.
+# Log every statement the server runs and tail the server log (Ctrl+C to stop)
+[group('db')]
+sqllog:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    log="$(just psql -Atc 'show data_directory')/postgresql.log"
+    just psql -q -c "ALTER SYSTEM SET log_statement = 'all'" -c "SELECT pg_reload_conf()" >/dev/null
+    trap 'just psql -q -c "ALTER SYSTEM RESET log_statement" -c "SELECT pg_reload_conf()" >/dev/null' EXIT
+    echo "Logging all statements to $log (Ctrl+C to stop)"
+    # Run the tail as a job so a signal to this shell (VS Code terminating the
+    # task, a plain kill) interrupts the wait, ends the tail, and reaches the trap.
+    tail -n 0 -F "$log" &
+    trap 'kill $! 2>/dev/null' INT TERM HUP
+    wait $! || true
+
 # Generate a new empty dbmate migration
 [group('dbmate')]
 [working-directory: 'db']
