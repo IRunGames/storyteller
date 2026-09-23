@@ -1,11 +1,18 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq, exists, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/authorize";
-import { PAGE_SIZE, systemLabel, type StoryCardData, type StoryPlayer } from "@/lib/stories";
+import {
+  PAGE_SIZE,
+  SESSIONS_PAGE_SIZE,
+  systemLabel,
+  type StoryCardData,
+  type StoryPlayer,
+  type StorySession,
+} from "@/lib/stories";
 import { newStorySchema } from "@/lib/story-schemas";
 
 const { games, systems, gamePlayers, gameFavorites, gameSessions, user: users } = schema;
@@ -33,16 +40,21 @@ function favoritedBy(userId: string) {
   ).mapWith(Boolean);
 }
 
-// Whether the game's current session (games.id_game_session) is open. A
-// correlated EXISTS like favoritedBy, and it reads the pointer rather than
-// searching game_sessions for an open row: the pointer is what the table
-// runs on, so the card and the table can never disagree.
+// Whether the game's current session (games.id_game_session) is being
+// played, which is status open or resumed: a session that came back from a
+// pause is at the table just as much as one that never paused. A correlated
+// EXISTS like favoritedBy, and it reads the pointer rather than searching
+// game_sessions for such a row: the pointer is what the table runs on, so
+// the card and the table can never disagree.
 const hasOpenSession = exists(
   db
     .select({ one: gameSessions.idGameSession })
     .from(gameSessions)
     .where(
-      and(eq(gameSessions.idGameSession, games.idGameSession), eq(gameSessions.status, "open")),
+      and(
+        eq(gameSessions.idGameSession, games.idGameSession),
+        inArray(gameSessions.status, ["open", "resumed"]),
+      ),
     ),
 ).mapWith(Boolean);
 
@@ -184,6 +196,44 @@ export async function sa_listStoryPlayers(idGame: number): Promise<StoryPlayer[]
       // joined_at ties are the norm for rows seeded or added together, and the
       // row id says nothing a reader would recognise, so the name breaks them.
       .orderBy(asc(gamePlayers.joinedAt), asc(name))
+  );
+}
+
+/**
+ * A story's sessions, newest first, a page at a time. Every status is
+ * listed: a session at the table or suspended is still one of the story's
+ * sessions, it just has no length yet. created_at sets the order: a session
+ * row is created as it opens, and unlike open_at it can never be null.
+ */
+export async function sa_listStorySessions(
+  idGame: number,
+  offset: number,
+): Promise<StorySession[]> {
+  await requireUser();
+  const skip = offsetSchema.parse(offset);
+
+  // As in sa_getStory: an id Postgres cannot compare is not a story, so it
+  // has no sessions rather than raising.
+  const id = idGameSchema.safeParse(idGame);
+  if (!id.success) return [];
+
+  return (
+    db
+      .select({
+        idGameSession: gameSessions.idGameSession,
+        status: gameSessions.status,
+        // created_at is nullable in the schema because every audit column is,
+        // but the database always stamps it; the view type wants a Date.
+        startedAt: sql<Date>`${gameSessions.createdAt}`.mapWith(gameSessions.createdAt),
+        length: gameSessions.length,
+      })
+      .from(gameSessions)
+      .where(eq(gameSessions.idGame, id.data))
+      // Sessions opened in one statement share a created_at, so the id
+      // breaks the tie and a page never repeats or skips a row.
+      .orderBy(desc(gameSessions.createdAt), desc(gameSessions.idGameSession))
+      .limit(SESSIONS_PAGE_SIZE)
+      .offset(skip)
   );
 }
 

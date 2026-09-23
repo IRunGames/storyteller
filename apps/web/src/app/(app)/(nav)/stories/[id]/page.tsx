@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
 import { StoryDetails } from "@/components/stories/story-details";
-import { sa_getStory, sa_listStoryPlayers } from "../actions";
+import { sa_getStory, sa_listStoryPlayers, sa_listStorySessions } from "../actions";
 
 // One story, behind a card's title. requireSession() here rather than
-// trusting the group layout; see lib/require-session.ts for why. Both actions
-// re-check the user against the database before touching data.
+// trusting the group layout; see lib/require-session.ts for why. Every action
+// re-checks the user against the database before touching data.
 export default async function StoryPage({ params }: { params: Promise<{ id: string }> }) {
   await requireSession();
 
@@ -16,8 +16,12 @@ export default async function StoryPage({ params }: { params: Promise<{ id: stri
   if (!/^-?\d+$/.test(id)) notFound();
   const idGame = Number(id);
 
-  const [story, players] = await Promise.all([sa_getStory(idGame), sa_listStoryPlayers(idGame)]);
+  const [story, players, sessions] = await Promise.all([
+    sa_getStory(idGame),
+    sa_listStoryPlayers(idGame),
+    sa_listStorySessions(idGame, 0),
+  ]);
   if (!story) notFound();
 
-  return <StoryDetails story={story} players={players} />;
+  return <StoryDetails story={story} players={players} sessions={sessions} />;
 }

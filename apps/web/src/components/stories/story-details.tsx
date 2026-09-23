@@ -6,21 +6,28 @@ import {
   systemLabel,
   type StoryCardData,
   type StoryPlayer,
+  type StorySession,
 } from "@/lib/stories";
+import { StorySessions } from "./story-sessions";
 
 type Props = {
   story: StoryCardData;
   players: StoryPlayer[];
+  /** The first page of the story's sessions; StorySessions fetches the rest. */
+  sessions: StorySession[];
 };
 
 // The story page's body: the cover as a full-bleed backdrop when there is one,
 // and the text in a dark panel over it. No hooks beyond useId, so the page can
 // render it on the server. Presentational only; stories/[id]/page.tsx loads
 // the data.
-export function StoryDetails({ story, players }: Props) {
+export function StoryDetails({ story, players, sessions }: Props) {
   const playersId = useId();
   const sessionsId = useId();
   const system = systemLabel(story);
+  // Secondary text sits on the dark panel when there is a cover, and on the
+  // plain page otherwise.
+  const mutedColor = story.imageUrl ? "whiteAlpha.800" : "fg.muted";
 
   return (
     // flex="1" fills the nav layout's column so the backdrop reaches the foot
@@ -99,7 +106,7 @@ export function StoryDetails({ story, players }: Props) {
             <Heading id={sessionsId} size="xl">
               Recent sessions
             </Heading>
-            <Text color={story.imageUrl ? "whiteAlpha.800" : "fg.muted"}>Coming soon.</Text>
+            <StorySessions idGame={story.idGame} initial={sessions} mutedColor={mutedColor} />
           </Stack>
         </Stack>
       </Container>

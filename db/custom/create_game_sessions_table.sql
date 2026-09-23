@@ -1,10 +1,11 @@
 -- One sitting of a game: a row each time the table is opened for play. Its
 -- status runs through the game_sessions workflow seeded in
--- seeds/seed_s_statuses.sql (open <-> suspended, either -> done; open is the
--- default), and the workflow procedures below add everything that enforces
--- it: the CHECK on status, the open_at / suspended_at / done_at columns, the
--- trigger that stamps each one when the row enters that status, and the
--- trigger that rejects any transition the workflow does not list. Every
+-- seeds/seed_s_statuses.sql (open -> suspended or done; suspended -> resumed
+-- or done; resumed -> suspended or done; open is the default), and the workflow
+-- procedures below add everything that enforces it: the CHECK on status, the
+-- open_at / suspended_at / resumed_at / done_at columns, the trigger that
+-- stamps each one when the row enters that status, and the trigger that
+-- rejects any transition the workflow does not list. Every
 -- transition is also appended to activity_log, which the transition trigger
 -- expects to find on the table.
 --
@@ -69,11 +70,33 @@ CALL _p_update_workflow_status_timestamp_triggers();
 CALL _p_attach_workflow_triggers();
 CALL _p_attach_status_transition_triggers();
 
--- How long the session ran, in whole minutes, from open_at to done_at. Both
--- columns are stamped by the workflow trigger, so this has to come after the
--- workflow is built. NULL until the session is done. open_at is re-stamped
--- each time a suspended session reopens, so a session that was suspended
--- measures from its last reopening, not its first.
+-- Time spent suspended. The trigger adds each pause as the row leaves
+-- suspended, so the generated length below can leave pauses out; zero for a
+-- session that never paused. The function is in
+-- functions/tr_add_game_sessions_paused_time.sql and has to be migrated
+-- before this script runs.
+ALTER TABLE game_sessions
+    ADD COLUMN IF NOT EXISTS paused_time interval NOT NULL DEFAULT '0';
+
+COMMENT ON COLUMN game_sessions.paused_time IS
+    'Time spent suspended, summed by tr_add_game_sessions_paused_time as each '
+    'pause ends; length subtracts it.';
+
+CREATE OR REPLACE TRIGGER tr_bu_game_sessions_paused_time
+    BEFORE UPDATE OF status ON game_sessions
+    FOR EACH ROW
+    WHEN (OLD.status = 'suspended' AND NEW.status IS DISTINCT FROM OLD.status)
+    EXECUTE FUNCTION tr_add_game_sessions_paused_time();
+
+-- How long the session ran, in whole minutes: open_at to done_at, less the
+-- time it sat suspended. open_at and done_at are stamped by the workflow
+-- trigger, so this has to come after the workflow is built. NULL until the
+-- session is done. Nothing leads back to open, so open_at is stamped once
+-- and a session measures from its first opening. A generated column's
+-- expression cannot be altered later, which is what the
+-- exclude_pauses_from_game_sessions_length migration works around.
 ALTER TABLE game_sessions
     ADD COLUMN IF NOT EXISTS length integer
-        GENERATED ALWAYS AS (round(EXTRACT(EPOCH FROM (done_at - open_at)) / 60)::integer) STORED;
+        GENERATED ALWAYS AS (
+            round(EXTRACT(EPOCH FROM (done_at - open_at - paused_time)) / 60)::integer
+        ) STORED;

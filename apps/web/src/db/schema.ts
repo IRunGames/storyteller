@@ -5,6 +5,7 @@ import {
   doublePrecision,
   index,
   integer,
+  interval,
   jsonb,
   pgTable,
   text,
@@ -26,7 +27,9 @@ import {
 
 export const user = pgTable("users", {
   // Better Auth field -> users column
-  id: uuid("id_user").primaryKey().default(sql`uuidv7()`),
+  id: uuid("id_user")
+    .primaryKey()
+    .default(sql`uuidv7()`),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
@@ -50,7 +53,9 @@ export const user = pgTable("users", {
 export const session = pgTable(
   "sessions",
   {
-    id: uuid("id_session").primaryKey().default(sql`uuidv7()`),
+    id: uuid("id_session")
+      .primaryKey()
+      .default(sql`uuidv7()`),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     token: text("token").notNull().unique(),
     ipAddress: text("ip_address"),
@@ -73,7 +78,9 @@ export const session = pgTable(
 export const account = pgTable(
   "accounts",
   {
-    id: uuid("id_account").primaryKey().default(sql`uuidv7()`),
+    id: uuid("id_account")
+      .primaryKey()
+      .default(sql`uuidv7()`),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
     userId: uuid("id_user")
@@ -98,7 +105,9 @@ export const account = pgTable(
 export const verification = pgTable(
   "verifications",
   {
-    id: uuid("id_verification").primaryKey().default(sql`uuidv7()`),
+    id: uuid("id_verification")
+      .primaryKey()
+      .default(sql`uuidv7()`),
     identifier: text("identifier").notNull(),
     value: text("value").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -180,13 +189,15 @@ export const gameFavorites = pgTable("game_favorites", {
 });
 
 // One sitting of a game. status runs through the game_sessions workflow in
-// the database (open <-> suspended, either -> done; open is the default): a
-// CHECK limits the values, a trigger rejects any other transition, and a
-// trigger stamps openAt / suspendedAt / doneAt as the row enters each status,
-// appending the change to activityLog. length is generated in Postgres as the
-// whole minutes from openAt to doneAt, so it is null until the session is
-// done and is never written from here.
-export const gameSessionStatuses = ["open", "suspended", "done"] as const;
+// the database (open -> suspended or done; suspended -> resumed or done;
+// resumed -> suspended or done; open is the default): a CHECK limits the values, a trigger
+// rejects any other transition, and a trigger stamps openAt / suspendedAt /
+// resumedAt / doneAt as the row enters each status, appending the change to
+// activityLog. pausedTime is the sum of the row's suspended stretches, added
+// to by a trigger as each one ends, and length is generated in Postgres as
+// the whole minutes from openAt to doneAt less pausedTime, so it is null
+// until the session is done. Neither is ever written from here.
+export const gameSessionStatuses = ["open", "suspended", "resumed", "done"] as const;
 export type GameSessionStatus = (typeof gameSessionStatuses)[number];
 
 export const gameSessions = pgTable("game_sessions", {
@@ -195,11 +206,15 @@ export const gameSessions = pgTable("game_sessions", {
   status: varchar("status", { enum: gameSessionStatuses }).default("open").notNull(),
   openAt: timestamp("open_at", { withTimezone: true }),
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+  resumedAt: timestamp("resumed_at", { withTimezone: true }),
   doneAt: timestamp("done_at", { withTimezone: true }),
+  pausedTime: interval("paused_time").default("0").notNull(),
   length: integer("length").generatedAlwaysAs(
-    sql`round(EXTRACT(EPOCH FROM (done_at - open_at)) / 60)::integer`,
+    sql`round(EXTRACT(EPOCH FROM (done_at - open_at - paused_time)) / 60)::integer`,
   ),
-  activityLog: jsonb("activity_log").default(sql`'[]'::jsonb`).notNull(),
+  activityLog: jsonb("activity_log")
+    .default(sql`'[]'::jsonb`)
+    .notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),

@@ -25,7 +25,7 @@ export default async function StoriesPage() {
   return (
     <Container maxW="full" py="8">
       <Stack gap="10">
-        <Flex justify="right" align="right" wrap="wrap" gap="4">
+        <Flex justify="flex-end" align="center" wrap="wrap" gap="4">
           <Button asChild>
             <NextLink href="/stories/new">New story</NextLink>
           </Button>

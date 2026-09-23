@@ -1,3 +1,5 @@
+import type { GameSessionStatus } from "@/db/schema";
+
 /** Cards per fetch in every Stories section. */
 export const PAGE_SIZE = 10;
 
@@ -32,6 +34,22 @@ export type StoryCardData = {
   hasOpenSession: boolean;
   /** How many players sit at the table; the storyteller is not one of them. */
   playerCount: number;
+};
+
+/** Sessions per fetch in a story's Recent sessions section. */
+export const SESSIONS_PAGE_SIZE = 5;
+
+/** One row of a story's Recent sessions section. */
+export type StorySession = {
+  idGameSession: number;
+  status: GameSessionStatus;
+  /** When the session was created, which is when it was opened. */
+  startedAt: Date;
+  /**
+   * Whole minutes at the table, generated in Postgres from open_at to done_at
+   * less the time spent suspended; null until the session is done.
+   */
+  length: number | null;
 };
 
 /** One row of a story's Players section. */
@@ -85,6 +103,25 @@ const lastPlayedFormat = new Intl.DateTimeFormat("en-US", {
 export function formatLastPlayed(date: Date): string {
   return lastPlayedFormat.format(date);
 }
+
+const hoursFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+
+/** "2.5 hours", "1 hour": a session's length in minutes as hours, to one decimal. */
+export function formatSessionLength(minutes: number): string {
+  const hours = hoursFormat.format(minutes / 60);
+  return `${hours} ${hours === "1" ? "hour" : "hours"}`;
+}
+
+/**
+ * What a session with no length says in its place. A done session always has
+ * one, so its entry is only there to keep the lookup total.
+ */
+export const SESSION_STATUS_TEXT: Record<GameSessionStatus, string> = {
+  open: "In progress",
+  suspended: "Suspended",
+  resumed: "In progress",
+  done: "Done",
+};
 
 /** Every titled block a stories board can show. */
 export type SectionKey = "favorites" | "mine" | "open";

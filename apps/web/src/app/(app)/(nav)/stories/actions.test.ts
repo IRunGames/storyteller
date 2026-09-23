@@ -10,7 +10,8 @@
 // database default, so it can never collide with the seed's negative ids.
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { loadEnvConfig } from "@next/env";
 
 loadEnvConfig(process.cwd());
@@ -39,6 +40,8 @@ let gameA = 0;
 let gameB = 0;
 let gameC = 0;
 let gameD = 0;
+let openSessionId = 0;
+let pastSessionIds: number[] = [];
 let fixtureGameIds: number[] = [];
 
 describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
@@ -103,6 +106,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .insert(tables.gameSessions)
       .values({ idGame: gameA })
       .returning({ id: tables.gameSessions.idGameSession });
+    openSessionId = openSession.id;
     const [doneSession] = await db
       .insert(tables.gameSessions)
       .values({ idGame: gameB })
@@ -119,6 +123,45 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .update(tables.games)
       .set({ idGameSession: doneSession.id })
       .where(eq(tables.games.idGame, gameB));
+
+    // D's current session came back from a pause: open -> suspended ->
+    // resumed, one update per step because the trigger only allows the
+    // transitions the workflow lists. It is at the table just like A's.
+    const [resumedSession] = await db
+      .insert(tables.gameSessions)
+      .values({ idGame: gameD })
+      .returning({ id: tables.gameSessions.idGameSession });
+    for (const status of ["suspended", "resumed"] as const) {
+      await db
+        .update(tables.gameSessions)
+        .set({ status })
+        .where(eq(tables.gameSessions.idGameSession, resumedSession.id));
+    }
+    await db
+      .update(tables.games)
+      .set({ idGameSession: resumedSession.id })
+      .where(eq(tables.games.idGame, gameD));
+
+    // A has played before: five finished sessions on top of the open one, so
+    // sa_listStorySessions has a full first page and one row left over. They
+    // are inserted after the open session, so they are newer than it and the
+    // open one is what the second page holds. The workflow trigger stamps
+    // open_at with NOW() on insert and done_at on the move to done; open_at
+    // is pushed back first so the generated length is 90 minutes rather
+    // than the few milliseconds between the two statements.
+    const pastSessions = await db
+      .insert(tables.gameSessions)
+      .values(Array.from({ length: 5 }, () => ({ idGame: gameA })))
+      .returning({ id: tables.gameSessions.idGameSession });
+    pastSessionIds = pastSessions.map((row) => row.id);
+    await db
+      .update(tables.gameSessions)
+      .set({ openAt: sql`now() - interval '90 minutes'` })
+      .where(inArray(tables.gameSessions.idGameSession, pastSessionIds));
+    await db
+      .update(tables.gameSessions)
+      .set({ status: "done" })
+      .where(inArray(tables.gameSessions.idGameSession, pastSessionIds));
   });
 
   after(async () => {
@@ -228,6 +271,55 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     expect(await actions.sa_listStoryPlayers(3000000000)).toEqual([]);
   });
 
+  it("lists a story's sessions newest first, five at a time, with their length", async () => {
+    const first = await actions.sa_listStorySessions(gameA, 0);
+    expect(first.map((s) => s.idGameSession)).toEqual([...pastSessionIds].sort((a, b) => b - a));
+    for (const session of first) {
+      expect(session.status).toBe("done");
+      expect(session.length).toBe(90);
+      expect(session.startedAt).toBeInstanceOf(Date);
+    }
+
+    // The open session is the oldest, so it is all the second page holds,
+    // and it has no length yet.
+    const second = await actions.sa_listStorySessions(gameA, 5);
+    expect(second).toHaveLength(1);
+    expect(second[0].idGameSession).toBe(openSessionId);
+    expect(second[0].status).toBe("open");
+    expect(second[0].length).toBeNull();
+  });
+
+  it("leaves the time a session sat suspended out of its length", async () => {
+    const [session] = await db
+      .insert(tables.gameSessions)
+      .values({ idGame: gameB })
+      .returning({ id: tables.gameSessions.idGameSession });
+    // PgUpdateSetSource rather than the insert type so a value may be SQL.
+    const set = (values: PgUpdateSetSource<typeof tables.gameSessions>) =>
+      db
+        .update(tables.gameSessions)
+        .set(values)
+        .where(eq(tables.gameSessions.idGameSession, session.id));
+
+    // Opened 90 minutes ago, paused 30 minutes ago, resumed now and done now:
+    // an hour at the table. The workflow trigger stamps suspended_at with
+    // NOW() on the move to suspended, so it is pushed back afterwards, in
+    // its own statement, the way open_at is for the page-one fixtures.
+    await set({ openAt: sql`now() - interval '90 minutes'` });
+    await set({ status: "suspended" });
+    await set({ suspendedAt: sql`now() - interval '30 minutes'` });
+    await set({ status: "resumed" });
+    await set({ status: "done" });
+
+    const sessions = await actions.sa_listStorySessions(gameB, 0);
+    expect(sessions.find((s) => s.idGameSession === session.id)?.length).toBe(60);
+  });
+
+  it("returns no sessions for a story without any, or with an unusable id", async () => {
+    expect(await actions.sa_listStorySessions(gameC, 0)).toEqual([]);
+    expect(await actions.sa_listStorySessions(2 ** 40, 0)).toEqual([]);
+  });
+
   it("lists systems with a display label", async () => {
     const systems = await actions.sa_listSystems();
     expect(systems.length).toBeGreaterThan(100);
@@ -269,6 +361,9 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
 
     // No current session at all.
     expect((await actions.sa_getStory(-1))?.hasOpenSession).toBe(false);
+
+    // Resumed after a pause counts as open: the table is in play again.
+    expect((await actions.sa_getStory(gameD))?.hasOpenSession).toBe(true);
   });
 
   it("counts each card's players", async () => {

@@ -1,3 +1,18 @@
+-- migrate:up
+DO $$
+DECLARE
+    row_count BIGINT;
+BEGIN
+    RAISE NOTICE '[%] START SEEDING', clock_timestamp();
+    SET session_replication_role = 'replica';
+
+    RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
+
+    DELETE FROM s_statuses WHERE s_status_id < 0;
+
+    RAISE NOTICE '+++    [%] Seeding s_statuses', clock_timestamp();
+
+    -- ------------------------------------------------------------
     -- Seed data for `s_statuses`: the statuses of every workflow in
     -- s_status_workflows. transition_from_status_keys lists the statuses a
     -- row may arrive FROM. An empty array means nothing leads to it; NULL
@@ -40,3 +55,16 @@
     CALL _p_update_workflow_status_timestamp_triggers();
     CALL _p_attach_workflow_triggers();
     CALL _p_attach_status_transition_triggers();
+    -- ------------------------------------------------------------
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+
+    RAISE NOTICE '>>>    [%] Rows inserted: %', CLOCK_TIMESTAMP(), row_count;
+
+    -- ------------------------------------------------------------
+    SET session_replication_role = 'origin';
+
+    RAISE NOTICE '[%] DONE SEEDING', clock_timestamp();
+END $$;
+
+-- migrate:down
+

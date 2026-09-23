@@ -35,18 +35,25 @@ the workflow ID from step 1. `s_status_id` is numbered downwards automatically.
 Each row is: `(workflow_id, status_key, description, transition_from_status_keys)`
 
 - `transition_from_status_keys` is an array of status keys that can transition **to** this status
-- Use `NULL` if no other status can transition to it (but note: if bidirectional, the initial status should list keys that can return to it)
-- Two statuses may point at each other: the seed runs with
-  `session_replication_role = 'replica'`, which turns off the trigger that
-  checks each listed key already exists, so a cycle inserts in one statement
+- Use `ARRAY[]::text[]` if no other status can transition to it (the initial
+  status, unless something can return to it). `NULL` is not the same thing:
+  `validate_status_transition` skips the check for a status whose list is
+  NULL, so any status could move into it
+- Rows may be listed in any order and two statuses may point at each other:
+  the seed runs with `session_replication_role = 'replica'`, which turns off
+  the trigger that checks each listed key already exists, so a workflow
+  inserts in one statement
+- It helps to write the transitions **from** each status in a comment
+  first, then invert them into each row's list, as the example does
 
-Example (open <-> suspended, either -> done):
+Example (open -> suspended or done; suspended -> resumed or done; resumed -> suspended or done):
 
 ```sql
 -- Game sessions: `game_sessions`
-(-1, 'open',      'The session is being played.',           ARRAY['suspended']),
-(-1, 'suspended', 'The session is paused, to be resumed.', ARRAY['open']),
-(-1, 'done',      'The session has ended.',                ARRAY['open', 'suspended'])
+(-1, 'open',      'The session is being played.',                     ARRAY[]::text[]),
+(-1, 'suspended', 'The session is paused, to be resumed.',           ARRAY['open', 'resumed']),
+(-1, 'resumed',   'The session is being played again after a pause.', ARRAY['suspended']),
+(-1, 'done',      'The session has ended.',                          ARRAY['open', 'suspended', 'resumed'])
 ```
 
 ### 3. Map the table to the workflow in its create script
@@ -97,5 +104,5 @@ Verify in the database:
 - **`_tables`** row for the target table has `s_status_workflow_ids` set to the new workflow ID
 - The target table now has:
   - A CHECK constraint on the `status` column
-  - Timestamp columns for each status (e.g. `open_at`, `suspended_at`, `done_at`)
+  - Timestamp columns for each status (e.g. `open_at`, `suspended_at`, `resumed_at`, `done_at`)
   - Transition-enforcement triggers
