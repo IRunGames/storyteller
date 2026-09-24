@@ -1,6 +1,6 @@
 import { before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
@@ -108,6 +108,59 @@ describe("UserPreferencesProvider", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Sidebar open" })).toBeInTheDocument(),
     );
+  });
+
+  it("restores the stored theme when it loads", async () => {
+    renderToggle({ theme: "halloween" });
+
+    await waitFor(() => expect(document.documentElement).toHaveClass("halloween"));
+  });
+
+  it("follows the stored theme, so a refused save reverts the theme too", async () => {
+    renderToggle({ theme: "halloween" });
+    await waitFor(() => expect(document.documentElement).toHaveClass("halloween"));
+
+    // Sets the key directly, the way the theme menu does, rather than through
+    // the sidebar toggle above.
+    function ThemeSetter() {
+      const preferences = useUserPreferences();
+      return (
+        <button type="button" onClick={() => void preferences.set("theme", "blackberry")}>
+          Blackberry
+        </button>
+      );
+    }
+    sa_setUserPreference.mock.mockImplementation(async () => ({
+      ok: false,
+      errors: { root: "The preference could not be saved." },
+    }));
+    cleanup();
+    renderWithProviders(
+      <UserPreferencesProvider preferences={{ theme: "halloween" }}>
+        <ThemeSetter />
+      </UserPreferencesProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Blackberry" }));
+
+    // The optimistic write applies the theme; the refusal takes it back.
+    await waitFor(() => expect(document.documentElement).toHaveClass("halloween"));
+    expect(document.documentElement).not.toHaveClass("blackberry");
+  });
+
+  it("leaves the theme alone when the stored value is not a theme it knows", async () => {
+    // Put a known theme in force first so there is something to keep.
+    renderToggle({ theme: "dark" });
+    await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
+    cleanup();
+
+    renderToggle({ theme: "neon" });
+
+    // next-themes applies a change in an effect, so give it a moment before
+    // asserting that nothing moved.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(document.documentElement).toHaveClass("dark");
+    expect(document.documentElement).not.toHaveClass("neon");
   });
 
   it("refuses to be read outside a logged-in page", () => {

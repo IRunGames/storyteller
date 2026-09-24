@@ -5,6 +5,7 @@ import { useId, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
 import { THEMES, type Theme } from "@/lib/themes";
+import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { BerryIcon, PumpkinIcon } from "./icons";
 
 // The button shows the icon of the theme in force. The pumpkin and berry are
@@ -28,6 +29,16 @@ export function NavThemeMenu() {
   const { resolvedTheme, setTheme } = useTheme();
   const theme = (resolvedTheme ?? "dark") as Theme;
   const triggerId = useId();
+  const preferences = useUserPreferences();
+
+  // The theme is applied here as well as recorded, rather than left to the
+  // preferences provider's effect alone, so the switch does not wait on a
+  // render of the whole tree under the provider. Recording it is what lets
+  // the provider restore it on the next sign-in, on any browser.
+  const choose = (value: string) => {
+    setTheme(value);
+    void preferences.set("theme", value);
+  };
 
   return (
     // The resolved theme is unknown during SSR, so the icon can only be
@@ -61,7 +72,7 @@ export function NavThemeMenu() {
         <Portal>
           <Menu.Positioner>
             <Menu.Content>
-              <Menu.RadioItemGroup value={theme} onValueChange={(e) => setTheme(e.value)}>
+              <Menu.RadioItemGroup value={theme} onValueChange={(e) => choose(e.value)}>
                 {THEMES.map((entry) => (
                   <Menu.RadioItem key={entry.value} value={entry.value}>
                     <Menu.ItemIndicator />

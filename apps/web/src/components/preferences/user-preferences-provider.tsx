@@ -1,6 +1,8 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useTheme } from "next-themes";
+import { THEME_NAMES, type Theme } from "@/lib/themes";
 import type { JsonValue, UserPreferenceMap } from "@/lib/user-preference-schemas";
 import { sa_setUserPreference, type SetUserPreferenceResult } from "./actions";
 
@@ -36,6 +38,21 @@ export function UserPreferencesProvider({
   children: React.ReactNode;
 }) {
   const [map, setMap] = useState(preferences);
+
+  // The stored "theme" preference drives next-themes, which is what carries
+  // a user's theme from one browser to the next: next-themes alone only
+  // remembers it in this browser's localStorage. Keyed on the stored value
+  // rather than run once on mount so that when a save is refused and the
+  // map reverts, the theme reverts with it. A value that is not in THEMES
+  // (a theme since removed, or a hand-edited row) is left alone rather than
+  // put on <html> as a class nothing styles.
+  const { setTheme } = useTheme();
+  const storedTheme = map.theme;
+  useEffect(() => {
+    if (typeof storedTheme === "string" && THEME_NAMES.includes(storedTheme as Theme)) {
+      setTheme(storedTheme);
+    }
+  }, [storedTheme, setTheme]);
 
   // Rebuilt only when the map changes, so a consumer that reads nothing that
   // moved is not re-rendered by a parent's render.

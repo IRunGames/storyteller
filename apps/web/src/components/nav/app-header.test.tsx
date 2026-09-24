@@ -34,16 +34,28 @@ const sa_submitFeedback = mock.fn<(values: unknown) => Promise<SubmitFeedback>>(
   async () => ({ ok: true }),
 );
 
+// The theme menu records the chosen theme through the preferences provider,
+// which imports this action itself.
+type SetPreference = import("@/components/preferences/actions").SetUserPreferenceResult;
+const sa_setUserPreference = mock.fn<(input: unknown) => Promise<SetPreference>>(
+  async () => ({ ok: true }),
+);
+
 // Static imports are hoisted, so the module under test can only be loaded
 // after the mocks are registered — hence the dynamic import in `before`.
 let AppHeader: typeof import("./app-header").AppHeader;
+type PreferencesModule = typeof import("@/components/preferences/user-preferences-provider");
+let UserPreferencesProvider: PreferencesModule["UserPreferencesProvider"];
 
-// The header reads the signed-in user from UserProvider, as it would under
-// (app)/layout.tsx, rather than from a prop.
+// The header reads the signed-in user from UserProvider and the preference
+// map from UserPreferencesProvider, as it would under (app)/layout.tsx,
+// rather than from props.
 function renderHeader(who: CurrentUser = user) {
   return renderWithProviders(
     <UserProvider user={who}>
-      <AppHeader />
+      <UserPreferencesProvider preferences={{}}>
+        <AppHeader />
+      </UserPreferencesProvider>
     </UserProvider>,
   );
 }
@@ -55,8 +67,12 @@ describe("AppHeader", () => {
     });
     mock.module("@/lib/auth-client", { namedExports: { signOut } });
     mock.module("@/components/feedback/actions", { namedExports: { sa_submitFeedback } });
+    mock.module("@/components/preferences/actions", { namedExports: { sa_setUserPreference } });
 
     ({ AppHeader } = await import("./app-header"));
+    ({ UserPreferencesProvider } = await import(
+      "@/components/preferences/user-preferences-provider"
+    ));
   });
 
   beforeEach(() => {
@@ -66,6 +82,8 @@ describe("AppHeader", () => {
     signOut.mock.resetCalls();
     sa_submitFeedback.mock.resetCalls();
     sa_submitFeedback.mock.mockImplementation(async () => ({ ok: true }));
+    sa_setUserPreference.mock.resetCalls();
+    sa_setUserPreference.mock.mockImplementation(async () => ({ ok: true }));
   });
 
   // The toaster is a module-level store, so a toast raised in one test would
@@ -252,6 +270,19 @@ describe("AppHeader", () => {
     expect(document.documentElement).not.toHaveClass("halloween");
   });
 
+  it("records the chosen theme as the user's theme preference", async () => {
+    const u = userEvent.setup();
+    renderHeader();
+
+    await u.click(await screen.findByRole("button", { name: "Choose theme" }));
+    await u.click(await screen.findByRole("menuitemradio", { name: "Halloween" }));
+
+    await waitFor(() => expect(sa_setUserPreference.mock.callCount()).toBe(1));
+    expect(sa_setUserPreference.mock.calls[0].arguments).toEqual([
+      { key: "theme", value: "halloween" },
+    ]);
+  });
+
   it("shows the brand mark of the theme in force: sparkle, pumpkin or berry", async () => {
     const u = userEvent.setup();
     renderHeader();
@@ -373,7 +404,9 @@ describe("AppHeader", () => {
       const u = userEvent.setup();
       renderWithProviders(
         <UserProvider user={user}>
-          <AppHeader />
+          <UserPreferencesProvider preferences={{}}>
+            <AppHeader />
+          </UserPreferencesProvider>
           <Toaster />
         </UserProvider>,
       );
