@@ -8,8 +8,8 @@ import { SUMMARY_PREVIEW_CHARS, type StoryCardData } from "@/lib/stories";
 import { StoryCard } from "./story-card";
 
 const story: StoryCardData = {
-  idGame: -13,
-  gameTitle: "The Devil's Spine",
+  idStory: -13,
+  title: "The Devil's Spine",
   summary: "Baron Tichronius marches to war.",
   imageUrl: "https://rpg.irun.games/images/x.jpg",
   lastPlayed: new Date("2015-06-25T12:00:00Z"),
@@ -84,7 +84,7 @@ describe("StoryCard", () => {
     expect(cover.style.backgroundImage).not.toContain("%2520");
   });
 
-  it("leaves the system line out when the game has no system", () => {
+  it("leaves the system line out when the story has no system", () => {
     renderWithProviders(
       <StoryCard story={{ ...story, systemName: null, systemVersion: null, variant: null }} />,
     );
@@ -156,7 +156,7 @@ describe("StoryCard", () => {
     expect(screen.getByText("Storyteller: Pol")).toBeInTheDocument();
   });
 
-  it("leaves the storyteller line out for the owner, or when the game has no creator", () => {
+  it("leaves the storyteller line out for the owner, or when the story has no creator", () => {
     renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
     expect(screen.queryByText(/Storyteller:/)).not.toBeInTheDocument();
 
@@ -207,10 +207,10 @@ describe("StoryCard", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Player Count");
     await user.unhover(bubble);
 
-    renderWithProviders(<StoryCard story={{ ...story, idGame: -14, playerCount: 1 }} />);
+    renderWithProviders(<StoryCard story={{ ...story, idStory: -14, playerCount: 1 }} />);
     expect(screen.getByLabelText("1 player")).toHaveTextContent("1");
 
-    renderWithProviders(<StoryCard story={{ ...story, idGame: -15, playerCount: 0 }} />);
+    renderWithProviders(<StoryCard story={{ ...story, idStory: -15, playerCount: 0 }} />);
     const empty = screen.getByLabelText("0 players");
     // Nobody at the table: the person is struck through and no digit shown,
     // so the hidden screen-reader label is the pill's only text.

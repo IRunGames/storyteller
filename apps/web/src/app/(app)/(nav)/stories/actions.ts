@@ -17,54 +17,54 @@ import {
 } from "@/lib/stories";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
 
-const { games, systems, gamePlayers, gameFavorites, gameSessions, user: users } = schema;
+const { stories, systems, storyPlayers, storyFavorites, storySessions, user: users } = schema;
 
 // Every export here is a server action: it is the only way the Stories pages
 // touch the database, and each one starts by proving who is asking.
 
 const offsetSchema = z.number().int().min(0);
 
-// games.id_game is int4. An id outside that range is not "not found yet" to
+// stories.id_story is int4. An id outside that range is not "not found yet" to
 // Postgres, it is a query error, so it gets filtered out before the query
 // rather than after.
-const idGameSchema = z.number().int().min(-2147483648).max(2147483647);
+const idStorySchema = z.number().int().min(-2147483648).max(2147483647);
 
-// Whether the caller has favorited the game on the current outer row. It is
+// Whether the caller has favorited the story on the current outer row. It is
 // a correlated EXISTS rather than a join so a favorite never duplicates or
 // drops a card, and it is scoped to the caller: nobody sees anyone else's
 // hearts.
 function favoritedBy(userId: string) {
   return exists(
     db
-      .select({ one: gameFavorites.idGameFavorite })
-      .from(gameFavorites)
-      .where(and(eq(gameFavorites.idGame, games.idGame), eq(gameFavorites.idUser, userId))),
+      .select({ one: storyFavorites.idStoryFavorite })
+      .from(storyFavorites)
+      .where(and(eq(storyFavorites.idStory, stories.idStory), eq(storyFavorites.idUser, userId))),
   ).mapWith(Boolean);
 }
 
-// Whether the game's current session (games.id_game_session) is being
+// Whether the story's current session (stories.id_story_session) is being
 // played, which is status open or resumed: a session that came back from a
 // pause is at the table just as much as one that never paused. A correlated
 // EXISTS like favoritedBy, and it reads the pointer rather than searching
-// game_sessions for such a row: the pointer is what the table runs on, so
+// story_sessions for such a row: the pointer is what the table runs on, so
 // the card and the table can never disagree.
 const hasOpenSession = exists(
   db
-    .select({ one: gameSessions.idGameSession })
-    .from(gameSessions)
+    .select({ one: storySessions.idStorySession })
+    .from(storySessions)
     .where(
       and(
-        eq(gameSessions.idGameSession, games.idGameSession),
-        inArray(gameSessions.status, ["open", "resumed"]),
+        eq(storySessions.idStorySession, stories.idStorySession),
+        inArray(storySessions.status, ["open", "resumed"]),
       ),
     ),
 ).mapWith(Boolean);
 
-// How many game_players rows the game has. A correlated subquery rather than
-// a join with GROUP BY, so the paging LIMIT still counts games, not players.
+// How many story_players rows the story has. A correlated subquery rather than
+// a join with GROUP BY, so the paging LIMIT still counts stories, not players.
 // count() comes back as a bigint string from pg; the card wants a number.
 const playerCount = sql<number>`(
-  select count(*) from ${gamePlayers} where ${gamePlayers.idGame} = ${games.idGame}
+  select count(*) from ${storyPlayers} where ${storyPlayers.idStory} = ${stories.idStory}
 )`.mapWith(Number);
 
 // How a user is shown everywhere, storyteller or player: the same preference
@@ -76,19 +76,19 @@ const playerName = sql<string>`coalesce(nullif(${users.nickName}, ''), ${users.n
 // a shape that differs by section.
 function cardColumns(userId: string) {
   return {
-    idGame: games.idGame,
-    gameTitle: games.gameTitle,
-    summary: games.summary,
-    imageUrl: games.imageUrl,
-    lastPlayed: games.lastPlayed,
+    idStory: stories.idStory,
+    title: stories.title,
+    summary: stories.summary,
+    imageUrl: stories.imageUrl,
+    lastPlayed: stories.lastPlayed,
     systemName: systems.systemName,
     systemVersion: systems.systemVersion,
     variant: systems.variant,
     isFavorite: favoritedBy(userId),
-    // NULL = userId is NULL in SQL, and Boolean(null) is false, so a game with
+    // NULL = userId is NULL in SQL, and Boolean(null) is false, so a story with
     // no recorded creator has no owner rather than an error.
-    isOwner: eq(games.idCreatedByUser, userId).mapWith(Boolean),
-    isActive: games.isActive,
+    isOwner: eq(stories.idCreatedByUser, userId).mapWith(Boolean),
+    isActive: stories.isActive,
     // Null when the left join found no creator row.
     storytellerName: sql<string | null>`${playerName}`,
     hasOpenSession,
@@ -96,30 +96,30 @@ function cardColumns(userId: string) {
   };
 }
 
-// updated_at ties are common — the seed inserts every game in one statement,
+// updated_at ties are common — the seed inserts every story in one statement,
 // so all 14 share a timestamp — and a LIMIT/OFFSET pair over an unstable sort
-// can hand the same row to two different pages. id_game breaks the tie so the
+// can hand the same row to two different pages. id_story breaks the tie so the
 // sections page reliably.
-const cardOrder = [desc(games.updatedAt), desc(games.gameTitle)];
+const cardOrder = [desc(stories.updatedAt), desc(stories.title)];
 
-// Left joins, so a game with no system or whose creator row is gone still
+// Left joins, so a story with no system or whose creator row is gone still
 // makes a card. Every list starts here; a section adds its own join or WHERE.
 function cardQuery(userId: string) {
   return db
     .select(cardColumns(userId))
-    .from(games)
-    .leftJoin(systems, eq(games.idSystem, systems.idSystem))
-    .leftJoin(users, eq(games.idCreatedByUser, users.id));
+    .from(stories)
+    .leftJoin(systems, eq(stories.idSystem, systems.idSystem))
+    .leftJoin(users, eq(stories.idCreatedByUser, users.id));
 }
 
 // An archived story is off the Stories page altogether: My Stories leaves it
 // out even with "Show inactive" on, and a favorite of one is not listed. It
 // is not deleted, and the edit page still reaches it, so unarchiving brings
 // it back.
-const notArchived = eq(games.isArchived, false);
+const notArchived = eq(stories.isArchived, false);
 
 /**
- * Games the user created or plays in. Inactive ones are left out unless the
+ * Stories the user created or plays in. Inactive ones are left out unless the
  * "Show inactive" switch asks for them, so a retired story does not crowd the
  * list but is never lost; archived ones are always left out.
  */
@@ -132,28 +132,28 @@ export async function sa_listMyStories(
   const includeInactive = z.boolean().parse(showInactive);
 
   const playsIn = db
-    .select({ one: gamePlayers.idGamePlayer })
-    .from(gamePlayers)
-    .where(and(eq(gamePlayers.idGame, games.idGame), eq(gamePlayers.idUser, user.id)));
+    .select({ one: storyPlayers.idStoryPlayer })
+    .from(storyPlayers)
+    .where(and(eq(storyPlayers.idStory, stories.idStory), eq(storyPlayers.idUser, user.id)));
 
-  const involved = and(or(eq(games.idCreatedByUser, user.id), exists(playsIn)), notArchived);
+  const involved = and(or(eq(stories.idCreatedByUser, user.id), exists(playsIn)), notArchived);
 
   return cardQuery(user.id)
-    .where(includeInactive ? involved : and(involved, eq(games.isActive, true)))
+    .where(includeInactive ? involved : and(involved, eq(stories.isActive, true)))
     .orderBy(...cardOrder)
     .limit(PAGE_SIZE)
     .offset(skip);
 }
 
-/** Games the user has favorited, less any that have since been archived. */
+/** Stories the user has favorited, less any that have since been archived. */
 export async function sa_listFavoriteStories(offset: number): Promise<StoryCardData[]> {
   const user = await requireUser();
   const skip = offsetSchema.parse(offset);
 
   return cardQuery(user.id)
     .innerJoin(
-      gameFavorites,
-      and(eq(gameFavorites.idGame, games.idGame), eq(gameFavorites.idUser, user.id)),
+      storyFavorites,
+      and(eq(storyFavorites.idStory, stories.idStory), eq(storyFavorites.idUser, user.id)),
     )
     .where(notArchived)
     .orderBy(...cardOrder)
@@ -161,52 +161,52 @@ export async function sa_listFavoriteStories(offset: number): Promise<StoryCardD
     .offset(skip);
 }
 
-/** Active games whose storyteller has flagged them as open to new players. */
+/** Active stories whose storyteller has flagged them as open to new players. */
 export async function sa_listLookingForPlayers(offset: number): Promise<StoryCardData[]> {
   const user = await requireUser();
   const skip = offsetSchema.parse(offset);
 
   return cardQuery(user.id)
-    .where(and(eq(games.isLookingForPlayers, true), eq(games.isActive, true)))
+    .where(and(eq(stories.isLookingForPlayers, true), eq(stories.isActive, true)))
     .orderBy(...cardOrder)
     .limit(PAGE_SIZE)
     .offset(skip);
 }
 
-export async function sa_getStory(idGame: number): Promise<StoryCardData | null> {
+export async function sa_getStory(idStory: number): Promise<StoryCardData | null> {
   const user = await requireUser();
 
   // An unusable id is simply not a story: safeParse rather than parse, so the
   // page's notFound() handles it instead of a raw ZodError becoming a 500.
-  const id = idGameSchema.safeParse(idGame);
+  const id = idStorySchema.safeParse(idStory);
   if (!id.success) return null;
 
-  const [story] = await cardQuery(user.id).where(eq(games.idGame, id.data)).limit(1);
+  const [story] = await cardQuery(user.id).where(eq(stories.idStory, id.data)).limit(1);
   return story ?? null;
 }
 
 /**
  * Who plays in a story, oldest member first. The storyteller is not among
- * them: they own the game through games.id_created_by_user and have no
- * game_players row (db/seeds/seed_game_players.sql says the same).
+ * them: they own the story through stories.id_created_by_user and have no
+ * story_players row (db/seeds/seed_story_players.sql says the same).
  */
-export async function sa_listStoryPlayers(idGame: number): Promise<StoryPlayer[]> {
+export async function sa_listStoryPlayers(idStory: number): Promise<StoryPlayer[]> {
   await requireUser();
 
   // As in sa_getStory: an id Postgres cannot compare is not a story, so it
   // has no players rather than raising.
-  const id = idGameSchema.safeParse(idGame);
+  const id = idStorySchema.safeParse(idStory);
   if (!id.success) return [];
 
   return (
     db
       .select({ idUser: users.id, name: playerName, image: users.image })
-      .from(gamePlayers)
-      .innerJoin(users, eq(gamePlayers.idUser, users.id))
-      .where(eq(gamePlayers.idGame, id.data))
+      .from(storyPlayers)
+      .innerJoin(users, eq(storyPlayers.idUser, users.id))
+      .where(eq(storyPlayers.idStory, id.data))
       // joined_at ties are the norm for rows seeded or added together, and the
       // row id says nothing a reader would recognise, so the name breaks them.
-      .orderBy(asc(gamePlayers.joinedAt), asc(playerName))
+      .orderBy(asc(storyPlayers.joinedAt), asc(playerName))
   );
 }
 
@@ -216,12 +216,12 @@ export async function sa_listStoryPlayers(idGame: number): Promise<StoryPlayer[]
  * and not the owner are thrown rather than returned because the popover
  * cannot fix either; it is only shown to the owner in the first place.
  */
-async function requireOwnedStory(userId: string, idGame: number): Promise<number> {
-  const id = idGameSchema.parse(idGame);
+async function requireOwnedStory(userId: string, idStory: number): Promise<number> {
+  const id = idStorySchema.parse(idStory);
   const [story] = await db
-    .select({ idCreatedByUser: games.idCreatedByUser })
-    .from(games)
-    .where(eq(games.idGame, id))
+    .select({ idCreatedByUser: stories.idCreatedByUser })
+    .from(stories)
+    .where(eq(stories.idStory, id))
     .limit(1);
   if (!story) throw new Error("Story not found");
   if (story.idCreatedByUser !== userId) {
@@ -231,13 +231,13 @@ async function requireOwnedStory(userId: string, idGame: number): Promise<number
 }
 
 // Users who could be seated at the story: active, not its storyteller, and
-// not already in game_players for it. Shared by the search and the insert so
+// not already in story_players for it. Shared by the search and the insert so
 // what the popover offers is exactly what the save accepts.
-function seatable(idGame: number, storytellerId: string) {
+function seatable(idStory: number, storytellerId: string) {
   const seated = db
-    .select({ one: gamePlayers.idGamePlayer })
-    .from(gamePlayers)
-    .where(and(eq(gamePlayers.idGame, idGame), eq(gamePlayers.idUser, users.id)));
+    .select({ one: storyPlayers.idStoryPlayer })
+    .from(storyPlayers)
+    .where(and(eq(storyPlayers.idStory, idStory), eq(storyPlayers.idUser, users.id)));
   return and(eq(users.isActive, true), not(eq(users.id, storytellerId)), not(exists(seated)));
 }
 
@@ -257,9 +257,9 @@ const querySchema = z.string().max(200);
  * already seated, so the list only ever offers people who can be added. A
  * blank query finds nobody rather than everybody.
  */
-export async function sa_searchPlayers(idGame: number, query: string): Promise<PlayerMatch[]> {
+export async function sa_searchPlayers(idStory: number, query: string): Promise<PlayerMatch[]> {
   const user = await requireUser();
-  const id = await requireOwnedStory(user.id, idGame);
+  const id = await requireOwnedStory(user.id, idStory);
   const needle = querySchema.parse(query).trim();
   if (needle === "") return [];
 
@@ -278,16 +278,16 @@ const inviteSchema = z.array(z.uuid()).min(1).max(PLAYER_SEARCH_LIMIT);
  * the Players list should add, in the order it lists them. Anyone who is not
  * seatable (unknown, inactive, the storyteller, already at the table) is
  * skipped rather than refused: the popover's list was built moments ago and
- * a second storyteller tab may have seated someone since. game_players has
- * no unique key on (id_game, id_user), so the insert selects only the users
+ * a second storyteller tab may have seated someone since. story_players has
+ * no unique key on (id_story, id_user), so the insert selects only the users
  * with no row yet instead of relying on a conflict.
  */
 export async function sa_addStoryPlayers(
-  idGame: number,
+  idStory: number,
   idUsers: string[],
 ): Promise<StoryPlayer[]> {
   const user = await requireUser();
-  const id = await requireOwnedStory(user.id, idGame);
+  const id = await requireOwnedStory(user.id, idStory);
   const ids = inviteSchema.parse(idUsers);
 
   // Written out rather than db.insert().select(): Drizzle only accepts an
@@ -295,11 +295,11 @@ export async function sa_addStoryPlayers(
   // other column here is a default. The id is cast because a bare parameter
   // in a SELECT list is text to Postgres, which will not go into a bigint.
   const inserted = await db.execute<{ id_user: string }>(sql`
-    insert into ${gamePlayers} (id_game, id_user)
+    insert into ${storyPlayers} (id_story, id_user)
     select ${id}::bigint, ${users.id}
     from ${users}
     where ${and(inArray(users.id, ids), seatable(id, user.id))}
-    returning ${gamePlayers.idUser}
+    returning ${storyPlayers.idUser}
   `);
   const seatedIds = inserted.rows.map((row) => row.id_user);
   if (seatedIds.length === 0) return [];
@@ -318,7 +318,7 @@ export async function sa_addStoryPlayers(
  * row is created as it opens, and unlike open_at it can never be null.
  */
 export async function sa_listStorySessions(
-  idGame: number,
+  idStory: number,
   offset: number,
 ): Promise<StorySession[]> {
   await requireUser();
@@ -326,24 +326,24 @@ export async function sa_listStorySessions(
 
   // As in sa_getStory: an id Postgres cannot compare is not a story, so it
   // has no sessions rather than raising.
-  const id = idGameSchema.safeParse(idGame);
+  const id = idStorySchema.safeParse(idStory);
   if (!id.success) return [];
 
   return (
     db
       .select({
-        idGameSession: gameSessions.idGameSession,
-        status: gameSessions.status,
+        idStorySession: storySessions.idStorySession,
+        status: storySessions.status,
         // created_at is nullable in the schema because every audit column is,
         // but the database always stamps it; the view type wants a Date.
-        startedAt: sql<Date>`${gameSessions.createdAt}`.mapWith(gameSessions.createdAt),
-        length: gameSessions.length,
+        startedAt: sql<Date>`${storySessions.createdAt}`.mapWith(storySessions.createdAt),
+        length: storySessions.length,
       })
-      .from(gameSessions)
-      .where(eq(gameSessions.idGame, id.data))
+      .from(storySessions)
+      .where(eq(storySessions.idStory, id.data))
       // Sessions opened in one statement share a created_at, so the id
       // breaks the tie and a page never repeats or skips a row.
-      .orderBy(desc(gameSessions.createdAt), desc(gameSessions.idGameSession))
+      .orderBy(desc(storySessions.createdAt), desc(storySessions.idStorySession))
       .limit(SESSIONS_PAGE_SIZE)
       .offset(skip)
   );
@@ -382,7 +382,7 @@ function fieldErrors(parsed: z.ZodSafeParseError<unknown>): StoryFormResult {
 }
 
 /**
- * Validates and inserts a new game owned by the caller, then redirects to the
+ * Validates and inserts a new story owned by the caller, then redirects to the
  * Stories page. Validation failures come back as field errors for the form;
  * on success the redirect throws, so this never resolves with ok: true.
  */
@@ -393,8 +393,8 @@ export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
   if (!parsed.success) return fieldErrors(parsed);
 
   const values = parsed.data;
-  await db.insert(games).values({
-    gameTitle: values.title,
+  await db.insert(stories).values({
+    title: values.title,
     idSystem: values.idSystem,
     summary: values.summary || null,
     imageUrl: values.imageUrl || null,
@@ -417,25 +417,25 @@ export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
  * "" because that is what the form's inputs post and what storySchema turns
  * back into null.
  */
-export async function sa_getStoryForEdit(idGame: number): Promise<StoryValues | null> {
+export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues | null> {
   const user = await requireUser();
 
   // As in sa_getStory: an id Postgres cannot compare is not a story.
-  const id = idGameSchema.safeParse(idGame);
+  const id = idStorySchema.safeParse(idStory);
   if (!id.success) return null;
 
   const [story] = await db
     .select({
-      title: games.gameTitle,
-      idSystem: games.idSystem,
-      summary: games.summary,
-      imageUrl: games.imageUrl,
-      isLookingForPlayers: games.isLookingForPlayers,
-      isActive: games.isActive,
-      isArchived: games.isArchived,
+      title: stories.title,
+      idSystem: stories.idSystem,
+      summary: stories.summary,
+      imageUrl: stories.imageUrl,
+      isLookingForPlayers: stories.isLookingForPlayers,
+      isActive: stories.isActive,
+      isArchived: stories.isArchived,
     })
-    .from(games)
-    .where(and(eq(games.idGame, id.data), eq(games.idCreatedByUser, user.id)))
+    .from(stories)
+    .where(and(eq(stories.idStory, id.data), eq(stories.idCreatedByUser, user.id)))
     .limit(1);
   if (!story) return null;
 
@@ -450,14 +450,14 @@ export async function sa_getStoryForEdit(idGame: number): Promise<StoryValues | 
  * same predicate is repeated in the UPDATE's WHERE so the write cannot land
  * on a row that changed hands between the read and the write.
  */
-export async function sa_updateStory(idGame: number, input: unknown): Promise<StoryFormResult> {
+export async function sa_updateStory(idStory: number, input: unknown): Promise<StoryFormResult> {
   const user = await requireUser();
-  const id = idGameSchema.parse(idGame);
+  const id = idStorySchema.parse(idStory);
 
   const [story] = await db
-    .select({ idCreatedByUser: games.idCreatedByUser })
-    .from(games)
-    .where(eq(games.idGame, id))
+    .select({ idCreatedByUser: stories.idCreatedByUser })
+    .from(stories)
+    .where(eq(stories.idStory, id))
     .limit(1);
   if (!story) throw new Error("Story not found");
   if (story.idCreatedByUser !== user.id) {
@@ -469,9 +469,9 @@ export async function sa_updateStory(idGame: number, input: unknown): Promise<St
 
   const values = parsed.data;
   const updated = await db
-    .update(games)
+    .update(stories)
     .set({
-      gameTitle: values.title,
+      title: values.title,
       idSystem: values.idSystem,
       summary: values.summary || null,
       imageUrl: values.imageUrl || null,
@@ -484,8 +484,8 @@ export async function sa_updateStory(idGame: number, input: unknown): Promise<St
       idArchivedByUser: values.isArchived ? user.id : null,
       idUpdatedByUser: user.id,
     })
-    .where(and(eq(games.idGame, id), eq(games.idCreatedByUser, user.id)))
-    .returning({ idGame: games.idGame });
+    .where(and(eq(stories.idStory, id), eq(stories.idCreatedByUser, user.id)))
+    .returning({ idStory: stories.idStory });
   if (updated.length === 0) throw new Error("Story not found");
 
   redirect(`/stories/${id}`);
@@ -493,40 +493,40 @@ export async function sa_updateStory(idGame: number, input: unknown): Promise<St
 
 /**
  * Adds or removes the caller's favorite on a story. Idempotent in both
- * directions: adding twice relies on the (id_game, id_user) unique constraint
+ * directions: adding twice relies on the (id_story, id_user) unique constraint
  * and removing an absent row is a no-op. Only ever touches rows for user.id.
  */
 export async function sa_setFavorite(
-  idGame: number,
+  idStory: number,
   isFavorite: boolean,
 ): Promise<{ isFavorite: boolean }> {
   const user = await requireUser();
-  const id = idGameSchema.parse(idGame);
+  const id = idStorySchema.parse(idStory);
   const wanted = z.boolean().parse(isFavorite);
 
-  const [game] = await db
-    .select({ idGame: games.idGame })
-    .from(games)
-    .where(eq(games.idGame, id))
+  const [story] = await db
+    .select({ idStory: stories.idStory })
+    .from(stories)
+    .where(eq(stories.idStory, id))
     .limit(1);
-  if (!game) throw new Error("Story not found");
+  if (!story) throw new Error("Story not found");
 
   if (wanted) {
     await db
-      .insert(gameFavorites)
+      .insert(storyFavorites)
       .values({
-        idGame: id,
+        idStory: id,
         idUser: user.id,
         idCreatedByUser: user.id,
         idUpdatedByUser: user.id,
       })
       .onConflictDoNothing({
-        target: [gameFavorites.idGame, gameFavorites.idUser],
+        target: [storyFavorites.idStory, storyFavorites.idUser],
       });
   } else {
     await db
-      .delete(gameFavorites)
-      .where(and(eq(gameFavorites.idGame, id), eq(gameFavorites.idUser, user.id)));
+      .delete(storyFavorites)
+      .where(and(eq(storyFavorites.idStory, id), eq(storyFavorites.idUser, user.id)));
   }
 
   return { isFavorite: wanted };

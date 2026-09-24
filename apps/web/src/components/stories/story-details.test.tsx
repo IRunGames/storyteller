@@ -6,8 +6,8 @@ import { renderWithProviders } from "@/test/render";
 import type { StoryCardData, StoryPlayer, StorySession } from "@/lib/stories";
 
 const story: StoryCardData = {
-  idGame: -15,
-  gameTitle: "Vampire",
+  idStory: -15,
+  title: "Vampire",
   summary: "A city of the dead.",
   imageUrl: "https://rpg.irun.games/images/vampire.jpg",
   lastPlayed: new Date("2015-06-25T12:00:00Z"),
@@ -28,8 +28,8 @@ const players: StoryPlayer[] = [
 ];
 
 const sessions: StorySession[] = [
-  { idGameSession: 3, status: "done", startedAt: new Date("2026-03-20T19:00:00Z"), length: 150 },
-  { idGameSession: 2, status: "done", startedAt: new Date("2026-03-13T19:00:00Z"), length: 60 },
+  { idStorySession: 3, status: "done", startedAt: new Date("2026-03-20T19:00:00Z"), length: 150 },
+  { idStorySession: 2, status: "done", startedAt: new Date("2026-03-13T19:00:00Z"), length: 60 },
 ];
 
 let StoryDetails: typeof import("./story-details").StoryDetails;

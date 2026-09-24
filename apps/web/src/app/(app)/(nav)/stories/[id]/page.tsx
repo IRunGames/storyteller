@@ -14,12 +14,12 @@ export default async function StoryPage({ params }: { params: Promise<{ id: stri
   // which is a different URL for the same row. Only plain decimal digits (with
   // an optional sign) are a story id here.
   if (!/^-?\d+$/.test(id)) notFound();
-  const idGame = Number(id);
+  const idStory = Number(id);
 
   const [story, players, sessions] = await Promise.all([
-    sa_getStory(idGame),
-    sa_listStoryPlayers(idGame),
-    sa_listStorySessions(idGame, 0),
+    sa_getStory(idStory),
+    sa_listStoryPlayers(idStory),
+    sa_listStorySessions(idStory, 0),
   ]);
   if (!story) notFound();
 

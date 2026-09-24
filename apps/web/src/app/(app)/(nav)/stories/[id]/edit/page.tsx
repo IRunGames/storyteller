@@ -15,14 +15,14 @@ export default async function EditStoryPage({ params }: { params: Promise<{ id: 
   // Only plain decimal digits are a story id here; stories/[id]/page.tsx
   // says why Number() alone would not do.
   if (!/^-?\d+$/.test(id)) notFound();
-  const idGame = Number(id);
+  const idStory = Number(id);
 
-  const [values, systems] = await Promise.all([sa_getStoryForEdit(idGame), sa_listSystems()]);
+  const [values, systems] = await Promise.all([sa_getStoryForEdit(idStory), sa_listSystems()]);
   if (!values) notFound();
 
   return (
     <Container maxW="lg" py="8">
-      <StoryForm systems={systems} story={{ idGame, values }} />
+      <StoryForm systems={systems} story={{ idStory, values }} />
     </Container>
   );
 }

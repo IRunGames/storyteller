@@ -31,7 +31,7 @@ type Props = {
    * The story being edited, with its current values. Absent for the New
    * story page: the same fields then start empty and create a story instead.
    */
-  story?: { idGame: number; values: StoryValues };
+  story?: { idStory: number; values: StoryValues };
 };
 
 // One form for New story and Edit story. The fields, the client check and
@@ -78,7 +78,7 @@ export function StoryForm({ systems, story }: Props) {
 
   async function onSubmit(values: StoryValues) {
     const result = story
-      ? await sa_updateStory(story.idGame, values)
+      ? await sa_updateStory(story.idStory, values)
       : await sa_createStory(values);
 
     // On success the action redirects and this never runs. Anything that

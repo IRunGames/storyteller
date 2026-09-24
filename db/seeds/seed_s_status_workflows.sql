@@ -5,4 +5,4 @@
     -- no _tables row for the mapping to land on.
     INSERT INTO s_status_workflows (s_status_workflow_id, name, status_column_name, workflow_trigger)
     VALUES
-        (-1, 'Game Sessions Status Workflow', 'status', NULL);
+        (-1, 'Story Sessions Status Workflow', 'status', NULL);

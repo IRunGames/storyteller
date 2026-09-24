@@ -33,7 +33,7 @@ type Props<K extends SectionKey> = {
   /** Something for a section's heading row, far right: the New story button. */
   headerActions?: Partial<Record<K, ReactNode>>;
   /** Server action that writes the caller's favorite. */
-  setFavorite: (idGame: number, isFavorite: boolean) => Promise<{ isFavorite: boolean }>;
+  setFavorite: (idStory: number, isFavorite: boolean) => Promise<{ isFavorite: boolean }>;
 };
 
 /**
@@ -85,7 +85,7 @@ function withFavorite<K extends SectionKey>(
   isFavorite: boolean,
 ): BoardState<K> {
   const flip = (list: StoryCardData[]) =>
-    list.map((s) => (s.idGame === story.idGame ? { ...s, isFavorite } : s));
+    list.map((s) => (s.idStory === story.idStory ? { ...s, isFavorite } : s));
 
   const next = {} as BoardState<K>;
   for (const key of sections) next[key] = { ...state[key], stories: flip(state[key].stories) };
@@ -95,10 +95,10 @@ function withFavorite<K extends SectionKey>(
   const favorites: SectionState | undefined = (next as Partial<BoardState<SectionKey>>).favorites;
   if (!favorites) return next;
 
-  if (isFavorite && !favorites.stories.some((s) => s.idGame === story.idGame)) {
+  if (isFavorite && !favorites.stories.some((s) => s.idStory === story.idStory)) {
     favorites.stories = [{ ...story, isFavorite: true }, ...favorites.stories];
   } else if (!isFavorite) {
-    favorites.stories = favorites.stories.filter((s) => s.idGame !== story.idGame);
+    favorites.stories = favorites.stories.filter((s) => s.idStory !== story.idStory);
   }
   return next;
 }
@@ -145,8 +145,8 @@ export function StoriesBoard<K extends SectionKey>({
         setBoard((b) => {
           // The page may still contain a card an optimistic favorite already
           // put in the list: keep one copy, so a story never appears twice.
-          const seen = new Set(b[key].stories.map((s) => s.idGame));
-          const fresh = page.filter((s) => !seen.has(s.idGame));
+          const seen = new Set(b[key].stories.map((s) => s.idStory));
+          const fresh = page.filter((s) => !seen.has(s.idStory));
           return {
             ...b,
             [key]: {
@@ -192,19 +192,19 @@ export function StoriesBoard<K extends SectionKey>({
   }
 
   function onToggleFavorite(story: StoryCardData, isFavorite: boolean) {
-    if (pendingFavorites.has(story.idGame)) return;
-    setPendingFavorites((p) => new Set(p).add(story.idGame));
+    if (pendingFavorites.has(story.idStory)) return;
+    setPendingFavorites((p) => new Set(p).add(story.idStory));
     setBoard((b) => withFavorite(b, sections, story, isFavorite));
     startTransition(async () => {
       try {
-        await setFavorite(story.idGame, isFavorite);
+        await setFavorite(story.idStory, isFavorite);
       } catch {
         // Put it back the way it was.
         setBoard((b) => withFavorite(b, sections, story, !isFavorite));
       } finally {
         setPendingFavorites((p) => {
           const next = new Set(p);
-          next.delete(story.idGame);
+          next.delete(story.idStory);
           return next;
         });
       }

@@ -26,7 +26,7 @@ type Props = {
 // than an aria-disabled link: a link with no href to give is not a link, and
 // nothing here needs to stay focusable while there is nothing to do.
 export function PlayPicker({ stories }: Props) {
-  const [idGame, setIdGame] = useState("");
+  const [idStory, setIdStory] = useState("");
   const selectId = useId();
 
   if (stories.length === 0) {
@@ -48,13 +48,13 @@ export function PlayPicker({ stories }: Props) {
         <NativeSelect.Root>
           <NativeSelect.Field
             id={selectId}
-            value={idGame}
-            onChange={(event) => setIdGame(event.target.value)}
+            value={idStory}
+            onChange={(event) => setIdStory(event.target.value)}
           >
             <option value="">Choose a story</option>
             {stories.map((story) => (
-              <option key={story.idGame} value={story.idGame}>
-                {story.gameTitle}
+              <option key={story.idStory} value={story.idStory}>
+                {story.title}
               </option>
             ))}
           </NativeSelect.Field>
@@ -62,9 +62,9 @@ export function PlayPicker({ stories }: Props) {
         </NativeSelect.Root>
       </Field.Root>
 
-      {idGame ? (
+      {idStory ? (
         <Button asChild>
-          <NextLink href={`/play/${idGame}`}>Play</NextLink>
+          <NextLink href={`/play/${idStory}`}>Play</NextLink>
         </Button>
       ) : (
         <Button disabled>Play</Button>

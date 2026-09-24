@@ -1,21 +1,21 @@
-    -- Seed data for `games`: the campaigns listed under the Stories menu of
+    -- Seed data for `stories`: the campaigns listed under the Stories menu of
     -- https://rpg.irun.games, owned by the storyteller@irun.games user, plus
-    -- fixture games (-15 onward) owned by the users in db/seeds/seed_users.sql,
+    -- fixture stories (-15 onward) owned by the users in db/seeds/seed_users.sql,
     -- so that seed must run first too. Who plays in those is in
-    -- db/seeds/seed_game_players.sql.
+    -- db/seeds/seed_story_players.sql.
     --
     -- Rows follow the menu order. Index pages that merely group campaigns
     -- (Old Gods of Appalachia, Exalted, Invisible Sun, Numenera) become
-    -- id_system links on their child campaigns rather than games of their
+    -- id_system links on their child campaigns rather than stories of their
     -- own. "Contact Me", the "Backfeed" feedback form and the character
-    -- creation pages are not games and are left out.
+    -- creation pages are not stories and are left out.
     --
     -- id_system points at db/seeds/seed_systems.sql, so that seed must run
     -- first. Campaigns whose page names no ruleset (Something Wicked, A Time
     -- for Masks, Kaliphate, Psychoneira, True Sight) and Resurrection (WY),
     -- which runs on the homebrew "Twilight Soldiers", carry NULL.
     --
-    -- last_played is the date of the last episode the site records; games
+    -- last_played is the date of the last episode the site records; stories
     -- with no dated episodes keep the column default. hours_played assumes
     -- three hours per recorded episode (The Devil's Spine states 6:30–9:30
     -- sessions) and is 0 where the site records none. is_active is false
@@ -26,8 +26,8 @@
     --
     -- summary is one to three sentences taken from each campaign's page on
     -- the site. is_looking_for_players is true for three of the Hogwarts
-    -- games (-17, -19, -20) so the Stories page has something to advertise.
-    INSERT INTO games (id_game, game_title, id_system, image_url, summary, hours_played, is_active, is_looking_for_players,
+    -- stories (-17, -19, -20) so the Stories page has something to advertise.
+    INSERT INTO stories (id_story, title, id_system, image_url, summary, hours_played, is_active, is_looking_for_players,
                        last_played, id_created_by_user, id_updated_by_user)
     VALUES
         ( -1, 'Something Wicked',      NULL, 'https://rpg.irun.games/_astro/something-wicked.BDFq7VyR_2qTJPB.webp',
@@ -76,14 +76,14 @@
         (-14, 'Silent Running',         -26, 'https://rpg.irun.games/images/numenera/silent-running/Screenshot-2024-01-27-at-11.58.39-1.png',
           'When winter lifts, no word comes from the mountain city of Pesht. Skilled adventurers are hired to climb up and find out why it has fallen silent.',
           9, false, false, '2013-06-10',  '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
-        -- Fixture games owned by the seed users (no site page, so no image or summary)
+        -- Fixture stories owned by the seed users (no site page, so no image or summary)
         (-15, 'Vampire',               -10, NULL,
           NULL,
           0, true,  false, DEFAULT,            '00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-000000000001'),
         (-16, 'D&D 5e',                 -2, NULL,
           NULL,
           0, false, false, DEFAULT,            '00000000-0000-7000-8000-000000000002', '00000000-0000-7000-8000-000000000002'),
-        -- Hogwarts staff games: each staff member runs a different system.
+        -- Hogwarts staff stories: each staff member runs a different system.
         -- Covers are 1920px renditions of Wikimedia Commons photos (CC BY 2.0
         -- and CC BY-SA, attribution on each file's Commons page): the castle
         -- model, the Great Hall, Diagon Alley and Hagrid's hut at the Warner

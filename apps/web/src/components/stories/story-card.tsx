@@ -49,7 +49,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
   return (
     <LinkBox
       as="article"
-      aria-label={story.gameTitle}
+      aria-label={story.title}
       position="relative"
       overflow="hidden"
       rounded="xl"
@@ -87,7 +87,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         <Stack gap="0" pr="12">
           <Text as="h3" textStyle="lg" fontWeight="semibold" lineClamp={2}>
             <LinkOverlay asChild>
-              <NextLink href={`/stories/${story.idGame}`}>{story.gameTitle}</NextLink>
+              <NextLink href={`/stories/${story.idStory}`}>{story.title}</NextLink>
             </LinkOverlay>
           </Text>
           {system && (
@@ -144,7 +144,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
 
         {/* Bottom row: on the left an Inactive pill for a retired story, else
             the owner's Play button, else Join for anyone else while the
-            game's current session is open, else nothing; the player count in
+            story's current session is open, else nothing; the player count in
             the middle; the date on the right. A grid with equal outer
             columns keeps the count centred whatever the sides hold, and
             justifyItems start stops the round Play button being stretched to
@@ -177,7 +177,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
                     event.stopPropagation();
                   }}
                 >
-                  <NextLink href={`/play/${story.idGame}`}>
+                  <NextLink href={`/play/${story.idStory}`}>
                     <Play size={18} />
                   </NextLink>
                 </IconButton>
@@ -201,7 +201,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
                 event.stopPropagation();
               }}
             >
-              <NextLink href={`/play/${story.idGame}`}>
+              <NextLink href={`/play/${story.idStory}`}>
                 <LogIn size={16} />
                 Join
               </NextLink>

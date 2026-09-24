@@ -19,7 +19,7 @@ import { sa_addStoryPlayers, sa_searchPlayers } from "@/app/(app)/(nav)/stories/
 import { toaster } from "@/components/ui/toaster";
 
 type Props = {
-  idGame: number;
+  idStory: number;
   /** Called with the rows the action seated, so the list can show them. */
   onInvited: (added: StoryPlayer[]) => void;
 };
@@ -32,7 +32,7 @@ type Props = {
 // query must stay ticked when the next query no longer lists it. The
 // summary line above the buttons is how the storyteller sees what is still
 // chosen once it has scrolled out of the results.
-export function InvitePlayersPopover({ idGame, onInvited }: Props) {
+export function InvitePlayersPopover({ idStory, onInvited }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<PlayerMatch[]>([]);
@@ -55,7 +55,7 @@ export function InvitePlayersPopover({ idGame, onInvited }: Props) {
     if (needle === "") return;
     const timer = setTimeout(async () => {
       try {
-        const found = await sa_searchPlayers(idGame, needle);
+        const found = await sa_searchPlayers(idStory, needle);
         if (seq !== searchSeq.current) return;
         setMatches(found);
         setSearched(true);
@@ -64,7 +64,7 @@ export function InvitePlayersPopover({ idGame, onInvited }: Props) {
       }
     }, PLAYER_SEARCH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [idGame, query]);
+  }, [idStory, query]);
 
   function onQueryChange(value: string) {
     setQuery(value);
@@ -97,7 +97,7 @@ export function InvitePlayersPopover({ idGame, onInvited }: Props) {
     setSaving(true);
     setError(null);
     try {
-      const added = await sa_addStoryPlayers(idGame, [...selected.keys()]);
+      const added = await sa_addStoryPlayers(idStory, [...selected.keys()]);
       onInvited(added);
       const count = selected.size;
       close();

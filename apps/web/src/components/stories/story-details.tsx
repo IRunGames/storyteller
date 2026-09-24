@@ -101,7 +101,7 @@ export function StoryDetails({ story, players, sessions }: Props) {
                   color={story.imageUrl ? "whiteAlpha.900" : undefined}
                   _hover={story.imageUrl ? { bg: "whiteAlpha.200" } : undefined}
                 >
-                  <NextLink href={`/stories/${story.idGame}/edit`}>
+                  <NextLink href={`/stories/${story.idStory}/edit`}>
                     <Pencil size={18} />
                   </NextLink>
                 </IconButton>
@@ -116,7 +116,7 @@ export function StoryDetails({ story, players, sessions }: Props) {
 
           <Stack gap="2">
             <Heading as="h1" size="3xl">
-              {story.gameTitle}
+              {story.title}
             </Heading>
             <Stack gap="0" color={story.imageUrl ? "whiteAlpha.800" : "fg.muted"}>
               {system && <Text>{system}</Text>}
@@ -128,7 +128,7 @@ export function StoryDetails({ story, players, sessions }: Props) {
 
           <Stack as="section" aria-labelledby={playersId} gap="4">
             <StoryPlayers
-              idGame={story.idGame}
+              idStory={story.idStory}
               headingId={playersId}
               initial={players}
               isOwner={story.isOwner}
@@ -146,14 +146,14 @@ export function StoryDetails({ story, players, sessions }: Props) {
                 // there is room here, and under the same rule: only the
                 // storyteller opens the table, and not for a retired story.
                 <Button asChild size="sm" rounded="full">
-                  <NextLink href={`/play/${story.idGame}`}>
+                  <NextLink href={`/play/${story.idStory}`}>
                     <Play size={16} />
                     Play now
                   </NextLink>
                 </Button>
               )}
             </HStack>
-            <StorySessions idGame={story.idGame} initial={sessions} mutedColor={mutedColor} />
+            <StorySessions idStory={story.idStory} initial={sessions} mutedColor={mutedColor} />
           </Stack>
         </Stack>
       </Container>

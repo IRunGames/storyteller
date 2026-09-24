@@ -9,8 +9,8 @@ import { StoriesBoard } from "./stories-board";
 
 function stories(count: number, from = 1, isFavorite = false): StoryCardData[] {
   return Array.from({ length: count }, (_, i) => ({
-    idGame: from + i,
-    gameTitle: `Story ${from + i}`,
+    idStory: from + i,
+    title: `Story ${from + i}`,
     summary: null,
     imageUrl: null,
     lastPlayed: new Date("2026-01-01T00:00:00Z"),
@@ -194,7 +194,7 @@ describe("StoriesBoard", () => {
     renderBoard({
       initial: {
         favorites: stories(1, 2, true),
-        mine: stories(2, 1).map((s) => ({ ...s, isFavorite: s.idGame === 2 })),
+        mine: stories(2, 1).map((s) => ({ ...s, isFavorite: s.idStory === 2 })),
         open: [],
       },
     });

@@ -8,7 +8,7 @@ import { SESSIONS_PAGE_SIZE, type StorySession } from "@/lib/stories";
 
 function sessions(count: number, from = 1): StorySession[] {
   return Array.from({ length: count }, (_, i) => ({
-    idGameSession: from + i,
+    idStorySession: from + i,
     status: "done",
     startedAt: new Date(`2026-03-${String(20 - i).padStart(2, "0")}T19:00:00Z`),
     length: 90 + i * 30,
@@ -17,7 +17,7 @@ function sessions(count: number, from = 1): StorySession[] {
 
 // The component imports its server action itself, so the module is mocked
 // before the dynamic import below loads it.
-const sa_listStorySessions = mock.fn<(idGame: number, offset: number) => Promise<StorySession[]>>(
+const sa_listStorySessions = mock.fn<(idStory: number, offset: number) => Promise<StorySession[]>>(
   async () => [],
 );
 
@@ -37,7 +37,7 @@ describe("StorySessions", () => {
   });
 
   it("lists each session's date and length in hours", () => {
-    renderWithProviders(<StorySessions idGame={7} initial={sessions(2)} />);
+    renderWithProviders(<StorySessions idStory={7} initial={sessions(2)} />);
 
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
@@ -51,7 +51,7 @@ describe("StorySessions", () => {
   it("shows the status instead of a length for a session that is not done", () => {
     renderWithProviders(
       <StorySessions
-        idGame={7}
+        idStory={7}
         initial={[
           { ...sessions(1)[0], status: "open", length: null },
           { ...sessions(1, 2)[0], status: "suspended", length: null },
@@ -70,7 +70,7 @@ describe("StorySessions", () => {
   });
 
   it("says so when there are no sessions yet", () => {
-    renderWithProviders(<StorySessions idGame={7} initial={[]} />);
+    renderWithProviders(<StorySessions idStory={7} initial={[]} />);
 
     expect(screen.getByText("No sessions yet.")).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
@@ -78,10 +78,10 @@ describe("StorySessions", () => {
 
   it("loads the next five after a full page, until a short page comes back", async () => {
     const user = userEvent.setup();
-    sa_listStorySessions.mock.mockImplementation(async (_idGame, offset) =>
+    sa_listStorySessions.mock.mockImplementation(async (_idStory, offset) =>
       offset === SESSIONS_PAGE_SIZE ? sessions(2, SESSIONS_PAGE_SIZE + 1) : [],
     );
-    renderWithProviders(<StorySessions idGame={7} initial={sessions(SESSIONS_PAGE_SIZE)} />);
+    renderWithProviders(<StorySessions idStory={7} initial={sessions(SESSIONS_PAGE_SIZE)} />);
 
     await user.click(screen.getByRole("button", { name: "More" }));
 
@@ -95,10 +95,10 @@ describe("StorySessions", () => {
 
   it("keeps the More button when a full page comes back", async () => {
     const user = userEvent.setup();
-    sa_listStorySessions.mock.mockImplementation(async (_idGame, offset) =>
+    sa_listStorySessions.mock.mockImplementation(async (_idStory, offset) =>
       sessions(SESSIONS_PAGE_SIZE, offset + 1),
     );
-    renderWithProviders(<StorySessions idGame={7} initial={sessions(SESSIONS_PAGE_SIZE)} />);
+    renderWithProviders(<StorySessions idStory={7} initial={sessions(SESSIONS_PAGE_SIZE)} />);
 
     await user.click(screen.getByRole("button", { name: "More" }));
 
@@ -117,7 +117,7 @@ describe("StorySessions", () => {
     sa_listStorySessions.mock.mockImplementation(async () => {
       throw new Error("offline");
     });
-    renderWithProviders(<StorySessions idGame={7} initial={sessions(SESSIONS_PAGE_SIZE)} />);
+    renderWithProviders(<StorySessions idStory={7} initial={sessions(SESSIONS_PAGE_SIZE)} />);
 
     await user.click(screen.getByRole("button", { name: "More" }));
 

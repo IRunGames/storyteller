@@ -6,7 +6,7 @@ import type { StoryPlayer } from "@/lib/stories";
 import { InvitePlayersPopover } from "./invite-players-popover";
 
 type Props = {
-  idGame: number;
+  idStory: number;
   /** The id the section's aria-labelledby points at; the heading carries it. */
   headingId: string;
   /** Who is seated when the page loads; the popover adds to them from here. */
@@ -24,7 +24,7 @@ type Props = {
 // through the page, and the popover and the list it feeds have to share an
 // owner for that. The action returns the rows in the order the list keeps.
 export function StoryPlayers({
-  idGame,
+  idStory,
   headingId,
   initial,
   isOwner,
@@ -40,7 +40,7 @@ export function StoryPlayers({
         </Heading>
         {isOwner && (
           <InvitePlayersPopover
-            idGame={idGame}
+            idStory={idStory}
             onInvited={(added) => setPlayers((current) => [...current, ...added])}
           />
         )}

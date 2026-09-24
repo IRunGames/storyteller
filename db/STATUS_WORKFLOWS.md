@@ -4,7 +4,7 @@
 
 Status workflows are seeded from `seeds/seed_s_status_workflows.sql` and `seeds/seed_s_statuses.sql`, wrapped with `just seed`. The workflow system adds CHECK constraints, status timestamp columns, and transition-enforcement triggers to the target table automatically.
 
-The first workflow, and the file to copy for the table side, is `game_sessions`: see [`custom/create_game_sessions_table.sql`](custom/create_game_sessions_table.sql).
+The first workflow, and the file to copy for the table side, is `story_sessions`: see [`custom/create_story_sessions_table.sql`](custom/create_story_sessions_table.sql).
 
 ## Prerequisites
 
@@ -49,7 +49,7 @@ Each row is: `(workflow_id, status_key, description, transition_from_status_keys
 Example (open -> suspended or done; suspended -> resumed or done; resumed -> suspended or done):
 
 ```sql
--- Game sessions: `game_sessions`
+-- Story sessions: `story_sessions`
 (-1, 'open',      'The session is being played.',                     ARRAY[]::text[]),
 (-1, 'suspended', 'The session is paused, to be resumed.',           ARRAY['open', 'resumed']),
 (-1, 'resumed',   'The session is being played again after a pause.', ARRAY['suspended']),

@@ -9,8 +9,8 @@ import { StorySection } from "./story-section";
 
 function stories(count: number, from = 1): StoryCardData[] {
   return Array.from({ length: count }, (_, i) => ({
-    idGame: from + i,
-    gameTitle: `Story ${from + i}`,
+    idStory: from + i,
+    title: `Story ${from + i}`,
     summary: null,
     imageUrl: null,
     lastPlayed: new Date("2026-01-01T00:00:00Z"),
@@ -105,7 +105,7 @@ describe("StorySection", () => {
     renderSection({ onToggleFavorite });
 
     await user.click(screen.getAllByRole("button", { name: "Add to Favorites" })[1]);
-    expect(onToggleFavorite.mock.calls[0].arguments[0].idGame).toBe(2);
+    expect(onToggleFavorite.mock.calls[0].arguments[0].idStory).toBe(2);
     expect(onToggleFavorite.mock.calls[0].arguments[1]).toBe(true);
   });
 

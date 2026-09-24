@@ -8,8 +8,8 @@ import { renderWithProviders } from "@/test/render";
 let PlayPicker: typeof import("./play-picker").PlayPicker;
 
 const stories = [
-  { idGame: 7, gameTitle: "Something Wicked" },
-  { idGame: 9, gameTitle: "The Devil's Spine" },
+  { idStory: 7, title: "Something Wicked" },
+  { idStory: 9, title: "The Devil's Spine" },
 ];
 
 describe("PlayPicker", () => {

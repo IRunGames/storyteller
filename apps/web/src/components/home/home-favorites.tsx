@@ -32,8 +32,8 @@ export function HomeFavorites({ initial }: Props) {
       try {
         const page = await sa_listFavoriteStories(offset);
         setStories((current) => {
-          const seen = new Set(current.map((s) => s.idGame));
-          return [...current, ...page.filter((s) => !seen.has(s.idGame))];
+          const seen = new Set(current.map((s) => s.idStory));
+          return [...current, ...page.filter((s) => !seen.has(s.idStory))];
         });
         setServerOffset(offset + page.length);
         setHasMore(page.length === PAGE_SIZE);
@@ -46,20 +46,20 @@ export function HomeFavorites({ initial }: Props) {
   }
 
   function onToggleFavorite(story: StoryCardData, isFavorite: boolean) {
-    if (isFavorite || pendingFavorites.has(story.idGame)) return;
-    setPendingFavorites((p) => new Set(p).add(story.idGame));
+    if (isFavorite || pendingFavorites.has(story.idStory)) return;
+    setPendingFavorites((p) => new Set(p).add(story.idStory));
     const before = stories;
-    setStories((current) => current.filter((s) => s.idGame !== story.idGame));
+    setStories((current) => current.filter((s) => s.idStory !== story.idStory));
     startTransition(async () => {
       try {
-        await sa_setFavorite(story.idGame, false);
+        await sa_setFavorite(story.idStory, false);
       } catch {
         // Put the card back where it was.
         setStories(before);
       } finally {
         setPendingFavorites((p) => {
           const next = new Set(p);
-          next.delete(story.idGame);
+          next.delete(story.idStory);
           return next;
         });
       }

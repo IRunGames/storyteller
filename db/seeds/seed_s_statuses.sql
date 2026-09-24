@@ -12,7 +12,7 @@
     -- added anywhere without renumbering; nothing references this key.
     WITH raw_statuses (s_status_workflow_id, status_key, description, transition_from_status_keys) AS (
         VALUES
-            -- Game sessions: `game_sessions`. Read as transitions FROM each
+            -- Story sessions: `story_sessions`. Read as transitions FROM each
             -- status: open -> suspended or done; suspended -> resumed or
             -- done; resumed -> suspended or done. A session is only ever
             -- open once, so nothing leads back to it and open_at is stamped

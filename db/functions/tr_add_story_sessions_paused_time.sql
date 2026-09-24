@@ -1,5 +1,5 @@
--- BEFORE UPDATE OF status on game_sessions, for a row leaving suspended;
--- custom/create_game_sessions_table.sql attaches it. Adds the stretch just
+-- BEFORE UPDATE OF status on story_sessions, for a row leaving suspended;
+-- custom/create_story_sessions_table.sql attaches it. Adds the stretch just
 -- ended, from suspended_at to now, onto paused_time, which the generated
 -- length column subtracts: a session's length is its time at the table, not
 -- the wall-clock time from opening to done. The workflow trigger stamps
@@ -7,7 +7,7 @@
 -- start of this stretch and not an earlier one. NOW() rather than
 -- clock_timestamp() so the pause ends at the very instant the workflow
 -- trigger stamps resumed_at or done_at in the same statement.
-CREATE OR REPLACE FUNCTION tr_add_game_sessions_paused_time()
+CREATE OR REPLACE FUNCTION tr_add_story_sessions_paused_time()
 RETURNS TRIGGER AS $$
 BEGIN
     IF OLD.suspended_at IS NOT NULL THEN

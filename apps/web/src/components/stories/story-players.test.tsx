@@ -18,10 +18,10 @@ const luna: PlayerMatch = {
   image: null,
 };
 
-const sa_searchPlayers = mock.fn<(idGame: number, query: string) => Promise<PlayerMatch[]>>(
+const sa_searchPlayers = mock.fn<(idStory: number, query: string) => Promise<PlayerMatch[]>>(
   async () => [luna],
 );
-const sa_addStoryPlayers = mock.fn<(idGame: number, ids: string[]) => Promise<StoryPlayer[]>>(
+const sa_addStoryPlayers = mock.fn<(idStory: number, ids: string[]) => Promise<StoryPlayer[]>>(
   async () => [{ idUser: luna.idUser, name: luna.name, image: null }],
 );
 
@@ -42,7 +42,7 @@ describe("StoryPlayers", () => {
 
   it("carries the section heading under the id it is given", () => {
     renderWithProviders(
-      <StoryPlayers idGame={7} headingId="players" initial={[]} isOwner={false} />,
+      <StoryPlayers idStory={7} headingId="players" initial={[]} isOwner={false} />,
     );
 
     expect(screen.getByRole("heading", { name: "Players" })).toHaveAttribute("id", "players");
@@ -50,7 +50,7 @@ describe("StoryPlayers", () => {
 
   it("lists the players by name, with an avatar each", () => {
     renderWithProviders(
-      <StoryPlayers idGame={7} headingId="players" initial={players} isOwner={false} />,
+      <StoryPlayers idStory={7} headingId="players" initial={players} isOwner={false} />,
     );
 
     const items = screen.getAllByRole("listitem");
@@ -67,7 +67,7 @@ describe("StoryPlayers", () => {
 
   it("says so when there are no players yet", () => {
     renderWithProviders(
-      <StoryPlayers idGame={7} headingId="players" initial={[]} isOwner={false} />,
+      <StoryPlayers idStory={7} headingId="players" initial={[]} isOwner={false} />,
     );
 
     expect(screen.getByText("No players yet.")).toBeInTheDocument();
@@ -76,13 +76,13 @@ describe("StoryPlayers", () => {
 
   it("offers Invite Players to the storyteller only", () => {
     const { unmount } = renderWithProviders(
-      <StoryPlayers idGame={7} headingId="players" initial={[]} isOwner={true} />,
+      <StoryPlayers idStory={7} headingId="players" initial={[]} isOwner={true} />,
     );
     expect(screen.getByRole("button", { name: "Invite Players" })).toBeInTheDocument();
     unmount();
 
     renderWithProviders(
-      <StoryPlayers idGame={7} headingId="players" initial={[]} isOwner={false} />,
+      <StoryPlayers idStory={7} headingId="players" initial={[]} isOwner={false} />,
     );
     expect(screen.queryByRole("button", { name: "Invite Players" })).not.toBeInTheDocument();
   });
@@ -90,7 +90,7 @@ describe("StoryPlayers", () => {
   it("adds the invited players to the list once they are saved", async () => {
     const u = userEvent.setup();
     renderWithProviders(
-      <StoryPlayers idGame={7} headingId="players" initial={players} isOwner={true} />,
+      <StoryPlayers idStory={7} headingId="players" initial={players} isOwner={true} />,
     );
 
     await u.click(screen.getByRole("button", { name: "Invite Players" }));

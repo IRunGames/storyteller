@@ -71,10 +71,10 @@ export function StorySection({
         >
           {stories.map((story) => (
             <StoryCard
-              key={story.idGame}
+              key={story.idStory}
               story={story}
               onToggleFavorite={onToggleFavorite}
-              favoritePending={pendingFavorites.has(story.idGame)}
+              favoritePending={pendingFavorites.has(story.idStory)}
             />
           ))}
         </Grid>

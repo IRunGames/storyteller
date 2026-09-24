@@ -19,11 +19,11 @@ export default async function PlayPage() {
           <Heading size="3xl">Play</Heading>
           <Text textStyle="lg" color="fg.muted">
             A story is played at its table: one live room where the storyteller
-            and the players create the game together.
+            and the players create the story together.
           </Text>
           <List.Root as="ol" gap="2" ps="5">
             <List.Item>
-              Storytellers: you open a session of play for one of your games
+              Storytellers: you open a session of play for one of your stories
               from here or from the play button on your story card from the
               hoome page or your stories page.
             </List.Item>

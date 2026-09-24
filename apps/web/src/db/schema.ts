@@ -129,7 +129,7 @@ export const verification = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// Game tables. Built by dbmate (db/custom/create_foundation_tables.sql and
+// Story tables. Built by dbmate (db/custom/create_foundation_tables.sql and
 // later migrations); described here so the app can query them with types.
 // ---------------------------------------------------------------------------
 
@@ -150,11 +150,11 @@ export const systems = pgTable("systems", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
-export const games = pgTable("games", {
-  idGame: integer("id_game")
+export const stories = pgTable("stories", {
+  idStory: integer("id_story")
     .primaryKey()
-    .default(sql`nextval('games_id_game_seq'::regclass)`),
-  gameTitle: varchar("game_title").notNull(),
+    .default(sql`nextval('stories_id_story_seq'::regclass)`),
+  title: varchar("title").notNull(),
   summary: text("summary"),
   hoursPlayed: doublePrecision("hours_played").default(0).notNull(),
   idSystem: integer("id_system"),
@@ -163,12 +163,12 @@ export const games = pgTable("games", {
   isLookingForPlayers: boolean("is_looking_for_players").default(false).notNull(),
   lastPlayed: timestamp("last_played", { withTimezone: true }).defaultNow().notNull(),
   // The session currently at the table, if any; null between sessions.
-  // game_sessions keeps the history, this is only the one in progress.
-  idGameSession: integer("id_game_session"),
+  // story_sessions keeps the history, this is only the one in progress.
+  idStorySession: integer("id_story_session"),
   // A retired story is archived rather than deleted. The database stamps
   // archived_at as is_archived turns on and clears both it and
   // id_archived_by_user as it turns off (set_archived_at and
-  // clear_archived_by_on_unarchive on games); the app only sets the
+  // clear_archived_by_on_unarchive on stories); the app only sets the
   // archiver on the way in.
   isArchived: boolean("is_archived").default(false).notNull(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -179,13 +179,13 @@ export const games = pgTable("games", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
-// id_game is bigint on the child tables but integer on games itself; mode
+// id_story is bigint on the child tables but integer on stories itself; mode
 // "number" keeps both sides comparable in the query builder.
-export const gamePlayers = pgTable("game_players", {
-  idGamePlayer: integer("id_game_player")
+export const storyPlayers = pgTable("story_players", {
+  idStoryPlayer: integer("id_story_player")
     .primaryKey()
-    .default(sql`nextval('game_players_id_game_player_seq'::regclass)`),
-  idGame: bigint("id_game", { mode: "number" }).notNull(),
+    .default(sql`nextval('story_players_id_story_player_seq'::regclass)`),
+  idStory: bigint("id_story", { mode: "number" }).notNull(),
   idUser: uuid("id_user").notNull(),
   idCharacter: bigint("id_character", { mode: "number" }),
   hoursPlayed: doublePrecision("hours_played"),
@@ -194,9 +194,9 @@ export const gamePlayers = pgTable("game_players", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
-export const gameFavorites = pgTable("game_favorites", {
-  idGameFavorite: integer("id_game_favorite").primaryKey().generatedByDefaultAsIdentity(),
-  idGame: bigint("id_game", { mode: "number" }).notNull(),
+export const storyFavorites = pgTable("story_favorites", {
+  idStoryFavorite: integer("id_story_favorite").primaryKey().generatedByDefaultAsIdentity(),
+  idStory: bigint("id_story", { mode: "number" }).notNull(),
   idUser: uuid("id_user").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -204,7 +204,7 @@ export const gameFavorites = pgTable("game_favorites", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
-// One sitting of a game. status runs through the game_sessions workflow in
+// One sitting of a story. status runs through the story_sessions workflow in
 // the database (open -> suspended or done; suspended -> resumed or done;
 // resumed -> suspended or done; open is the default): a CHECK limits the values, a trigger
 // rejects any other transition, and a trigger stamps openAt / suspendedAt /
@@ -213,13 +213,13 @@ export const gameFavorites = pgTable("game_favorites", {
 // to by a trigger as each one ends, and length is generated in Postgres as
 // the whole minutes from openAt to doneAt less pausedTime, so it is null
 // until the session is done. Neither is ever written from here.
-export const gameSessionStatuses = ["open", "suspended", "resumed", "done"] as const;
-export type GameSessionStatus = (typeof gameSessionStatuses)[number];
+export const storySessionStatuses = ["open", "suspended", "resumed", "done"] as const;
+export type StorySessionStatus = (typeof storySessionStatuses)[number];
 
-export const gameSessions = pgTable("game_sessions", {
-  idGameSession: integer("id_game_session").primaryKey().generatedByDefaultAsIdentity(),
-  idGame: integer("id_game").notNull(),
-  status: varchar("status", { enum: gameSessionStatuses }).default("open").notNull(),
+export const storySessions = pgTable("story_sessions", {
+  idStorySession: integer("id_story_session").primaryKey().generatedByDefaultAsIdentity(),
+  idStory: integer("id_story").notNull(),
+  status: varchar("status", { enum: storySessionStatuses }).default("open").notNull(),
   openAt: timestamp("open_at", { withTimezone: true }),
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   resumedAt: timestamp("resumed_at", { withTimezone: true }),
@@ -237,7 +237,7 @@ export const gameSessions = pgTable("game_sessions", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
-export type Game = typeof games.$inferSelect;
+export type Story = typeof stories.$inferSelect;
 export type System = typeof systems.$inferSelect;
 
 // Thumbs up / down left from the menu bar's feedback popover. The submitter is
@@ -292,7 +292,7 @@ export const news = pgTable("news", {
 
 // Which news items a user has read: opened the story, or pressed Read on
 // it. The row existing is the whole fact; there is no dismissed flag.
-// id_user is the reader as the row's subject, as on game_favorites.
+// id_user is the reader as the row's subject, as on story_favorites.
 export const newsReads = pgTable("news_reads", {
   idNewsRead: integer("id_news_read").primaryKey().generatedByDefaultAsIdentity(),
   idNews: integer("id_news").notNull(),
@@ -322,33 +322,33 @@ export const accountRelations = relations(account, ({ one }) => ({
   }),
 }));
 
-export const gamesRelations = relations(games, ({ one, many }) => ({
+export const storiesRelations = relations(stories, ({ one, many }) => ({
   system: one(systems, {
-    fields: [games.idSystem],
+    fields: [stories.idSystem],
     references: [systems.idSystem],
   }),
-  players: many(gamePlayers),
-  favorites: many(gameFavorites),
-  sessions: many(gameSessions),
-  currentSession: one(gameSessions, {
-    fields: [games.idGameSession],
-    references: [gameSessions.idGameSession],
+  players: many(storyPlayers),
+  favorites: many(storyFavorites),
+  sessions: many(storySessions),
+  currentSession: one(storySessions, {
+    fields: [stories.idStorySession],
+    references: [storySessions.idStorySession],
   }),
 }));
 
-export const gamePlayersRelations = relations(gamePlayers, ({ one }) => ({
-  game: one(games, { fields: [gamePlayers.idGame], references: [games.idGame] }),
-  user: one(user, { fields: [gamePlayers.idUser], references: [user.id] }),
+export const storyPlayersRelations = relations(storyPlayers, ({ one }) => ({
+  story: one(stories, { fields: [storyPlayers.idStory], references: [stories.idStory] }),
+  user: one(user, { fields: [storyPlayers.idUser], references: [user.id] }),
 }));
 
-export const gameFavoritesRelations = relations(gameFavorites, ({ one }) => ({
-  game: one(games, { fields: [gameFavorites.idGame], references: [games.idGame] }),
-  user: one(user, { fields: [gameFavorites.idUser], references: [user.id] }),
+export const storyFavoritesRelations = relations(storyFavorites, ({ one }) => ({
+  story: one(stories, { fields: [storyFavorites.idStory], references: [stories.idStory] }),
+  user: one(user, { fields: [storyFavorites.idUser], references: [user.id] }),
 }));
 
-export const gameSessionsRelations = relations(gameSessions, ({ one }) => ({
-  game: one(games, { fields: [gameSessions.idGame], references: [games.idGame] }),
-  storyteller: one(user, { fields: [gameSessions.idCreatedByUser], references: [user.id] }),
+export const storySessionsRelations = relations(storySessions, ({ one }) => ({
+  story: one(stories, { fields: [storySessions.idStory], references: [stories.idStory] }),
+  storyteller: one(user, { fields: [storySessions.idCreatedByUser], references: [user.id] }),
 }));
 
 export const feedbackRelations = relations(feedback, ({ one }) => ({

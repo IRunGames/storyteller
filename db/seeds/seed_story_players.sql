@@ -1,14 +1,14 @@
-    -- Seed data for `game_players`: who plays in the seed games that are not
-    -- solo storyteller fixtures. The owner of a game is its id_created_by_user
-    -- on `games` and does not get a game_players row.
+    -- Seed data for `story_players`: who plays in the seed stories that are not
+    -- solo storyteller fixtures. The owner of a story is its id_created_by_user
+    -- on `stories` and does not get a story_players row.
     --
-    -- id_game points at db/seeds/seed_games.sql and id_user at
+    -- id_story points at db/seeds/seed_stories.sql and id_user at
     -- db/seeds/seed_users.sql (plus the storyteller@irun.games account), so
     -- both of those seeds must run first.
     --
-    -- Each Hogwarts staff game (-17 to -21) seats four players: one other
+    -- Each Hogwarts staff story (-17 to -21) seats four players: one other
     -- staff member and three students, so staff appear on both sides.
-    INSERT INTO game_players (id_game_player, id_game, id_user)
+    INSERT INTO story_players (id_story_player, id_story, id_user)
     VALUES
         -- Vampire (-15), owned by PalmDave: PaulKhash and Pol play
         ( -1, -15, '00000000-0000-7000-8000-000000000002'),

@@ -17,12 +17,12 @@ const noErrors = async (): Promise<Result> => ({ ok: false, errors: {} });
 // The form imports both actions itself; mocked so it can be rendered without
 // a database, and so each test can see which one it called and with what.
 const sa_createStory = mock.fn<(values: StoryValues) => Promise<Result>>(noErrors);
-const sa_updateStory = mock.fn<(idGame: number, values: StoryValues) => Promise<Result>>(noErrors);
+const sa_updateStory = mock.fn<(idStory: number, values: StoryValues) => Promise<Result>>(noErrors);
 
 let StoryForm: typeof import("./story-form").StoryForm;
 
 const existing = {
-  idGame: -15,
+  idStory: -15,
   values: {
     title: "Vampire",
     idSystem: -6,

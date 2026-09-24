@@ -1,20 +1,20 @@
     -- Seed data for `users`: fixture people to play alongside the signed-in
-    -- storyteller@irun.games account, so the Stories page has games owned by,
+    -- storyteller@irun.games account, so the Stories page has stories owned by,
     -- and played with, someone else.
     --
     -- The primary key is a uuidv7, so the "negative id" seed convention cannot
     -- apply; the rows use fixed, obviously synthetic version-7 UUIDs in the
-    -- 00000000-0000-7000-8000-… range instead. db/seeds/seed_games.sql and
-    -- db/seeds/seed_game_players.sql reference these ids, so this seed must run
+    -- 00000000-0000-7000-8000-… range instead. db/seeds/seed_stories.sql and
+    -- db/seeds/seed_story_players.sql reference these ids, so this seed must run
     -- before both.
     --
     -- The emails are placeholders under example.com: these users have no
-    -- accounts row, so they cannot sign in. Users who run a game are Unpaid
+    -- accounts row, so they cannot sign in. Users who run a story are Unpaid
     -- Storytellers (-2); the rest are Unpaid Players (-1). Everything else
     -- keeps the column default.
     --
     -- …001 and …002 are two friends of the storyteller. …003 to …017 are the
-    -- Hogwarts cast: five staff, who each run a game, and ten students.
+    -- Hogwarts cast: five staff, who each run a story, and ten students.
     INSERT INTO users (id_user, name, nick_name, email, id_user_type)
     VALUES
         ('00000000-0000-7000-8000-000000000001', 'PalmDave Quist',     'PalmDave',  'palmdave.quist@example.com',     -2),

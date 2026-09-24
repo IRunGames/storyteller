@@ -28,7 +28,7 @@ ON CONFLICT (key) DO UPDATE
 --
 -- Not just the created_at / updated_at / archived_at columns the metatable
 -- builds: business columns written before this convention existed
--- (games.last_played, game_players.joined_at, _global_settings.value_at) are
+-- (stories.last_played, story_players.joined_at, _global_settings.value_at) are
 -- converted too, so "this schema stores timestamps with a time zone" holds
 -- without exception rather than only where a procedure happened to reach.
 --

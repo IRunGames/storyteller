@@ -13,7 +13,7 @@ import {
 import { sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
 
 type Props = {
-  idGame: number;
+  idStory: number;
   /** The first page of the story's sessions, loaded by the page. */
   initial: StorySession[];
   /** The colour for secondary text; the story page passes the panel's. */
@@ -25,7 +25,7 @@ type Props = {
 // A page shorter than SESSIONS_PAGE_SIZE means the well is dry, and nothing
 // here is ever added or removed on the client, so the count of rows shown is
 // also the offset of the next page.
-export function StorySessions({ idGame, initial, mutedColor = "fg.muted" }: Props) {
+export function StorySessions({ idStory, initial, mutedColor = "fg.muted" }: Props) {
   const [sessions, setSessions] = useState(initial);
   const [hasMore, setHasMore] = useState(initial.length === SESSIONS_PAGE_SIZE);
   const [isLoadingMore, setLoadingMore] = useState(false);
@@ -36,7 +36,7 @@ export function StorySessions({ idGame, initial, mutedColor = "fg.muted" }: Prop
     setLoadingMore(true);
     startTransition(async () => {
       try {
-        const page = await sa_listStorySessions(idGame, offset);
+        const page = await sa_listStorySessions(idStory, offset);
         setSessions((current) => [...current, ...page]);
         setHasMore(page.length === SESSIONS_PAGE_SIZE);
       } catch {
@@ -55,7 +55,7 @@ export function StorySessions({ idGame, initial, mutedColor = "fg.muted" }: Prop
     <Stack gap="4">
       <List.Root listStyleType="none" gap="2">
         {sessions.map((session) => (
-          <List.Item key={session.idGameSession}>
+          <List.Item key={session.idStorySession}>
             <HStack justify="space-between" gap="4">
               <Text>{formatLastPlayed(session.startedAt)}</Text>
               {/* The length is generated once the session is done; before

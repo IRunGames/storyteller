@@ -117,7 +117,7 @@ New tables should register with the metatable rather than declaring audit
 columns by hand: `CALL _p_update_tables();`, then
 `UPDATE _tables SET needs_timestamps = TRUE, needs_user_ids = TRUE WHERE table_name = '<table>';`,
 then `CALL _p_update_tables_timestamps(); CALL _p_update_tables_user_ids();`.
-See `custom/create_game_favorites_table.sql` for the full pattern including
+See `custom/create_story_favorites_table.sql` for the full pattern including
 the guard that fails loudly if the table was not registered. A table whose
 rows are taken down rather than deleted also sets `needs_archival = TRUE` and
 calls `_p_update_tables_archives()`, which adds `is_archived`, `archived_at`
@@ -125,7 +125,7 @@ and `id_archived_by_user` with the triggers that keep them in step; see
 `custom/create_news_table.sql`.
 A table whose rows move through statuses maps itself to a workflow in the same
 `UPDATE _tables` and calls the workflow procedures; see
-`custom/create_game_sessions_table.sql` and `STATUS_WORKFLOWS.md`.
+`custom/create_story_sessions_table.sql` and `STATUS_WORKFLOWS.md`.
 
 ---
 

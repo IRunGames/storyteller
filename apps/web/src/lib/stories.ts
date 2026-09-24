@@ -1,4 +1,4 @@
-import type { GameSessionStatus } from "@/db/schema";
+import type { StorySessionStatus } from "@/db/schema";
 
 /** Cards per fetch in every Stories section. */
 export const PAGE_SIZE = 10;
@@ -8,8 +8,8 @@ export const SUMMARY_PREVIEW_CHARS = 200;
 
 /** The projection every list action returns and every card renders. */
 export type StoryCardData = {
-  idGame: number;
-  gameTitle: string;
+  idStory: number;
+  title: string;
   summary: string | null;
   imageUrl: string | null;
   lastPlayed: Date;
@@ -17,18 +17,18 @@ export type StoryCardData = {
   systemVersion: string | null;
   variant: string | null;
   isFavorite: boolean;
-  /** The caller created this game; only they get the Play button. */
+  /** The caller created this story; only they get the Play button. */
   isOwner: boolean;
   /** False for a story the storyteller has retired; hidden from My Stories by default. */
   isActive: boolean;
   /**
    * How the storyteller is known: their nickname, else their name. Null when
-   * the game has no recorded creator. The card shows it only when the viewer
+   * the story has no recorded creator. The card shows it only when the viewer
    * is not the storyteller; their own name on their own story says nothing.
    */
   storytellerName: string | null;
   /**
-   * The game's current session is open, so play is under way at its table.
+   * The story's current session is open, so play is under way at its table.
    * A non-owner gets a Join button in the Play button's place.
    */
   hasOpenSession: boolean;
@@ -41,8 +41,8 @@ export const SESSIONS_PAGE_SIZE = 5;
 
 /** One row of a story's Recent sessions section. */
 export type StorySession = {
-  idGameSession: number;
-  status: GameSessionStatus;
+  idStorySession: number;
+  status: StorySessionStatus;
   /** When the session was created, which is when it was opened. */
   startedAt: Date;
   /**
@@ -97,7 +97,7 @@ export function cssUrlValue(url: string): string {
   return url.replace(/["\\\n\r\f]/g, (char) => encodeURIComponent(char));
 }
 
-/** "Cypher System · Numenera (Revised)", or null when the game has no system. */
+/** "Cypher System · Numenera (Revised)", or null when the story has no system. */
 export function systemLabel(
   story: Pick<StoryCardData, "systemName" | "systemVersion" | "variant">,
 ): string | null {
@@ -131,7 +131,7 @@ export function formatSessionLength(minutes: number): string {
  * What a session with no length says in its place. A done session always has
  * one, so its entry is only there to keep the lookup total.
  */
-export const SESSION_STATUS_TEXT: Record<GameSessionStatus, string> = {
+export const SESSION_STATUS_TEXT: Record<StorySessionStatus, string> = {
   open: "In progress",
   suspended: "Suspended",
   resumed: "In progress",

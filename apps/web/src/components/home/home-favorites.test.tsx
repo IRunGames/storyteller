@@ -8,8 +8,8 @@ import { PAGE_SIZE, type StoryCardData } from "@/lib/stories";
 
 function stories(count: number, from = 1): StoryCardData[] {
   return Array.from({ length: count }, (_, i) => ({
-    idGame: from + i,
-    gameTitle: `Story ${from + i}`,
+    idStory: from + i,
+    title: `Story ${from + i}`,
     summary: null,
     imageUrl: null,
     lastPlayed: new Date("2026-01-01T00:00:00Z"),
@@ -28,7 +28,7 @@ function stories(count: number, from = 1): StoryCardData[] {
 // The component imports its server actions itself, so the module is mocked
 // before the dynamic import below loads it.
 const sa_listFavoriteStories = mock.fn(async (_offset: number): Promise<StoryCardData[]> => []);
-const sa_setFavorite = mock.fn(async (_idGame: number, isFavorite: boolean) => ({ isFavorite }));
+const sa_setFavorite = mock.fn(async (_idStory: number, isFavorite: boolean) => ({ isFavorite }));
 
 let HomeFavorites: typeof import("./home-favorites").HomeFavorites;
 

@@ -22,10 +22,10 @@ const harry: PlayerMatch = {
 
 // The popover imports its server actions itself, so the module is mocked
 // before the dynamic import below loads it.
-const sa_searchPlayers = mock.fn<(idGame: number, query: string) => Promise<PlayerMatch[]>>(
+const sa_searchPlayers = mock.fn<(idStory: number, query: string) => Promise<PlayerMatch[]>>(
   async () => [],
 );
-const sa_addStoryPlayers = mock.fn<(idGame: number, ids: string[]) => Promise<StoryPlayer[]>>(
+const sa_addStoryPlayers = mock.fn<(idStory: number, ids: string[]) => Promise<StoryPlayer[]>>(
   async () => [],
 );
 
@@ -35,7 +35,7 @@ async function openPopover(onInvited = mock.fn<(added: StoryPlayer[]) => void>()
   const u = userEvent.setup();
   renderWithProviders(
     <>
-      <InvitePlayersPopover idGame={7} onInvited={onInvited} />
+      <InvitePlayersPopover idStory={7} onInvited={onInvited} />
       <Toaster />
     </>,
   );
@@ -116,7 +116,7 @@ describe("InvitePlayersPopover", () => {
   });
 
   it("keeps a selection across searches and saves the chosen ids", async () => {
-    sa_searchPlayers.mock.mockImplementation(async (_idGame, query) =>
+    sa_searchPlayers.mock.mockImplementation(async (_idStory, query) =>
       query === "her" ? [hermione] : [harry],
     );
     sa_addStoryPlayers.mock.mockImplementation(async () => [
