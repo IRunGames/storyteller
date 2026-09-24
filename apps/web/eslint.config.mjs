@@ -21,6 +21,13 @@ const config = [
       ...next.configs.recommended.rules,
       ...next.configs["core-web-vitals"].rules,
       ...reactHooks.configs.recommended.rules,
+      // A parameter that is there only so a mock's shape matches the real
+      // function's, or a destructured field that is pulled out to be left
+      // behind, is named with a leading underscore and not reported.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
+      ],
     },
   },
 ];
