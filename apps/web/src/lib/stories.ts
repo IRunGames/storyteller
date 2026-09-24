@@ -60,6 +60,21 @@ export type StoryPlayer = {
   image: string | null;
 };
 
+/** Matches per search in the Invite Players popover. */
+export const PLAYER_SEARCH_LIMIT = 10;
+
+/** How long the popover waits after a keystroke before it searches, in ms. */
+export const PLAYER_SEARCH_DELAY_MS = 250;
+
+/**
+ * One match in the Invite Players popover. The email is shown under the name
+ * so two people known by the same nickname can be told apart, and so a
+ * storyteller who typed an address can see it was the one they meant.
+ */
+export type PlayerMatch = StoryPlayer & {
+  email: string;
+};
+
 /**
  * Escapes only what can terminate or confuse a CSS `url("…")` string.
  *

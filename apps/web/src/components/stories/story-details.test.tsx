@@ -41,7 +41,11 @@ describe("StoryDetails", () => {
     // The sessions list imports its server action itself; mocked so the
     // details page can be rendered without a database.
     mock.module("@/app/(app)/(nav)/stories/actions", {
-      namedExports: { sa_listStorySessions: async () => [] },
+      namedExports: {
+        sa_listStorySessions: async () => [],
+        sa_searchPlayers: async () => [],
+        sa_addStoryPlayers: async () => [],
+      },
     });
     ({ StoryDetails } = await import("./story-details"));
   });
@@ -71,6 +75,45 @@ describe("StoryDetails", () => {
     renderWithProviders(<StoryDetails story={story} players={[]} sessions={[]} />);
 
     expect(screen.queryByRole("link", { name: "Edit story" })).not.toBeInTheDocument();
+  });
+
+  it("offers the storyteller of an active story a Play now button beside Recent sessions", () => {
+    renderWithProviders(
+      <StoryDetails story={{ ...story, isOwner: true }} players={[]} sessions={[]} />,
+    );
+
+    const link = within(section("Recent sessions")).getByRole("link", { name: "Play now" });
+    expect(link).toHaveAttribute("href", "/play/-15");
+  });
+
+  it("shows no Play now button to anyone but the storyteller, or on an inactive story", () => {
+    const { unmount } = renderWithProviders(
+      <StoryDetails story={story} players={[]} sessions={[]} />,
+    );
+    expect(screen.queryByRole("link", { name: "Play now" })).not.toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(
+      <StoryDetails
+        story={{ ...story, isOwner: true, isActive: false }}
+        players={[]}
+        sessions={[]}
+      />,
+    );
+    expect(screen.queryByRole("link", { name: "Play now" })).not.toBeInTheDocument();
+  });
+
+  it("offers the storyteller an Invite Players button beside the Players heading", () => {
+    const { unmount } = renderWithProviders(
+      <StoryDetails story={{ ...story, isOwner: true }} players={[]} sessions={[]} />,
+    );
+    expect(
+      within(section("Players")).getByRole("button", { name: "Invite Players" }),
+    ).toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(<StoryDetails story={story} players={[]} sessions={[]} />);
+    expect(screen.queryByRole("button", { name: "Invite Players" })).not.toBeInTheDocument();
   });
 
   it("leaves out the lines it has nothing for", () => {

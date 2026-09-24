@@ -284,6 +284,93 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     expect(await actions.sa_listStoryPlayers(3000000000)).toEqual([]);
   });
 
+  it("finds players by name, nickname or email, ten at most, case blind", async () => {
+    // D is the seed user's own story, so they may search for players for it.
+    const byNick = await actions.sa_searchPlayers(gameD, "HERMIONE");
+    expect(byNick).toEqual([
+      {
+        idUser: "00000000-0000-7000-8000-000000000009",
+        name: "Hermione",
+        email: "hermione.granger@example.com",
+        image: null,
+      },
+    ]);
+
+    const byEmail = await actions.sa_searchPlayers(gameD, "fixture-other@");
+    expect(byEmail.map((m) => m.idUser)).toEqual([otherUserId]);
+
+    // "e" is in nearly every seed address, so this is where the cap bites.
+    const many = await actions.sa_searchPlayers(gameD, "e");
+    expect(many).toHaveLength(10);
+  });
+
+  it("searches nothing for a blank query and leaves out the caller and the seated", async () => {
+    expect(await actions.sa_searchPlayers(gameD, "")).toEqual([]);
+    expect(await actions.sa_searchPlayers(gameD, "   ")).toEqual([]);
+
+    // The seed user is Pol, the storyteller of D: they cannot invite themselves.
+    expect(await actions.sa_searchPlayers(gameD, "Pol")).toEqual([]);
+
+    // PaulKhash already plays in Vampire (-15). D has nobody seated, so from
+    // D they match; from Vampire they would not, but Vampire belongs to
+    // PalmDave, so it is the fixture below that pins the exclusion.
+    expect((await actions.sa_searchPlayers(gameD, "PaulKhash")).map((m) => m.name)).toEqual([
+      "PaulKhash",
+    ]);
+  });
+
+  it("refuses to search for, or add to, a story the caller did not create", async () => {
+    await expect(actions.sa_searchPlayers(gameA, "her")).rejects.toThrow(/storyteller/);
+    await expect(actions.sa_addStoryPlayers(gameA, [otherUserId])).rejects.toThrow(/storyteller/);
+    // The popover is only ever shown to the owner of a story that exists,
+    // so an id that is not a story is a throw rather than a soft empty.
+    await expect(actions.sa_searchPlayers(2 ** 40, "her")).rejects.toThrow();
+    await expect(actions.sa_searchPlayers(2147483647, "her")).rejects.toThrow(/not found/);
+  });
+
+  it("seats the chosen users, skips anyone already seated, and returns who was added", async () => {
+    const added = await actions.sa_addStoryPlayers(gameD, [
+      otherUserId,
+      "00000000-0000-7000-8000-000000000009",
+    ]);
+    expect(added).toEqual([
+      { idUser: "00000000-0000-7000-8000-000000000009", name: "Hermione", image: null },
+      { idUser: otherUserId, name: "Other", image: null },
+    ]);
+
+    // Seated players no longer match a search, and adding them again seats
+    // nobody twice.
+    expect(await actions.sa_searchPlayers(gameD, "Hermione")).toEqual([]);
+    expect(await actions.sa_addStoryPlayers(gameD, [otherUserId])).toEqual([]);
+
+    const seated = await actions.sa_listStoryPlayers(gameD);
+    expect(seated.map((p) => p.idUser).sort()).toEqual(
+      [otherUserId, "00000000-0000-7000-8000-000000000009"].sort(),
+    );
+    const rows = await db
+      .select()
+      .from(tables.gamePlayers)
+      .where(eq(tables.gamePlayers.idGame, gameD));
+    expect(rows).toHaveLength(2);
+  });
+
+  it("will not seat the storyteller, an unknown user, or more than ten at once", async () => {
+    expect(await actions.sa_addStoryPlayers(gameD, [SEED_USER])).toEqual([]);
+    expect(
+      await actions.sa_addStoryPlayers(gameD, ["00000000-0000-7000-8000-0000000000ff"]),
+    ).toEqual([]);
+    await expect(actions.sa_addStoryPlayers(gameD, ["not-a-uuid"])).rejects.toThrow();
+    await expect(
+      actions.sa_addStoryPlayers(
+        gameD,
+        Array.from(
+          { length: 11 },
+          (_, i) => `00000000-0000-7000-8000-0000000000${String(i).padStart(2, "0")}`,
+        ),
+      ),
+    ).rejects.toThrow();
+  });
+
   it("lists a story's sessions newest first, five at a time, with their length", async () => {
     const first = await actions.sa_listStorySessions(gameA, 0);
     expect(first.map((s) => s.idGameSession)).toEqual([...pastSessionIds].sort((a, b) => b - a));

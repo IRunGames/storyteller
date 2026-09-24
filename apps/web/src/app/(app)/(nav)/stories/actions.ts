@@ -1,14 +1,16 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq, exists, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, ilike, inArray, not, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/authorize";
 import {
   PAGE_SIZE,
+  PLAYER_SEARCH_LIMIT,
   SESSIONS_PAGE_SIZE,
   systemLabel,
+  type PlayerMatch,
   type StoryCardData,
   type StoryPlayer,
   type StorySession,
@@ -65,6 +67,11 @@ const playerCount = sql<number>`(
   select count(*) from ${gamePlayers} where ${gamePlayers.idGame} = ${games.idGame}
 )`.mapWith(Number);
 
+// How a user is shown everywhere, storyteller or player: the same preference
+// the account menu uses (nickname, else name), and NULLIF so a nickname that
+// was blanked out does not win over the name.
+const playerName = sql<string>`coalesce(nullif(${users.nickName}, ''), ${users.name})`;
+
 // One projection shared by every list and by sa_getStory, so the card never sees
 // a shape that differs by section.
 function cardColumns(userId: string) {
@@ -82,9 +89,8 @@ function cardColumns(userId: string) {
     // no recorded creator has no owner rather than an error.
     isOwner: eq(games.idCreatedByUser, userId).mapWith(Boolean),
     isActive: games.isActive,
-    // The same preference the account menu uses (nickname, else name), and
-    // NULLIF so a nickname that was blanked out does not win over the name.
-    storytellerName: sql<string | null>`coalesce(nullif(${users.nickName}, ''), ${users.name})`,
+    // Null when the left join found no creator row.
+    storytellerName: sql<string | null>`${playerName}`,
     hasOpenSession,
     playerCount,
   };
@@ -192,18 +198,117 @@ export async function sa_listStoryPlayers(idGame: number): Promise<StoryPlayer[]
   const id = idGameSchema.safeParse(idGame);
   if (!id.success) return [];
 
-  const name = sql<string>`coalesce(nullif(${users.nickName}, ''), ${users.name})`;
-
   return (
     db
-      .select({ idUser: users.id, name, image: users.image })
+      .select({ idUser: users.id, name: playerName, image: users.image })
       .from(gamePlayers)
       .innerJoin(users, eq(gamePlayers.idUser, users.id))
       .where(eq(gamePlayers.idGame, id.data))
       // joined_at ties are the norm for rows seeded or added together, and the
       // row id says nothing a reader would recognise, so the name breaks them.
-      .orderBy(asc(gamePlayers.joinedAt), asc(name))
+      .orderBy(asc(gamePlayers.joinedAt), asc(playerName))
   );
+}
+
+/**
+ * The story's id and creator, or a throw: the storyteller is the only one who
+ * seats players, so both the search and the insert start here. Not found
+ * and not the owner are thrown rather than returned because the popover
+ * cannot fix either; it is only shown to the owner in the first place.
+ */
+async function requireOwnedStory(userId: string, idGame: number): Promise<number> {
+  const id = idGameSchema.parse(idGame);
+  const [story] = await db
+    .select({ idCreatedByUser: games.idCreatedByUser })
+    .from(games)
+    .where(eq(games.idGame, id))
+    .limit(1);
+  if (!story) throw new Error("Story not found");
+  if (story.idCreatedByUser !== userId) {
+    throw new Error("Only the storyteller who created a story can invite players to it");
+  }
+  return id;
+}
+
+// Users who could be seated at the story: active, not its storyteller, and
+// not already in game_players for it. Shared by the search and the insert so
+// what the popover offers is exactly what the save accepts.
+function seatable(idGame: number, storytellerId: string) {
+  const seated = db
+    .select({ one: gamePlayers.idGamePlayer })
+    .from(gamePlayers)
+    .where(and(eq(gamePlayers.idGame, idGame), eq(gamePlayers.idUser, users.id)));
+  return and(eq(users.isActive, true), not(eq(users.id, storytellerId)), not(exists(seated)));
+}
+
+// Anything in the query that ILIKE would read as a pattern is escaped, so a
+// storyteller who types "%" or "_" looks for those characters rather than
+// for everyone.
+function containsPattern(query: string): string {
+  return `%${query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+}
+
+const querySchema = z.string().max(200);
+
+/**
+ * Up to ten users whose name, nickname or email contains the query, for the
+ * Invite Players popover on a story the caller created. Case blind, over the
+ * generated users.search_text column, and without the storyteller or anyone
+ * already seated, so the list only ever offers people who can be added. A
+ * blank query finds nobody rather than everybody.
+ */
+export async function sa_searchPlayers(idGame: number, query: string): Promise<PlayerMatch[]> {
+  const user = await requireUser();
+  const id = await requireOwnedStory(user.id, idGame);
+  const needle = querySchema.parse(query).trim();
+  if (needle === "") return [];
+
+  return db
+    .select({ idUser: users.id, name: playerName, email: users.email, image: users.image })
+    .from(users)
+    .where(and(ilike(users.searchText, containsPattern(needle)), seatable(id, user.id)))
+    .orderBy(asc(playerName), asc(users.email))
+    .limit(PLAYER_SEARCH_LIMIT);
+}
+
+const inviteSchema = z.array(z.uuid()).min(1).max(PLAYER_SEARCH_LIMIT);
+
+/**
+ * Seats the given users at a story the caller created and returns the rows
+ * the Players list should add, in the order it lists them. Anyone who is not
+ * seatable (unknown, inactive, the storyteller, already at the table) is
+ * skipped rather than refused: the popover's list was built moments ago and
+ * a second storyteller tab may have seated someone since. game_players has
+ * no unique key on (id_game, id_user), so the insert selects only the users
+ * with no row yet instead of relying on a conflict.
+ */
+export async function sa_addStoryPlayers(
+  idGame: number,
+  idUsers: string[],
+): Promise<StoryPlayer[]> {
+  const user = await requireUser();
+  const id = await requireOwnedStory(user.id, idGame);
+  const ids = inviteSchema.parse(idUsers);
+
+  // Written out rather than db.insert().select(): Drizzle only accepts an
+  // insert-select whose columns are the whole table in order, and every
+  // other column here is a default. The id is cast because a bare parameter
+  // in a SELECT list is text to Postgres, which will not go into a bigint.
+  const inserted = await db.execute<{ id_user: string }>(sql`
+    insert into ${gamePlayers} (id_game, id_user)
+    select ${id}::bigint, ${users.id}
+    from ${users}
+    where ${and(inArray(users.id, ids), seatable(id, user.id))}
+    returning ${gamePlayers.idUser}
+  `);
+  const seatedIds = inserted.rows.map((row) => row.id_user);
+  if (seatedIds.length === 0) return [];
+
+  return db
+    .select({ idUser: users.id, name: playerName, image: users.image })
+    .from(users)
+    .where(inArray(users.id, seatedIds))
+    .orderBy(asc(playerName));
 }
 
 /**

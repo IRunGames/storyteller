@@ -1,19 +1,18 @@
 import { useId } from "react";
 import NextLink from "next/link";
 import {
-  Avatar,
   Box,
+  Button,
   Container,
   Heading,
   HStack,
   IconButton,
-  List,
   Portal,
   Stack,
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { Pencil } from "lucide-react";
+import { Pencil, Play } from "lucide-react";
 import {
   cssUrlValue,
   formatLastPlayed,
@@ -22,6 +21,7 @@ import {
   type StoryPlayer,
   type StorySession,
 } from "@/lib/stories";
+import { StoryPlayers } from "./story-players";
 import { StorySessions } from "./story-sessions";
 
 type Props = {
@@ -127,32 +127,32 @@ export function StoryDetails({ story, players, sessions }: Props) {
           </Stack>
 
           <Stack as="section" aria-labelledby={playersId} gap="4">
-            <Heading id={playersId} size="xl">
-              Players
-            </Heading>
-            {players.length === 0 ? (
-              <Text color={story.imageUrl ? "whiteAlpha.800" : "fg.muted"}>No players yet.</Text>
-            ) : (
-              <List.Root listStyleType="none" gap="3">
-                {players.map((player) => (
-                  <List.Item key={player.idUser}>
-                    <HStack gap="3">
-                      <Avatar.Root size="sm">
-                        <Avatar.Fallback name={player.name} />
-                        {player.image && <Avatar.Image src={player.image} alt={player.name} />}
-                      </Avatar.Root>
-                      <Text>{player.name}</Text>
-                    </HStack>
-                  </List.Item>
-                ))}
-              </List.Root>
-            )}
+            <StoryPlayers
+              idGame={story.idGame}
+              headingId={playersId}
+              initial={players}
+              isOwner={story.isOwner}
+              mutedColor={mutedColor}
+            />
           </Stack>
 
           <Stack as="section" aria-labelledby={sessionsId} gap="4">
-            <Heading id={sessionsId} size="xl">
-              Recent sessions
-            </Heading>
+            <HStack justify="space-between" gap="4">
+              <Heading id={sessionsId} size="xl">
+                Recent sessions
+              </Heading>
+              {story.isOwner && story.isActive && (
+                // The card's Play button, with its label spelled out since
+                // there is room here, and under the same rule: only the
+                // storyteller opens the table, and not for a retired story.
+                <Button asChild size="sm" rounded="full">
+                  <NextLink href={`/play/${story.idGame}`}>
+                    <Play size={16} />
+                    Play now
+                  </NextLink>
+                </Button>
+              )}
+            </HStack>
             <StorySessions idGame={story.idGame} initial={sessions} mutedColor={mutedColor} />
           </Stack>
         </Stack>
