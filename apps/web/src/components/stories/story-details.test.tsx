@@ -56,6 +56,23 @@ describe("StoryDetails", () => {
     expect(screen.getByText("A city of the dead.")).toBeInTheDocument();
   });
 
+  it("offers the storyteller an edit button that leads to the edit page", () => {
+    renderWithProviders(
+      <StoryDetails story={{ ...story, isOwner: true }} players={[]} sessions={[]} />,
+    );
+
+    expect(screen.getByRole("link", { name: "Edit story" })).toHaveAttribute(
+      "href",
+      "/stories/-15/edit",
+    );
+  });
+
+  it("shows no edit button to anyone but the storyteller", () => {
+    renderWithProviders(<StoryDetails story={story} players={[]} sessions={[]} />);
+
+    expect(screen.queryByRole("link", { name: "Edit story" })).not.toBeInTheDocument();
+  });
+
   it("leaves out the lines it has nothing for", () => {
     renderWithProviders(
       <StoryDetails

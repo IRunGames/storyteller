@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { Stack, Switch } from "@chakra-ui/react";
 import {
   PAGE_SIZE,
@@ -30,6 +30,8 @@ type Props<K extends SectionKey> = {
   sections: readonly K[];
   initial: Record<K, StoryCardData[]>;
   loadMore: Pick<Loaders, K>;
+  /** Something for a section's heading row, far right: the New story button. */
+  headerActions?: Partial<Record<K, ReactNode>>;
   /** Server action that writes the caller's favorite. */
   setFavorite: (idGame: number, isFavorite: boolean) => Promise<{ isFavorite: boolean }>;
 };
@@ -109,6 +111,7 @@ export function StoriesBoard<K extends SectionKey>({
   sections,
   initial,
   loadMore,
+  headerActions,
   setFavorite,
 }: Props<K>) {
   const [board, setBoard] = useState(() => initialState(sections, initial));
@@ -239,6 +242,7 @@ export function StoriesBoard<K extends SectionKey>({
                 </Switch.Root>
               ) : undefined
             }
+            headerAction={headerActions?.[key]}
             stories={stories}
             hasMore={hasMore}
             isLoadingMore={isLoadingMore}

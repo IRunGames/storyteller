@@ -19,6 +19,7 @@ describe("toCurrentUser", () => {
       idUserType: -1,
       tags: null,
       isActive: true,
+      searchText: "Paul Stafford storyteller@irun.games Gandalf",
     };
 
     expect(toCurrentUser(row)).toEqual({

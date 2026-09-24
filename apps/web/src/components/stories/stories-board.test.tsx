@@ -99,6 +99,17 @@ describe("StoriesBoard", () => {
     expect(headings).toEqual(["Favorites", "My Stories", "Looking for Players"]);
   });
 
+  it("places a header action in its own section only", () => {
+    renderBoard({ headerActions: { mine: <button type="button">New story</button> } });
+
+    expect(
+      within(section("My Stories")).getByRole("button", { name: "New story" }),
+    ).toBeInTheDocument();
+    expect(
+      within(section("Looking for Players")).queryByRole("button", { name: "New story" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows only the sections it is given, so the Stories page has no Looking for Players", () => {
     renderWithProviders(
       <StoriesBoard
@@ -164,7 +175,9 @@ describe("StoriesBoard", () => {
       setFavorite,
     });
 
-    await user.click(within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })[1]);
+    await user.click(
+      within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })[1],
+    );
 
     await waitFor(() => expect(setFavorite.mock.calls[0].arguments).toEqual([2, true]));
     const favoriteTitles = within(section("Favorites"))
@@ -178,31 +191,52 @@ describe("StoriesBoard", () => {
 
   it("un-hearting the last favorite hides the section and empties the heart elsewhere", async () => {
     const user = userEvent.setup();
-    renderBoard({ initial: { favorites: stories(1, 2, true), mine: stories(2, 1).map((s) => ({ ...s, isFavorite: s.idGame === 2 })), open: [] } });
+    renderBoard({
+      initial: {
+        favorites: stories(1, 2, true),
+        mine: stories(2, 1).map((s) => ({ ...s, isFavorite: s.idGame === 2 })),
+        open: [],
+      },
+    });
 
-    await user.click(within(section("Favorites")).getByRole("button", { name: "Remove from Favorites" }));
+    await user.click(
+      within(section("Favorites")).getByRole("button", { name: "Remove from Favorites" }),
+    );
 
     await waitFor(() =>
       expect(screen.queryByRole("region", { name: "Favorites" })).not.toBeInTheDocument(),
     );
-    expect(within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })).toHaveLength(2);
+    expect(
+      within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" }),
+    ).toHaveLength(2);
   });
 
   it("reverts the heart when the action fails", async () => {
     const user = userEvent.setup();
-    renderBoard({ setFavorite: async () => { throw new Error("nope"); } });
+    renderBoard({
+      setFavorite: async () => {
+        throw new Error("nope");
+      },
+    });
 
-    await user.click(within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })[0]);
+    await user.click(
+      within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })[0],
+    );
 
     await waitFor(() =>
-      expect(within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })).toHaveLength(3),
+      expect(
+        within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" }),
+      ).toHaveLength(3),
     );
     expect(screen.queryByRole("region", { name: "Favorites" })).not.toBeInTheDocument();
   });
 
   it("loads the next page of a section from its current length and drops duplicates", async () => {
     const user = userEvent.setup();
-    const mineLoader = mock.fn(async () => [...stories(1, PAGE_SIZE), ...stories(2, PAGE_SIZE + 1)]);
+    const mineLoader = mock.fn(async () => [
+      ...stories(1, PAGE_SIZE),
+      ...stories(2, PAGE_SIZE + 1),
+    ]);
     renderBoard({
       initial: { favorites: [], mine: stories(PAGE_SIZE), open: [] },
       loadMore: { ...emptyLoaders, mine: mineLoader },
@@ -210,17 +244,23 @@ describe("StoriesBoard", () => {
 
     await user.click(within(section("My Stories")).getByRole("button", { name: "More" }));
 
-    await waitFor(() => expect(within(section("My Stories")).getAllByRole("article")).toHaveLength(PAGE_SIZE + 2));
+    await waitFor(() =>
+      expect(within(section("My Stories")).getAllByRole("article")).toHaveLength(PAGE_SIZE + 2),
+    );
     // My Stories also passes the Show inactive switch's state, off by default.
     expect(mineLoader.mock.calls[0].arguments).toEqual([PAGE_SIZE, false]);
-    expect(within(section("My Stories")).queryByRole("button", { name: "More" })).not.toBeInTheDocument();
+    expect(
+      within(section("My Stories")).queryByRole("button", { name: "More" }),
+    ).not.toBeInTheDocument();
   });
 
   it("flips the heart on every copy when a story appears in two sections", async () => {
     const user = userEvent.setup();
     renderBoard({ initial: { favorites: [], mine: stories(1, 7), open: stories(1, 7) } });
 
-    await user.click(within(section("My Stories")).getByRole("button", { name: "Add to Favorites" }));
+    await user.click(
+      within(section("My Stories")).getByRole("button", { name: "Add to Favorites" }),
+    );
 
     await waitFor(() =>
       expect(
@@ -243,7 +283,9 @@ describe("StoriesBoard", () => {
 
     // The optimistic add puts an eleventh card in the list that never came
     // from a page; asking the server for row 11 would skip one.
-    await user.click(within(section("My Stories")).getByRole("button", { name: "Add to Favorites" }));
+    await user.click(
+      within(section("My Stories")).getByRole("button", { name: "Add to Favorites" }),
+    );
     await waitFor(() =>
       expect(within(section("Favorites")).getAllByRole("article")).toHaveLength(PAGE_SIZE + 1),
     );
@@ -263,7 +305,9 @@ describe("StoriesBoard", () => {
 
   it("keeps Favorites visible with More when the client list empties but the server has more", async () => {
     const user = userEvent.setup();
-    renderBoard({ initial: { favorites: stories(PAGE_SIZE, 100, true), mine: stories(3), open: [] } });
+    renderBoard({
+      initial: { favorites: stories(PAGE_SIZE, 100, true), mine: stories(3), open: [] },
+    });
 
     for (let left = PAGE_SIZE; left > 0; left--) {
       await user.click(

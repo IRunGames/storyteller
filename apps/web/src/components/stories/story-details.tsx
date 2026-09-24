@@ -1,5 +1,19 @@
 import { useId } from "react";
-import { Avatar, Box, Container, Heading, HStack, List, Stack, Text } from "@chakra-ui/react";
+import NextLink from "next/link";
+import {
+  Avatar,
+  Box,
+  Container,
+  Heading,
+  HStack,
+  IconButton,
+  List,
+  Portal,
+  Stack,
+  Text,
+  Tooltip,
+} from "@chakra-ui/react";
+import { Pencil } from "lucide-react";
 import {
   cssUrlValue,
   formatLastPlayed,
@@ -66,7 +80,40 @@ export function StoryDetails({ story, players, sessions }: Props) {
           rounded="xl"
           bg={story.imageUrl ? "blackAlpha.700" : undefined}
           color={story.imageUrl ? "white" : undefined}
+          position="relative"
         >
+          {story.isOwner && (
+            // Only the storyteller edits a story, and the button sits in the
+            // panel's top right corner, clear of the title, rather than in
+            // the text flow. A link styled as a button: the edit page is a
+            // page of its own, so the back button returns here.
+            <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+              <Tooltip.Trigger asChild>
+                <IconButton
+                  asChild
+                  aria-label="Edit story"
+                  variant="ghost"
+                  size="sm"
+                  rounded="full"
+                  position="absolute"
+                  top={story.imageUrl ? { base: "3", md: "5" } : "0"}
+                  right={story.imageUrl ? { base: "3", md: "5" } : "0"}
+                  color={story.imageUrl ? "whiteAlpha.900" : undefined}
+                  _hover={story.imageUrl ? { bg: "whiteAlpha.200" } : undefined}
+                >
+                  <NextLink href={`/stories/${story.idGame}/edit`}>
+                    <Pencil size={18} />
+                  </NextLink>
+                </IconButton>
+              </Tooltip.Trigger>
+              <Portal>
+                <Tooltip.Positioner>
+                  <Tooltip.Content>Edit story</Tooltip.Content>
+                </Tooltip.Positioner>
+              </Portal>
+            </Tooltip.Root>
+          )}
+
           <Stack gap="2">
             <Heading as="h1" size="3xl">
               {story.gameTitle}

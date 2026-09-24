@@ -136,6 +136,18 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   nickName. Add a field there when a page needs it; nothing else on the row
   reaches the browser. Server components keep calling `requireUser()`, since
   context is client-only. In a test, wrap the component in `UserProvider`.
+- **Per-user settings go through `useUserPreferences()`**
+  ([`user-preferences-provider.tsx`](../src/components/preferences/user-preferences-provider.tsx)),
+  mounted just inside `UserProvider` by `(app)/layout.tsx` with the map that
+  `sa_getUserPreferences()` loaded. `get(key, fallback)` reads it;
+  `set(key, value)` shows the change at once, sends it to
+  `sa_setUserPreference` in
+  [`preferences/actions.ts`](../src/components/preferences/actions.ts), one
+  merged upsert per key, and puts the old value back if the action refuses.
+  Keys are free-form strings, values any JSON, and the whole map is one
+  `user_preferences` row per user. Never keep a setting in `localStorage`
+  instead. In a test, `mock.module("./actions")` and wrap the component in
+  `UserPreferencesProvider`.
 
 ## Forms
 
@@ -148,7 +160,7 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
 - **Type `useForm` with `z.input` for the fields and `z.infer` for the
   submitted values** when a preprocess changes the shape (a `<select>` posts a
   string; the schema wants a number or null). See
-  [`new-story-form.tsx`](<../src/app/(app)/(nav)/stories/new/new-story-form.tsx>).
+  [`story-form.tsx`](../src/components/stories/story-form.tsx).
 - **Chakra checkboxes and radios go through `Controller`,** not `register()`:
   Chakra's hidden input carries `value="on"`, which react-hook-form would hand
   to the schema instead of the checked flag.

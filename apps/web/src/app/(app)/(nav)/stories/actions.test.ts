@@ -34,12 +34,14 @@ const TITLE_A = "Fixture A — other's game, seed user plays in it, LFP, active"
 const TITLE_B = "Fixture B — other's game, seed user only favorites it";
 const TITLE_C = "Fixture C — other's game, LFP but inactive";
 const TITLE_D = "Fixture D — seed user's own game, inactive";
+const TITLE_E = "Fixture E — seed user's own game, archived, and favorited by them";
 
 let otherUserId = "";
 let gameA = 0;
 let gameB = 0;
 let gameC = 0;
 let gameD = 0;
+let gameE = 0;
 let openSessionId = 0;
 let pastSessionIds: number[] = [];
 let fixtureGameIds: number[] = [];
@@ -74,6 +76,13 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
           isActive: false,
         },
         { gameTitle: TITLE_D, idCreatedByUser: SEED_USER, isActive: false },
+        {
+          gameTitle: TITLE_E,
+          idCreatedByUser: SEED_USER,
+          isActive: false,
+          isArchived: true,
+          idArchivedByUser: SEED_USER,
+        },
       ])
       .returning({ idGame: tables.games.idGame, gameTitle: tables.games.gameTitle });
 
@@ -86,7 +95,8 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     gameB = idFor(TITLE_B);
     gameC = idFor(TITLE_C);
     gameD = idFor(TITLE_D);
-    fixtureGameIds = [gameA, gameB, gameC, gameD];
+    gameE = idFor(TITLE_E);
+    fixtureGameIds = [gameA, gameB, gameC, gameD, gameE];
 
     // The seed user plays in A but does not own it: this is the only row that
     // exercises the exists(plays-in) branch of sa_listMyStories.
@@ -94,8 +104,11 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
 
     // The seed user favorites B; the OTHER user favorites A. A must never
     // reach the seed user's favorites, which is what pins the idUser predicate.
+    // E is archived and favorited by the seed user, so it pins that an
+    // archived story is off both sections of the Stories page.
     await db.insert(tables.gameFavorites).values([
       { idGame: gameB, idUser: SEED_USER },
+      { idGame: gameE, idUser: SEED_USER },
       { idGame: gameA, idUser: otherUserId },
     ]);
 
@@ -339,8 +352,109 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       summary: "",
       imageUrl: "",
       isLookingForPlayers: false,
+      isActive: true,
+      isArchived: false,
     });
     expect(result).toEqual({ ok: false, errors: { title: "Please give the story a title." } });
+  });
+
+  it("hands the storyteller their story's values for the edit form, and nobody else", async () => {
+    // D is the seed user's own game; A is the other user's, though the seed
+    // user plays in it, which is what pins the check to the creator.
+    expect(await actions.sa_getStoryForEdit(gameD)).toEqual({
+      title: TITLE_D,
+      idSystem: null,
+      summary: "",
+      imageUrl: "",
+      isLookingForPlayers: false,
+      isActive: false,
+      isArchived: false,
+    });
+    expect(await actions.sa_getStoryForEdit(gameA)).toBeNull();
+    expect(await actions.sa_getStoryForEdit(2 ** 40)).toBeNull();
+  });
+
+  it("saves the edit form over the caller's own story and refuses anyone else's", async () => {
+    const values = {
+      title: `${TITLE_D} (edited)`,
+      idSystem: -26,
+      summary: "Now with a summary.",
+      imageUrl: "https://example.com/d.jpg",
+      isLookingForPlayers: true,
+      // D stays inactive: the fixture is what the "hides inactive" test below
+      // relies on, and the edit tests only borrow it.
+      isActive: false,
+      isArchived: false,
+    };
+
+    // On success the action redirects, which Next implements by throwing.
+    await expect(actions.sa_updateStory(gameD, values)).rejects.toThrow(/NEXT_REDIRECT/);
+    expect(await actions.sa_getStoryForEdit(gameD)).toEqual(values);
+    const [row] = await db
+      .select({ idUpdatedByUser: tables.games.idUpdatedByUser })
+      .from(tables.games)
+      .where(eq(tables.games.idGame, gameD));
+    expect(row.idUpdatedByUser).toBe(SEED_USER);
+
+    // A is the other user's; the seed user plays in it, which is exactly
+    // what must not be enough.
+    await expect(actions.sa_updateStory(gameA, values)).rejects.toThrow(
+      "Only the storyteller who created a story can edit it",
+    );
+    expect((await actions.sa_getStory(gameA))?.gameTitle).toBe(TITLE_A);
+    await expect(actions.sa_updateStory(2 ** 30, values)).rejects.toThrow("Story not found");
+
+    expect(await actions.sa_updateStory(gameD, { ...values, title: "" })).toEqual({
+      ok: false,
+      errors: { title: "Please give the story a title." },
+    });
+  });
+
+  it("archives a story as inactive and not looking for players, stamped with the archiver, and undoes all of it", async () => {
+    const values = {
+      title: TITLE_D,
+      idSystem: null,
+      summary: "",
+      imageUrl: "",
+      isLookingForPlayers: true,
+      isActive: true,
+      isArchived: true,
+    };
+    const archival = () =>
+      db
+        .select({
+          isActive: tables.games.isActive,
+          isLookingForPlayers: tables.games.isLookingForPlayers,
+          isArchived: tables.games.isArchived,
+          archivedAt: tables.games.archivedAt,
+          idArchivedByUser: tables.games.idArchivedByUser,
+        })
+        .from(tables.games)
+        .where(eq(tables.games.idGame, gameD))
+        .then(([row]) => row);
+
+    await expect(actions.sa_updateStory(gameD, values)).rejects.toThrow(/NEXT_REDIRECT/);
+    expect(await archival()).toEqual({
+      isActive: false,
+      isLookingForPlayers: false,
+      isArchived: true,
+      archivedAt: expect.any(Date),
+      idArchivedByUser: SEED_USER,
+    });
+
+    // Unarchiving posts the boxes as the form left them, inactive here so
+    // the fixture keeps its meaning for the tests that follow, and the
+    // database clears what it stamped.
+    await expect(
+      actions.sa_updateStory(gameD, { ...values, isArchived: false, isActive: false }),
+    ).rejects.toThrow(/NEXT_REDIRECT/);
+    expect(await archival()).toEqual({
+      isActive: false,
+      isLookingForPlayers: true,
+      isArchived: false,
+      archivedAt: null,
+      idArchivedByUser: null,
+    });
   });
 
   it("marks each card with whether the caller has favorited it", async () => {
@@ -392,6 +506,22 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     expect(shown.map((s) => s.idGame)).toContain(gameD);
     expect(shown.find((s) => s.idGame === gameD)?.isActive).toBe(false);
     expect(shown.find((s) => s.idGame === gameA)?.isActive).toBe(true);
+  });
+
+  it("leaves an archived story off My Stories, even with inactive shown, and off Favorites", async () => {
+    const mine = [
+      ...(await actions.sa_listMyStories(0, true)),
+      ...(await actions.sa_listMyStories(10, true)),
+    ];
+    expect(mine.map((s) => s.idGame)).toContain(gameD);
+    expect(mine.map((s) => s.idGame)).not.toContain(gameE);
+
+    const favorites = await actions.sa_listFavoriteStories(0);
+    expect(favorites.map((s) => s.idGame)).toContain(gameB);
+    expect(favorites.map((s) => s.idGame)).not.toContain(gameE);
+
+    // Still there for its storyteller to unarchive.
+    expect((await actions.sa_getStoryForEdit(gameE))?.isArchived).toBe(true);
   });
 
   it("marks each card with whether the caller owns it", async () => {

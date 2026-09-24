@@ -2,13 +2,16 @@
 
 import { useId, type ReactNode } from "react";
 import { Box, Button, Grid, Heading, HStack, Stack, Text } from "@chakra-ui/react";
+import { ChevronsRight } from "lucide-react";
 import type { StoryCardData } from "@/lib/stories";
 import { StoryCard } from "./story-card";
 
 type Props = {
   title: string;
-  /** Rendered on the heading row, right of the title: a filter switch, say. */
+  /** Rendered on the heading row, beside the title: a filter switch, say. */
   headerControl?: ReactNode;
+  /** Rendered at the far right of the heading row: a New story button, say. */
+  headerAction?: ReactNode;
   /** What to say when there are no stories; a hint with a link, say. */
   emptyText?: ReactNode;
   stories: StoryCardData[];
@@ -26,6 +29,7 @@ type Props = {
 export function StorySection({
   title,
   headerControl,
+  headerAction,
   emptyText = "Nothing here yet.",
   stories,
   hasMore,
@@ -38,11 +42,16 @@ export function StorySection({
 
   return (
     <Stack as="section" aria-labelledby={headingId} gap="4">
+      {/* The control belongs to the title, so it sits beside it; the action
+          is about the whole section and takes the far edge. */}
       <HStack justify="space-between" align="center" wrap="wrap" gap="4">
-        <Heading id={headingId} size="xl">
-          {title}
-        </Heading>
-        {headerControl}
+        <HStack align="center" wrap="wrap" gap="6">
+          <Heading id={headingId} size="xl">
+            {title}
+          </Heading>
+          {headerControl}
+        </HStack>
+        {headerAction}
       </HStack>
 
       {stories.length === 0 ? (
@@ -75,6 +84,7 @@ export function StorySection({
         <Box>
           <Button variant="outline" onClick={onMore} loading={isLoadingMore} loadingText="More">
             More
+            <ChevronsRight />
           </Button>
         </Box>
       )}

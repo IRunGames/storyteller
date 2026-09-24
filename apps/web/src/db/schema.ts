@@ -13,6 +13,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { UserPreferenceMap } from "@/lib/user-preference-schemas";
 
 // The exported names (user, session, account, verification) are Better Auth's
 // model names and must stay singular — the Drizzle adapter looks the tables up
@@ -48,6 +49,13 @@ export const user = pgTable("users", {
   idUserType: integer("id_user_type").default(-1).notNull(),
   tags: integer("tags"),
   isActive: boolean("is_active").default(true).notNull(),
+  // name, email and nick_name joined for lookups, built by the database from
+  // the search_fields recipe on the users row of _tables
+  // (db/migrations/20260923181837_add_users_search_text.sql). Generated, so
+  // an insert or update never names it.
+  searchText: text("search_text").generatedAlwaysAs(
+    sql`immutable_concat_ws(' ', name, email, nick_name)`,
+  ),
 });
 
 export const session = pgTable(
@@ -157,6 +165,14 @@ export const games = pgTable("games", {
   // The session currently at the table, if any; null between sessions.
   // game_sessions keeps the history, this is only the one in progress.
   idGameSession: integer("id_game_session"),
+  // A retired story is archived rather than deleted. The database stamps
+  // archived_at as is_archived turns on and clears both it and
+  // id_archived_by_user as it turns off (set_archived_at and
+  // clear_archived_by_on_unarchive on games); the app only sets the
+  // archiver on the way in.
+  isArchived: boolean("is_archived").default(false).notNull(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  idArchivedByUser: uuid("id_archived_by_user"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -233,6 +249,22 @@ export const feedback = pgTable("feedback", {
   pagePath: text("page_path").notNull(),
   feedback: text("feedback"),
   ipAddress: text("ip_address"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// One row per user, every preference in one jsonb object. idUser is the
+// upsert key (unique in the database); the audit columns below carry the same
+// user but are the metatable's, so the constraint could not sit on them.
+export const userPreferences = pgTable("user_preferences", {
+  idUserPreference: integer("id_user_preference").primaryKey().generatedByDefaultAsIdentity(),
+  idUser: uuid("id_user").notNull().unique(),
+  preferences: jsonb("preferences")
+    .$type<UserPreferenceMap>()
+    .default(sql`'{}'::jsonb`)
+    .notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -332,4 +364,8 @@ export const newsRelations = relations(news, ({ one, many }) => ({
 export const newsReadsRelations = relations(newsReads, ({ one }) => ({
   news: one(news, { fields: [newsReads.idNews], references: [news.idNews] }),
   user: one(user, { fields: [newsReads.idUser], references: [user.id] }),
+}));
+
+export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
+  user: one(user, { fields: [userPreferences.idUser], references: [user.id] }),
 }));

@@ -9,6 +9,7 @@ import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
+import { PAGE_SIZE } from "@/lib/stories";
 
 loadEnvConfig(process.cwd());
 
@@ -33,6 +34,7 @@ let playsIn = 0;
 let owns = 0;
 let ownsInactive = 0;
 let stranger = 0;
+let fillerIds: number[] = [];
 let fixtureGameIds: number[] = [];
 
 describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
@@ -84,7 +86,24 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     owns = idFor(TITLE_OWNS);
     ownsInactive = idFor(TITLE_OWNS_INACTIVE);
     stranger = idFor(TITLE_STRANGER);
-    fixtureGameIds = [playsIn, owns, ownsInactive, stranger];
+
+    // A card page's worth of further owned games, so "every eligible game in
+    // one call" is decided by fixtures this suite controls. The seed's own
+    // count of active games is whatever the app has been used to make it
+    // (archiving one from the UI is enough to change it), and the stories
+    // suite runs alongside this one with fixtures of its own.
+    const fillers = await db
+      .insert(tables.games)
+      .values(
+        Array.from({ length: PAGE_SIZE }, (_, i) => ({
+          gameTitle: `Play fixture — filler ${i + 1}`,
+          idCreatedByUser: SEED_USER,
+          isActive: true,
+        })),
+      )
+      .returning({ idGame: tables.games.idGame });
+    fillerIds = fillers.map((row) => row.idGame);
+    fixtureGameIds = [playsIn, owns, ownsInactive, stranger, ...fillerIds];
 
     await db
       .insert(tables.gamePlayers)
@@ -116,10 +135,11 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   });
 
   it("returns every eligible game in one call, not a page of them", async () => {
-    // The seed user owns 14 games, half of them active; with the two fixtures
-    // that is more than a card page's worth, and all of it must come back.
-    const stories = await actions.sa_listPlayableStories();
-    expect(stories.length).toBeGreaterThan(10);
+    // The fillers plus the two fixtures above are more than a card page's
+    // worth on their own, and every one of them must come back.
+    const ids = (await actions.sa_listPlayableStories()).map((s) => s.idGame);
+    expect(ids.length).toBeGreaterThan(PAGE_SIZE);
+    for (const id of [...fillerIds, owns, playsIn]) expect(ids).toContain(id);
   });
 
   it("carries only what a picker needs, newest first", async () => {

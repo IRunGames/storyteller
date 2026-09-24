@@ -45,6 +45,24 @@ function renderSection(overrides: Partial<Parameters<typeof StorySection>[0]> = 
 }
 
 describe("StorySection", () => {
+  it("puts the control beside the title and the action on the heading row too", () => {
+    renderSection({
+      headerControl: <span>Show inactive</span>,
+      headerAction: <button type="button">New story</button>,
+    });
+
+    const heading = screen.getByRole("heading", { name: "My Stories" });
+    // The control shares the title's own group; the action is a sibling of
+    // that group on the same row.
+    expect(heading.parentElement).toContainElement(screen.getByText("Show inactive"));
+    expect(heading.parentElement).not.toContainElement(
+      screen.getByRole("button", { name: "New story" }),
+    );
+    expect(heading.parentElement?.parentElement).toContainElement(
+      screen.getByRole("button", { name: "New story" }),
+    );
+  });
+
   it("lets the caller replace the empty-state text", () => {
     renderSection({ stories: [], emptyText: "Heart something first." });
     expect(screen.getByText("Heart something first.")).toBeInTheDocument();

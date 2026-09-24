@@ -1,5 +1,5 @@
 import NextLink from "next/link";
-import { Button, Container, Flex, Stack } from "@chakra-ui/react";
+import { Button, Container } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
 import { STORIES_SECTIONS } from "@/lib/stories";
 import { StoriesBoard } from "@/components/stories/stories-board";
@@ -24,23 +24,24 @@ export default async function StoriesPage() {
 
   return (
     <Container maxW="full" py="8">
-      <Stack gap="10">
-        <Flex justify="flex-end" align="center" wrap="wrap" gap="4">
-          <Button asChild>
-            <NextLink href="/stories/new">New story</NextLink>
-          </Button>
-        </Flex>
-
-        <StoriesBoard
-          sections={STORIES_SECTIONS}
-          initial={{ favorites, mine }}
-          loadMore={{
-            favorites: sa_listFavoriteStories,
-            mine: sa_listMyStories,
-          }}
-          setFavorite={sa_setFavorite}
-        />
-      </Stack>
+      <StoriesBoard
+        sections={STORIES_SECTIONS}
+        initial={{ favorites, mine }}
+        loadMore={{
+          favorites: sa_listFavoriteStories,
+          mine: sa_listMyStories,
+        }}
+        // On the My Stories row rather than above the page: it is that list
+        // the button adds to, and Favorites may not be there to push it down.
+        headerActions={{
+          mine: (
+            <Button asChild>
+              <NextLink href="/stories/new">New story</NextLink>
+            </Button>
+          ),
+        }}
+        setFavorite={sa_setFavorite}
+      />
     </Container>
   );
 }

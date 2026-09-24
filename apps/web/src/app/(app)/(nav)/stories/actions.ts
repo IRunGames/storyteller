@@ -13,7 +13,7 @@ import {
   type StoryPlayer,
   type StorySession,
 } from "@/lib/stories";
-import { newStorySchema } from "@/lib/story-schemas";
+import { storySchema, type StoryValues } from "@/lib/story-schemas";
 
 const { games, systems, gamePlayers, gameFavorites, gameSessions, user: users } = schema;
 
@@ -106,10 +106,16 @@ function cardQuery(userId: string) {
     .leftJoin(users, eq(games.idCreatedByUser, users.id));
 }
 
+// An archived story is off the Stories page altogether: My Stories leaves it
+// out even with "Show inactive" on, and a favorite of one is not listed. It
+// is not deleted, and the edit page still reaches it, so unarchiving brings
+// it back.
+const notArchived = eq(games.isArchived, false);
+
 /**
  * Games the user created or plays in. Inactive ones are left out unless the
  * "Show inactive" switch asks for them, so a retired story does not crowd the
- * list but is never lost.
+ * list but is never lost; archived ones are always left out.
  */
 export async function sa_listMyStories(
   offset: number,
@@ -124,7 +130,7 @@ export async function sa_listMyStories(
     .from(gamePlayers)
     .where(and(eq(gamePlayers.idGame, games.idGame), eq(gamePlayers.idUser, user.id)));
 
-  const involved = or(eq(games.idCreatedByUser, user.id), exists(playsIn));
+  const involved = and(or(eq(games.idCreatedByUser, user.id), exists(playsIn)), notArchived);
 
   return cardQuery(user.id)
     .where(includeInactive ? involved : and(involved, eq(games.isActive, true)))
@@ -133,7 +139,7 @@ export async function sa_listMyStories(
     .offset(skip);
 }
 
-/** Games the user has favorited. */
+/** Games the user has favorited, less any that have since been archived. */
 export async function sa_listFavoriteStories(offset: number): Promise<StoryCardData[]> {
   const user = await requireUser();
   const skip = offsetSchema.parse(offset);
@@ -143,6 +149,7 @@ export async function sa_listFavoriteStories(offset: number): Promise<StoryCardD
       gameFavorites,
       and(eq(gameFavorites.idGame, games.idGame), eq(gameFavorites.idUser, user.id)),
     )
+    .where(notArchived)
     .orderBy(...cardOrder)
     .limit(PAGE_SIZE)
     .offset(skip);
@@ -256,25 +263,29 @@ export async function sa_listSystems(): Promise<{ idSystem: number; label: strin
   }));
 }
 
-export type CreateStoryResult = { ok: false; errors: Record<string, string> };
+export type StoryFormResult = { ok: false; errors: Record<string, string> };
+
+// The zod issues as the form wants them: one message per field, the first
+// issue winning, keyed by the issue's path. Shared by create and update.
+function fieldErrors(parsed: z.ZodSafeParseError<unknown>): StoryFormResult {
+  const errors: Record<string, string> = {};
+  for (const issue of parsed.error.issues) {
+    const key = issue.path.join(".");
+    errors[key] ??= issue.message;
+  }
+  return { ok: false, errors };
+}
 
 /**
  * Validates and inserts a new game owned by the caller, then redirects to the
  * Stories page. Validation failures come back as field errors for the form;
  * on success the redirect throws, so this never resolves with ok: true.
  */
-export async function sa_createStory(input: unknown): Promise<CreateStoryResult> {
+export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
   const user = await requireUser();
 
-  const parsed = newStorySchema.safeParse(input);
-  if (!parsed.success) {
-    const errors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = issue.path.join(".");
-      errors[key] ??= issue.message;
-    }
-    return { ok: false, errors };
-  }
+  const parsed = storySchema.safeParse(input);
+  if (!parsed.success) return fieldErrors(parsed);
 
   const values = parsed.data;
   await db.insert(games).values({
@@ -283,11 +294,96 @@ export async function sa_createStory(input: unknown): Promise<CreateStoryResult>
     summary: values.summary || null,
     imageUrl: values.imageUrl || null,
     isLookingForPlayers: values.isLookingForPlayers,
+    isActive: values.isActive,
+    isArchived: values.isArchived,
+    idArchivedByUser: values.isArchived ? user.id : null,
     idCreatedByUser: user.id,
     idUpdatedByUser: user.id,
   });
 
   redirect("/stories");
+}
+
+/**
+ * A story's fields as the edit form holds them, or null when the story does
+ * not exist or the caller did not create it: only the storyteller edits a
+ * story, and a non-owner gets the same not-found page as a bad id rather
+ * than a hint that the story is there. The nullable columns come back as
+ * "" because that is what the form's inputs post and what storySchema turns
+ * back into null.
+ */
+export async function sa_getStoryForEdit(idGame: number): Promise<StoryValues | null> {
+  const user = await requireUser();
+
+  // As in sa_getStory: an id Postgres cannot compare is not a story.
+  const id = idGameSchema.safeParse(idGame);
+  if (!id.success) return null;
+
+  const [story] = await db
+    .select({
+      title: games.gameTitle,
+      idSystem: games.idSystem,
+      summary: games.summary,
+      imageUrl: games.imageUrl,
+      isLookingForPlayers: games.isLookingForPlayers,
+      isActive: games.isActive,
+      isArchived: games.isArchived,
+    })
+    .from(games)
+    .where(and(eq(games.idGame, id.data), eq(games.idCreatedByUser, user.id)))
+    .limit(1);
+  if (!story) return null;
+
+  return { ...story, summary: story.summary ?? "", imageUrl: story.imageUrl ?? "" };
+}
+
+/**
+ * Validates and saves the edit form over a story the caller created, then
+ * redirects to the story's page. The story is read first and its creator
+ * compared with the id of the users row requireUser() loaded, never an id
+ * the client sent; a mismatch is thrown, since the form cannot fix it. The
+ * same predicate is repeated in the UPDATE's WHERE so the write cannot land
+ * on a row that changed hands between the read and the write.
+ */
+export async function sa_updateStory(idGame: number, input: unknown): Promise<StoryFormResult> {
+  const user = await requireUser();
+  const id = idGameSchema.parse(idGame);
+
+  const [story] = await db
+    .select({ idCreatedByUser: games.idCreatedByUser })
+    .from(games)
+    .where(eq(games.idGame, id))
+    .limit(1);
+  if (!story) throw new Error("Story not found");
+  if (story.idCreatedByUser !== user.id) {
+    throw new Error("Only the storyteller who created a story can edit it");
+  }
+
+  const parsed = storySchema.safeParse(input);
+  if (!parsed.success) return fieldErrors(parsed);
+
+  const values = parsed.data;
+  const updated = await db
+    .update(games)
+    .set({
+      gameTitle: values.title,
+      idSystem: values.idSystem,
+      summary: values.summary || null,
+      imageUrl: values.imageUrl || null,
+      isLookingForPlayers: values.isLookingForPlayers,
+      isActive: values.isActive,
+      isArchived: values.isArchived,
+      // Only the creator gets here, so the archiver is always the caller.
+      // Null on the way out is what the unarchive trigger would set anyway;
+      // archived_at is the database's to stamp and clear.
+      idArchivedByUser: values.isArchived ? user.id : null,
+      idUpdatedByUser: user.id,
+    })
+    .where(and(eq(games.idGame, id), eq(games.idCreatedByUser, user.id)))
+    .returning({ idGame: games.idGame });
+  if (updated.length === 0) throw new Error("Story not found");
+
+  redirect(`/stories/${id}`);
 }
 
 /**
