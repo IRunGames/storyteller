@@ -11,6 +11,7 @@ export const THEMES = [
   { value: "dark", label: "Dark" },
   { value: "halloween", label: "Halloween" },
   { value: "blackberry", label: "Blackberry" },
+  { value: "mint", label: "Mint" },
 ] as const;
 
 export type Theme = (typeof THEMES)[number]["value"];

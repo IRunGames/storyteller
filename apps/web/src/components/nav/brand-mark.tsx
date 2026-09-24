@@ -1,8 +1,8 @@
 import NextLink from "next/link";
 import { Box, HStack, Text } from "@chakra-ui/react";
-import { BerryIcon, PumpkinIcon, SparkleIcon } from "./icons";
+import { BerryIcon, PumpkinIcon, SparkleIcon, SprigIcon } from "./icons";
 
-// Both marks are always in the DOM and the theme class on <html> picks
+// Every mark is always in the DOM and the theme class on <html> picks
 // which one shows. Reading the theme on the client instead would mean a
 // ClientOnly skeleton in the header on every load, since the server does
 // not know the theme; a CSS rule is settled before first paint.
@@ -39,7 +39,7 @@ export function BrandMark({ active }: { active: boolean }) {
           as="span"
           display="inline-flex"
           color="nav.accent"
-          css={{ ".halloween &, .blackberry &": { display: "none" } }}
+          css={{ ".halloween &, .blackberry &, .mint &": { display: "none" } }}
         >
           <SparkleIcon />
         </Box>
@@ -58,6 +58,14 @@ export function BrandMark({ active }: { active: boolean }) {
           css={{ ".blackberry &": { display: "inline-flex" } }}
         >
           <BerryIcon />
+        </Box>
+        <Box
+          as="span"
+          display="none"
+          color="nav.accent"
+          css={{ ".mint &": { display: "inline-flex" } }}
+        >
+          <SprigIcon />
         </Box>
         <Text
           as="span"

@@ -6,16 +6,17 @@ import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
 import { THEMES, type Theme } from "@/lib/themes";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
-import { BerryIcon, PumpkinIcon } from "./icons";
+import { BerryIcon, PumpkinIcon, SprigIcon } from "./icons";
 
-// The button shows the icon of the theme in force. The pumpkin and berry are
-// the Halloween and Blackberry brand marks reused, which is why they are not
-// Lucide icons.
+// The button shows the icon of the theme in force. The pumpkin, berry and
+// sprig are the Halloween, Blackberry and Mint brand marks reused, which is
+// why they are not Lucide icons.
 const ICONS: Record<Theme, ReactNode> = {
   light: <Sun />,
   dark: <Moon />,
   halloween: <PumpkinIcon />,
   blackberry: <BerryIcon />,
+  mint: <SprigIcon />,
 };
 
 // A selector rather than a toggle so a new theme is one more entry in THEMES.

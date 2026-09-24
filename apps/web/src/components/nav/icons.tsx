@@ -82,3 +82,31 @@ export function BerryIcon() {
     </svg>
   );
 }
+
+// The Mint theme's brand mark: a sprig of three leaves on a stem. Each
+// midrib is cut out of its leaf with the even-odd rule, as the pumpkin's face
+// is, so the header background shows through and the leaves keep a single
+// colour. The leaves have no stroke for the same reason as the pumpkin body.
+export function SprigIcon() {
+  return (
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      data-icon="sprig"
+    >
+      <path d="M12 21 L12 14" fill="none" />
+      <g stroke="none" fillRule="evenodd">
+        <path d="M12 13.5 C8.4 10.8 8.4 4.6 12 2 C15.6 4.6 15.6 10.8 12 13.5 Z M11.6 11.8 L11.6 4.4 L12.4 4.4 L12.4 11.8 Z" />
+        <path d="M12 14.5 C10 10.5 5.8 9.3 2.3 11 C3.6 15.6 8.4 17.2 12 14.5 Z M10.6 13.8 L4.2 11.3 L4.5 10.6 L10.9 13.1 Z" />
+        <path d="M12 14.5 C14 10.5 18.2 9.3 21.7 11 C20.4 15.6 15.6 17.2 12 14.5 Z M13.4 13.8 L19.8 11.3 L19.5 10.6 L13.1 13.1 Z" />
+      </g>
+    </svg>
+  );
+}

@@ -245,6 +245,7 @@ describe("AppHeader", () => {
       "Dark",
       "Halloween",
       "Blackberry",
+      "Mint",
     ]);
 
     await u.click(light);
@@ -268,6 +269,11 @@ describe("AppHeader", () => {
     // next-themes only clears classes it knows about, so a theme missing from
     // the provider's list would leave both on the element at once.
     expect(document.documentElement).not.toHaveClass("halloween");
+
+    await u.click(await screen.findByRole("button", { name: "Choose theme" }));
+    await u.click(await screen.findByRole("menuitemradio", { name: "Mint" }));
+    await waitFor(() => expect(document.documentElement).toHaveClass("mint"));
+    expect(document.documentElement).not.toHaveClass("blackberry");
   });
 
   it("records the chosen theme as the user's theme preference", async () => {
@@ -283,7 +289,7 @@ describe("AppHeader", () => {
     ]);
   });
 
-  it("shows the brand mark of the theme in force: sparkle, pumpkin or berry", async () => {
+  it("shows the brand mark of the theme in force: sparkle, pumpkin, berry or sprig", async () => {
     const u = userEvent.setup();
     renderHeader();
 
@@ -291,6 +297,7 @@ describe("AppHeader", () => {
     const sparkle = brand.querySelector('[data-icon="sparkle"]')!;
     const pumpkin = brand.querySelector('[data-icon="pumpkin"]')!;
     const berry = brand.querySelector('[data-icon="berry"]')!;
+    const sprig = brand.querySelector('[data-icon="sprig"]')!;
 
     async function choose(label: string, className: string) {
       await u.click(await screen.findByRole("button", { name: "Choose theme" }));
@@ -302,16 +309,25 @@ describe("AppHeader", () => {
     expect(sparkle).toBeVisible();
     expect(pumpkin).not.toBeVisible();
     expect(berry).not.toBeVisible();
+    expect(sprig).not.toBeVisible();
 
     await choose("Halloween", "halloween");
     expect(pumpkin).toBeVisible();
     expect(sparkle).not.toBeVisible();
     expect(berry).not.toBeVisible();
+    expect(sprig).not.toBeVisible();
 
     await choose("Blackberry", "blackberry");
     expect(berry).toBeVisible();
     expect(sparkle).not.toBeVisible();
     expect(pumpkin).not.toBeVisible();
+    expect(sprig).not.toBeVisible();
+
+    await choose("Mint", "mint");
+    expect(sprig).toBeVisible();
+    expect(sparkle).not.toBeVisible();
+    expect(pumpkin).not.toBeVisible();
+    expect(berry).not.toBeVisible();
   });
 
   it("names the account button with the nickname, else the name, else the email", async () => {
