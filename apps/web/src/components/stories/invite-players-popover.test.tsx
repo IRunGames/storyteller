@@ -41,6 +41,10 @@ async function openPopover(onInvited = mock.fn<(added: StoryPlayer[]) => void>()
   );
   await u.click(screen.getByRole("button", { name: "Invite Players" }));
   const dialog = await screen.findByRole("dialog", { name: "Invite players" });
+  // The popover moves focus into itself a beat after the dialog appears; under
+  // jsdom it lands on the content element. A test that starts typing before
+  // then loses whatever it types after the move, so wait for it.
+  await waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement));
   return { u, dialog, onInvited };
 }
 
