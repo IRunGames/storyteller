@@ -1,7 +1,13 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
 
-import { cssUrlValue, formatLastPlayed, systemLabel } from "./stories";
+import {
+  cssUrlValue,
+  formatLastPlayed,
+  formatPlayerCount,
+  sessionHeading,
+  systemLabel,
+} from "./stories";
 
 describe("systemLabel", () => {
   it("returns null when there is no system", () => {
@@ -24,6 +30,21 @@ describe("systemLabel", () => {
 describe("formatLastPlayed", () => {
   it("formats as a short month, day and year", () => {
     expect(formatLastPlayed(new Date("2015-06-25T12:00:00Z"))).toBe("Jun 25, 2015");
+  });
+});
+
+describe("formatPlayerCount", () => {
+  it("pluralises everything but one", () => {
+    expect(formatPlayerCount(0)).toBe("0 players");
+    expect(formatPlayerCount(1)).toBe("1 player");
+    expect(formatPlayerCount(3)).toBe("3 players");
+  });
+});
+
+describe("sessionHeading", () => {
+  it("numbers the title, and falls back to the number alone", () => {
+    expect(sessionHeading({ number: 3, title: "Kildealg" })).toBe("3. Kildealg");
+    expect(sessionHeading({ number: 4, title: null })).toBe("Session 4");
   });
 });
 

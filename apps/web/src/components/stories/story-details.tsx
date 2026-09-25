@@ -12,7 +12,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { Pencil, Play } from "lucide-react";
+import { Pencil, Play, Timer } from "lucide-react";
 import {
   cssUrlValue,
   formatLastPlayed,
@@ -115,9 +115,40 @@ export function StoryDetails({ story, players, sessions }: Props) {
           )}
 
           <Stack gap="2">
-            <Heading as="h1" size="3xl">
-              {story.title}
-            </Heading>
+            <HStack gap="3" align="center">
+              <Heading as="h1" size="3xl">
+                {story.title}
+              </Heading>
+              {story.isOwner && (
+                // Prep Work is the storyteller's library for the story: its
+                // scenes and enemies are what the players are not meant to
+                // see yet, so the door to it is theirs alone, like Edit. A
+                // link styled as a button, since the library is a page of its
+                // own.
+                <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+                  <Tooltip.Trigger asChild>
+                    <IconButton
+                      asChild
+                      aria-label="Prep Work"
+                      variant="ghost"
+                      size="lg"
+                      rounded="full"
+                      color={story.imageUrl ? "whiteAlpha.900" : undefined}
+                      _hover={story.imageUrl ? { bg: "whiteAlpha.200" } : undefined}
+                    >
+                      <NextLink href={`/libraries/${story.idStory}`}>
+                        <Timer size={24} />
+                      </NextLink>
+                    </IconButton>
+                  </Tooltip.Trigger>
+                  <Portal>
+                    <Tooltip.Positioner>
+                      <Tooltip.Content>Prep Work</Tooltip.Content>
+                    </Tooltip.Positioner>
+                  </Portal>
+                </Tooltip.Root>
+              )}
+            </HStack>
             <Stack gap="0" color={story.imageUrl ? "whiteAlpha.800" : "fg.muted"}>
               {system && <Text>{system}</Text>}
               {story.storytellerName && <Text>Storyteller: {story.storytellerName}</Text>}

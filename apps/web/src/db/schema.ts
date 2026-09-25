@@ -231,6 +231,21 @@ export const storySessions = pgTable("story_sessions", {
   activityLog: jsonb("activity_log")
     .default(sql`'[]'::jsonb`)
     .notNull(),
+  // What the storyteller keeps about the sitting afterwards, all optional:
+  // a session that has just opened has none of them yet.
+  title: text("title"),
+  notes: text("notes"),
+  summary: text("summary"),
+  lingeringQuestions: text("lingering_questions"),
+  imageLink: text("image_link"),
+  link: text("link"),
+  // Who came, as user ids. An array, not a join table: attendance is a note
+  // the storyteller takes, and nothing points at it. No foreign key either,
+  // since an array cannot carry one.
+  idUsers: uuid("id_users")
+    .array()
+    .notNull()
+    .default(sql`'{}'::uuid[]`),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),

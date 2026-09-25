@@ -9,6 +9,8 @@ import { SESSIONS_PAGE_SIZE, type StorySession } from "@/lib/stories";
 function sessions(count: number, from = 1): StorySession[] {
   return Array.from({ length: count }, (_, i) => ({
     idStorySession: from + i,
+    number: from + i,
+    title: `Session ${from + i} title`,
     status: "done",
     startedAt: new Date(`2026-03-${String(20 - i).padStart(2, "0")}T19:00:00Z`),
     length: 90 + i * 30,
@@ -26,7 +28,7 @@ let StorySessions: typeof import("./story-sessions").StorySessions;
 describe("StorySessions", () => {
   before(async () => {
     mock.module("@/app/(app)/(nav)/stories/actions", {
-      namedExports: { sa_listStorySessions },
+      namedExports: { sa_listStorySessions, sa_getStorySession: async () => null },
     });
     ({ StorySessions } = await import("./story-sessions"));
   });
@@ -46,6 +48,78 @@ describe("StorySessions", () => {
     expect(within(items[1]).getByText("Mar 19, 2026")).toBeInTheDocument();
     expect(within(items[1]).getByText("2 hours")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
+  });
+
+  it("adds the player count to each row when given one", () => {
+    const { unmount } = renderWithProviders(
+      <StorySessions idStory={7} initial={sessions(2)} playerCount={3} />,
+    );
+
+    const items = screen.getAllByRole("listitem");
+    expect(within(items[0]).getByText("3 players")).toBeInTheDocument();
+    expect(within(items[1]).getByText("3 players")).toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(<StorySessions idStory={7} initial={sessions(1)} playerCount={1} />);
+    expect(screen.getByText("1 player")).toBeInTheDocument();
+  });
+
+  it("keeps only the rows whose text matches the filter, and says so when none do", () => {
+    const rows = [{ ...sessions(1)[0], status: "open" as const, length: null }, ...sessions(2, 2)];
+    const { rerender } = renderWithProviders(
+      <StorySessions idStory={7} initial={rows} playerCount={3} filter="progress" />,
+    );
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByText("In progress")).toBeInTheDocument();
+
+    rerender(<StorySessions idStory={7} initial={rows} playerCount={3} filter="2 hours" />);
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByText("2 hours")).toBeInTheDocument();
+
+    rerender(<StorySessions idStory={7} initial={rows} playerCount={3} filter="3 players" />);
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+
+    rerender(<StorySessions idStory={7} initial={rows} playerCount={3} filter="nothing" />);
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(screen.getByText("No matches.")).toBeInTheDocument();
+  });
+
+  it("keeps the More button while a filter hides every loaded row", () => {
+    renderWithProviders(
+      <StorySessions idStory={7} initial={sessions(SESSIONS_PAGE_SIZE)} filter="nothing" />,
+    );
+
+    expect(screen.getByText("No matches.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument();
+  });
+
+  it("leads each row with its number and title only when asked, and searches them then", () => {
+    const { unmount } = renderWithProviders(<StorySessions idStory={7} initial={sessions(2)} />);
+    expect(screen.queryByText("1. Session 1 title")).not.toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(<StorySessions idStory={7} initial={sessions(2)} showTitles />);
+    const items = screen.getAllByRole("listitem");
+    expect(within(items[0]).getByText("1. Session 1 title")).toBeInTheDocument();
+    expect(within(items[1]).getByText("2. Session 2 title")).toBeInTheDocument();
+  });
+
+  it("falls back to the number alone for an untitled session", () => {
+    renderWithProviders(
+      <StorySessions idStory={7} initial={[{ ...sessions(1)[0], title: null }]} showTitles />,
+    );
+    expect(screen.getByText("Session 1")).toBeInTheDocument();
+  });
+
+  it("matches the filter against the title only while it is shown", () => {
+    const { rerender } = renderWithProviders(
+      <StorySessions idStory={7} initial={sessions(2)} filter="2 title" />,
+    );
+    expect(screen.getByText("No matches.")).toBeInTheDocument();
+
+    rerender(<StorySessions idStory={7} initial={sessions(2)} filter="2 title" showTitles />);
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByText("2. Session 2 title")).toBeInTheDocument();
   });
 
   it("shows the status instead of a length for a session that is not done", () => {

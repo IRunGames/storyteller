@@ -28,8 +28,22 @@ const players: StoryPlayer[] = [
 ];
 
 const sessions: StorySession[] = [
-  { idStorySession: 3, status: "done", startedAt: new Date("2026-03-20T19:00:00Z"), length: 150 },
-  { idStorySession: 2, status: "done", startedAt: new Date("2026-03-13T19:00:00Z"), length: 60 },
+  {
+    idStorySession: 3,
+    number: 2,
+    title: "The feast",
+    status: "done",
+    startedAt: new Date("2026-03-20T19:00:00Z"),
+    length: 150,
+  },
+  {
+    idStorySession: 2,
+    number: 1,
+    title: "The arrival",
+    status: "done",
+    startedAt: new Date("2026-03-13T19:00:00Z"),
+    length: 60,
+  },
 ];
 
 let StoryDetails: typeof import("./story-details").StoryDetails;
@@ -43,6 +57,7 @@ describe("StoryDetails", () => {
     mock.module("@/app/(app)/(nav)/stories/actions", {
       namedExports: {
         sa_listStorySessions: async () => [],
+        sa_getStorySession: async () => null,
         sa_searchPlayers: async () => [],
         sa_addStoryPlayers: async () => [],
       },
@@ -69,6 +84,24 @@ describe("StoryDetails", () => {
       "href",
       "/stories/-15/edit",
     );
+  });
+
+  it("offers the storyteller a Prep Work button after the title that leads to the library", () => {
+    renderWithProviders(
+      <StoryDetails story={{ ...story, isOwner: true }} players={[]} sessions={[]} />,
+    );
+
+    const link = screen.getByRole("link", { name: "Prep Work" });
+    expect(link).toHaveAttribute("href", "/libraries/-15");
+    // Right of the title: the button comes after the h1 in document order.
+    const title = screen.getByRole("heading", { level: 1, name: "Vampire" });
+    expect(title.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows no Prep Work button to anyone but the storyteller", () => {
+    renderWithProviders(<StoryDetails story={story} players={[]} sessions={[]} />);
+
+    expect(screen.queryByRole("link", { name: "Prep Work" })).not.toBeInTheDocument();
   });
 
   it("shows no edit button to anyone but the storyteller", () => {
@@ -183,6 +216,8 @@ describe("StoryDetails", () => {
     expect(within(items[0]).getByText("Mar 20, 2026")).toBeInTheDocument();
     expect(within(items[0]).getByText("2.5 hours")).toBeInTheDocument();
     expect(within(items[1]).getByText("1 hour")).toBeInTheDocument();
+    // The story page has no room for the titles; they are the library's.
+    expect(screen.queryByText("2. The feast")).not.toBeInTheDocument();
   });
 
   it("says so when there are no sessions yet", () => {

@@ -282,7 +282,8 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("returns no players for a story without any, or with an unusable id", async () => {
-    expect(await actions.sa_listStoryPlayers(-1)).toEqual([]);
+    // Down in Adder's Hollow: a seed story nobody is seated on.
+    expect(await actions.sa_listStoryPlayers(-2)).toEqual([]);
     expect(await actions.sa_listStoryPlayers(3000000000)).toEqual([]);
   });
 
@@ -376,9 +377,13 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   it("lists a story's sessions newest first, five at a time, with their length", async () => {
     const first = await actions.sa_listStorySessions(storyA, 0);
     expect(first.map((s) => s.idStorySession)).toEqual([...pastSessionIds].sort((a, b) => b - a));
+    // Numbered in opening order: the open session was first, so the five
+    // after it run 2 to 6, newest first here. None has a title yet.
+    expect(first.map((s) => s.number)).toEqual([6, 5, 4, 3, 2]);
     for (const session of first) {
       expect(session.status).toBe("done");
       expect(session.length).toBe(90);
+      expect(session.title).toBeNull();
       expect(session.startedAt).toBeInstanceOf(Date);
     }
 
@@ -387,6 +392,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     const second = await actions.sa_listStorySessions(storyA, 5);
     expect(second).toHaveLength(1);
     expect(second[0].idStorySession).toBe(openSessionId);
+    expect(second[0].number).toBe(1);
     expect(second[0].status).toBe("open");
     expect(second[0].length).toBeNull();
   });
@@ -420,6 +426,57 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   it("returns no sessions for a story without any, or with an unusable id", async () => {
     expect(await actions.sa_listStorySessions(storyC, 0)).toEqual([]);
     expect(await actions.sa_listStorySessions(2 ** 40, 0)).toEqual([]);
+  });
+
+  it("describes one session: its number, who came, and the notes only for the storyteller", async () => {
+    // A is another user's story, so the caller is a player there: the
+    // open session is its first, and the notes stay private.
+    await db
+      .update(tables.storySessions)
+      .set({
+        title: "Fixture session",
+        summary: "What happened.",
+        notes: "Private.",
+        lingeringQuestions: "Why?",
+        imageLink: "https://x.test/hero.jpg",
+        idUsers: [otherUserId, SEED_USER],
+      })
+      .where(eq(tables.storySessions.idStorySession, openSessionId));
+    const detail = await actions.sa_getStorySession(openSessionId);
+    expect(detail).toMatchObject({
+      idStorySession: openSessionId,
+      number: 1,
+      title: "Fixture session",
+      status: "open",
+      length: null,
+      imageLink: "https://x.test/hero.jpg",
+      summary: "What happened.",
+      notes: null,
+      lingeringQuestions: null,
+    });
+    expect(detail?.players.map((p) => p.idUser).sort()).toEqual([otherUserId, SEED_USER].sort());
+    expect(detail?.players.find((p) => p.idUser === otherUserId)?.name).toBe("Other");
+
+    // The five past sessions were opened after it, in one statement, so the
+    // id breaks the tie and the highest is the sixth.
+    const newest = await actions.sa_getStorySession(Math.max(...pastSessionIds));
+    expect(newest?.number).toBe(6);
+    expect(newest?.length).toBe(90);
+    expect(newest?.players).toEqual([]);
+
+    // D is the caller's own story, so its notes come back.
+    const [current] = await actions.sa_listStorySessions(storyD, 0);
+    await db
+      .update(tables.storySessions)
+      .set({ notes: "Mine.", lingeringQuestions: "Still mine." })
+      .where(eq(tables.storySessions.idStorySession, current.idStorySession));
+    expect(await actions.sa_getStorySession(current.idStorySession)).toMatchObject({
+      notes: "Mine.",
+      lingeringQuestions: "Still mine.",
+    });
+
+    expect(await actions.sa_getStorySession(2 ** 40)).toBeNull();
+    expect(await actions.sa_getStorySession(2 ** 30)).toBeNull();
   });
 
   it("lists systems with a display label", async () => {
@@ -574,10 +631,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       ...(await actions.sa_listMyStories(0, true)),
       ...(await actions.sa_listMyStories(10, true)),
     ];
-    // Vampire seats two in db/seeds/seed_story_players.sql; Something Wicked
-    // seats nobody; the seed user is fixture A's only player.
+    // Vampire seats two in db/seeds/seed_story_players.sql and Something
+    // Wicked three; the seed user is fixture A's only player.
     expect(all.find((s) => s.idStory === -15)?.playerCount).toBe(2);
-    expect(all.find((s) => s.idStory === -1)?.playerCount).toBe(0);
+    expect(all.find((s) => s.idStory === -1)?.playerCount).toBe(3);
     expect(all.find((s) => s.idStory === storyA)?.playerCount).toBe(1);
   });
 

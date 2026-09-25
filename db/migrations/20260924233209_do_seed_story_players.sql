@@ -1,3 +1,18 @@
+-- migrate:up
+DO $$
+DECLARE
+    row_count BIGINT;
+BEGIN
+    RAISE NOTICE '[%] START SEEDING', clock_timestamp();
+    SET session_replication_role = 'replica';
+
+    RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
+
+    DELETE FROM story_players WHERE id_story_player < 0;
+
+    RAISE NOTICE '+++    [%] Seeding story_players', clock_timestamp();
+
+    -- ------------------------------------------------------------
     -- Seed data for `story_players`: who plays in the seed stories that are not
     -- solo storyteller fixtures. The owner of a story is its id_created_by_user
     -- on `stories` and does not get a story_players row.
@@ -47,3 +62,16 @@
         (-21, -21, '00000000-0000-7000-8000-000000000009'),
         (-22, -21, '00000000-0000-7000-8000-000000000012'),
         (-23, -21, '00000000-0000-7000-8000-000000000013');
+    -- ------------------------------------------------------------
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+
+    RAISE NOTICE '>>>    [%] Rows inserted: %', CLOCK_TIMESTAMP(), row_count;
+
+    -- ------------------------------------------------------------
+    SET session_replication_role = 'origin';
+
+    RAISE NOTICE '[%] DONE SEEDING', clock_timestamp();
+END $$;
+
+-- migrate:down
+

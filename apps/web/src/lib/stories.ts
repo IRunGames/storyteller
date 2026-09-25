@@ -42,6 +42,9 @@ export const SESSIONS_PAGE_SIZE = 5;
 /** One row of a story's Recent sessions section. */
 export type StorySession = {
   idStorySession: number;
+  /** 1 for the story's first session, counted in the order they opened. */
+  number: number;
+  title: string | null;
   status: StorySessionStatus;
   /** When the session was created, which is when it was opened. */
   startedAt: Date;
@@ -51,6 +54,29 @@ export type StorySession = {
    */
   length: number | null;
 };
+
+/** What the session info popover shows for one session. */
+export type StorySessionDetail = {
+  idStorySession: number;
+  /** 1 for the story's first session, counted in the order they opened. */
+  number: number;
+  title: string | null;
+  status: StorySessionStatus;
+  /** As on StorySession: whole minutes at the table, null until done. */
+  length: number | null;
+  imageLink: string | null;
+  summary: string | null;
+  /** The storyteller's own; null for anyone else, however the row reads. */
+  notes: string | null;
+  lingeringQuestions: string | null;
+  /** Who came, resolved from the session's user ids; an id nobody matches is left out. */
+  players: StoryPlayer[];
+};
+
+/** "3. Kildealg", or "Session 3" for a session with no title yet. */
+export function sessionHeading(session: Pick<StorySession, "number" | "title">): string {
+  return session.title ? `${session.number}. ${session.title}` : `Session ${session.number}`;
+}
 
 /** One row of a story's Players section. */
 export type StoryPlayer = {
@@ -125,6 +151,11 @@ const hoursFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 })
 export function formatSessionLength(minutes: number): string {
   const hours = hoursFormat.format(minutes / 60);
   return `${hours} ${hours === "1" ? "hour" : "hours"}`;
+}
+
+/** "3 players", "1 player". */
+export function formatPlayerCount(count: number): string {
+  return `${count} ${count === 1 ? "player" : "players"}`;
 }
 
 /**

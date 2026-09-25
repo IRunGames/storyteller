@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, exists, ilike, inArray, not, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/authorize";
@@ -14,6 +15,7 @@ import {
   type StoryCardData,
   type StoryPlayer,
   type StorySession,
+  type StorySessionDetail,
 } from "@/lib/stories";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
 
@@ -317,6 +319,22 @@ export async function sa_addStoryPlayers(
  * sessions, it just has no length yet. created_at sets the order: a session
  * row is created as it opens, and unlike open_at it can never be null.
  */
+// The outer session's place in its story's opening order, counted the way
+// the list sorts so the oldest is 1 and the newest is the count. count(*)
+// is a bigint, which the driver hands over as a string.
+function sessionNumber() {
+  const earlier = alias(storySessions, "earlier");
+  return sql<number>`(${db
+    .select({ n: sql`count(*) + 1` })
+    .from(earlier)
+    .where(
+      and(
+        eq(earlier.idStory, storySessions.idStory),
+        sql`(${earlier.createdAt}, ${earlier.idStorySession}) < (${storySessions.createdAt}, ${storySessions.idStorySession})`,
+      ),
+    )})`.mapWith(Number);
+}
+
 export async function sa_listStorySessions(
   idStory: number,
   offset: number,
@@ -333,6 +351,8 @@ export async function sa_listStorySessions(
     db
       .select({
         idStorySession: storySessions.idStorySession,
+        number: sessionNumber(),
+        title: storySessions.title,
         status: storySessions.status,
         // created_at is nullable in the schema because every audit column is,
         // but the database always stamps it; the view type wants a Date.
@@ -347,6 +367,68 @@ export async function sa_listStorySessions(
       .limit(SESSIONS_PAGE_SIZE)
       .offset(skip)
   );
+}
+
+/**
+ * One session as the info popover shows it, or null when there is no such
+ * session or the id is unusable. Any signed-in user may look, as with the
+ * list, but the notes and lingering questions are the storyteller's working
+ * material and come back null for anyone else. The number is the session's
+ * place in the story's opening order, counted the same way the list sorts,
+ * so the first row of the oldest page is session 1.
+ */
+export async function sa_getStorySession(
+  idStorySession: number,
+): Promise<StorySessionDetail | null> {
+  const user = await requireUser();
+
+  // The same int4 range as a story id, and the same reasoning: an id
+  // Postgres cannot compare is not a session rather than a query error.
+  const id = idStorySchema.safeParse(idStorySession);
+  if (!id.success) return null;
+
+  const [row] = await db
+    .select({
+      idStorySession: storySessions.idStorySession,
+      title: storySessions.title,
+      status: storySessions.status,
+      length: storySessions.length,
+      imageLink: storySessions.imageLink,
+      summary: storySessions.summary,
+      notes: storySessions.notes,
+      lingeringQuestions: storySessions.lingeringQuestions,
+      idUsers: storySessions.idUsers,
+      idStoryteller: stories.idCreatedByUser,
+      number: sessionNumber(),
+    })
+    .from(storySessions)
+    .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
+    .where(eq(storySessions.idStorySession, id.data))
+    .limit(1);
+  if (!row) return null;
+
+  const players =
+    row.idUsers.length === 0
+      ? []
+      : await db
+          .select({ idUser: users.id, name: playerName, image: users.image })
+          .from(users)
+          .where(inArray(users.id, row.idUsers))
+          .orderBy(asc(playerName));
+
+  const isStoryteller = row.idStoryteller === user.id;
+  return {
+    idStorySession: row.idStorySession,
+    number: row.number,
+    title: row.title,
+    status: row.status,
+    length: row.length,
+    imageLink: row.imageLink,
+    summary: row.summary,
+    notes: isStoryteller ? row.notes : null,
+    lingeringQuestions: isStoryteller ? row.lingeringQuestions : null,
+    players,
+  };
 }
 
 export async function sa_listSystems(): Promise<{ idSystem: number; label: string }[]> {
