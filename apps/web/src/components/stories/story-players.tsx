@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Avatar, Heading, HStack, List, Stack, Text } from "@chakra-ui/react";
 import type { StoryPlayer } from "@/lib/stories";
 import { InvitePlayersPopover } from "./invite-players-popover";
+import { RemovePlayerButton } from "./remove-player-button";
 
 type Props = {
   idStory: number;
@@ -49,15 +50,39 @@ export function StoryPlayers({
       {players.length === 0 ? (
         <Text color={mutedColor}>No players yet.</Text>
       ) : (
-        <List.Root listStyleType="none" gap="3">
+        // A table of people rather than a queue of them: the names flow
+        // across the panel and wrap, so a party of six takes two lines
+        // instead of six. Still a list to a screen reader, which is what it
+        // is; only the layout changes.
+        <List.Root
+          listStyleType="none"
+          display="flex"
+          flexDirection="row"
+          flexWrap="wrap"
+          gap="3"
+          columnGap="5"
+        >
           {players.map((player) => (
             <List.Item key={player.idUser}>
-              <HStack gap="3">
+              <HStack gap="2">
                 <Avatar.Root size="sm">
                   <Avatar.Fallback name={player.name} />
                   {player.image && <Avatar.Image src={player.image} alt={player.name} />}
                 </Avatar.Root>
-                <Text>{player.name}</Text>
+                <Text whiteSpace="nowrap">{player.name}</Text>
+                {/* The storyteller seats players and the storyteller unseats
+                    them, so the button is theirs alone. */}
+                {isOwner && (
+                  <RemovePlayerButton
+                    idStory={idStory}
+                    player={player}
+                    onRemoved={() =>
+                      setPlayers((current) =>
+                        current.filter((seated) => seated.idUser !== player.idUser),
+                      )
+                    }
+                  />
+                )}
               </HStack>
             </List.Item>
           ))}

@@ -8,15 +8,20 @@
     --
     -- Each Hogwarts staff story (-17 to -21) seats four players: one other
     -- staff member and three students, so staff appear on both sides.
-    -- Something Wicked (-1) seats three, one for each of the heroes its
+    -- An Eastern King (-1) seats three, one for each of the heroes its
     -- write-ups follow, so db/seeds/seed_story_sessions.sql has players to
-    -- record as present.
+    -- record as present, and the campaign it belongs to, Something Wicked
+    -- (-22), seats the same three.
     INSERT INTO story_players (id_story_player, id_story, id_user)
     VALUES
-        -- Something Wicked (-1), owned by the storyteller: PalmDave, PaulKhash and Seamus play
+        -- An Eastern King (-1), owned by the storyteller: PalmDave, PaulKhash and Seamus play
         (-24,  -1, '00000000-0000-7000-8000-000000000001'),
         (-25,  -1, '00000000-0000-7000-8000-000000000002'),
         (-26,  -1, '00000000-0000-7000-8000-000000000017'),
+        -- Something Wicked (-22), the campaign it belongs to: the same three
+        (-27, -22, '00000000-0000-7000-8000-000000000001'),
+        (-28, -22, '00000000-0000-7000-8000-000000000002'),
+        (-29, -22, '00000000-0000-7000-8000-000000000017'),
         -- Vampire (-15), owned by PalmDave: PaulKhash and Pol play
         ( -1, -15, '00000000-0000-7000-8000-000000000002'),
         ( -2, -15, '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),

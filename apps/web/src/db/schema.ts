@@ -8,6 +8,7 @@ import {
   interval,
   jsonb,
   pgTable,
+  pgView,
   text,
   timestamp,
   uuid,
@@ -204,22 +205,26 @@ export const storyFavorites = pgTable("story_favorites", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
-// One sitting of a story. status runs through the story_sessions workflow in
-// the database (open -> suspended or done; suspended -> resumed or done;
-// resumed -> suspended or done; open is the default): a CHECK limits the values, a trigger
-// rejects any other transition, and a trigger stamps openAt / suspendedAt /
-// resumedAt / doneAt as the row enters each status, appending the change to
-// activityLog. pausedTime is the sum of the row's suspended stretches, added
-// to by a trigger as each one ends, and length is generated in Postgres as
-// the whole minutes from openAt to doneAt less pausedTime, so it is null
-// until the session is done. Neither is ever written from here.
-export const storySessionStatuses = ["open", "suspended", "resumed", "done"] as const;
-export type StorySessionStatus = (typeof storySessionStatuses)[number];
-
+// One sitting of a story. status runs through the story_sessions workflow,
+// which lives in s_statuses and nowhere else: a CHECK built from it limits
+// the values, a trigger rejects any move it does not list, and a trigger
+// stamps the <status>_at columns as the row enters each status, appending the
+// change to activityLog. The column is a plain varchar here rather than a
+// union of the values as they stand today; what a session may be, and what it
+// may become, is read from the database through sa_listStatusOptions.
+// pausedTime is the sum of the row's suspended stretches, added to by a
+// trigger as each one ends, and length is generated in Postgres as the whole
+// minutes from openAt to doneAt less pausedTime, so it is null until the
+// session is done. Neither is ever written from here.
 export const storySessions = pgTable("story_sessions", {
   idStorySession: integer("id_story_session").primaryKey().generatedByDefaultAsIdentity(),
   idStory: integer("id_story").notNull(),
-  status: varchar("status", { enum: storySessionStatuses }).default("open").notNull(),
+  // sql`DEFAULT` is not the default value, it says there is one: Drizzle
+  // renders an omitted column as DEFAULT and lets Postgres supply whatever
+  // the workflow's starting status is, which is the one place it is written.
+  status: varchar("status")
+    .notNull()
+    .default(sql`DEFAULT`),
   openAt: timestamp("open_at", { withTimezone: true }),
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   resumedAt: timestamp("resumed_at", { withTimezone: true }),
@@ -246,6 +251,117 @@ export const storySessions = pgTable("story_sessions", {
     .array()
     .notNull()
     .default(sql`'{}'::uuid[]`),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// db/views/v_story_scenes.sql: a scene with everything the board asks about
+// it. The scene's own columns, then three the view works out so the app does
+// not have to know the shape of a status workflow — when the row entered the
+// status it holds, where that status sits in its workflow, and the sitting it
+// was played in, numbered the way the Timeline numbers it.
+//
+// .existing() because dbmate builds it; Drizzle only selects from it. Only
+// the columns the app reads are declared, as with every table here.
+export const vStoryScenes = pgView("v_story_scenes", {
+  idStoryScene: integer("id_story_scene"),
+  idStory: integer("id_story"),
+  idStorySession: integer("id_story_session"),
+  status: varchar("status"),
+  sceneTitle: text("scene_title"),
+  sceneDescription: text("scene_description"),
+  imageLink: text("image_link"),
+  searchText: text("search_text"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
+  // When the row entered the status it holds, read out of the <status>_at
+  // column named after that status. Null when nothing stamped it.
+  statusAt: timestamp("status_at", { withTimezone: true }),
+  // When the scene reached the last status of its workflow, and which
+  // finished scene of its sitting it was, in that order. Both null until it
+  // is finished.
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  sceneNumber: bigint("scene_number", { mode: "number" }),
+  // The status's place in its workflow. The seed numbers statuses downwards,
+  // so this descends through the workflow's own order.
+  idStatus: bigint("s_status_id", { mode: "number" }),
+  statusDescription: varchar("status_description"),
+  sessionTitle: text("session_title"),
+  sessionUpdatedAt: timestamp("session_updated_at", { withTimezone: true }),
+  sessionNumber: bigint("session_number", { mode: "number" }),
+}).existing();
+
+// The status-workflow metatables, seeded in db/seeds. A workflow is a named
+// set of statuses and the moves between them; the database builds the CHECK
+// constraint, the <status>_at columns and the transition trigger on every
+// table mapped to one, so what is written here is what the database will
+// actually allow. The status pill reads them to know what a row may become.
+export const sStatusWorkflows = pgTable("s_status_workflows", {
+  idStatusWorkflow: bigint("s_status_workflow_id", { mode: "number" }).primaryKey(),
+  name: varchar("name"),
+  statusColumnName: varchar("status_column_name"),
+});
+
+export const sStatuses = pgTable("s_statuses", {
+  idStatus: bigint("s_status_id", { mode: "number" }).primaryKey(),
+  idStatusWorkflow: bigint("s_status_workflow_id", { mode: "number" }),
+  statusKey: varchar("status_key"),
+  description: varchar("description"),
+  // The statuses a row may arrive FROM. Empty means nothing leads here; null
+  // means the database does not check, so anything may.
+  transitionFromStatusKeys: text("transition_from_status_keys").array(),
+});
+
+// The _tables metatable, which drives the migrations in db/. Only the three
+// columns the app has any business reading are declared: the table's name and
+// the workflows mapped to it. Everything else on the row is the database's own
+// bookkeeping (the needs_* / has_* flags, the search recipe, the cull rules),
+// and nothing in the web app should be reading or writing it.
+export const tablesMeta = pgTable("_tables", {
+  idTable: integer("_table_id").primaryKey(),
+  tableName: text("table_name"),
+  idStatusWorkflows: bigint("s_status_workflow_ids", { mode: "number" }).array(),
+});
+
+// A scene of a story: a card in the Scenes column of the Prep Work board,
+// written during prep and run at the table. status runs through the
+// story_scenes workflow, which lives in s_statuses and nowhere else: a CHECK
+// built from it limits the values, a trigger rejects any move it does not
+// list, and a trigger stamps the <status>_at columns as the row enters each
+// status, appending the change to activityLog. The column is therefore a
+// plain varchar here rather than a union of the values as they stand today;
+// what a scene may be, and what it may become, is read from the database
+// through sa_listStatusOptions.
+export const storyScenes = pgTable("story_scenes", {
+  idStoryScene: integer("id_story_scene").primaryKey().generatedByDefaultAsIdentity(),
+  idStory: integer("id_story").notNull(),
+  // The sitting the scene was played in: null while it waits on the board,
+  // and null again if that session is ever deleted.
+  idStorySession: integer("id_story_session"),
+  // sql`DEFAULT` is not the default value, it says there is one: Drizzle
+  // renders an omitted column as DEFAULT and lets Postgres supply whatever
+  // the workflow's starting status is, which is the one place it is written.
+  status: varchar("status")
+    .notNull()
+    .default(sql`DEFAULT`),
+  sceneTitle: text("scene_title").notNull(),
+  sceneDescription: text("scene_description"),
+  // A picture for the scene, an address rather than an upload, as
+  // story_sessions keeps. Deliberately not part of search_text.
+  imageLink: text("image_link"),
+  // status, scene_title and scene_description joined for lookups, built by
+  // the database from the search_fields recipe on the story_scenes row of
+  // _tables. Generated, so an insert or update never names it.
+  searchText: text("search_text").generatedAlwaysAs(
+    sql`immutable_concat_ws(' ', status, scene_title, scene_description)`,
+  ),
+  activityLog: jsonb("activity_log")
+    .default(sql`'[]'::jsonb`)
+    .notNull(),
+  pendingAt: timestamp("pending_at", { withTimezone: true }),
+  activeAt: timestamp("active_at", { withTimezone: true }),
+  completeAt: timestamp("complete_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -345,6 +461,7 @@ export const storiesRelations = relations(stories, ({ one, many }) => ({
   players: many(storyPlayers),
   favorites: many(storyFavorites),
   sessions: many(storySessions),
+  scenes: many(storyScenes),
   currentSession: one(storySessions, {
     fields: [stories.idStorySession],
     references: [storySessions.idStorySession],
@@ -361,9 +478,19 @@ export const storyFavoritesRelations = relations(storyFavorites, ({ one }) => ({
   user: one(user, { fields: [storyFavorites.idUser], references: [user.id] }),
 }));
 
-export const storySessionsRelations = relations(storySessions, ({ one }) => ({
+export const storySessionsRelations = relations(storySessions, ({ one, many }) => ({
   story: one(stories, { fields: [storySessions.idStory], references: [stories.idStory] }),
   storyteller: one(user, { fields: [storySessions.idCreatedByUser], references: [user.id] }),
+  scenes: many(storyScenes),
+}));
+
+export const storyScenesRelations = relations(storyScenes, ({ one }) => ({
+  story: one(stories, { fields: [storyScenes.idStory], references: [stories.idStory] }),
+  session: one(storySessions, {
+    fields: [storyScenes.idStorySession],
+    references: [storySessions.idStorySession],
+  }),
+  storyteller: one(user, { fields: [storyScenes.idCreatedByUser], references: [user.id] }),
 }));
 
 export const feedbackRelations = relations(feedback, ({ one }) => ({

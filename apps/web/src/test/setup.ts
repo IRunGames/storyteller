@@ -2,6 +2,12 @@
 // first: Testing Library reads `document` off the global at import time.
 import "global-jsdom/register";
 
+// The date helpers format in the runtime's zone, so a fixture written as a
+// UTC instant lands on a different day either side of the date line and the
+// assertions on it fail by one. Pin the suite to UTC: the instants in the
+// fixtures are written as UTC and read back as UTC wherever the developer is.
+process.env.TZ = "UTC";
+
 import { afterEach } from "node:test";
 import { expect } from "expect";
 import * as jestDom from "@testing-library/jest-dom/matchers";
@@ -10,11 +16,7 @@ import { cleanup } from "@testing-library/react";
 // This file compiles to CJS (the workspace is not "type": "module"), so the
 // namespace object gains a synthetic `default` key that expect.extend rejects
 // as a non-function matcher.
-expect.extend(
-  Object.fromEntries(
-    Object.entries(jestDom).filter(([name]) => name !== "default"),
-  ),
-);
+expect.extend(Object.fromEntries(Object.entries(jestDom).filter(([name]) => name !== "default")));
 
 // React 19 refuses to run `act` outside an environment that opts in.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

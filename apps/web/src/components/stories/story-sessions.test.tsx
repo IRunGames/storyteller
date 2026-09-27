@@ -11,7 +11,7 @@ function sessions(count: number, from = 1): StorySession[] {
     idStorySession: from + i,
     number: from + i,
     title: `Session ${from + i} title`,
-    status: "done",
+    status: "DONE",
     startedAt: new Date(`2026-03-${String(20 - i).padStart(2, "0")}T19:00:00Z`),
     length: 90 + i * 30,
   }));
@@ -19,7 +19,9 @@ function sessions(count: number, from = 1): StorySession[] {
 
 // The component imports its server action itself, so the module is mocked
 // before the dynamic import below loads it.
-const sa_listStorySessions = mock.fn<(idStory: number, offset: number) => Promise<StorySession[]>>(
+const sa_listStorySessions = mock.fn<
+  (idStory: number, offset: number, limit?: number) => Promise<StorySession[]>
+>(
   async () => [],
 );
 
@@ -65,7 +67,7 @@ describe("StorySessions", () => {
   });
 
   it("keeps only the rows whose text matches the filter, and says so when none do", () => {
-    const rows = [{ ...sessions(1)[0], status: "open" as const, length: null }, ...sessions(2, 2)];
+    const rows = [{ ...sessions(1)[0], status: "OPEN", length: null }, ...sessions(2, 2)];
     const { rerender } = renderWithProviders(
       <StorySessions idStory={7} initial={rows} playerCount={3} filter="progress" />,
     );
@@ -127,9 +129,9 @@ describe("StorySessions", () => {
       <StorySessions
         idStory={7}
         initial={[
-          { ...sessions(1)[0], status: "open", length: null },
-          { ...sessions(1, 2)[0], status: "suspended", length: null },
-          { ...sessions(1, 3)[0], status: "resumed", length: null },
+          { ...sessions(1)[0], status: "OPEN", length: null },
+          { ...sessions(1, 2)[0], status: "SUSPENDED", length: null },
+          { ...sessions(1, 3)[0], status: "RESUMED", length: null },
         ]}
       />,
     );
@@ -160,7 +162,11 @@ describe("StorySessions", () => {
     await user.click(screen.getByRole("button", { name: "More" }));
 
     await waitFor(() => expect(sa_listStorySessions.mock.callCount()).toBe(1));
-    expect(sa_listStorySessions.mock.calls[0].arguments).toEqual([7, SESSIONS_PAGE_SIZE]);
+    expect(sa_listStorySessions.mock.calls[0].arguments).toEqual([
+      7,
+      SESSIONS_PAGE_SIZE,
+      SESSIONS_PAGE_SIZE,
+    ]);
     await waitFor(() =>
       expect(screen.getAllByRole("listitem")).toHaveLength(SESSIONS_PAGE_SIZE + 2),
     );
@@ -183,7 +189,11 @@ describe("StorySessions", () => {
 
     await user.click(screen.getByRole("button", { name: "More" }));
     await waitFor(() => expect(sa_listStorySessions.mock.callCount()).toBe(2));
-    expect(sa_listStorySessions.mock.calls[1].arguments).toEqual([7, SESSIONS_PAGE_SIZE * 2]);
+    expect(sa_listStorySessions.mock.calls[1].arguments).toEqual([
+      7,
+      SESSIONS_PAGE_SIZE * 2,
+      SESSIONS_PAGE_SIZE,
+    ]);
   });
 
   it("leaves the list and the button alone when loading more fails", async () => {

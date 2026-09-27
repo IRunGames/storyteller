@@ -10,9 +10,11 @@
 // database default, so it can never collide with the seed's negative ids.
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { loadEnvConfig } from "@next/env";
+
+import { initialStatus, pausePair, terminalStatus } from "@/test/workflow";
 
 loadEnvConfig(process.cwd());
 
@@ -22,6 +24,14 @@ const hasDb = Boolean(process.env.DATABASE_URL);
 const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
 
 let actions: typeof import("./actions");
+
+// The session statuses this file needs, found in the workflow rather than
+// written down: the one a session starts in, the one it ends in, and the pair
+// it passes through when it pauses. See src/test/workflow.ts for why.
+let statusOpen = "";
+let statusDone = "";
+let statusPause = "";
+let statusResume = "";
 
 // `@/db` opens its pool at import time, so it has to be pulled in from inside
 // `before` — a static import is evaluated before loadEnvConfig() above runs,
@@ -51,6 +61,13 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     ({ db, schema: tables } = await import("@/db"));
     actions = await import("./actions");
+
+    const workflow = await (
+      await import("@/components/status/actions")
+    ).sa_listStatusOptions("story_sessions");
+    statusOpen = initialStatus(workflow);
+    statusDone = terminalStatus(workflow);
+    ({ pause: statusPause, resume: statusResume } = pausePair(workflow));
 
     const [otherUser] = await db
       .insert(tables.user)
@@ -126,7 +143,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .returning({ id: tables.storySessions.idStorySession });
     await db
       .update(tables.storySessions)
-      .set({ status: "done" })
+      .set({ status: statusDone })
       .where(eq(tables.storySessions.idStorySession, doneSession.id));
     await db
       .update(tables.stories)
@@ -137,14 +154,14 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .set({ idStorySession: doneSession.id })
       .where(eq(tables.stories.idStory, storyB));
 
-    // D's current session came back from a pause: open -> suspended ->
-    // resumed, one update per step because the trigger only allows the
-    // transitions the workflow lists. It is at the table just like A's.
+    // D's current session came back from a pause, one update per step because
+    // the trigger only allows the transitions the workflow lists. It is at the
+    // table just like A's.
     const [resumedSession] = await db
       .insert(tables.storySessions)
       .values({ idStory: storyD })
       .returning({ id: tables.storySessions.idStorySession });
-    for (const status of ["suspended", "resumed"] as const) {
+    for (const status of [statusPause, statusResume]) {
       await db
         .update(tables.storySessions)
         .set({ status })
@@ -173,7 +190,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .where(inArray(tables.storySessions.idStorySession, pastSessionIds));
     await db
       .update(tables.storySessions)
-      .set({ status: "done" })
+      .set({ status: statusDone })
       .where(inArray(tables.storySessions.idStorySession, pastSessionIds));
   });
 
@@ -261,8 +278,15 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("fetches one story by id", async () => {
+    // What the seed calls story -1 is the seed's business and has changed
+    // once already, so the title to expect is read from the row rather than
+    // written down: the case is that the id fetches its own story.
+    const [seeded] = await db
+      .select({ title: tables.stories.title })
+      .from(tables.stories)
+      .where(eq(tables.stories.idStory, -1));
     const story = await actions.sa_getStory(-1);
-    expect(story?.title).toBe("Something Wicked");
+    expect(story?.title).toBe(seeded.title);
     expect(await actions.sa_getStory(999999)).toBeNull();
     // Beyond int4: Postgres would error on the comparison, so the id is
     // rejected before the query and the page's notFound() takes over.
@@ -381,7 +405,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     // after it run 2 to 6, newest first here. None has a title yet.
     expect(first.map((s) => s.number)).toEqual([6, 5, 4, 3, 2]);
     for (const session of first) {
-      expect(session.status).toBe("done");
+      expect(session.status).toBe(statusDone);
       expect(session.length).toBe(90);
       expect(session.title).toBeNull();
       expect(session.startedAt).toBeInstanceOf(Date);
@@ -393,7 +417,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     expect(second).toHaveLength(1);
     expect(second[0].idStorySession).toBe(openSessionId);
     expect(second[0].number).toBe(1);
-    expect(second[0].status).toBe("open");
+    expect(second[0].status).toBe(statusOpen);
     expect(second[0].length).toBeNull();
   });
 
@@ -409,15 +433,15 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         .set(values)
         .where(eq(tables.storySessions.idStorySession, session.id));
 
-    // Opened 90 minutes ago, paused 30 minutes ago, resumed now and done now:
-    // an hour at the table. The workflow trigger stamps suspended_at with
-    // NOW() on the move to suspended, so it is pushed back afterwards, in
+    // Opened 90 minutes ago, paused 30 minutes ago, resumed now and finished
+    // now: an hour at the table. The workflow trigger stamps suspended_at with
+    // NOW() as the row enters the pause, so it is pushed back afterwards, in
     // its own statement, the way open_at is for the page-one fixtures.
     await set({ openAt: sql`now() - interval '90 minutes'` });
-    await set({ status: "suspended" });
+    await set({ status: statusPause });
     await set({ suspendedAt: sql`now() - interval '30 minutes'` });
-    await set({ status: "resumed" });
-    await set({ status: "done" });
+    await set({ status: statusResume });
+    await set({ status: statusDone });
 
     const sessions = await actions.sa_listStorySessions(storyB, 0);
     expect(sessions.find((s) => s.idStorySession === session.id)?.length).toBe(60);
@@ -447,7 +471,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       idStorySession: openSessionId,
       number: 1,
       title: "Fixture session",
-      status: "open",
+      status: statusOpen,
       length: null,
       imageLink: "https://x.test/hero.jpg",
       summary: "What happened.",
@@ -708,5 +732,194 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
 
   it("refuses to favorite a story that does not exist", async () => {
     await expect(actions.sa_setFavorite(999999, true)).rejects.toThrow("Story not found");
+  });
+
+  it("gives the storyteller the sitting's scenes, in the order they were played", async () => {
+    // On storyD, which the seed user owns: scenes are the storyteller's, and
+    // the caller is only the storyteller of their own stories.
+    const [session] = await db
+      .insert(tables.storySessions)
+      .values({ idStory: storyD, title: "Scene ordering" })
+      .returning({ id: tables.storySessions.idStorySession });
+
+    // Three scenes, run in an order that is neither the order they were
+    // written nor the order of their ids.
+    const rows = await db
+      .insert(tables.storyScenes)
+      .values([
+        { idStory: storyD, idStorySession: session.id, sceneTitle: "Scene written first" },
+        { idStory: storyD, idStorySession: session.id, sceneTitle: "Scene written second" },
+        { idStory: storyD, idStorySession: session.id, sceneTitle: "Scene never run" },
+      ])
+      .returning({ id: tables.storyScenes.idStoryScene, title: tables.storyScenes.sceneTitle });
+    const idOf = (title: string) => rows.find((row) => row.title === title)!.id;
+
+    // active_at is what the workflow stamps as a scene comes up at the table;
+    // written here directly, since moving the rows through the workflow would
+    // stamp them all within the same millisecond.
+    await db
+      .update(tables.storyScenes)
+      .set({ activeAt: sql`now() - interval '10 minutes'` })
+      .where(eq(tables.storyScenes.idStoryScene, idOf("Scene written second")));
+    await db
+      .update(tables.storyScenes)
+      .set({ activeAt: sql`now() - interval '5 minutes'` })
+      .where(eq(tables.storyScenes.idStoryScene, idOf("Scene written first")));
+
+    const detail = await actions.sa_getStorySession(session.id);
+    expect(detail?.scenes.map((scene) => scene.title)).toEqual([
+      "Scene written second",
+      "Scene written first",
+      // Attached to the sitting but never run, so it has no active_at and
+      // comes last rather than first.
+      "Scene never run",
+    ]);
+    // Each one carries the status the database gave it.
+    for (const scene of detail!.scenes) {
+      expect(typeof scene.status).toBe("string");
+      expect(scene.status.length).toBeGreaterThan(0);
+    }
+
+    await db.delete(tables.storyScenes).where(
+      inArray(
+        tables.storyScenes.idStoryScene,
+        rows.map((row) => row.id),
+      ),
+    );
+    await db
+      .delete(tables.storySessions)
+      .where(eq(tables.storySessions.idStorySession, session.id));
+  });
+
+  it("gives nobody but the storyteller a sitting's scenes", async () => {
+    const [scene] = await db
+      .insert(tables.storyScenes)
+      .values({ idStory: storyA, idStorySession: openSessionId, sceneTitle: "Hidden scene" })
+      .returning({ id: tables.storyScenes.idStoryScene });
+
+    // storyA belongs to the other user, so the seed user reading this session
+    // is a visitor: the scenes are prep, like the notes, and stay behind.
+    const detail = await actions.sa_getStorySession(openSessionId);
+    expect(detail?.notes).toBeNull();
+    expect(detail?.scenes).toEqual([]);
+
+    await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, scene.id));
+  });
+
+  it("takes a player off a story and their favorite of it with them", async () => {
+    // storyD is the seed user's own, so they are its storyteller. Seat the
+    // other user on it and let them favorite it.
+    await db.insert(tables.storyPlayers).values({ idStory: storyD, idUser: otherUserId });
+    await db.insert(tables.storyFavorites).values({ idStory: storyD, idUser: otherUserId });
+
+    const result = await actions.sa_removeStoryPlayer(storyD, otherUserId);
+    expect(result).toEqual({ ok: true });
+
+    const seats = await db
+      .select()
+      .from(tables.storyPlayers)
+      .where(
+        and(eq(tables.storyPlayers.idStory, storyD), eq(tables.storyPlayers.idUser, otherUserId)),
+      );
+    expect(seats).toEqual([]);
+    const favorites = await db
+      .select()
+      .from(tables.storyFavorites)
+      .where(
+        and(
+          eq(tables.storyFavorites.idStory, storyD),
+          eq(tables.storyFavorites.idUser, otherUserId),
+        ),
+      );
+    expect(favorites).toEqual([]);
+  });
+
+  it("leaves everyone else's seats and favorites alone", async () => {
+    // Two players on the same story, one of them favoriting it, and a
+    // favorite of a different story by the one being removed.
+    await db.insert(tables.storyPlayers).values([
+      { idStory: storyD, idUser: otherUserId },
+      { idStory: storyD, idUser: SEED_USER },
+    ]);
+    await db.insert(tables.storyFavorites).values([
+      { idStory: storyD, idUser: SEED_USER },
+      { idStory: storyE, idUser: otherUserId },
+    ]);
+
+    await actions.sa_removeStoryPlayer(storyD, otherUserId);
+
+    // Scoped to the two this case seated: other tests in this file put
+    // their own players on the fixture stories.
+    const seats = await db
+      .select({ idUser: tables.storyPlayers.idUser })
+      .from(tables.storyPlayers)
+      .where(
+        and(
+          eq(tables.storyPlayers.idStory, storyD),
+          inArray(tables.storyPlayers.idUser, [otherUserId, SEED_USER]),
+        ),
+      );
+    expect(seats).toEqual([{ idUser: SEED_USER }]);
+    // The other player's favorite of this story, and the removed player's
+    // favorite of another, both survive; only the removed player's favorite
+    // of this story goes. Asked row by row, because the fixtures in `before`
+    // favorite these stories too.
+    const favorite = async (idStory: number, idUser: string) =>
+      (
+        await db
+          .select({ one: tables.storyFavorites.idStoryFavorite })
+          .from(tables.storyFavorites)
+          .where(
+            and(
+              eq(tables.storyFavorites.idStory, idStory),
+              eq(tables.storyFavorites.idUser, idUser),
+            ),
+          )
+      ).length;
+    expect(await favorite(storyD, SEED_USER)).toBe(1);
+    expect(await favorite(storyE, otherUserId)).toBe(1);
+    expect(await favorite(storyD, otherUserId)).toBe(0);
+
+    await db
+      .delete(tables.storyPlayers)
+      .where(
+        and(
+          eq(tables.storyPlayers.idStory, storyD),
+          inArray(tables.storyPlayers.idUser, [otherUserId, SEED_USER]),
+        ),
+      );
+    // Only the two this case added: storyE is favorited by the seed user in
+    // `before`, and other cases rely on that.
+    await db
+      .delete(tables.storyFavorites)
+      .where(
+        or(
+          and(
+            eq(tables.storyFavorites.idStory, storyD),
+            eq(tables.storyFavorites.idUser, SEED_USER),
+          ),
+          and(
+            eq(tables.storyFavorites.idStory, storyE),
+            eq(tables.storyFavorites.idUser, otherUserId),
+          ),
+        ),
+      );
+  });
+
+  it("removing someone who is not seated is not an error", async () => {
+    expect(await actions.sa_removeStoryPlayer(storyD, otherUserId)).toEqual({ ok: true });
+  });
+
+  it("refuses a story the caller did not create, and the storyteller themselves", async () => {
+    // storyA belongs to the other user, and the seed user only plays in it.
+    await expect(actions.sa_removeStoryPlayer(storyA, SEED_USER)).rejects.toThrow();
+
+    // The storyteller has no story_players row to take away.
+    const refusal = await actions.sa_removeStoryPlayer(storyD, SEED_USER);
+    expect(refusal.ok).toBe(false);
+
+    // And an id that is not a user at all.
+    const bad = await actions.sa_removeStoryPlayer(storyD, "not-a-uuid");
+    expect(bad.ok).toBe(false);
   });
 });

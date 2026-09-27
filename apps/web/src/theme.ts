@@ -77,6 +77,34 @@ const config = defineConfig({
           },
           border: { value: { _halloween: "#431a06", _blackberry: "#45207a", _mint: "#125248" } },
         },
+        // The status pill: the theme's highlight, and the colour that reads
+        // on it. Every pill is the highlight at full strength — nothing is
+        // mixed or graded — so these two are the whole palette. They repeat
+        // nav.accent and nav.bg rather than reading them because nav.* is the
+        // header's alone (docs/standards.md), and a pill is not the header.
+        status: {
+          accent: {
+            value: {
+              base: "#c2410c",
+              _dark: "#f0955c",
+              _halloween: "#f97316",
+              _blackberry: "#c084fc",
+              _mint: "#5eead4",
+            },
+          },
+          // The theme's own background, which is what the highlight was
+          // chosen to stand out against, so the contrast holds everywhere
+          // without a second palette.
+          contrast: {
+            value: {
+              base: "#ffffff",
+              _dark: "#16181e",
+              _halloween: "#000000",
+              _blackberry: "#14072a",
+              _mint: "#061d19",
+            },
+          },
+        },
         nav: {
           bg: {
             value: {

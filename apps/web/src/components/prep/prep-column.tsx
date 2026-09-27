@@ -1,6 +1,12 @@
 import { useId, useState, type ReactNode } from "react";
-import { Heading, HStack, Input, InputGroup, Spacer, Stack } from "@chakra-ui/react";
-import { Maximize2, Minimize2, Plus, Search } from "lucide-react";
+import { Heading, HStack, Spacer, Stack, Text } from "@chakra-ui/react";
+import { Maximize2, Minimize2, Plus } from "lucide-react";
+import type { StatusOption } from "@/lib/status";
+import {
+  allSelected,
+  StatusSearch,
+  type StatusSearchValue,
+} from "@/components/status/status-search";
 import type { PrepColumnMode } from "./prep-columns";
 import { PrepIconButton } from "./prep-icon-button";
 
@@ -8,6 +14,11 @@ type Props = {
   title: string;
   /** What the + button makes: "session", "scene". */
   singular: string;
+  /**
+   * How many rows the column holds in all, shown beside the title. Null for a
+   * column whose rows are still stand-ins, which has no count to give.
+   */
+  count?: number | null;
   /** Never "hidden": the board renders a button in the column's place instead. */
   mode: Exclude<PrepColumnMode, "hidden">;
   /** The column's width at its usual size. */
@@ -18,16 +29,23 @@ type Props = {
   creatable: boolean;
   /** False for the first visible column, which has nothing to its left. */
   bordered: boolean;
+  /**
+   * The workflow of the rows in this column, for the status pills above the
+   * search box. A column whose rows have no statuses passes none and gets
+   * only the box.
+   */
+  statusOptions?: StatusOption[];
   onCreate: () => void;
   onExpand: () => void;
   /** Shrinks an expanded column, hides a normal one. */
   onContract: () => void;
   /**
-   * The rows, given what the column's search box holds so they can filter
-   * themselves. The column owns the query because the box is its own; what
-   * the query means for a row is the board's business.
+   * The rows, given what the column is narrowed to — the words typed and the
+   * statuses still switched on — so they can narrow themselves. The column
+   * owns it because the box and the pills are its own; what it means for a
+   * row is the board's business.
    */
-  children: (query: string) => ReactNode;
+  children: (filter: StatusSearchValue) => ReactNode;
 };
 
 // One column of the Prep Work board: the heading with its buttons, the
@@ -37,18 +55,22 @@ type Props = {
 export function PrepColumn({
   title,
   singular,
+  count = null,
   mode,
   width,
   expandable,
   creatable,
   bordered,
+  statusOptions,
   onCreate,
   onExpand,
   onContract,
   children,
 }: Props) {
   const headingId = useId();
-  const [query, setQuery] = useState("");
+  const options = statusOptions ?? [];
+  // Every status on to begin with, so the column opens showing everything.
+  const [filter, setFilter] = useState<StatusSearchValue>(() => allSelected(options));
 
   return (
     <Stack
@@ -72,6 +94,14 @@ export function PrepColumn({
         <Heading id={headingId} size="lg" minW="0" truncate>
           {title}
         </Heading>
+        {/* The count sits beside the heading rather than inside it, so the
+            column's accessible name stays the plain title while the number
+            changes underneath. */}
+        {count !== null && (
+          <Text color="fg.muted" fontSize="sm" flex="none" data-count={count}>
+            ({count})
+          </Text>
+        )}
         {/* The + belongs to the title, since it adds to what the column
             holds; the layout buttons are about the column itself and keep
             to the far edge, so the two are not mistaken for each other. */}
@@ -96,17 +126,8 @@ export function PrepColumn({
           <Minimize2 />
         </PrepIconButton>
       </HStack>
-      <InputGroup startElement={<Search size={14} />}>
-        <Input
-          type="search"
-          size="sm"
-          aria-label={`Search ${title}`}
-          placeholder={`Search ${title.toLowerCase()}`}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </InputGroup>
-      {children(query)}
+      <StatusSearch label={title} options={options} value={filter} onChange={setFilter} />
+      {children(filter)}
     </Stack>
   );
 }

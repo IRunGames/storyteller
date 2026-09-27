@@ -1,29 +1,18 @@
 "use client";
 
-import { useId, useState } from "react";
-import {
-  Accordion,
-  Alert,
-  Avatar,
-  HStack,
-  IconButton,
-  Image,
-  List,
-  Popover,
-  Portal,
-  Skeleton,
-  Stack,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
-import { Info } from "lucide-react";
+import { useId } from "react";
+import { Accordion, Avatar, HStack, Image, List, Stack, Text } from "@chakra-ui/react";
 import {
   formatSessionLength,
-  SESSION_STATUS_TEXT,
+  sessionStatusText,
   sessionHeading,
   type StorySessionDetail,
 } from "@/lib/stories";
+import type { StatusOption } from "@/lib/status";
 import { sa_getStorySession } from "@/app/(app)/(nav)/stories/actions";
+import { sa_listStatusOptions } from "@/components/status/actions";
+import { StatusPill } from "@/components/status/status-pill";
+import { InfoPopover } from "@/components/popovers/info-popover";
 
 type Props = {
   idStorySession: number;
@@ -31,108 +20,57 @@ type Props = {
   color?: string;
 };
 
-// The small info button on a session row and the popover it opens: the
-// session's image, heading, length, who came, its summary, and the notes
-// and lingering questions folded into an accordion so a long entry does
-// not push the rest out of sight. The detail is fetched on first open
-// rather than with the list, since most rows are never opened, and kept
-// for the next time; nothing here changes while the page is up.
+// The workflow travels with the detail rather than being state of its own, so
+// the panel opens on both or neither and the scene pills never flash from
+// uncoloured to coloured.
+type Loaded = {
+  detail: StorySessionDetail;
+  /** The story_scenes workflow, for the pills in the scenes fold. */
+  sceneStatusOptions: StatusOption[];
+};
+
+// What the info button on a session row opens: the session's image, heading,
+// length, who came, its summary, and the notes and lingering questions folded
+// into an accordion so a long entry does not push the rest out of sight.
+// InfoPopover owns the button, the panel and the fetch; nothing in here
+// changes while the page is up.
 export function SessionInfoPopover({ idStorySession, color }: Props) {
-  const [open, setOpen] = useState(false);
-  const [detail, setDetail] = useState<StorySessionDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setLoading] = useState(false);
-  // Both machines look their trigger up by id; with separate ids the
-  // tooltip's wins and the popover opens at the page corner.
-  const triggerId = useId();
-
-  async function load() {
-    if (detail || isLoading) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const found = await sa_getStorySession(idStorySession);
-      if (found) setDetail(found);
-      else setError("This session is no longer here.");
-    } catch {
-      setError("Could not load the session.");
-    } finally {
-      setLoading(false);
-    }
+  // The workflow is fetched here rather than threaded down from the page,
+  // because this popover is opened from the story page too, which knows
+  // nothing about scenes.
+  async function load(): Promise<Loaded | null> {
+    const detail = await sa_getStorySession(idStorySession);
+    if (!detail) return null;
+    // Only worth asking when there are scenes to colour, which is only ever
+    // for the storyteller.
+    const sceneStatusOptions =
+      detail.scenes.length > 0 ? await sa_listStatusOptions("story_scenes") : [];
+    return { detail, sceneStatusOptions };
   }
-
-  function onOpenChange(next: boolean) {
-    setOpen(next);
-    if (next) void load();
-  }
-
-  const heading = detail ? sessionHeading(detail) : "Session";
 
   return (
-    <Popover.Root
-      open={open}
-      onOpenChange={(details) => onOpenChange(details.open)}
-      positioning={{ placement: "bottom-end" }}
-      ids={{ trigger: triggerId }}
+    <InfoPopover<Loaded>
+      label="Session info"
+      color={color}
+      load={load}
+      missingText="This session is no longer here."
+      errorText="Could not load the session."
+      heading={(loaded) => (loaded ? sessionHeading(loaded.detail) : "Session")}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label="Session info"
-              variant="ghost"
-              size="xs"
-              rounded="full"
-              color={color}
-            >
-              <Info />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Session info</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
-      <Portal>
-        <Popover.Positioner>
-          {/* Notes run long, so the popover scrolls inside itself rather
-              than off the bottom of the viewport. */}
-          <Popover.Content w="sm" maxH="80vh" overflowY="auto">
-            <Popover.Arrow />
-            {/* Popover.Title, not bare text: it is what the dialog's
-                aria-labelledby points at, so the popover gets a name. */}
-            <Popover.Header fontWeight="semibold">
-              <Popover.Title>{heading}</Popover.Title>
-            </Popover.Header>
-            <Popover.Body>
-              {error ? (
-                // role="alert", which Chakra's Alert does not set itself.
-                <Alert.Root role="alert" status="error" size="sm">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Description>{error}</Alert.Description>
-                  </Alert.Content>
-                </Alert.Root>
-              ) : detail ? (
-                <SessionDetail detail={detail} />
-              ) : (
-                <Stack gap="3">
-                  <Skeleton h="5" w="1/3" />
-                  <Skeleton h="4" />
-                  <Skeleton h="4" w="2/3" />
-                </Stack>
-              )}
-            </Popover.Body>
-          </Popover.Content>
-        </Popover.Positioner>
-      </Portal>
-    </Popover.Root>
+      {({ detail, sceneStatusOptions }) => (
+        <SessionDetail detail={detail} sceneStatusOptions={sceneStatusOptions} />
+      )}
+    </InfoPopover>
   );
 }
 
-function SessionDetail({ detail }: { detail: StorySessionDetail }) {
+function SessionDetail({
+  detail,
+  sceneStatusOptions,
+}: {
+  detail: StorySessionDetail;
+  sceneStatusOptions: StatusOption[];
+}) {
   const playersId = useId();
   const folds = [
     { value: "notes", label: "Notes", text: detail.notes },
@@ -151,7 +89,7 @@ function SessionDetail({ detail }: { detail: StorySessionDetail }) {
           status says why there is none. */}
       <Text textStyle="sm" color="fg.muted">
         {detail.length === null
-          ? SESSION_STATUS_TEXT[detail.status]
+          ? sessionStatusText(detail.status)
           : formatSessionLength(detail.length)}
       </Text>
 
@@ -164,7 +102,17 @@ function SessionDetail({ detail }: { detail: StorySessionDetail }) {
             No players recorded.
           </Text>
         ) : (
-          <List.Root aria-labelledby={playersId} listStyleType="none" gap="2">
+          // Flowing, as on the story page: who came takes a line or two of
+          // the panel rather than one line each.
+          <List.Root
+            aria-labelledby={playersId}
+            listStyleType="none"
+            display="flex"
+            flexDirection="row"
+            flexWrap="wrap"
+            gap="2"
+            columnGap="4"
+          >
             {detail.players.map((player) => (
               <List.Item key={player.idUser}>
                 <HStack gap="2">
@@ -172,7 +120,9 @@ function SessionDetail({ detail }: { detail: StorySessionDetail }) {
                     <Avatar.Fallback name={player.name} />
                     {player.image && <Avatar.Image src={player.image} alt="" />}
                   </Avatar.Root>
-                  <Text textStyle="sm">{player.name}</Text>
+                  <Text textStyle="sm" whiteSpace="nowrap">
+                    {player.name}
+                  </Text>
                 </HStack>
               </List.Item>
             ))}
@@ -182,8 +132,50 @@ function SessionDetail({ detail }: { detail: StorySessionDetail }) {
 
       {detail.summary && <Text textStyle="sm">{detail.summary}</Text>}
 
-      {folds.length > 0 && (
+      {(folds.length > 0 || detail.scenes.length > 0) && (
         <Accordion.Root collapsible multiple size="sm" variant="enclosed">
+          {/* The scenes played in this sitting, folded away like the notes:
+              a long session ran through a dozen of them and the panel is
+              read for its summary first. Only the storyteller is given any,
+              so for anyone else this fold is simply not there. */}
+          {detail.scenes.length > 0 && (
+            <Accordion.Item value="scenes">
+              <Accordion.ItemTrigger>
+                <Text flex="1" textStyle="sm">
+                  Scenes ({detail.scenes.length})
+                </Text>
+                <Accordion.ItemIndicator />
+              </Accordion.ItemTrigger>
+              <Accordion.ItemContent>
+                <Accordion.ItemBody>
+                  {/* Numbered as they were played, first to last: the
+                      action orders them by the time each came up at the
+                      table, so the number is the position in this list and
+                      not anything stored on the scene. */}
+                  <List.Root as="ol" listStyleType="none" gap="2">
+                    {detail.scenes.map((scene, index) => (
+                      <List.Item key={scene.idStoryScene}>
+                        <HStack gap="2" justify="space-between" align="start">
+                          <Text textStyle="sm">
+                            {index + 1}. {scene.title}
+                          </Text>
+                          {/* Shown, not changed: this panel is opened from
+                              the story page as well as the board, and a
+                              scene is moved on the board where it lives. */}
+                          <StatusPill
+                            table="story_scenes"
+                            id={scene.idStoryScene}
+                            status={scene.status}
+                            options={sceneStatusOptions}
+                          />
+                        </HStack>
+                      </List.Item>
+                    ))}
+                  </List.Root>
+                </Accordion.ItemBody>
+              </Accordion.ItemContent>
+            </Accordion.Item>
+          )}
           {folds.map((fold) => (
             <Accordion.Item key={fold.value} value={fold.value}>
               <Accordion.ItemTrigger>

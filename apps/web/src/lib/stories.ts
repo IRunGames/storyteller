@@ -1,4 +1,6 @@
-import type { StorySessionStatus } from "@/db/schema";
+import { formatDay } from "@/lib/dates";
+import type { SessionScene } from "@/lib/scenes";
+import { statusLabel } from "@/lib/status";
 
 /** Cards per fetch in every Stories section. */
 export const PAGE_SIZE = 10;
@@ -39,13 +41,25 @@ export type StoryCardData = {
 /** Sessions per fetch in a story's Recent sessions section. */
 export const SESSIONS_PAGE_SIZE = 5;
 
+/**
+ * Sessions per fetch in the Prep Work timeline. The board has a column's
+ * height to fill where the story page has a section under a summary, so it
+ * asks for more at a time; both page through the same action.
+ */
+export const PREP_SESSIONS_PAGE_SIZE = 10;
+
 /** One row of a story's Recent sessions section. */
 export type StorySession = {
   idStorySession: number;
   /** 1 for the story's first session, counted in the order they opened. */
   number: number;
   title: string | null;
-  status: StorySessionStatus;
+  /**
+   * The status the row holds, as the database has it. Not narrowed to the
+   * statuses the workflow lists today; those are read from s_statuses at run
+   * time.
+   */
+  status: string;
   /** When the session was created, which is when it was opened. */
   startedAt: Date;
   /**
@@ -61,7 +75,8 @@ export type StorySessionDetail = {
   /** 1 for the story's first session, counted in the order they opened. */
   number: number;
   title: string | null;
-  status: StorySessionStatus;
+  /** As on StorySession: whatever the database has, not a fixed set. */
+  status: string;
   /** As on StorySession: whole minutes at the table, null until done. */
   length: number | null;
   imageLink: string | null;
@@ -71,6 +86,11 @@ export type StorySessionDetail = {
   lingeringQuestions: string | null;
   /** Who came, resolved from the session's user ids; an id nobody matches is left out. */
   players: StoryPlayer[];
+  /**
+   * The scenes played in this sitting, oldest first. The storyteller's own,
+   * like the notes: empty for anyone else, however the row reads.
+   */
+  scenes: SessionScene[];
 };
 
 /** "3. Kildealg", or "Session 3" for a session with no title yet. */
@@ -134,15 +154,14 @@ export function systemLabel(
   return label;
 }
 
-const lastPlayedFormat = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-  timeZone: "UTC",
-});
-
+/**
+ * "Sep 12, 2026", in the zone this is running in. Rendering one goes through
+ * LocalDate so the server and the browser agree on the markup; this is for
+ * the places that need the string itself, such as the text a search box is
+ * matched against.
+ */
 export function formatLastPlayed(date: Date): string {
-  return lastPlayedFormat.format(date);
+  return formatDay(date);
 }
 
 const hoursFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
@@ -159,15 +178,21 @@ export function formatPlayerCount(count: number): string {
 }
 
 /**
- * What a session with no length says in its place. A done session always has
- * one, so its entry is only there to keep the lookup total.
+ * What a session with no length says in its place, where the status is shown
+ * as text rather than as a pill. These are wordings, not the workflow: a
+ * status the map does not name falls back to its own key, so a status added
+ * to the workflow reads sensibly here the day it appears and only needs an
+ * entry if plainer words are wanted. Both statuses that mean play is under
+ * way say the same thing, which is why there is a map at all.
  */
-export const SESSION_STATUS_TEXT: Record<StorySessionStatus, string> = {
-  open: "In progress",
-  suspended: "Suspended",
-  resumed: "In progress",
-  done: "Done",
+const SESSION_STATUS_WORDING: Record<string, string> = {
+  OPEN: "In progress",
+  RESUMED: "In progress",
 };
+
+export function sessionStatusText(status: string): string {
+  return SESSION_STATUS_WORDING[status] ?? statusLabel(status);
+}
 
 /** Every titled block a stories board can show. */
 export type SectionKey = "favorites" | "mine" | "open";

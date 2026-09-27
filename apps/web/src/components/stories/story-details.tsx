@@ -15,13 +15,14 @@ import {
 import { Pencil, Play, Timer } from "lucide-react";
 import {
   cssUrlValue,
-  formatLastPlayed,
   systemLabel,
   type StoryCardData,
   type StoryPlayer,
   type StorySession,
 } from "@/lib/stories";
+import { LocalDate } from "@/components/dates/local-date";
 import { StoryPlayers } from "./story-players";
+import type { StatusOption } from "@/lib/status";
 import { StorySessions } from "./story-sessions";
 
 type Props = {
@@ -29,13 +30,15 @@ type Props = {
   players: StoryPlayer[];
   /** The first page of the story's sessions; StorySessions fetches the rest. */
   sessions: StorySession[];
+  /** The story_sessions workflow, for the status pill on each row. */
+  sessionStatusOptions: StatusOption[];
 };
 
 // The story page's body: the cover as a full-bleed backdrop when there is one,
 // and the text in a dark panel over it. No hooks beyond useId, so the page can
 // render it on the server. Presentational only; stories/[id]/page.tsx loads
 // the data.
-export function StoryDetails({ story, players, sessions }: Props) {
+export function StoryDetails({ story, players, sessions, sessionStatusOptions }: Props) {
   const playersId = useId();
   const sessionsId = useId();
   const system = systemLabel(story);
@@ -152,7 +155,9 @@ export function StoryDetails({ story, players, sessions }: Props) {
             <Stack gap="0" color={story.imageUrl ? "whiteAlpha.800" : "fg.muted"}>
               {system && <Text>{system}</Text>}
               {story.storytellerName && <Text>Storyteller: {story.storytellerName}</Text>}
-              <Text>Last played: {formatLastPlayed(story.lastPlayed)}</Text>
+              <Text>
+                Last played: <LocalDate value={story.lastPlayed} />
+              </Text>
             </Stack>
             {story.summary && <Text pt="2">{story.summary}</Text>}
           </Stack>
@@ -184,7 +189,18 @@ export function StoryDetails({ story, players, sessions }: Props) {
                 </Button>
               )}
             </HStack>
-            <StorySessions idStory={story.idStory} initial={sessions} mutedColor={mutedColor} />
+            {/* The same row the Prep Work timeline draws: the session's
+                number and title, who was at the table, how long it ran and
+                a status pill the storyteller can move. */}
+            <StorySessions
+              idStory={story.idStory}
+              initial={sessions}
+              mutedColor={mutedColor}
+              playerCount={story.playerCount}
+              statusOptions={sessionStatusOptions}
+              canEditStatus={story.isOwner}
+              showTitles
+            />
           </Stack>
         </Stack>
       </Container>

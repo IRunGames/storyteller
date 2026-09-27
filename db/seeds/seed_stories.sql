@@ -1,8 +1,14 @@
     -- Seed data for `stories`: the campaigns listed under the Stories menu of
     -- https://rpg.irun.games, owned by the storyteller@irun.games user, plus
-    -- fixture stories (-15 onward) owned by the users in db/seeds/seed_users.sql,
+    -- fixture stories (-15 to -21) owned by the users in db/seeds/seed_users.sql,
     -- so that seed must run first too. Who plays in those is in
     -- db/seeds/seed_story_players.sql.
+    --
+    -- Two of these are the same table: Something Wicked (-22) is the
+    -- campaign, and An Eastern King (-1) is the adventure being played in it,
+    -- which is where the sessions and the scenes hang. The campaign has been
+    -- played under the adventure's name rather than its own, so its hours
+    -- and its last_played stay at nothing.
     --
     -- Rows follow the menu order. Index pages that merely group campaigns
     -- (Old Gods of Appalachia, Exalted, Invisible Sun, Numenera) become
@@ -30,8 +36,12 @@
     INSERT INTO stories (id_story, title, id_system, image_url, summary, hours_played, is_active, is_looking_for_players,
                        last_played, id_created_by_user, id_updated_by_user)
     VALUES
-        ( -1, 'Something Wicked',      NULL, 'https://rpg.irun.games/_astro/something-wicked.BDFq7VyR_2qTJPB.webp',
-          'A magical gothic horror campaign. Each character has glimpsed the supernatural and been irrevocably changed by it, and is defined by the power they acquired, the price they paid, the curse they carry, their secrets, their calling, their closest companion and the places that matter to them.',
+        -- The adventure the site writes up as An Eastern King, episodes 1 to
+        -- 3, and the one story here with sessions: db/seeds/seed_story_sessions.sql
+        -- gives it its three sittings and sets its last_played and
+        -- hours_played from them, which is why both are left at nothing here.
+        ( -1, 'An Eastern King',       NULL, 'https://rpg.irun.games/images/arcodd/an-eastern-king/an-eastern-king.png',
+          'An adventure in the twilight of the High Kingdom. A quiet group of Brenin have assembled a company of arwr — no one of note, no one of nobility, each chosen by a different great house and backed by the blessing of its blood — and sent them east to Dun Dwym, set between the Great River and the Uncertain Flood, to take the measure of House Balwen and of the ancient protective magics said to sleep there. Tuhál counts the Gift a crime, its Questioners and Magebreakers are masters of turning magic to their purposes, and the old Wolf is calling his fortresses to prepare for war.',
           0, true,  false, DEFAULT,            '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
         -- Old Gods of Appalachia (Cypher System)
         ( -2, 'Down in Adder''s Hollow', -28, NULL,
@@ -102,4 +112,13 @@
           0, true,  true,  DEFAULT,            '00000000-0000-7000-8000-000000000006', '00000000-0000-7000-8000-000000000006'),
         (-21, 'Beneath the Floorboards',     -83, 'https://thumb.wikimedia.org/wikipedia/commons/thumb/1/17/Glenfinnan_Viaduct.jpg/1920px-Glenfinnan_Viaduct.jpg',
           NULL,
-          0, true,  false, DEFAULT,            '00000000-0000-7000-8000-000000000007', '00000000-0000-7000-8000-000000000007');
+          0, true,  false, DEFAULT,            '00000000-0000-7000-8000-000000000007', '00000000-0000-7000-8000-000000000007'),
+        -- The campaign An Eastern King is an adventure in, out of the menu
+        -- order above and last because it was split off after the rest were
+        -- seeded. The same storyteller and the same three players, but no
+        -- sittings of its own yet: nothing has been played under this name,
+        -- so it keeps 0 hours and the default last_played, and no session
+        -- seed touches it.
+        (-22, 'Something Wicked',      NULL, 'https://rpg.irun.games/_astro/something-wicked.BDFq7VyR_2qTJPB.webp',
+          'A magical gothic horror campaign. Each character has glimpsed the supernatural and been irrevocably changed by it, and is defined by the power they acquired, the price they paid, the curse they carry, their secrets, their calling, their closest companion and the places that matter to them.',
+          0, true,  false, DEFAULT,            '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9');

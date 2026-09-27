@@ -5,20 +5,33 @@ import NextLink from "next/link";
 import { Button, Flex, Heading, HStack, Link, List, Stack, Text } from "@chakra-ui/react";
 import { Maximize2 } from "lucide-react";
 import { matchesFilter } from "@/lib/filter-text";
-import type { StoryCardData, StorySession } from "@/lib/stories";
+import type { StoryScene } from "@/lib/scenes";
+import type { StatusOption } from "@/lib/status";
+import { PREP_SESSIONS_PAGE_SIZE, type StoryCardData, type StorySession } from "@/lib/stories";
 import { StorySessions } from "@/components/stories/story-sessions";
 import { PREP_COLUMNS, type PrepColumnMode, type PrepColumnTitle } from "./prep-columns";
 import { PrepColumn } from "./prep-column";
+import { PrepScenes } from "./prep-scenes";
 
 type Props = {
   story: StoryCardData;
   /** The first page of the story's sessions; the Timeline fetches the rest. */
   sessions: StorySession[];
+  /** The first page of the story's scenes; the column fetches the rest. */
+  scenes: StoryScene[];
+  /**
+   * How many rows each column that has real ones holds in all, for the number
+   * beside its heading. A column still on stand-ins is left out and shows no
+   * count rather than counting its stand-ins.
+   */
+  counts: Partial<Record<PrepColumnTitle, number>>;
+  /** The story_sessions and story_scenes workflows, for the status pills. */
+  sessionStatusOptions: StatusOption[];
+  sceneStatusOptions: StatusOption[];
 };
 
 // Until each column has its own rows, a few lines stand where they will go.
-const PLACEHOLDERS: Record<Exclude<PrepColumnTitle, "Timeline">, string[]> = {
-  Scenes: ["The arrival", "The feast", "The vault"],
+const PLACEHOLDERS: Record<Exclude<PrepColumnTitle, "Timeline" | "Scenes">, string[]> = {
   Characters: ["The innkeeper", "The magistrate", "The stranger"],
   Enemies: ["Wolves", "The cult", "The dragon"],
   Resources: ["Regional map", "House rules", "Loot tables"],
@@ -49,7 +62,14 @@ const initialModes = Object.fromEntries(
 // thirds of the width would not fit, so expanding one puts any other back,
 // and a hidden column's button lives above the board rather than in it.
 // The modes are page state only; they start over on every visit.
-export function PrepBoard({ story, sessions }: Props) {
+export function PrepBoard({
+  story,
+  sessions,
+  scenes,
+  counts,
+  sessionStatusOptions,
+  sceneStatusOptions,
+}: Props) {
   const [modes, setModes] = useState(initialModes);
 
   function setMode(title: PrepColumnTitle, mode: PrepColumnMode) {
@@ -65,6 +85,13 @@ export function PrepBoard({ story, sessions }: Props) {
       return next;
     });
   }
+
+  // Which workflow each column's rows run through, for the status pills over
+  // its search box. A column still on stand-in rows has none.
+  const COLUMN_WORKFLOWS: Partial<Record<PrepColumnTitle, StatusOption[]>> = {
+    Timeline: sessionStatusOptions,
+    Scenes: sceneStatusOptions,
+  };
 
   const hidden = PREP_COLUMNS.filter((column) => modes[column.title] === "hidden");
   const visible = PREP_COLUMNS.filter((column) => modes[column.title] !== "hidden");
@@ -107,6 +134,8 @@ export function PrepBoard({ story, sessions }: Props) {
               key={column.title}
               title={column.title}
               singular={column.singular}
+              count={counts[column.title] ?? null}
+              statusOptions={COLUMN_WORKFLOWS[column.title]}
               mode={mode}
               width={column.width}
               expandable={column.expandable}
@@ -118,19 +147,36 @@ export function PrepBoard({ story, sessions }: Props) {
               onExpand={() => setMode(column.title, "expanded")}
               onContract={() => setMode(column.title, mode === "expanded" ? "normal" : "hidden")}
             >
-              {(query) =>
-                column.title === "Timeline" ? (
-                  <StorySessions
-                    idStory={story.idStory}
-                    initial={sessions}
-                    playerCount={story.playerCount}
-                    filter={query}
-                    showTitles
-                  />
-                ) : (
-                  <PlaceholderRows lines={PLACEHOLDERS[column.title]} query={query} />
-                )
-              }
+              {(filter) => {
+                if (column.title === "Timeline") {
+                  return (
+                    <StorySessions
+                      idStory={story.idStory}
+                      initial={sessions}
+                      pageSize={PREP_SESSIONS_PAGE_SIZE}
+                      playerCount={story.playerCount}
+                      filter={filter.query}
+                      shownStatuses={filter.statuses}
+                      statusOptions={sessionStatusOptions}
+                      canEditStatus={story.isOwner}
+                      showTitles
+                    />
+                  );
+                }
+                if (column.title === "Scenes") {
+                  return (
+                    <PrepScenes
+                      idStory={story.idStory}
+                      initial={scenes}
+                      filter={filter.query}
+                      shownStatuses={filter.statuses}
+                      statusOptions={sceneStatusOptions}
+                      canEdit={story.isOwner}
+                    />
+                  );
+                }
+                return <PlaceholderRows lines={PLACEHOLDERS[column.title]} query={filter.query} />;
+              }}
             </PrepColumn>
           );
         })}

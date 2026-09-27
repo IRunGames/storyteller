@@ -3,6 +3,7 @@ import { expect } from "expect";
 import { screen, within } from "@testing-library/react";
 
 import { renderWithProviders } from "@/test/render";
+import type { StatusOption } from "@/lib/status";
 import type { StoryCardData, StoryPlayer, StorySession } from "@/lib/stories";
 
 const story: StoryCardData = {
@@ -27,12 +28,19 @@ const players: StoryPlayer[] = [
   { idUser: "u2", name: "Pol", image: "https://rpg.irun.games/images/pol.png" },
 ];
 
+// An invented workflow, as in status-pill.test.tsx: what the real session
+// statuses are called lives in the database and will change.
+const sessionStatusOptions: StatusOption[] = [
+  { key: "FIRST", label: "First", description: null, from: [] },
+  { key: "LAST", label: "Last", description: null, from: ["FIRST"] },
+];
+
 const sessions: StorySession[] = [
   {
     idStorySession: 3,
     number: 2,
     title: "The feast",
-    status: "done",
+    status: "LAST",
     startedAt: new Date("2026-03-20T19:00:00Z"),
     length: 150,
   },
@@ -40,7 +48,7 @@ const sessions: StorySession[] = [
     idStorySession: 2,
     number: 1,
     title: "The arrival",
-    status: "done",
+    status: "FIRST",
     startedAt: new Date("2026-03-13T19:00:00Z"),
     length: 60,
   },
@@ -66,18 +74,30 @@ describe("StoryDetails", () => {
   });
 
   it("shows the title, system, storyteller, last played date and summary", () => {
-    renderWithProviders(<StoryDetails story={story} players={players} sessions={[]} />);
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={players}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
 
     expect(screen.getByRole("heading", { level: 1, name: "Vampire" })).toBeInTheDocument();
     expect(screen.getByText("Vampire: The Masquerade (5th)")).toBeInTheDocument();
     expect(screen.getByText("Storyteller: PalmDave")).toBeInTheDocument();
-    expect(screen.getByText("Last played: Jun 25, 2015")).toBeInTheDocument();
+    expect(screen.getByText(/Last played:/)).toHaveTextContent("Last played: Jun 25, 2015");
     expect(screen.getByText("A city of the dead.")).toBeInTheDocument();
   });
 
   it("offers the storyteller an edit button that leads to the edit page", () => {
     renderWithProviders(
-      <StoryDetails story={{ ...story, isOwner: true }} players={[]} sessions={[]} />,
+      <StoryDetails
+        story={{ ...story, isOwner: true }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
     );
 
     expect(screen.getByRole("link", { name: "Edit story" })).toHaveAttribute(
@@ -88,7 +108,12 @@ describe("StoryDetails", () => {
 
   it("offers the storyteller a Prep Work button after the title that leads to the library", () => {
     renderWithProviders(
-      <StoryDetails story={{ ...story, isOwner: true }} players={[]} sessions={[]} />,
+      <StoryDetails
+        story={{ ...story, isOwner: true }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
     );
 
     const link = screen.getByRole("link", { name: "Prep Work" });
@@ -99,20 +124,39 @@ describe("StoryDetails", () => {
   });
 
   it("shows no Prep Work button to anyone but the storyteller", () => {
-    renderWithProviders(<StoryDetails story={story} players={[]} sessions={[]} />);
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
 
     expect(screen.queryByRole("link", { name: "Prep Work" })).not.toBeInTheDocument();
   });
 
   it("shows no edit button to anyone but the storyteller", () => {
-    renderWithProviders(<StoryDetails story={story} players={[]} sessions={[]} />);
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
 
     expect(screen.queryByRole("link", { name: "Edit story" })).not.toBeInTheDocument();
   });
 
   it("offers the storyteller of an active story a Play now button beside Recent sessions", () => {
     renderWithProviders(
-      <StoryDetails story={{ ...story, isOwner: true }} players={[]} sessions={[]} />,
+      <StoryDetails
+        story={{ ...story, isOwner: true }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
     );
 
     const link = within(section("Recent sessions")).getByRole("link", { name: "Play now" });
@@ -121,7 +165,12 @@ describe("StoryDetails", () => {
 
   it("shows no Play now button to anyone but the storyteller, or on an inactive story", () => {
     const { unmount } = renderWithProviders(
-      <StoryDetails story={story} players={[]} sessions={[]} />,
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
     );
     expect(screen.queryByRole("link", { name: "Play now" })).not.toBeInTheDocument();
     unmount();
@@ -131,6 +180,7 @@ describe("StoryDetails", () => {
         story={{ ...story, isOwner: true, isActive: false }}
         players={[]}
         sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
       />,
     );
     expect(screen.queryByRole("link", { name: "Play now" })).not.toBeInTheDocument();
@@ -138,14 +188,26 @@ describe("StoryDetails", () => {
 
   it("offers the storyteller an Invite Players button beside the Players heading", () => {
     const { unmount } = renderWithProviders(
-      <StoryDetails story={{ ...story, isOwner: true }} players={[]} sessions={[]} />,
+      <StoryDetails
+        story={{ ...story, isOwner: true }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
     );
     expect(
       within(section("Players")).getByRole("button", { name: "Invite Players" }),
     ).toBeInTheDocument();
     unmount();
 
-    renderWithProviders(<StoryDetails story={story} players={[]} sessions={[]} />);
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
     expect(screen.queryByRole("button", { name: "Invite Players" })).not.toBeInTheDocument();
   });
 
@@ -160,12 +222,13 @@ describe("StoryDetails", () => {
         }}
         players={players}
         sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
       />,
     );
 
     expect(screen.queryByText(/Storyteller:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Masquerade/)).not.toBeInTheDocument();
-    expect(screen.getByText("Last played: Jun 25, 2015")).toBeInTheDocument();
+    expect(screen.getByText(/Last played:/)).toHaveTextContent("Last played: Jun 25, 2015");
   });
 
   it("uses the cover as the page background, escaped, and only when there is one", () => {
@@ -174,6 +237,7 @@ describe("StoryDetails", () => {
         story={{ ...story, imageUrl: 'https://x.test/a"b.jpg' }}
         players={[]}
         sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
       />,
     );
     const backdrop = screen.getByTestId("story-backdrop");
@@ -181,13 +245,25 @@ describe("StoryDetails", () => {
     unmount();
 
     renderWithProviders(
-      <StoryDetails story={{ ...story, imageUrl: null }} players={[]} sessions={[]} />,
+      <StoryDetails
+        story={{ ...story, imageUrl: null }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
     );
     expect(screen.queryByTestId("story-backdrop")).not.toBeInTheDocument();
   });
 
   it("lists the players by name, with an avatar each", () => {
-    renderWithProviders(<StoryDetails story={story} players={players} sessions={[]} />);
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={players}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
 
     const items = within(section("Players")).getAllByRole("listitem");
     expect(items).toHaveLength(2);
@@ -202,26 +278,82 @@ describe("StoryDetails", () => {
   });
 
   it("says so when there are no players yet", () => {
-    renderWithProviders(<StoryDetails story={story} players={[]} sessions={[]} />);
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
 
     expect(within(section("Players")).getByText("No players yet.")).toBeInTheDocument();
     expect(within(section("Players")).queryByRole("list")).not.toBeInTheDocument();
   });
 
   it("lists the recent sessions with their dates and lengths", () => {
-    renderWithProviders(<StoryDetails story={story} players={[]} sessions={sessions} />);
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={sessions}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
 
     const items = within(section("Recent sessions")).getAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText("Mar 20, 2026")).toBeInTheDocument();
     expect(within(items[0]).getByText("2.5 hours")).toBeInTheDocument();
     expect(within(items[1]).getByText("1 hour")).toBeInTheDocument();
-    // The story page has no room for the titles; they are the library's.
-    expect(screen.queryByText("2. The feast")).not.toBeInTheDocument();
+  });
+
+  it("draws the same row as the Prep Work timeline", () => {
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={sessions}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+
+    const items = within(section("Recent sessions")).getAllByRole("listitem");
+    // Numbered and titled, as the library lists them.
+    expect(within(items[0]).getByText("2. The feast")).toBeInTheDocument();
+    expect(within(items[1]).getByText("1. The arrival")).toBeInTheDocument();
+    // Who was at the table, as a person and a number.
+    expect(within(items[0]).getByLabelText("2 players")).toHaveTextContent("2");
+    // And the status as a pill. The story is not the caller's, so it is not
+    // a menu: only the storyteller moves a session on.
+    expect(within(items[0]).getByText("Last")).toBeInTheDocument();
+    expect(within(items[0]).queryByRole("button", { name: "Last" })).not.toBeInTheDocument();
+  });
+
+  it("lets the storyteller move a session's status from the story page", () => {
+    renderWithProviders(
+      <StoryDetails
+        story={{ ...story, isOwner: true }}
+        players={[]}
+        sessions={sessions}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+
+    const items = within(section("Recent sessions")).getAllByRole("listitem");
+    // FIRST leads to LAST in this workflow, so that pill is a menu.
+    expect(within(items[1]).getByRole("button", { name: "First" })).toBeInTheDocument();
   });
 
   it("says so when there are no sessions yet", () => {
-    renderWithProviders(<StoryDetails story={story} players={[]} sessions={[]} />);
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
 
     expect(within(section("Recent sessions")).getByText("No sessions yet.")).toBeInTheDocument();
   });

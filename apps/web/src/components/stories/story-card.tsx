@@ -6,7 +6,6 @@ import {
   Box,
   Button,
   Grid,
-  HStack,
   IconButton,
   LinkBox,
   LinkOverlay,
@@ -15,16 +14,16 @@ import {
   Stack,
   Text,
   Tooltip,
-  VisuallyHidden,
 } from "@chakra-ui/react";
 import {
   SUMMARY_PREVIEW_CHARS,
   cssUrlValue,
-  formatLastPlayed,
   systemLabel,
   type StoryCardData,
 } from "@/lib/stories";
-import { Heart, LogIn, Play, Slash, User } from "lucide-react";
+import { Heart, LogIn, Play } from "lucide-react";
+import { LocalDate } from "@/components/dates/local-date";
+import { PlayerCount } from "./player-count";
 
 type Props = {
   story: StoryCardData;
@@ -44,7 +43,6 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
 
   // One string for the accessible name and the tooltip, so they never drift.
   const favoriteLabel = story.isFavorite ? "Remove from Favorites" : "Add to Favorites";
-  const playersLabel = `${story.playerCount} ${story.playerCount === 1 ? "player" : "players"}`;
 
   return (
     <LinkBox
@@ -209,48 +207,22 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
           ) : (
             <Box />
           )}
-          {/* The number alone says nothing to a screen reader, so the unit
-              is there too, hidden from sight; the icon is decorative. With
-              nobody at the table the person is struck through and the digit
-              left off, since the strike already says zero: Lucide has no
-              crossed-out person, so its Slash is laid over its User. */}
-          <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-            <Tooltip.Trigger asChild>
-              <HStack
-                as="span"
-                aria-label={playersLabel}
-                gap="1"
-                px="2"
-                py="0.5"
-                rounded="full"
-                bg="blackAlpha.500"
-                textStyle="xs"
-                fontWeight="semibold"
-                color="whiteAlpha.900"
-                justifySelf="center"
-                position="relative"
-                zIndex="1"
-              >
-                <Box as="span" position="relative" display="inline-flex">
-                  <User size={14} />
-                  {story.playerCount === 0 && (
-                    <Box as="span" position="absolute" inset="0" display="inline-flex">
-                      <Slash size={14} />
-                    </Box>
-                  )}
-                </Box>
-                {story.playerCount > 0 && <Text as="span">{story.playerCount}</Text>}
-                <VisuallyHidden>{playersLabel}</VisuallyHidden>
-              </HStack>
-            </Tooltip.Trigger>
-            <Portal>
-              <Tooltip.Positioner>
-                <Tooltip.Content>Player Count</Tooltip.Content>
-              </Tooltip.Positioner>
-            </Portal>
-          </Tooltip.Root>
+          {/* The card's own dressing over the cover: a dark pill so the
+              count reads against whatever the image is doing under it. */}
+          <PlayerCount
+            count={story.playerCount}
+            px="2"
+            py="0.5"
+            rounded="full"
+            bg="blackAlpha.500"
+            fontWeight="semibold"
+            color="whiteAlpha.900"
+            justifySelf="center"
+            position="relative"
+            zIndex="1"
+          />
           <Text textStyle="xs" color="whiteAlpha.800" justifySelf="end">
-            {formatLastPlayed(story.lastPlayed)}
+            <LocalDate value={story.lastPlayed} />
           </Text>
         </Grid>
       </Stack>

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
 import { StoryDetails } from "@/components/stories/story-details";
+import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getStory, sa_listStoryPlayers, sa_listStorySessions } from "../actions";
 
 // One story, behind a card's title. requireSession() here rather than
@@ -16,12 +17,22 @@ export default async function StoryPage({ params }: { params: Promise<{ id: stri
   if (!/^-?\d+$/.test(id)) notFound();
   const idStory = Number(id);
 
-  const [story, players, sessions] = await Promise.all([
+  const [story, players, sessions, sessionStatusOptions] = await Promise.all([
     sa_getStory(idStory),
     sa_listStoryPlayers(idStory),
     sa_listStorySessions(idStory, 0),
+    // The story_sessions workflow, so the rows here read the same as the
+    // Prep Work timeline: a status pill rather than a word.
+    sa_listStatusOptions("story_sessions"),
   ]);
   if (!story) notFound();
 
-  return <StoryDetails story={story} players={players} sessions={sessions} />;
+  return (
+    <StoryDetails
+      story={story}
+      players={players}
+      sessions={sessions}
+      sessionStatusOptions={sessionStatusOptions}
+    />
+  );
 }

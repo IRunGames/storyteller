@@ -1,7 +1,8 @@
-    -- Seed data for `story_sessions`: the three recorded sittings of Something
-    -- Wicked (id_story -1 in db/seeds/seed_stories.sql, owned by the
-    -- storyteller@irun.games account), which the site writes up as An Eastern
-    -- King, episodes 1 to 3. Each ran on a Saturday, a fortnight apart, from
+    -- Seed data for `story_sessions`: the three recorded sittings of An
+    -- Eastern King (id_story -1 in db/seeds/seed_stories.sql, owned by the
+    -- storyteller@irun.games account), which the site writes up as episodes
+    -- 1 to 3. The campaign it is an adventure in, Something Wicked (-22),
+    -- has no sittings of its own. Each ran on a Saturday, a fortnight apart, from
     -- ten in the morning to six in the evening Pacific time, with a lunch pause
     -- of between three quarters of an hour and an hour and a half around
     -- noon; the write-ups went online a few days after each.
@@ -43,7 +44,7 @@
                                 lingering_questions,
                                 created_at, updated_at, id_created_by_user, id_updated_by_user)
     VALUES
-        (-1, -1, 'done', 'Wayfinding',
+        (-1, -1, 'DONE', 'Wayfinding',
          ARRAY['00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-000000000002', '00000000-0000-7000-8000-000000000017']::uuid[],
          '2026-08-15 10:00:00-07', '2026-08-15 12:05:00-07', '2026-08-15 13:22:00-07', '2026-08-15 18:00:00-07', '77 minutes',
          'https://rpg.irun.games/blog/an-eastern-king-episode-1/',
@@ -62,7 +63,7 @@ Was the Magebreaker''s warning against the bog road advice or a lure?
 What woke the Builder Structure near the Godswood, and what do the Night Lodge Gods want with it?
 Who is singing in the trees, and what is the light?',
          '2026-08-15 10:00:00-07', '2026-08-15 18:00:00-07', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
-        (-2, -1, 'done', 'Bog and River',
+        (-2, -1, 'DONE', 'Bog and River',
          ARRAY['00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-000000000002', '00000000-0000-7000-8000-000000000017']::uuid[],
          '2026-08-29 10:00:00-07', '2026-08-29 11:50:00-07', '2026-08-29 12:38:00-07', '2026-08-29 18:00:00-07', '48 minutes',
          'https://rpg.irun.games/blog/an-eastern-king-episode-2/',
@@ -81,7 +82,7 @@ Whose grandchildren went missing, and why can no one remember the woman under th
 Was the ferryman killed on purpose, and are there more Mistlings in the Godsflood?
 Why does the King of Dun Dwym speak like a courtier of the Throne of Bone?',
          '2026-08-29 10:00:00-07', '2026-08-29 18:00:00-07', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
-        (-3, -1, 'done', 'Kildealg',
+        (-3, -1, 'DONE', 'Kildealg',
          ARRAY['00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-000000000002', '00000000-0000-7000-8000-000000000017']::uuid[],
          '2026-09-12 10:00:00-07', '2026-09-12 12:15:00-07', '2026-09-12 13:40:00-07', '2026-09-12 18:00:00-07', '85 minutes',
          'https://rpg.irun.games/blog/an-eastern-king-episode-3/',

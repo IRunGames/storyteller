@@ -10,7 +10,7 @@ const detail: StorySessionDetail = {
   idStorySession: -3,
   number: 3,
   title: "Kildealg",
-  status: "done",
+  status: "DONE",
   length: 395,
   imageLink: "https://rpg.irun.games/_astro/kildealg.webp",
   summary: "Morning at Dun Dwym brought strangers.",
@@ -20,6 +20,12 @@ const detail: StorySessionDetail = {
     { idUser: "u1", name: "PalmDave", image: null },
     { idUser: "u2", name: "PaulKhash", image: "https://x.test/pk.png" },
   ],
+  // The action gives these to the storyteller only, so a fixture with none
+  // stands for what anyone else is shown.
+  scenes: [
+    { idStoryScene: -15, title: "Strangers in the morning", status: "COMPLETE" },
+    { idStoryScene: -16, title: "The king rode out before dawn", status: "COMPLETE" },
+  ],
 };
 
 // The popover imports its server action itself, so the module is mocked
@@ -27,6 +33,13 @@ const detail: StorySessionDetail = {
 const sa_getStorySession = mock.fn<(id: number) => Promise<StorySessionDetail | null>>(
   async () => detail,
 );
+
+// The scenes fold colours each scene with the workflow, which the popover
+// fetches for itself. Invented statuses, as in status-pill.test.tsx: what the
+// database calls them is the database's business.
+const sa_listStatusOptions = mock.fn(async () => [
+  { key: "COMPLETE", label: "Complete", description: null, from: [] as string[] },
+]);
 
 let SessionInfoPopover: typeof import("./session-info-popover").SessionInfoPopover;
 
@@ -40,12 +53,16 @@ describe("SessionInfoPopover", () => {
     mock.module("@/app/(app)/(nav)/stories/actions", {
       namedExports: { sa_getStorySession },
     });
+    mock.module("@/components/status/actions", {
+      namedExports: { sa_listStatusOptions, sa_setRowStatus: async () => ({ ok: true }) },
+    });
     ({ SessionInfoPopover } = await import("./session-info-popover"));
   });
 
   beforeEach(() => {
     sa_getStorySession.mock.resetCalls();
     sa_getStorySession.mock.mockImplementation(async () => detail);
+    sa_listStatusOptions.mock.resetCalls();
   });
 
   it("fetches the session on open and shows its heading, image, length, players and summary", async () => {
@@ -95,7 +112,7 @@ describe("SessionInfoPopover", () => {
     sa_getStorySession.mock.mockImplementation(async () => ({
       ...detail,
       title: null,
-      status: "open",
+      status: "OPEN",
       length: null,
       imageLink: null,
       summary: null,
@@ -138,5 +155,38 @@ describe("SessionInfoPopover", () => {
     await open(user);
     expect(await screen.findByRole("dialog", { name: "3. Kildealg" })).toBeInTheDocument();
     expect(sa_getStorySession.mock.callCount()).toBe(1);
+  });
+
+  it("folds the sitting's scenes away behind a count, and lists them opened", async () => {
+    renderWithProviders(<SessionInfoPopover idStorySession={-3} />);
+    const { user, dialog } = await open();
+
+    const fold = await within(dialog).findByRole("button", { name: /Scenes \(2\)/ });
+    // Folded to start with: a session ran through a dozen of them and the
+    // panel is read for its summary first. The accordion keeps its content in
+    // the DOM and hides it, so this is about what can be seen, not what is
+    // rendered.
+    expect(within(dialog).getByText("1. Strangers in the morning")).not.toBeVisible();
+
+    await user.click(fold);
+    // Numbered in the order they were played, first to last.
+    await waitFor(() => {
+      expect(within(dialog).getByText("1. Strangers in the morning")).toBeVisible();
+    });
+    expect(within(dialog).getByText("2. The king rode out before dawn")).toBeVisible();
+    // Each one carries its status, which the panel does not offer to change.
+    expect(within(dialog).getAllByText("Complete")).toHaveLength(2);
+    expect(within(dialog).queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
+  });
+
+  it("has no scenes fold for a reader the action gives no scenes", async () => {
+    sa_getStorySession.mock.mockImplementation(async () => ({ ...detail, scenes: [] }));
+    renderWithProviders(<SessionInfoPopover idStorySession={-3} />);
+    const { dialog } = await open();
+
+    await within(dialog).findByText(detail.summary!);
+    expect(within(dialog).queryByRole("button", { name: /Scenes/ })).not.toBeInTheDocument();
+    // And it does not go asking for a workflow it has nothing to colour with.
+    expect(sa_listStatusOptions.mock.callCount()).toBe(0);
   });
 });

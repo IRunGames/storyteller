@@ -8,7 +8,7 @@ The first workflow, and the file to copy for the table side, is `story_sessions`
 
 ## Prerequisites
 
-The target table needs a `status` column, and the workflow's statuses must be seeded before the table script calls the workflow procedures. A new table declares the column itself with the default status (`status varchar NOT NULL DEFAULT 'open'`); an existing table adds it first:
+The target table needs a `status` column, and the workflow's statuses must be seeded before the table script calls the workflow procedures. A new table declares the column itself with the default status (`status varchar NOT NULL DEFAULT 'OPEN'`); an existing table adds it first:
 
 ```sql
 ALTER TABLE my_table ADD COLUMN IF NOT EXISTS status VARCHAR;
@@ -34,6 +34,14 @@ the workflow ID from step 1. `s_status_id` is numbered downwards automatically.
 
 Each row is: `(workflow_id, status_key, description, transition_from_status_keys)`
 
+- `status_key` is **UPPER CASE**, and so is every key listed in
+  `transition_from_status_keys`. It is a constant stored in a column, not
+  prose. The metatable procedures lower-case the key when they name the
+  `<status>_at` columns, so those stay `open_at` and `pending_at`, and the
+  CHECK constraint and the transition trigger compare the key exactly as
+  seeded — a lower-case status in a table row will not match an upper-case
+  key.
+
 - `transition_from_status_keys` is an array of status keys that can transition **to** this status
 - Use `ARRAY[]::text[]` if no other status can transition to it (the initial
   status, unless something can return to it). `NULL` is not the same thing:
@@ -46,14 +54,14 @@ Each row is: `(workflow_id, status_key, description, transition_from_status_keys
 - It helps to write the transitions **from** each status in a comment
   first, then invert them into each row's list, as the example does
 
-Example (open -> suspended or done; suspended -> resumed or done; resumed -> suspended or done):
+Example (OPEN -> SUSPENDED or DONE; SUSPENDED -> RESUMED or DONE; RESUMED -> SUSPENDED or DONE):
 
 ```sql
 -- Story sessions: `story_sessions`
-(-1, 'open',      'The session is being played.',                     ARRAY[]::text[]),
-(-1, 'suspended', 'The session is paused, to be resumed.',           ARRAY['open', 'resumed']),
-(-1, 'resumed',   'The session is being played again after a pause.', ARRAY['suspended']),
-(-1, 'done',      'The session has ended.',                          ARRAY['open', 'suspended', 'resumed'])
+(-1, 'OPEN',      'The session is being played.',                     ARRAY[]::text[]),
+(-1, 'SUSPENDED', 'The session is paused, to be resumed.',           ARRAY['OPEN', 'RESUMED']),
+(-1, 'RESUMED',   'The session is being played again after a pause.', ARRAY['SUSPENDED']),
+(-1, 'DONE',      'The session has ended.',                          ARRAY['OPEN', 'SUSPENDED', 'RESUMED'])
 ```
 
 ### 3. Map the table to the workflow in its create script

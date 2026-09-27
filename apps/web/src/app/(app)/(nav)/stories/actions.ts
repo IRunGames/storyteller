@@ -6,6 +6,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/authorize";
+import { likeContains } from "@/lib/filter-text";
 import {
   PAGE_SIZE,
   PLAYER_SEARCH_LIMIT,
@@ -19,12 +20,25 @@ import {
 } from "@/lib/stories";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
 
-const { stories, systems, storyPlayers, storyFavorites, storySessions, user: users } = schema;
+const {
+  stories,
+  systems,
+  storyPlayers,
+  storyFavorites,
+  storyScenes,
+  storySessions,
+  user: users,
+} = schema;
 
 // Every export here is a server action: it is the only way the Stories pages
 // touch the database, and each one starts by proving who is asking.
 
 const offsetSchema = z.number().int().min(0);
+
+// A page size the caller may ask for. The floor keeps a zero-row page from
+// looking like the end of the list, and the ceiling keeps one request from
+// asking for the whole table.
+const pageSizeSchema = z.number().int().min(1).max(100);
 
 // stories.id_story is int4. An id outside that range is not "not found yet" to
 // Postgres, it is a query error, so it gets filtered out before the query
@@ -45,11 +59,20 @@ function favoritedBy(userId: string) {
 }
 
 // Whether the story's current session (stories.id_story_session) is being
-// played, which is status open or resumed: a session that came back from a
+// played, which is status OPEN or RESUMED: a session that came back from a
 // pause is at the table just as much as one that never paused. A correlated
 // EXISTS like favoritedBy, and it reads the pointer rather than searching
 // story_sessions for such a row: the pointer is what the table runs on, so
 // the card and the table can never disagree.
+//
+// The workflow in s_statuses says what a session may be and what it may
+// become, but not which of its statuses mean play is under way, so that
+// judgement has nowhere else to live yet; a flag on s_statuses would be the
+// place for it. Until there is one, a workflow renamed in the database has to
+// be followed up in three places by hand: here, SESSION_STATUS_WORDING in
+// lib/stories.ts, which turns these same two keys into words, and the scene
+// order in sa_getStorySession below, which reads the active_at column that
+// the ACTIVE key gives its name to.
 const hasOpenSession = exists(
   db
     .select({ one: storySessions.idStorySession })
@@ -57,7 +80,7 @@ const hasOpenSession = exists(
     .where(
       and(
         eq(storySessions.idStorySession, stories.idStorySession),
-        inArray(storySessions.status, ["open", "resumed"]),
+        inArray(storySessions.status, ["OPEN", "RESUMED"]),
       ),
     ),
 ).mapWith(Boolean);
@@ -243,14 +266,53 @@ function seatable(idStory: number, storytellerId: string) {
   return and(eq(users.isActive, true), not(eq(users.id, storytellerId)), not(exists(seated)));
 }
 
-// Anything in the query that ILIKE would read as a pattern is escaped, so a
-// storyteller who types "%" or "_" looks for those characters rather than
-// for everyone.
-function containsPattern(query: string): string {
-  return `%${query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
-}
-
 const querySchema = z.string().max(200);
+
+export type RemovePlayerResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Take a player off a story, and their favorite of it with them.
+ *
+ * Only the storyteller who created the story may do it, which
+ * requireOwnedStory enforces. The favorite goes too because it is a seat at
+ * a table they no longer have: leaving it behind would keep the story on the
+ * Favorites section of a page they can no longer play from. A favorite they
+ * never made is simply not there, and the delete says nothing about it.
+ *
+ * Both deletes are one transaction, so a story can never be left having
+ * dropped one and kept the other. Removing someone who is not seated is not
+ * an error: the row is gone either way, which is what the caller wanted.
+ */
+export async function sa_removeStoryPlayer(
+  idStory: number,
+  idUser: string,
+): Promise<RemovePlayerResult> {
+  const user = await requireUser();
+
+  // The caller's right to do this at all, and an id Postgres can compare.
+  // Thrown by requireOwnedStory for a story that is not theirs, which the
+  // dialog cannot fix; a bad user id is a refusal it can show.
+  const id = await requireOwnedStory(user.id, idStory);
+  const player = z.string().uuid().safeParse(idUser);
+  if (!player.success) return { ok: false, error: "That is not a player of this story." };
+
+  // The storyteller is not in story_players and has no seat to lose, so a
+  // request to remove them is refused rather than quietly doing nothing.
+  if (player.data === user.id) {
+    return { ok: false, error: "The storyteller cannot be removed from their own story." };
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(storyPlayers)
+      .where(and(eq(storyPlayers.idStory, id), eq(storyPlayers.idUser, player.data)));
+    await tx
+      .delete(storyFavorites)
+      .where(and(eq(storyFavorites.idStory, id), eq(storyFavorites.idUser, player.data)));
+  });
+
+  return { ok: true };
+}
 
 /**
  * Up to ten users whose name, nickname or email contains the query, for the
@@ -268,7 +330,7 @@ export async function sa_searchPlayers(idStory: number, query: string): Promise<
   return db
     .select({ idUser: users.id, name: playerName, email: users.email, image: users.image })
     .from(users)
-    .where(and(ilike(users.searchText, containsPattern(needle)), seatable(id, user.id)))
+    .where(and(ilike(users.searchText, likeContains(needle)), seatable(id, user.id)))
     .orderBy(asc(playerName), asc(users.email))
     .limit(PLAYER_SEARCH_LIMIT);
 }
@@ -338,9 +400,14 @@ function sessionNumber() {
 export async function sa_listStorySessions(
   idStory: number,
   offset: number,
+  limit: number = SESSIONS_PAGE_SIZE,
 ): Promise<StorySession[]> {
   await requireUser();
   const skip = offsetSchema.parse(offset);
+  // The Prep Work timeline asks for a longer page than the story page's
+  // section does. The bound is here rather than trusted from the caller: a
+  // page size is a number from the browser like any other.
+  const take = pageSizeSchema.parse(limit);
 
   // As in sa_getStory: an id Postgres cannot compare is not a story, so it
   // has no sessions rather than raising.
@@ -364,9 +431,27 @@ export async function sa_listStorySessions(
       // Sessions opened in one statement share a created_at, so the id
       // breaks the tie and a page never repeats or skips a row.
       .orderBy(desc(storySessions.createdAt), desc(storySessions.idStorySession))
-      .limit(SESSIONS_PAGE_SIZE)
+      .limit(take)
       .offset(skip)
   );
+}
+
+/**
+ * How many sessions the story has in all, for the count beside the Prep Work
+ * timeline's heading. Counted rather than taken from the rows loaded, which
+ * are only ever the first page.
+ */
+export async function sa_countStorySessions(idStory: number): Promise<number> {
+  await requireUser();
+
+  const id = idStorySchema.safeParse(idStory);
+  if (!id.success) return 0;
+
+  const [row] = await db
+    .select({ count: sql<number>`count(*)`.mapWith(Number) })
+    .from(storySessions)
+    .where(eq(storySessions.idStory, id.data));
+  return row?.count ?? 0;
 }
 
 /**
@@ -417,6 +502,33 @@ export async function sa_getStorySession(
           .orderBy(asc(playerName));
 
   const isStoryteller = row.idStoryteller === user.id;
+
+  // Scenes are prep: what the players have not been shown yet, and the same
+  // material the Prep Work board keeps behind the owner check. A reader who
+  // is not the storyteller gets none, as they get no notes, so the panel has
+  // nothing to fold open.
+  const scenes = isStoryteller
+    ? await db
+        .select({
+          idStoryScene: storyScenes.idStoryScene,
+          title: storyScenes.sceneTitle,
+          status: storyScenes.status,
+        })
+        .from(storyScenes)
+        .where(eq(storyScenes.idStorySession, row.idStorySession))
+        // The order they were played in, which is active_at: the workflow
+        // trigger stamps it as the scene comes up at the table. A scene
+        // attached to the sitting but never run has none, so it goes last.
+        // created_at cannot do this job — scenes written in one sitting of
+        // prep, or seeded in one statement, all share it — and the id is no
+        // better, since the seed numbers its rows downwards.
+        .orderBy(
+          sql`${storyScenes.activeAt} asc nulls last`,
+          asc(storyScenes.createdAt),
+          asc(storyScenes.idStoryScene),
+        )
+    : [];
+
   return {
     idStorySession: row.idStorySession,
     number: row.number,
@@ -428,6 +540,7 @@ export async function sa_getStorySession(
     notes: isStoryteller ? row.notes : null,
     lingeringQuestions: isStoryteller ? row.lingeringQuestions : null,
     players,
+    scenes,
   };
 }
 
