@@ -581,9 +581,12 @@ function fieldErrors(parsed: z.ZodSafeParseError<unknown>): StoryFormResult {
 }
 
 /**
- * Validates and inserts a new story owned by the caller, then redirects to the
- * Stories page. Validation failures come back as field errors for the form;
- * on success the redirect throws, so this never resolves with ok: true.
+ * Validates and inserts a new story owned by the caller, claims the
+ * attachments the form collected before the story had an id, then redirects
+ * to the Stories page. Validation failures come back as field errors for the
+ * form, and a claim that fails over an already-inserted story comes back on
+ * "root"; on success the redirect throws, so this never resolves with
+ * ok: true.
  */
 export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
   const user = await requireUser();
@@ -613,14 +616,37 @@ export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
   // another connection it could not see a story this action had not committed
   // yet and would refuse a claim that should have succeeded.
   //
-  // It is left to throw rather than swallowed. Everything it checks is
-  // already true here — the story was inserted moments ago with this caller as
-  // its creator, and storySchema has validated the ids — so a rejection means
-  // something unexpected, and the form saying so is better than a story that
-  // quietly lost its pictures. The story does stay behind in that case; the
-  // storyteller can attach them again from the edit form, and any attachment
-  // left detached is what the sweep collects.
-  await sa_claimAttachments("STORY", story.idStory, values.attachmentIds);
+  // Everything the claim checks is already true here — the story was inserted
+  // moments ago with this caller as its creator, and storySchema validated the
+  // ids — so a rejection means something unexpected rather than something the
+  // user did. It is caught all the same, because the alternative is worse in
+  // both directions: rethrown, react-hook-form would rethrow it out of
+  // onSubmit and the user would get no redirect, no message and an unhandled
+  // rejection in the console; swallowed, they would land on the Stories page
+  // with a story whose pictures quietly went missing.
+  //
+  // So it comes back on "root", where the form already has an alert waiting.
+  // The message has to say the story was created, because nothing else will:
+  // react-hook-form works isSubmitSuccessful out from the error map left
+  // behind after onSubmit, so setting an error here puts the submit button
+  // back to pressable, and a message that only said "could not save" would
+  // invite a second press and a second story. (It does clear root errors at
+  // the start of every submit, so the alert never outlives the attempt that
+  // raised it.) The orphaned attachments stay detached, which is what the
+  // sweep collects, and the storyteller can attach them again from the
+  // story's edit page.
+  try {
+    await sa_claimAttachments("STORY", story.idStory, values.attachmentIds);
+  } catch {
+    return {
+      ok: false,
+      errors: {
+        root:
+          "The story was created, but its attachments could not be added to it." +
+          " You can add them from the story's edit page.",
+      },
+    };
+  }
 
   redirect("/stories");
 }

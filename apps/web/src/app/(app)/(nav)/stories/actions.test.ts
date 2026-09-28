@@ -478,45 +478,49 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         idUpdatedByUser: otherUserId,
       })
       .returning({ id: tables.attachments.idAttachment });
-    const detail = await actions.sa_getStorySession(openSessionId);
-    expect(detail).toMatchObject({
-      idStorySession: openSessionId,
-      number: 1,
-      title: "Fixture session",
-      status: statusOpen,
-      length: null,
-      imageLink: "https://x.test/hero.jpg",
-      summary: "What happened.",
-      notes: null,
-      lingeringQuestions: null,
-    });
-    expect(detail?.players.map((p) => p.idUser).sort()).toEqual([otherUserId, SEED_USER].sort());
-    expect(detail?.players.find((p) => p.idUser === otherUserId)?.name).toBe("Other");
 
-    // The five past sessions were opened after it, in one statement, so the
-    // id breaks the tie and the highest is the sixth.
-    const newest = await actions.sa_getStorySession(Math.max(...pastSessionIds));
-    expect(newest?.number).toBe(6);
-    expect(newest?.length).toBe(90);
-    expect(newest?.players).toEqual([]);
+    // finally, because the row is READY and every later case in this file
+    // reads through the same projections: an assertion failing below must not
+    // leave a picture hanging off the fixture sitting.
+    try {
+      const detail = await actions.sa_getStorySession(openSessionId);
+      expect(detail).toMatchObject({
+        idStorySession: openSessionId,
+        number: 1,
+        title: "Fixture session",
+        status: statusOpen,
+        length: null,
+        imageLink: "https://x.test/hero.jpg",
+        summary: "What happened.",
+        notes: null,
+        lingeringQuestions: null,
+      });
+      expect(detail?.players.map((p) => p.idUser).sort()).toEqual([otherUserId, SEED_USER].sort());
+      expect(detail?.players.find((p) => p.idUser === otherUserId)?.name).toBe("Other");
 
-    // D is the caller's own story, so its notes come back.
-    const [current] = await actions.sa_listStorySessions(storyD, 0);
-    await db
-      .update(tables.storySessions)
-      .set({ notes: "Mine.", lingeringQuestions: "Still mine." })
-      .where(eq(tables.storySessions.idStorySession, current.idStorySession));
-    expect(await actions.sa_getStorySession(current.idStorySession)).toMatchObject({
-      notes: "Mine.",
-      lingeringQuestions: "Still mine.",
-    });
+      // The five past sessions were opened after it, in one statement, so the
+      // id breaks the tie and the highest is the sixth.
+      const newest = await actions.sa_getStorySession(Math.max(...pastSessionIds));
+      expect(newest?.number).toBe(6);
+      expect(newest?.length).toBe(90);
+      expect(newest?.players).toEqual([]);
 
-    expect(await actions.sa_getStorySession(2 ** 40)).toBeNull();
-    expect(await actions.sa_getStorySession(2 ** 30)).toBeNull();
+      // D is the caller's own story, so its notes come back.
+      const [current] = await actions.sa_listStorySessions(storyD, 0);
+      await db
+        .update(tables.storySessions)
+        .set({ notes: "Mine.", lingeringQuestions: "Still mine." })
+        .where(eq(tables.storySessions.idStorySession, current.idStorySession));
+      expect(await actions.sa_getStorySession(current.idStorySession)).toMatchObject({
+        notes: "Mine.",
+        lingeringQuestions: "Still mine.",
+      });
 
-    await db
-      .delete(tables.attachments)
-      .where(eq(tables.attachments.idAttachment, picture.id));
+      expect(await actions.sa_getStorySession(2 ** 40)).toBeNull();
+      expect(await actions.sa_getStorySession(2 ** 30)).toBeNull();
+    } finally {
+      await db.delete(tables.attachments).where(eq(tables.attachments.idAttachment, picture.id));
+    }
   });
 
   it("lists systems with a display label", async () => {
@@ -937,5 +941,168 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     // And an id that is not a user at all.
     const bad = await actions.sa_removeStoryPlayer(storyD, "not-a-uuid");
     expect(bad.ok).toBe(false);
+  });
+
+  // The card's picture no longer comes from a column, so nothing about the
+  // rule that picks it is visible in the schema any more: which statuses count,
+  // and which of several attachments wins. Both live in the subquery
+  // attachmentUrl() builds, which is what these cases pin.
+  it("takes a story's cover from its READY attachments, lowest sort_order first", async () => {
+    const attach = (values: {
+      status: string;
+      url: string | null;
+      sortOrder?: number | null;
+    }) => ({
+      kind: "STORY",
+      idExternal: storyD,
+      idCreatedByUser: SEED_USER,
+      idUpdatedByUser: SEED_USER,
+      ...values,
+    });
+    const coverOf = async () => (await actions.sa_getStory(storyD))?.imageUrl;
+
+    const rows = await db
+      .insert(tables.attachments)
+      .values([
+        attach({ status: "READY", url: "https://x.test/second.jpg", sortOrder: 1 }),
+        attach({ status: "READY", url: "https://x.test/first.jpg", sortOrder: 0 }),
+        attach({ status: "UPLOADING", url: null, sortOrder: 0 }),
+        // ERROR *with* a url, so what rules it out is the status and not the
+        // missing url that an UPLOADING row also has.
+        attach({ status: "ERROR", url: "https://x.test/failed.jpg", sortOrder: 0 }),
+      ])
+      .returning({ id: tables.attachments.idAttachment, url: tables.attachments.url });
+    const idFor = (url: string) => rows.find((row) => row.url === url)!.id;
+    const ids = rows.map((row) => row.id);
+
+    try {
+      // sort_order decides, not insertion order and not the id.
+      expect(await coverOf()).toBe("https://x.test/first.jpg");
+
+      // Take the winner away and the next READY row takes over, rather than
+      // the story losing its cover or an unfinished upload standing in.
+      await db
+        .delete(tables.attachments)
+        .where(eq(tables.attachments.idAttachment, idFor("https://x.test/first.jpg")));
+      expect(await coverOf()).toBe("https://x.test/second.jpg");
+
+      // With only the UPLOADING and ERROR rows left there is no picture to
+      // show: a row that never finished uploading is not a cover.
+      await db
+        .delete(tables.attachments)
+        .where(eq(tables.attachments.idAttachment, idFor("https://x.test/second.jpg")));
+      expect(await coverOf()).toBeNull();
+    } finally {
+      await db.delete(tables.attachments).where(inArray(tables.attachments.idAttachment, ids));
+    }
+  });
+
+  it("breaks a tie between attachments on the id, as sa_listAttachments does", async () => {
+    // Both sort_order NULL, inserted in one statement, so only the id can
+    // separate them -- the case the seed's own rows hit, since only the
+    // backfill ever set a sort_order.
+    const tied = await db
+      .insert(tables.attachments)
+      .values([
+        {
+          kind: "STORY",
+          idExternal: storyD,
+          status: "READY",
+          url: "https://x.test/tie-a.jpg",
+          idCreatedByUser: SEED_USER,
+          idUpdatedByUser: SEED_USER,
+        },
+        {
+          kind: "STORY",
+          idExternal: storyD,
+          status: "READY",
+          url: "https://x.test/tie-b.jpg",
+          idCreatedByUser: SEED_USER,
+          idUpdatedByUser: SEED_USER,
+        },
+      ])
+      .returning({ id: tables.attachments.idAttachment, url: tables.attachments.url });
+
+    try {
+      const lowest = tied.reduce((a, b) => (a.id < b.id ? a : b));
+      expect((await actions.sa_getStory(storyD))?.imageUrl).toBe(lowest.url);
+    } finally {
+      await db
+        .delete(tables.attachments)
+        .where(
+          inArray(
+            tables.attachments.idAttachment,
+            tied.map((row) => row.id),
+          ),
+        );
+    }
+  });
+
+  it("claims the attachments a new story was created with, and covers its card", async () => {
+    const title = "Fixture F — created with attachments";
+    // Detached, as a create form's uploads are: there was no story to point
+    // them at when they were made.
+    const detached = await db
+      .insert(tables.attachments)
+      .values([
+        {
+          kind: "STORY",
+          idExternal: null,
+          status: "READY",
+          url: "https://x.test/claimed-first.jpg",
+          sortOrder: 0,
+          idCreatedByUser: SEED_USER,
+          idUpdatedByUser: SEED_USER,
+        },
+        {
+          kind: "STORY",
+          idExternal: null,
+          status: "READY",
+          url: "https://x.test/claimed-second.jpg",
+          sortOrder: 1,
+          idCreatedByUser: SEED_USER,
+          idUpdatedByUser: SEED_USER,
+        },
+      ])
+      .returning({ id: tables.attachments.idAttachment });
+    const ids = detached.map((row) => row.id);
+
+    try {
+      // On success the action redirects, which Next implements by throwing.
+      await expect(
+        actions.sa_createStory({
+          title,
+          idSystem: null,
+          summary: "",
+          attachmentIds: ids,
+          isLookingForPlayers: false,
+          isActive: true,
+          isArchived: false,
+        }),
+      ).rejects.toThrow(/NEXT_REDIRECT/);
+
+      const [created] = await db
+        .select({ idStory: tables.stories.idStory })
+        .from(tables.stories)
+        .where(eq(tables.stories.title, title));
+      expect(created).toBeTruthy();
+
+      const claimed = await db
+        .select({ idExternal: tables.attachments.idExternal })
+        .from(tables.attachments)
+        .where(inArray(tables.attachments.idAttachment, ids));
+      // Both, not just the first: the claim is one UPDATE over the whole set.
+      expect(claimed.map((row) => row.idExternal)).toEqual([created.idStory, created.idStory]);
+
+      // And the card sees them, which is the whole point of the claim.
+      expect((await actions.sa_getStory(created.idStory))?.imageUrl).toBe(
+        "https://x.test/claimed-first.jpg",
+      );
+    } finally {
+      await db.delete(tables.attachments).where(inArray(tables.attachments.idAttachment, ids));
+      // By title rather than by an id captured mid-test, so a failure before
+      // the SELECT above still cleans the story up.
+      await db.delete(tables.stories).where(eq(tables.stories.title, title));
+    }
   });
 });

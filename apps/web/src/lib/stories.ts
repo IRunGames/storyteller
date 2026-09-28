@@ -136,8 +136,10 @@ export type PlayerMatch = StoryPlayer & {
  * Deliberately NOT encodeURI: that also rewrites `%` to `%25`, which breaks
  * every legitimate URL that already carries percent-escapes (`%20` for spaces,
  * unicode file names, encoded query strings) — common enough on image hosts
- * that it would be a real regression. story-schemas.ts pins the protocol to
- * http(s) as the other half of this fix.
+ * that it would be a real regression. attachmentUrlSchema in
+ * attachment-schemas.ts pins the protocol to http(s) as the other half of this
+ * fix — it used to sit on story-schemas.ts's imageUrl field, and moved with the
+ * urls when a story's picture became an attachments row.
  */
 export function cssUrlValue(url: string): string {
   return url.replace(/["\\\n\r\f]/g, (char) => encodeURIComponent(char));

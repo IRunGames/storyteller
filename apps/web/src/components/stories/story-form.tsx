@@ -1,6 +1,12 @@
 "use client";
 
-import { Controller, useForm, useWatch } from "react-hook-form";
+import {
+  Controller,
+  useForm,
+  useWatch,
+  type FieldError,
+  type FieldErrors,
+} from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Alert,
@@ -25,6 +31,25 @@ import { sa_createStory, sa_updateStory } from "@/app/(app)/(nav)/stories/action
 // its raw string, and storySchema's preprocess turns it into a number or
 // null on the way to onSubmit.
 type StoryInput = z.input<typeof storySchema>;
+
+/**
+ * The message behind an attachmentIds failure, whichever shape it arrives in.
+ * A rule on the array itself — more ids than attachmentIdsSchema allows — puts
+ * its message on the field; a rule on one element puts it on
+ * `attachmentIds.<n>`, which react-hook-form keeps as indices on that same
+ * object with no message of its own on the parent.
+ */
+function attachmentIdsMessage(
+  error: FieldErrors<StoryInput>["attachmentIds"],
+): string | undefined {
+  if (!error) return undefined;
+  if (error.message) return error.message;
+  // Read as an array-like rather than with Array.isArray: react-hook-form's
+  // Merge<> type keeps the indices but makes `length` optional, and Array.from
+  // of an object without one is simply empty.
+  return Array.from(error as ArrayLike<FieldError | undefined>).find((item) => item?.message)
+    ?.message;
+}
 
 type Props = {
   systems: { idSystem: number; label: string }[];
@@ -84,8 +109,15 @@ export function StoryForm({ systems, story }: Props) {
 
     // On success the action redirects and this never runs. Anything that
     // comes back is a field error the client check did not catch.
+    //
+    // attachmentIds is the exception: it has no input of its own to sit
+    // beside, and a per-element issue arrives keyed "attachmentIds.0", which
+    // is not a field react-hook-form knows at all. Both go to "root", where
+    // the alert above is already waiting, rather than to a setError call
+    // nothing would ever render.
     for (const [field, message] of Object.entries(result.errors)) {
-      setError(field as keyof StoryInput, { message });
+      const name = field.startsWith("attachmentIds") ? "root" : field;
+      setError(name as keyof StoryInput, { message });
     }
     if (Object.keys(result.errors).length === 0) {
       setError("root", {
@@ -94,6 +126,20 @@ export function StoryForm({ systems, story }: Props) {
           : "Could not create the story. Please try again.",
       });
     }
+  }
+
+  /**
+   * The client check refusing the form before onSubmit ever runs. Every other
+   * field renders its own message beside its input, so react-hook-form's own
+   * focus-the-first-error is enough for them; attachmentIds has no such input,
+   * and without this a story carrying more ids than attachmentIdsSchema allows
+   * would make Save a silent no-op — no redirect, no message anywhere on the
+   * page. It lands on the same "root" alert the server's version of this
+   * failure lands on.
+   */
+  function onInvalid(formErrors: typeof errors) {
+    const message = attachmentIdsMessage(formErrors.attachmentIds);
+    if (message) setError("root", { message });
   }
 
   return (
@@ -129,7 +175,7 @@ export function StoryForm({ systems, story }: Props) {
         </Alert.Root>
       )}
 
-      <form onSubmit={handleSubmit(onSubmit)} noValidate>
+      <form onSubmit={handleSubmit(onSubmit, onInvalid)} noValidate>
         <Stack gap="4">
           <Field.Root required invalid={!!errors.title}>
             <Field.Label>Title</Field.Label>

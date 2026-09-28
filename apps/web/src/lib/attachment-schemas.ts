@@ -13,8 +13,12 @@ export const attachmentKindSchema = z.enum(["STORY", "STORY_SESSION", "STORY_SCE
 
 // A create form only ever collects a handful of ids; a bound keeps a crafted
 // array from turning a claim into a full-table scan, the same reasoning
-// statusesSchema uses in libraries/actions.ts.
-export const attachmentIdsSchema = z.array(idAttachmentSchema).max(50);
+// statusesSchema uses in libraries/actions.ts. The message is worded for a
+// reader because the story form does show it: an over-long list is refused by
+// the client resolver and lands on the form's own alert.
+export const attachmentIdsSchema = z
+  .array(idAttachmentSchema)
+  .max(50, "That is too many attachments. Remove a few and try again.");
 
 /**
  * A url an attachment may carry, whether someone typed it or Blob returned
