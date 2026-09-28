@@ -6,4 +6,5 @@
     INSERT INTO s_status_workflows (s_status_workflow_id, name, status_column_name, workflow_trigger)
     VALUES
         (-1, 'Story Sessions Status Workflow', 'status', NULL),
-        (-2, 'Story Scenes Status Workflow', 'status', NULL);
+        (-2, 'Story Scenes Status Workflow', 'status', NULL),
+        (-3, 'Attachments Status Workflow', 'status', NULL);
