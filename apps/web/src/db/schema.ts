@@ -159,7 +159,6 @@ export const stories = pgTable("stories", {
   summary: text("summary"),
   hoursPlayed: doublePrecision("hours_played").default(0).notNull(),
   idSystem: integer("id_system"),
-  imageUrl: text("image_url"),
   isActive: boolean("is_active").default(true).notNull(),
   isLookingForPlayers: boolean("is_looking_for_players").default(false).notNull(),
   lastPlayed: timestamp("last_played", { withTimezone: true }).defaultNow().notNull(),
@@ -242,7 +241,6 @@ export const storySessions = pgTable("story_sessions", {
   notes: text("notes"),
   summary: text("summary"),
   lingeringQuestions: text("lingering_questions"),
-  imageLink: text("image_link"),
   link: text("link"),
   // Who came, as user ids. An array, not a join table: attendance is a note
   // the storyteller takes, and nothing points at it. No foreign key either,
@@ -272,7 +270,6 @@ export const vStoryScenes = pgView("v_story_scenes", {
   status: varchar("status"),
   sceneTitle: text("scene_title"),
   sceneDescription: text("scene_description"),
-  imageLink: text("image_link"),
   searchText: text("search_text"),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
   // When the row entered the status it holds, read out of the <status>_at
@@ -347,9 +344,6 @@ export const storyScenes = pgTable("story_scenes", {
     .default(sql`DEFAULT`),
   sceneTitle: text("scene_title").notNull(),
   sceneDescription: text("scene_description"),
-  // A picture for the scene, an address rather than an upload, as
-  // story_sessions keeps. Deliberately not part of search_text.
-  imageLink: text("image_link"),
   // status, scene_title and scene_description joined for lookups, built by
   // the database from the search_fields recipe on the story_scenes row of
   // _tables. Generated, so an insert or update never names it.
@@ -362,6 +356,36 @@ export const storyScenes = pgTable("story_scenes", {
   pendingAt: timestamp("pending_at", { withTimezone: true }),
   activeAt: timestamp("active_at", { withTimezone: true }),
   completeAt: timestamp("complete_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// Files attached to a story, session or scene. `kind` says which, and
+// `external_id` which row -- not a foreign key, because Postgres cannot point
+// one column at three tables; tr_biu_attachments_external_exists stands in for
+// the constraint. status runs through the attachments workflow in s_statuses,
+// so it is a plain varchar here for the same reason story_scenes.status is.
+export const attachments = pgTable("attachments", {
+  idAttachment: integer("id_attachment").primaryKey().generatedByDefaultAsIdentity(),
+  kind: varchar("kind").notNull(),
+  idExternal: integer("external_id"),
+  status: varchar("status")
+    .notNull()
+    .default(sql`DEFAULT`),
+  url: text("url"),
+  isUploaded: boolean("is_uploaded").notNull().default(false),
+  fileName: text("file_name"),
+  contentType: varchar("content_type"),
+  byteSize: bigint("byte_size", { mode: "number" }),
+  sortOrder: integer("sort_order"),
+  activityLog: jsonb("activity_log")
+    .default(sql`'[]'::jsonb`)
+    .notNull(),
+  uploadingAt: timestamp("uploading_at", { withTimezone: true }),
+  readyAt: timestamp("ready_at", { withTimezone: true }),
+  errorAt: timestamp("error_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
