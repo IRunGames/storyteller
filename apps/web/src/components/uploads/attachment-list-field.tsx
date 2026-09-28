@@ -15,6 +15,7 @@ import {
   useFileUpload,
 } from "@chakra-ui/react";
 import { useUser } from "@/components/auth/user-provider";
+import { attachmentUrlSchema } from "@/lib/attachment-schemas";
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, uploadPrefix } from "@/lib/image-uploads";
 import {
   sa_createAttachment,
@@ -28,8 +29,16 @@ import type { Attachment, AttachmentKind } from "@/lib/attachments";
 
 // Also the cap on concurrent uploads zag's own FileUpload ledger enforces
 // (see fileUpload.deleteFile in handleRemove, which keeps that ledger in
-// step with the rows actually on screen).
+// step with the rows actually on screen). zag's ledger only ever counts
+// files accepted through the dropzone, though -- a link added through
+// handleAddUrl never touches it -- so it is not authoritative for the
+// total the user can actually see, and cannot be trusted alone to enforce
+// this cap when the two kinds of row mix. rowsRef.current.length is: both
+// handleAddUrl and handleFilesAccepted check it directly before adding
+// anything, rather than leaning on zag's own count.
 const MAX_ATTACHMENTS = 20;
+
+const MAX_ATTACHMENTS_MESSAGE = `You can have at most ${MAX_ATTACHMENTS} attachments at once here. Remove one first.`;
 
 // A client-only sentinel, never a status the server sends. It marks a row
 // this field only knows by id -- seeded from `value` after a remount with a
@@ -74,7 +83,7 @@ function rejectionMessage(rejection: { errors: string[] } | undefined): string {
     return "That image is larger than the 10 MB limit.";
   }
   if (errors.includes("TOO_MANY_FILES")) {
-    return `You can have at most ${MAX_ATTACHMENTS} attachments at once here. Remove one first.`;
+    return MAX_ATTACHMENTS_MESSAGE;
   }
   return "That file could not be added.";
 }
@@ -323,9 +332,20 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
   }
 
   function handleFilesAccepted(files: File[]) {
+    // A synchronous counter, not a repeated rowsRef.current.length check:
+    // each accepted file's row only lands in rowsRef once its
+    // sa_createAttachment call resolves, so a whole batch dropped at once
+    // would otherwise all see the same pre-batch count and all pass, even
+    // once the batch itself would push the total over the cap.
+    let available = MAX_ATTACHMENTS - rowsRef.current.length;
     for (const file of files) {
       if (startedFiles.current.has(file)) continue;
       startedFiles.current.add(file);
+      if (available <= 0) {
+        setFieldError(MAX_ATTACHMENTS_MESSAGE);
+        continue;
+      }
+      available -= 1;
       void startUpload(file);
     }
   }
@@ -333,20 +353,42 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
   async function handleAddUrl() {
     const url = urlValue.trim();
     if (!url) return;
+    // Checked against rowsRef.current.length, not zag's own ledger: zag
+    // never sees a link added through this path, so its count and the
+    // true visible total can drift once the two kinds of row mix (see the
+    // comment on MAX_ATTACHMENTS above).
+    if (rowsRef.current.length >= MAX_ATTACHMENTS) {
+      setFieldError(MAX_ATTACHMENTS_MESSAGE);
+      return;
+    }
+    // Checked client-side against the same schema sa_createAttachment runs
+    // server-side, rather than letting a bad url reach the network and
+    // relying on the thrown error's message surviving the server action
+    // boundary intact. attachmentUrlSchema's own message is the one
+    // surfaced, so there is exactly one wording for "not a valid url" to
+    // keep in sync, not two that can drift apart.
+    const parsed = attachmentUrlSchema.safeParse(url);
+    if (!parsed.success) {
+      setFieldError(parsed.error.issues[0]?.message ?? "Please enter a valid URL.");
+      return;
+    }
     setFieldError(null);
     try {
-      const created = await sa_createAttachment({ kind, idExternal, url });
+      const created = await sa_createAttachment({ kind, idExternal, url: parsed.data });
       addRow({
         idAttachment: created.idAttachment,
         kind,
         idExternal,
         status: created.status,
-        url,
+        url: parsed.data,
         isUploaded: false,
         fileName: null,
       });
       setUrlValue("");
     } catch {
+      // Genuinely unexpected at this point -- the url and the cap were
+      // already checked above -- so this is a network or server failure
+      // rather than something the message could name more specifically.
       setFieldError("That link could not be added. Please try again.");
     }
   }

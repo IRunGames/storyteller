@@ -529,4 +529,53 @@ describe("AttachmentListField", () => {
     expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /remove/i })).toBeInTheDocument();
   });
+
+  // zag's own FileUpload ledger only ever counts files accepted through the
+  // dropzone -- a link added here never touches it -- so it cannot be
+  // trusted to keep the URL path under the same cap. The 20 existing rows
+  // are seeded via `value` on a null-idExternal mount (synchronous, no
+  // network) purely to reach the cap without 20 real interactions; the
+  // seeding path itself is exercised by the test above.
+  it("refuses a link once the attachment cap is reached, without calling the server", async () => {
+    const user = userEvent.setup();
+    const existingIds = Array.from({ length: 20 }, (_, i) => i + 1);
+    const onChange = mock.fn<(ids: number[]) => void>();
+
+    renderWithProviders(
+      <AttachmentListField kind="STORY" idExternal={null} value={existingIds} onChange={onChange} />,
+    );
+    expect(screen.getAllByRole("listitem")).toHaveLength(20);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /link/i }),
+      "https://example.com/one-too-many.jpg",
+    );
+    await user.click(screen.getByRole("button", { name: /add link/i }));
+
+    expect(await screen.findByText(/at most 20 attachments/i)).toBeInTheDocument();
+    expect(sa_createAttachment.mock.callCount()).toBe(0);
+    expect(screen.getAllByRole("listitem")).toHaveLength(20);
+    expect(onChange.mock.callCount()).toBe(0);
+  });
+
+  // attachmentUrlSchema's own "Please enter a valid URL." is the one and
+  // only message for this: sa_createAttachment runs the identical schema
+  // server-side and would throw the same wording, but checking it here
+  // first means the field never depends on that thrown message surviving
+  // the server action boundary, and there is only one string to keep in
+  // sync rather than two that can drift apart.
+  it("shows attachmentUrlSchema's own message for a non-http(s) link, without calling the server", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={() => {}} />,
+    );
+
+    await user.type(screen.getByRole("textbox", { name: /link/i }), "javascript:alert(1)");
+    await user.click(screen.getByRole("button", { name: /add link/i }));
+
+    expect(await screen.findByText("Please enter a valid URL.")).toBeInTheDocument();
+    expect(sa_createAttachment.mock.callCount()).toBe(0);
+    expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
+  });
 });
