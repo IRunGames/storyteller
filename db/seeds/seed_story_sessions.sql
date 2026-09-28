@@ -19,10 +19,8 @@
     -- who all came to every session, as the write-ups list the same company
     -- each time; that seed must run first.
     --
-    -- summary, notes and lingering_questions are drawn from the write-ups;
-    -- image_link is each post's hero image and link the post itself. The
-    -- /_astro/ image paths are content-hashed by the site build and will
-    -- change when the site is rebuilt, as db/seeds/seed_stories.sql notes.
+    -- summary, notes and lingering_questions are drawn from the write-ups,
+    -- and link is the post itself.
     --
     -- The story's last_played and hours_played follow its sessions, and the
     -- stories seed set them from the site before these episodes existed; the
@@ -38,7 +36,6 @@
                                 id_users,
                                 open_at, suspended_at, resumed_at, done_at, paused_time,
                                 link,
-                                image_link,
                                 summary,
                                 notes,
                                 lingering_questions,
@@ -48,7 +45,6 @@
          ARRAY['00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-000000000002', '00000000-0000-7000-8000-000000000017']::uuid[],
          '2026-08-15 10:00:00-07', '2026-08-15 12:05:00-07', '2026-08-15 13:22:00-07', '2026-08-15 18:00:00-07', '77 minutes',
          'https://rpg.irun.games/blog/an-eastern-king-episode-1/',
-         'https://rpg.irun.games/_astro/dun-acyl.BGOlVFjn_1MpSVf.webp',
          'The heroes slogged two days through the Storm Queen''s rant on the last eastern roads and walked the night out to reach Dun Acyl under a scattering sky. Expected there, they were fed and rested by House Daear, then drawn into tense talk when the Magebreaker Gabhain and his enslaved P''ntri pathfinder Soo arrived up from the Godswood. They left with the blessing of House Daear, two asses on loan and a token for Lord Balwen of Dun Dwym, and took the old highway straight across the bog rather than the southern road the Magebreaker warned them toward.',
          'Company: Dinl-Chi (free Vulfen), Padraig (the witch-boy), Siúlóir (weathered, watchful).
 Ewen of House Daear, called Badger: young, wind-burnt, gold twisted into his hair, works the palisade himself. Delivered the House''s direct blessing to the company all unwitting.
@@ -67,7 +63,6 @@ Who is singing in the trees, and what is the light?',
          ARRAY['00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-000000000002', '00000000-0000-7000-8000-000000000017']::uuid[],
          '2026-08-29 10:00:00-07', '2026-08-29 11:50:00-07', '2026-08-29 12:38:00-07', '2026-08-29 18:00:00-07', '48 minutes',
          'https://rpg.irun.games/blog/an-eastern-king-episode-2/',
-         'https://rpg.irun.games/_astro/dark-bog.BnOcZFfu_Z1vDcI6.webp',
          'Woken by the Morning Singer, a Bright One gathering the raptors of the bog to carry them to her summer groves before something comes, the company refused her shortcut and followed the old highway out of the Eastern Wet. They passed three farmers carrying wicker cages of things that were not ravens, and an old woman under a willow asking after her missing grandchildren. Mist met them on the greenway to the Godsflood; they found the ferryman drowned dry on his own boat and fought off a Mistling, which Dinl-Chi tore apart with the earth-fire of his roar. Across the river at Dun Dwym they were questioned by Queen Aia, smothered in courtesies by King Glenys, and feasted.',
          'The Morning Singer: a Bright One out of the oak, ash and thorn, pointed ears through leaves and feathers, gold at her throat, small birds on her shoulders. Conspiring with Gaer, queen of the heavens, to move the raptors to her summer groves before whatever is coming. Offered a shortcut beyond the wood; declined.
 Three farmers on the old highway in undyed wool and dark kilts, each with a wicker cage held out at the chest; the birds inside did not look like ravens. The company told them only that the Singer was at the spring.
@@ -86,7 +81,6 @@ Why does the King of Dun Dwym speak like a courtier of the Throne of Bone?',
          ARRAY['00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-000000000002', '00000000-0000-7000-8000-000000000017']::uuid[],
          '2026-09-12 10:00:00-07', '2026-09-12 12:15:00-07', '2026-09-12 13:40:00-07', '2026-09-12 18:00:00-07', '85 minutes',
          'https://rpg.irun.games/blog/an-eastern-king-episode-3/',
-         'https://rpg.irun.games/_astro/kildealg.oS5ci0KU_p2HGI.webp',
          'Morning at Dun Dwym brought strangers: the marked wizard Dirdenach and his man Chúl, there to trade pine for the Balwens'' white oak, and Dafydd the shell-and-pearl seller, whom the wizard simply called the spy. King Glenys had ridden out hunting before dawn with only his huntsman Llan, to the plain unease of Hugh, the Sword of Balwen. The company crossed the rope bridge into Kildealg, the Blackthorn Wood, followed a trail of two men and a pig that turned to blood, and were signalled clear of a nightmare in a grove of ancient oaks by the P''ntri Of the Eye. In a sunlit clearing they found the elder Of the Tree tending the maimed Llan beside an awakened Builder arch, and when Siúlóir stepped through it to bring the king back, both were flung out again, Glenys'' burning silver blade searing into a boulder and the king lying silent.',
          'Dirdenach, the marked wizard: dense black rule-work and sigils inked over brow, cheeks, throat and chest, a wheel between green eyes, under an embroidered hood. Chúl: bald, bare to the waist, wiry, long grey beard, a blue rune over his heart, felling axe across his shoulder. Their story is timber: pine off an estate on the north shore of the Mwrost for the stout white oak the Balwens nurture in Kildealg.
 Dafydd: shell and pearl seller, grey-streaked hair, pale eyes in a dirty face, heaps of ragged sand-coloured wool; nowhere near the sea lately. Dirdenach called him the spy to their faces.

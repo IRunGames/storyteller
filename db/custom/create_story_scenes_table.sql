@@ -99,16 +99,10 @@ $$
     END
 $$;
 
--- A picture for the scene: the same kind of link story_sessions keeps, an
--- address rather than an upload. Added with ALTER rather than in the CREATE
--- TABLE above so a database built before the column existed gains it on the
--- next run, the way story_sessions gained paused_time.
-ALTER TABLE story_scenes
-    ADD COLUMN IF NOT EXISTS image_link text;
-
-COMMENT ON COLUMN story_scenes.image_link IS
-    'Address of a picture for the scene, shown in its info panel. Not part of '
-    'search_text: a URL is not something anyone searches a board for.';
+-- A scene's pictures are rows in attachments, keyed by kind = 'STORY_SCENE'
+-- and the scene's id; see db/custom/create_attachments_table.sql. The column
+-- this script used to add here, image_link, was dropped once those rows
+-- existed, so nothing re-adds it.
 
 -- Both foreign keys are looked up rather than joined one row at a time — the
 -- board reads every scene of a story, the session view every scene of a
