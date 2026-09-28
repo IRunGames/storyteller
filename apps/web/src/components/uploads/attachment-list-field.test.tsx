@@ -324,4 +324,107 @@ describe("AttachmentListField", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sa_listAttachments.mock.callCount()).toBe(0);
   });
+
+  // sa_listAttachments calls requireUser() and runs a db.select, either of
+  // which can reject. Left unhandled, the field would sit there permanently
+  // empty with nothing to say why -- indistinguishable from "this story has
+  // no pictures", which invites the user to re-upload everything that is
+  // really still there.
+  it("shows an inline error on a failed load, and Try Again recovers", async () => {
+    const user = userEvent.setup();
+    let calls = 0;
+    sa_listAttachments.mock.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("db down");
+      return [
+        {
+          idAttachment: 9,
+          kind: "STORY_SCENE",
+          idExternal: SCENE_ID,
+          status: "READY",
+          url: "https://example.com/ok.jpg",
+          isUploaded: false,
+          fileName: null,
+        },
+      ];
+    });
+
+    renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={() => {}} />,
+    );
+
+    expect(await screen.findByText(/could not load/i)).toBeInTheDocument();
+    expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /try again/i }));
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+    expect(screen.queryByText(/could not load/i)).not.toBeInTheDocument();
+  });
+
+  // The fetch this field starts on mount is not the only writer of rows:
+  // a link typed or a file picked while that request is still in flight
+  // must survive the response landing, not be erased by it -- the server
+  // query ran before that attachment existed, so it can never be in the
+  // response.
+  it("keeps a row added locally while the initial load is still pending", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<
+      Array<{
+        idAttachment: number;
+        kind: string;
+        idExternal: number | null;
+        status: string;
+        url: string | null;
+        isUploaded: boolean;
+        fileName: string | null;
+      }>
+    >();
+    sa_listAttachments.mock.mockImplementation(() => pending.promise);
+    const onChange = mock.fn<(ids: number[]) => void>();
+
+    renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={onChange} />,
+    );
+
+    await user.type(screen.getByRole("textbox", { name: /link/i }), "https://example.com/added.jpg");
+    await user.click(screen.getByRole("button", { name: /add link/i }));
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+
+    pending.resolve([
+      {
+        idAttachment: 55,
+        kind: "STORY_SCENE",
+        idExternal: SCENE_ID,
+        status: "READY",
+        url: "https://example.com/existing.jpg",
+        isUploaded: false,
+        fileName: null,
+      },
+    ]);
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
+    const items = screen.getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("existing.jpg");
+    expect(items[1]).toHaveTextContent("added.jpg");
+    expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([55, 1]);
+  });
+
+  // The one case `value` has a real job: a create form (idExternal null) has
+  // no sa_listAttachments to recover its rows from on a remount, so `value`
+  // -- the form's own surviving record of ids -- seeds bare rows instead.
+  // They render as neither ready nor errored, since this field genuinely
+  // does not know which they are.
+  it("seeds bare rows from value on a create-form remount, with no thumbnail or Retry", () => {
+    renderWithProviders(
+      <AttachmentListField kind="STORY" idExternal={null} value={[5]} onChange={() => {}} />,
+    );
+
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toHaveTextContent("Attachment 5");
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove/i })).toBeInTheDocument();
+  });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
 import {
   Box,
@@ -31,19 +31,35 @@ import type { Attachment, AttachmentKind } from "@/lib/attachments";
 // step with the rows actually on screen).
 const MAX_ATTACHMENTS = 20;
 
+// A client-only sentinel, never a status the server sends. It marks a row
+// this field only knows by id -- seeded from `value` after a remount with a
+// null idExternal, the one situation with no sa_listAttachments to ask
+// instead (see the Props doc comment). Rendering it as READY would claim a
+// row is fine when this field has no idea whether it is; rendering it as
+// ERROR would claim a failure that may not exist. It gets its own neutral
+// rendering: no thumbnail, no Retry (there is no cached File to resend and
+// no server status to justify offering one), just a name and Remove.
+const UNKNOWN_STATUS = "UNKNOWN";
+
 type Props = {
   kind: AttachmentKind;
   /** Null on a create form, before the parent row exists. */
   idExternal: number | null;
   /**
-   * The attachment ids the form will claim, in display order. This field
-   * does not read it back: for a non-null idExternal it hydrates its own
-   * rows -- with their real statuses -- from sa_listAttachments on mount,
-   * and for a null idExternal (a create form) there is nothing to load, so
-   * it starts empty. Treating `value` as a rendering source would mean
-   * inventing a status for an id this field has no information about; an id
-   * that is actually ERROR would then render as a plain, healthy row with
-   * no way to tell it apart or retry it.
+   * The attachment ids the form will claim, in display order.
+   *
+   * Read only once, as the initial state, and only when idExternal is null:
+   * a create form that remounts (e.g. after a failed submit that reset the
+   * tree) has no sa_listAttachments to recover its rows from, since nothing
+   * with a null idExternal is findable that way -- `value`, coming from the
+   * form's own state, is the only surviving record. Those ids render with
+   * UNKNOWN_STATUS (see above) rather than an invented READY.
+   *
+   * When idExternal is non-null this field ignores `value` completely and
+   * hydrates its rows -- with their real statuses -- from
+   * sa_listAttachments instead, which is authoritative where `value` is not
+   * (a status this field never recorded is not something `value` could ever
+   * carry, since it is just ids).
    */
   value: number[];
   onChange: (ids: number[]) => void;
@@ -73,13 +89,25 @@ function rejectionMessage(rejection: { errors: string[] } | undefined): string {
  * This field never calls sa_claimAttachments itself.
  *
  * rows is local state, hydrated from the server rather than from `value`
- * (see the Props doc comment for why), plus whatever this session has added
- * on top. It starts empty and, for a non-null idExternal, an effect below
- * loads the real rows once on mount.
+ * for a non-null idExternal (see the Props doc comment for why), plus
+ * whatever this session has added on top. An effect below loads the real
+ * rows once on mount when there is a real idExternal to load them for.
  */
-export function AttachmentListField({ kind, idExternal, onChange }: Props) {
+export function AttachmentListField({ kind, idExternal, value, onChange }: Props) {
   const { id: userId } = useUser();
-  const [rows, setRows] = useState<Attachment[]>([]);
+  const [rows, setRows] = useState<Attachment[]>(() =>
+    idExternal === null
+      ? value.map((id) => ({
+          idAttachment: id,
+          kind,
+          idExternal,
+          status: UNKNOWN_STATUS,
+          url: null,
+          isUploaded: false,
+          fileName: null,
+        }))
+      : [],
+  );
   const rowsRef = useRef(rows);
   // Kept current in an effect, not written during render: an async upload
   // or retry started under one render's onChange prop must still report to
@@ -89,23 +117,68 @@ export function AttachmentListField({ kind, idExternal, onChange }: Props) {
     onChangeRef.current = onChange;
   }, [onChange]);
 
-  // Loads this field's real rows -- with their real statuses -- once kind
-  // and idExternal identify an actual parent. A null idExternal is a create
-  // form with nothing claimed yet, so there is nothing to load; rows only
-  // start appearing there as this session creates them.
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  /**
+   * Fetches this field's real rows for a real parent and merges them
+   * against whatever is already showing, rather than replacing outright:
+   * `loaded` is authoritative for the ids it contains, but a row this
+   * session has already added locally (a link typed or a file picked while
+   * this request was still in flight) did not exist when the server query
+   * ran, so it cannot be in `loaded` and must not be erased by it. Does not
+   * touch state itself -- callers decide what to do with the result, which
+   * is what keeps the actual setState calls inline in whichever caller runs
+   * them (see the two call sites below for why that matters).
+   */
+  const fetchMergedAttachments = useCallback(async (): Promise<Attachment[]> => {
+    // Only called with a non-null idExternal; see both call sites.
+    const loaded = await sa_listAttachments(kind, idExternal as number);
+    const loadedIds = new Set(loaded.map((row) => row.idAttachment));
+    const localOnly = rowsRef.current.filter((row) => !loadedIds.has(row.idAttachment));
+    return [...loaded, ...localOnly];
+  }, [kind, idExternal]);
+
+  // The Try Again button below calls this directly: a fresh, user-requested
+  // load with no earlier effect run that could race it.
+  async function loadAttachments(): Promise<void> {
+    if (idExternal === null) return;
+    try {
+      const merged = await fetchMergedAttachments();
+      setLoadError(null);
+      commit(merged);
+    } catch {
+      // sa_listAttachments calls requireUser() and runs a db.select, either
+      // of which can reject. Left unhandled, rows would stay [] forever
+      // with nothing on screen to say why -- on an edit form that reads as
+      // "this story has no pictures", which invites the user to re-upload
+      // everything that is really still there.
+      setLoadError("Could not load this story's attachments.");
+    }
+  }
+
+  // Not routed through loadAttachments() above: react-hooks/set-state-in-effect
+  // flags any setState reached from an effect through a named function call,
+  // since it cannot see past the call to confirm the state update happens
+  // only after the await inside it. Inlined here instead, where the await
+  // before every setState call is visible in the same function body.
   useEffect(() => {
     if (idExternal === null) return;
     let cancelled = false;
     void (async () => {
-      const loaded = await sa_listAttachments(kind, idExternal);
-      if (cancelled) return;
-      rowsRef.current = loaded;
-      setRows(loaded);
+      try {
+        const merged = await fetchMergedAttachments();
+        if (cancelled) return;
+        setLoadError(null);
+        commit(merged);
+      } catch {
+        if (cancelled) return;
+        setLoadError("Could not load this story's attachments.");
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [kind, idExternal]);
+  }, [idExternal, fetchMergedAttachments]);
 
   const [urlValue, setUrlValue] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -273,7 +346,7 @@ export function AttachmentListField({ kind, idExternal, onChange }: Props) {
   }
 
   return (
-    <Field.Root invalid={!!fieldError}>
+    <Field.Root invalid={!!fieldError || !!loadError}>
       {/* Not Field.Label: this Field.Root holds two controls (the link input
           and the dropzone's hidden file input), and a label can only bind to
           one of them. Each control names itself instead. */}
@@ -312,9 +385,20 @@ export function AttachmentListField({ kind, idExternal, onChange }: Props) {
         </FileUpload.Dropzone>
       </FileUpload.RootProvider>
 
+      {loadError && (
+        <HStack>
+          <Field.ErrorText>{loadError}</Field.ErrorText>
+          <Button size="xs" type="button" onClick={() => void loadAttachments()}>
+            Try again
+          </Button>
+        </HStack>
+      )}
+
       <Stack role="list" aria-label="Current attachments" direction={{ base: "column", sm: "row" }} gap="3" wrap="wrap">
         {rows.map((row) => {
           const label = row.fileName ?? row.url ?? `Attachment ${row.idAttachment}`;
+          const placeholder =
+            row.status === "ERROR" ? "Failed" : row.status === UNKNOWN_STATUS ? "Attachment" : "Uploading…";
           return (
             <Box role="listitem" key={row.idAttachment} borderWidth="1px" rounded="md" p="2" w={{ base: "full", sm: "40" }}>
               {row.url ? (
@@ -322,7 +406,7 @@ export function AttachmentListField({ kind, idExternal, onChange }: Props) {
               ) : (
                 <Box boxSize="16" rounded="md" bg="bg.muted" display="flex" alignItems="center" justifyContent="center">
                   <Text fontSize="xs" color="fg.muted">
-                    {row.status === "ERROR" ? "Failed" : "Uploading…"}
+                    {placeholder}
                   </Text>
                 </Box>
               )}
