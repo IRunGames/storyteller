@@ -61,6 +61,22 @@ const sa_markAttachmentReady = mock.fn<(id: number, url: string) => Promise<void
 const sa_markAttachmentError = mock.fn<(id: number) => Promise<void>>(async () => {});
 const sa_retryAttachment = mock.fn<(id: number) => Promise<void>>(async () => {});
 const sa_deleteAttachment = mock.fn<(id: number) => Promise<void>>(async () => {});
+const sa_listAttachments = mock.fn<
+  (
+    kind: string,
+    idExternal: number,
+  ) => Promise<
+    Array<{
+      idAttachment: number;
+      kind: string;
+      idExternal: number | null;
+      status: string;
+      url: string | null;
+      isUploaded: boolean;
+      fileName: string | null;
+    }>
+  >
+>(async () => []);
 
 let AttachmentListField: typeof import("./attachment-list-field").AttachmentListField;
 
@@ -76,6 +92,7 @@ before(async () => {
       sa_markAttachmentError,
       sa_retryAttachment,
       sa_deleteAttachment,
+      sa_listAttachments,
     },
   });
   mock.module("@/components/auth/user-provider", {
@@ -110,6 +127,8 @@ describe("AttachmentListField", () => {
     sa_retryAttachment.mock.mockImplementation(async () => {});
     sa_deleteAttachment.mock.resetCalls();
     sa_deleteAttachment.mock.mockImplementation(async () => {});
+    sa_listAttachments.mock.resetCalls();
+    sa_listAttachments.mock.mockImplementation(async () => []);
   });
 
   it("adds a typed URL as an attachment and reports its id", async () => {
@@ -264,5 +283,45 @@ describe("AttachmentListField", () => {
     expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([1]);
     // AttachmentListField does not import sa_claimAttachments at all -- there
     // is nothing here that could call it, on a create form or otherwise.
+  });
+
+  // A remount (e.g. reopening the edit form) has only `value` to go on, and
+  // commit() fires onChange on every transition including UPLOADING->ERROR,
+  // so `value` can legitimately name an id that is actually errored. That id
+  // must not rehydrate as a plain, healthy attachment: the failure has to
+  // stay visible, not disappear.
+  it("hydrates real statuses from the server, keeping an ERROR row visibly errored", async () => {
+    sa_listAttachments.mock.mockImplementation(async () => [
+      {
+        idAttachment: 7,
+        kind: "STORY_SCENE",
+        idExternal: SCENE_ID,
+        status: "ERROR",
+        url: null,
+        isUploaded: true,
+        fileName: "broken.jpg",
+      },
+    ]);
+    const onChange = mock.fn<(ids: number[]) => void>();
+
+    renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[7]} onChange={onChange} />,
+    );
+
+    await waitFor(() => expect(sa_listAttachments.mock.callCount()).toBe(1));
+    expect(sa_listAttachments.mock.calls[0].arguments).toEqual(["STORY_SCENE", SCENE_ID]);
+    expect(await screen.findByText(/could not be uploaded/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("does not call sa_listAttachments on a create form (idExternal null)", async () => {
+    renderWithProviders(
+      <AttachmentListField kind="STORY" idExternal={null} value={[]} onChange={() => {}} />,
+    );
+
+    // Give any stray effect a turn to run before asserting its absence.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sa_listAttachments.mock.callCount()).toBe(0);
   });
 });

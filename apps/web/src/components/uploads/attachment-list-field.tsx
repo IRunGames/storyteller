@@ -2,23 +2,49 @@
 
 import { useEffect, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
-import { Box, Button, Field, FileUpload, HStack, Image, Input, Stack, Text } from "@chakra-ui/react";
+import {
+  Box,
+  Button,
+  Field,
+  FileUpload,
+  HStack,
+  Image,
+  Input,
+  Stack,
+  Text,
+  useFileUpload,
+} from "@chakra-ui/react";
 import { useUser } from "@/components/auth/user-provider";
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, uploadPrefix } from "@/lib/image-uploads";
 import {
   sa_createAttachment,
   sa_deleteAttachment,
+  sa_listAttachments,
   sa_markAttachmentError,
   sa_markAttachmentReady,
   sa_retryAttachment,
 } from "./actions";
 import type { Attachment, AttachmentKind } from "@/lib/attachments";
 
+// Also the cap on concurrent uploads zag's own FileUpload ledger enforces
+// (see fileUpload.deleteFile in handleRemove, which keeps that ledger in
+// step with the rows actually on screen).
+const MAX_ATTACHMENTS = 20;
+
 type Props = {
   kind: AttachmentKind;
   /** Null on a create form, before the parent row exists. */
   idExternal: number | null;
-  /** The attachment ids the form will claim, in display order. */
+  /**
+   * The attachment ids the form will claim, in display order. This field
+   * does not read it back: for a non-null idExternal it hydrates its own
+   * rows -- with their real statuses -- from sa_listAttachments on mount,
+   * and for a null idExternal (a create form) there is nothing to load, so
+   * it starts empty. Treating `value` as a rendering source would mean
+   * inventing a status for an id this field has no information about; an id
+   * that is actually ERROR would then render as a plain, healthy row with
+   * no way to tell it apart or retry it.
+   */
   value: number[];
   onChange: (ids: number[]) => void;
 };
@@ -30,6 +56,9 @@ function rejectionMessage(rejection: { errors: string[] } | undefined): string {
   }
   if (errors.includes("FILE_TOO_LARGE")) {
     return "That image is larger than the 10 MB limit.";
+  }
+  if (errors.includes("TOO_MANY_FILES")) {
+    return `You can have at most ${MAX_ATTACHMENTS} attachments at once here. Remove one first.`;
   }
   return "That file could not be added.";
 }
@@ -43,25 +72,14 @@ function rejectionMessage(rejection: { errors: string[] } | undefined): string {
  * simply carry a null idExternal until Task 9's create action claims them.
  * This field never calls sa_claimAttachments itself.
  *
- * rows is local state, not derived from `value`: sa_listAttachments needs a
- * real idExternal, which a create form does not have yet, and there is no
- * per-id lookup action. So this field only knows about attachments added
- * during the current session; an initial non-empty `value` renders as bare
- * rows (no file name or thumbnail) that can still be removed.
+ * rows is local state, hydrated from the server rather than from `value`
+ * (see the Props doc comment for why), plus whatever this session has added
+ * on top. It starts empty and, for a non-null idExternal, an effect below
+ * loads the real rows once on mount.
  */
-export function AttachmentListField({ kind, idExternal, value, onChange }: Props) {
+export function AttachmentListField({ kind, idExternal, onChange }: Props) {
   const { id: userId } = useUser();
-  const [rows, setRows] = useState<Attachment[]>(() =>
-    value.map((id) => ({
-      idAttachment: id,
-      kind,
-      idExternal,
-      status: "READY",
-      url: null,
-      isUploaded: false,
-      fileName: null,
-    })),
-  );
+  const [rows, setRows] = useState<Attachment[]>([]);
   const rowsRef = useRef(rows);
   // Kept current in an effect, not written during render: an async upload
   // or retry started under one render's onChange prop must still report to
@@ -70,6 +88,24 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  // Loads this field's real rows -- with their real statuses -- once kind
+  // and idExternal identify an actual parent. A null idExternal is a create
+  // form with nothing claimed yet, so there is nothing to load; rows only
+  // start appearing there as this session creates them.
+  useEffect(() => {
+    if (idExternal === null) return;
+    let cancelled = false;
+    void (async () => {
+      const loaded = await sa_listAttachments(kind, idExternal);
+      if (cancelled) return;
+      rowsRef.current = loaded;
+      setRows(loaded);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, idExternal]);
 
   const [urlValue, setUrlValue] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -93,10 +129,30 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
   // from re-uploading the first one all over again.
   const startedFiles = useRef(new Set<File>());
 
+  // Built with useFileUpload + FileUpload.RootProvider rather than plain
+  // FileUpload.Root so handleRemove below can reach fileUpload.deleteFile():
+  // that API is only available to a component that owns the machine
+  // instance, not to one merely rendering <FileUpload.Root> as a descendant
+  // of itself.
+  const fileUpload = useFileUpload({
+    accept: [...ALLOWED_IMAGE_TYPES],
+    maxFileSize: MAX_IMAGE_BYTES,
+    maxFiles: MAX_ATTACHMENTS,
+    onFileAccept: (details) => handleFilesAccepted(details.files),
+    onFileReject: (details) => setFieldError(rejectionMessage(details.files[0])),
+  });
+
   function commit(next: Attachment[]) {
+    const prevIds = rowsRef.current.map((row) => row.idAttachment);
+    const nextIds = next.map((row) => row.idAttachment);
     rowsRef.current = next;
     setRows(next);
-    onChangeRef.current(next.map((row) => row.idAttachment));
+    // A status or url change (upload finishing, an error, a retry) rewrites
+    // a row in place without touching which ids are present -- onChange
+    // only needs to fire when the id set or its order actually moved.
+    const idsChanged =
+      prevIds.length !== nextIds.length || prevIds.some((id, i) => id !== nextIds[i]);
+    if (idsChanged) onChangeRef.current(nextIds);
   }
 
   function addRow(row: Attachment) {
@@ -204,7 +260,14 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     // Invalidate first: an upload or retry already in flight for this row
     // must not resurrect it once the user has asked for it to be gone.
     ticketsByAttachment.current.delete(id);
+    const file = filesByAttachment.current.get(id);
     filesByAttachment.current.delete(id);
+    // zag's own accepted-files ledger only ever grows (nothing else tells it
+    // a file left); left alone, an add/remove/re-add cycle burns through
+    // MAX_ATTACHMENTS even though the visible list holds far fewer rows.
+    // Removing it here is what keeps "how many uploads zag will still take"
+    // matching "how many rows are actually on screen".
+    if (file) fileUpload.deleteFile(file);
     commit(rowsRef.current.filter((row) => row.idAttachment !== id));
     await sa_deleteAttachment(id);
   }
@@ -240,20 +303,14 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
         </Button>
       </HStack>
 
-      <FileUpload.Root
-        accept={[...ALLOWED_IMAGE_TYPES]}
-        maxFileSize={MAX_IMAGE_BYTES}
-        maxFiles={20}
-        onFileAccept={(details) => handleFilesAccepted(details.files)}
-        onFileReject={(details) => setFieldError(rejectionMessage(details.files[0]))}
-      >
+      <FileUpload.RootProvider value={fileUpload}>
         <FileUpload.HiddenInput />
         <FileUpload.Dropzone>
           <FileUpload.DropzoneContent>
             <Text>Drag images here or click to browse</Text>
           </FileUpload.DropzoneContent>
         </FileUpload.Dropzone>
-      </FileUpload.Root>
+      </FileUpload.RootProvider>
 
       <Stack role="list" aria-label="Current attachments" direction={{ base: "column", sm: "row" }} gap="3" wrap="wrap">
         {rows.map((row) => {
@@ -277,7 +334,12 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
                   <Text fontSize="xs" color="fg.error">
                     That file could not be uploaded.
                   </Text>
-                  <Button size="xs" type="button" onClick={() => void handleRetry(row.idAttachment)}>
+                  <Button
+                    size="xs"
+                    type="button"
+                    aria-label={`Retry ${label}`}
+                    onClick={() => void handleRetry(row.idAttachment)}
+                  >
                     Retry
                   </Button>
                 </>
@@ -286,6 +348,7 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
                 size="xs"
                 variant="ghost"
                 type="button"
+                aria-label={`Remove ${label}`}
                 onClick={() => void handleRemove(row.idAttachment)}
               >
                 Remove
