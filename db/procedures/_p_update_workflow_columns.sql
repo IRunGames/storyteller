@@ -111,6 +111,11 @@ BEGIN
                     tbl.table_name, timestamp_column_name, column_definition
                 );
                 RAISE NOTICE 'Column % added to table %', timestamp_column_name, tbl.table_name;
+                PERFORM _log_table_activity(tbl.table_name, 'success', 'create_column',
+                    jsonb_build_object('procedure', '_p_update_workflow_columns',
+                                       'feature', 'status_workflow',
+                                       'target', timestamp_column_name,
+                                       'detail', column_definition));
 
             ELSIF existing_type <> column_definition THEN
                 -- The setting has changed since the column was built. Convert
@@ -128,6 +133,11 @@ BEGIN
                     tbl.table_name, timestamp_column_name, column_definition, timestamp_column_name
                 );
                 RAISE NOTICE 'Column % converted in table %', timestamp_column_name, tbl.table_name;
+                PERFORM _log_table_activity(tbl.table_name, 'success', 'alter_column_type',
+                    jsonb_build_object('procedure', '_p_update_workflow_columns',
+                                       'feature', 'status_workflow',
+                                       'target', timestamp_column_name,
+                                       'detail', existing_type || ' -> ' || column_definition));
 
             ELSE
                 RAISE NOTICE 'Column % already exists with the correct type in table %',

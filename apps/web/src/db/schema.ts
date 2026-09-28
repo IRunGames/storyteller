@@ -319,7 +319,7 @@ export const sStatuses = pgTable("s_statuses", {
 // bookkeeping (the needs_* / has_* flags, the search recipe, the cull rules),
 // and nothing in the web app should be reading or writing it.
 export const tablesMeta = pgTable("_tables", {
-  idTable: integer("_table_id").primaryKey(),
+  idTable: integer("_id_table").primaryKey(),
   tableName: text("table_name"),
   idStatusWorkflows: bigint("s_status_workflow_ids", { mode: "number" }).array(),
 });

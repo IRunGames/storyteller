@@ -23,6 +23,8 @@ whenever the workflow’s designated status column changes or is initially set.
 */
 DECLARE
     tbl RECORD;
+    fdef_before TEXT;
+    fdef_after TEXT;
     valid_statuses TEXT[];
     dynamic_case_statements TEXT;
     status TEXT;
@@ -83,6 +85,14 @@ BEGIN
         END LOOP;
         RAISE NOTICE 'Generated CASE statements for table %: %', tbl.table_name, dynamic_case_statements;
 
+        -- The function is dropped and recreated every run, so its source is
+        -- captured first and compared afterwards. Recreating identical source
+        -- is not a change and must not be logged.
+        SELECT pg_get_functiondef(pr.oid) INTO fdef_before
+        FROM pg_proc pr
+        JOIN pg_namespace n ON n.oid = pr.pronamespace
+        WHERE pr.proname = function_name AND n.nspname = current_schema();
+
         -- Drop existing trigger function if it exists.
         RAISE NOTICE 'Dropping existing trigger function % if it exists.', function_name;
         EXECUTE format(
@@ -133,6 +143,25 @@ BEGIN
             function_name
         );
         RAISE NOTICE 'Trigger % attached to table %.', trigger_name, tbl.table_name;
+
+        SELECT pg_get_functiondef(pr.oid) INTO fdef_after
+        FROM pg_proc pr
+        JOIN pg_namespace n ON n.oid = pr.pronamespace
+        WHERE pr.proname = function_name AND n.nspname = current_schema();
+
+        IF fdef_before IS NULL THEN
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'create_trigger',
+                jsonb_build_object('procedure', '_p_update_workflow_status_timestamp_triggers',
+                                   'feature', 'status_workflow',
+                                   'target', trigger_name, 'detail', function_name));
+        ELSIF fdef_after IS DISTINCT FROM fdef_before THEN
+            -- The statuses changed, so the stamping function's CASE arms did
+            -- too. That is a real change to what the trigger does.
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'update_trigger',
+                jsonb_build_object('procedure', '_p_update_workflow_status_timestamp_triggers',
+                                   'feature', 'status_workflow',
+                                   'target', trigger_name, 'detail', function_name));
+        END IF;
     END LOOP;
 
     RAISE NOTICE 'Procedure "_p_update_workflow_status_timestamp_triggers" completed successfully.';

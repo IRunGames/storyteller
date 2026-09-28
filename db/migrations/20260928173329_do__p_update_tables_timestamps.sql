@@ -1,0 +1,196 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE PROCEDURE', clock_timestamp();
+
+    DROP PROCEDURE IF EXISTS _p_update_tables_timestamps;
+
+    -- ------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE _p_update_tables_timestamps()
+LANGUAGE plpgsql
+AS $procedure$
+/*
+====================================================================
+- Description -
+Ensures all tables flagged with `needs_timestamps` in `_tables` have 
+proper `created_at` and `updated_at` columns with the correct type and 
+default value. Also attaches a trigger to maintain the `updated_at` 
+column whenever a row is updated.
+
+- Steps Performed -
+1. Retrieve the global setting `use_timestamp_with_timezone` to determine 
+   the type of timestamp columns (`timestamp` vs. `timestamp with time zone`).
+2. Iterate through tables flagged with `needs_timestamps = TRUE` in `_tables`.
+3. Validate or recreate the `created_at` column with the appropriate type 
+   and default value.
+4. Validate or recreate the `updated_at` column with the appropriate type 
+   and default value.
+5. Attach a `BEFORE UPDATE` trigger to the table for managing the 
+   `updated_at` column automatically.
+6. Update the metadata in `_tables` to indicate that the table now has 
+   timestamp columns.
+====================================================================
+*/
+DECLARE
+    tbl RECORD;
+    column_type TEXT;
+    default_value TEXT;
+    use_timestamp_with_timezone BOOLEAN;
+    column_definition TEXT;
+    existed BOOLEAN;
+    had_trigger BOOLEAN;
+BEGIN
+    RAISE NOTICE 'Procedure "_p_update_tables_timestamps" started.';
+
+    -- Retrieve the `use_timestamp_with_timezone` setting
+    SELECT value::BOOLEAN
+    INTO use_timestamp_with_timezone
+    FROM _global_settings
+    WHERE key = 'timestamp_with_timezone';
+
+    -- Determine the column type based on the setting.
+    --
+    -- Spelled the way Postgres reports it, not the short form. This value is
+    -- compared against the column's actual type below, and 'timestamp' never
+    -- equals the reported 'timestamp without time zone' -- so the mismatch
+    -- branch fired on every run, and that branch DROPs the column and re-adds
+    -- it, discarding every created_at and updated_at value in the schema.
+    IF use_timestamp_with_timezone THEN
+        column_definition := 'timestamp with time zone';
+    ELSE
+        column_definition := 'timestamp without time zone';
+    END IF;
+
+    -- Loop through tables where needs_timestamps = TRUE
+    FOR tbl IN
+        SELECT table_name
+        FROM _tables
+        WHERE needs_timestamps = TRUE
+    LOOP
+        -- Check `created_at` column type and default
+      BEGIN
+        SELECT data_type, column_default
+        INTO column_type, default_value
+        FROM information_schema.columns
+        WHERE table_name = tbl.table_name
+          AND column_name = 'created_at';
+
+        -- Recreate `created_at` if it doesn't meet requirements or doesn't exist
+        IF column_type IS NULL OR column_type != column_definition OR default_value IS DISTINCT FROM 'now()' THEN
+            IF column_type IS NOT NULL THEN
+                RAISE NOTICE '"created_at" column exists in table % but is incorrect. Dropping and recreating.', tbl.table_name;
+                EXECUTE format(
+                    'ALTER TABLE IF EXISTS %I DROP COLUMN created_at',
+                    tbl.table_name
+                );
+            ELSE
+                RAISE NOTICE '"created_at" column does not exist in table %. Adding column.', tbl.table_name;
+            END IF;
+
+            -- Add the column with the correct type and default
+            existed := column_type IS NOT NULL;
+            EXECUTE format(
+                'ALTER TABLE IF EXISTS %I ADD COLUMN created_at %s',
+                tbl.table_name, CONCAT(column_definition, ' DEFAULT now()')
+            );
+            -- Only the branch that actually built or rebuilt the column logs;
+            -- the ELSE below is the case where it already met requirements.
+            PERFORM _log_table_activity(tbl.table_name, 'success',
+                CASE WHEN existed THEN 'recreate_column' ELSE 'create_column' END,
+                jsonb_build_object('procedure', '_p_update_tables_timestamps',
+                                   'feature', 'timestamps', 'target', 'created_at',
+                                   'detail', CONCAT(column_definition, ' DEFAULT now()')));
+        ELSE
+            RAISE NOTICE '"created_at" column in table % already meets requirements.', tbl.table_name;
+        END IF;
+
+        -- Check `updated_at` column type and default
+        SELECT data_type, column_default
+        INTO column_type, default_value
+        FROM information_schema.columns
+        WHERE table_name = tbl.table_name
+          AND column_name = 'updated_at';
+
+        -- Recreate `updated_at` if it doesn't meet requirements or doesn't exist
+        IF column_type IS NULL OR column_type != column_definition OR default_value IS DISTINCT FROM 'now()' THEN
+            IF column_type IS NOT NULL THEN
+                RAISE NOTICE '"updated_at" column exists in table % but is incorrect. Dropping and recreating.', tbl.table_name;
+                EXECUTE format(
+                    'ALTER TABLE IF EXISTS %I DROP COLUMN updated_at',
+                    tbl.table_name
+                );
+            ELSE
+                RAISE NOTICE '"updated_at" column does not exist in table %. Adding column.', tbl.table_name;
+            END IF;
+
+            existed := column_type IS NOT NULL;
+            EXECUTE format(
+                'ALTER TABLE IF EXISTS %I ADD COLUMN updated_at %s',
+                tbl.table_name, CONCAT(column_definition, ' DEFAULT now()')
+            );
+            -- Only the branch that actually built or rebuilt the column logs;
+            -- the ELSE below is the case where it already met requirements.
+            PERFORM _log_table_activity(tbl.table_name, 'success',
+                CASE WHEN existed THEN 'recreate_column' ELSE 'create_column' END,
+                jsonb_build_object('procedure', '_p_update_tables_timestamps',
+                                   'feature', 'timestamps', 'target', 'updated_at',
+                                   'detail', CONCAT(column_definition, ' DEFAULT now()')));
+        ELSE
+            RAISE NOTICE '"updated_at" column in table % already meets requirements.', tbl.table_name;
+        END IF;
+
+        -- Attach the `updated_at` trigger. CREATE OR REPLACE always succeeds,
+        -- so whether the trigger was already there is checked beforehand —
+        -- replacing an identical trigger is not an event.
+        SELECT EXISTS (
+            SELECT 1 FROM pg_trigger t
+            JOIN pg_class c ON c.oid = t.tgrelid
+            WHERE c.relname = tbl.table_name
+              AND t.tgname = 'set_updated_at'
+              AND NOT t.tgisinternal
+        ) INTO had_trigger;
+
+        RAISE NOTICE 'Ensuring trigger for "updated_at" column in table %.', tbl.table_name;
+        EXECUTE format(
+            'CREATE OR REPLACE TRIGGER set_updated_at
+             BEFORE UPDATE ON %I
+             FOR EACH ROW
+             EXECUTE FUNCTION tr_update_updated_at()',
+            tbl.table_name
+        );
+
+        IF NOT had_trigger THEN
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'create_trigger',
+                jsonb_build_object('procedure', '_p_update_tables_timestamps',
+                                   'feature', 'timestamps', 'target', 'set_updated_at'));
+        END IF;
+
+        -- Update the `has_timestamps` flag to TRUE
+        RAISE NOTICE 'Updating metadata for table % to reflect timestamp handling.', tbl.table_name;
+        UPDATE _tables
+        SET has_timestamps = TRUE,
+            updated_at = NOW()
+        WHERE table_name = tbl.table_name;
+
+      EXCEPTION WHEN OTHERS THEN
+        -- Per-table handler so one table's failure is recorded and the run
+        -- continues. Without it the error aborts the whole call and the
+        -- rollback discards the log entry with it.
+        RAISE NOTICE 'Failed to configure timestamps for table: %. Error: %', tbl.table_name, SQLERRM;
+        UPDATE _tables SET has_timestamps = FALSE, updated_at = NOW()
+        WHERE table_name = tbl.table_name;
+        PERFORM _log_table_activity(tbl.table_name, 'error', 'configure_timestamps',
+            jsonb_build_object('procedure', '_p_update_tables_timestamps',
+                               'feature', 'timestamps', 'detail', SQLERRM));
+      END;
+    END LOOP;
+
+    RAISE NOTICE 'Procedure "_p_update_tables_timestamps" completed successfully.';
+END $procedure$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_PROCEDURE.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

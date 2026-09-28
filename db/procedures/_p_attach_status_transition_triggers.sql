@@ -29,6 +29,8 @@ AS $$
 DECLARE
     actionName VARCHAR DEFAULT '_p_attach_status_transition_triggers';
     actionVersion VARCHAR DEFAULT '2025-03-18';
+    tdef_before TEXT;
+    tdef_after TEXT;
     log_id BIGINT := _action_log_start(
         actionName,
         actionVersion,
@@ -47,6 +49,15 @@ BEGIN
     JOIN s_status_workflows w ON w.s_status_workflow_id = ANY(t.s_status_workflow_ids)
     LOOP
         trigger_name := format('tr_bu_status_transition_%s_%s', tbl.table_name, tbl.status_column);
+        -- The trigger is dropped and recreated every run, so its definition
+        -- is read first and compared after. Recreating an identical trigger
+        -- is not a change and must not be logged.
+        SELECT pg_get_triggerdef(tg.oid) INTO tdef_before
+        FROM pg_trigger tg
+        JOIN pg_class c ON c.oid = tg.tgrelid
+        WHERE c.relname = tbl.table_name AND tg.tgname = trigger_name
+          AND NOT tg.tgisinternal;
+
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', trigger_name, tbl.table_name);
         EXECUTE format(
             'CREATE TRIGGER %I BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION validate_status_transition(%L)',
@@ -54,6 +65,24 @@ BEGIN
             tbl.table_name,
             tbl.status_column
         );
+        SELECT pg_get_triggerdef(tg.oid) INTO tdef_after
+        FROM pg_trigger tg
+        JOIN pg_class c ON c.oid = tg.tgrelid
+        WHERE c.relname = tbl.table_name AND tg.tgname = trigger_name
+          AND NOT tg.tgisinternal;
+
+        IF tdef_before IS NULL THEN
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'create_trigger',
+                jsonb_build_object('procedure', '_p_attach_status_transition_triggers',
+                                   'feature', 'status_workflow',
+                                   'target', trigger_name, 'detail', tdef_after));
+        ELSIF tdef_after IS DISTINCT FROM tdef_before THEN
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'update_trigger',
+                jsonb_build_object('procedure', '_p_attach_status_transition_triggers',
+                                   'feature', 'status_workflow',
+                                   'target', trigger_name, 'detail', tdef_after));
+        END IF;
+
         RAISE NOTICE 'Trigger % attached to table %.', trigger_name, tbl.table_name;
         PERFORM _action_log_step(
             log_id,

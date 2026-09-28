@@ -22,6 +22,8 @@ for the associated workflow.
 DECLARE
     tbl RECORD;
     valid_statuses TEXT[];
+    def_before TEXT;
+    def_after TEXT;
     status_column TEXT;
     status_column_constraint TEXT;
 BEGIN
@@ -35,6 +37,7 @@ BEGIN
     LOOP
         RAISE NOTICE 'Processing table: %', tbl.table_name;
 
+      BEGIN
         -- Retrieve valid statuses for the table's workflow
         SELECT ARRAY_AGG(s.status_key)
         INTO valid_statuses
@@ -54,6 +57,15 @@ BEGIN
 
         RAISE NOTICE 'Ensuring constraint "%s" on table "%s".', status_column_constraint, tbl.table_name;
 
+        -- The constraint is dropped and re-added on every run, so its
+        -- definition is captured first and compared afterwards. Re-adding an
+        -- identical CHECK is not a change and must not be logged.
+        SELECT pg_get_constraintdef(c.oid)
+        INTO def_before
+        FROM pg_constraint c
+        WHERE c.conname = status_column_constraint
+          AND c.conrelid = tbl.table_name::regclass;
+
         -- Drop existing constraint if it exists
         RAISE NOTICE 'Dropping existing constraint "%s" (if it exists).', status_column_constraint;
         EXECUTE format(
@@ -71,7 +83,32 @@ BEGIN
             array_to_string(ARRAY(SELECT quote_literal(unnest(valid_statuses))), ', ')
         );
 
+        SELECT pg_get_constraintdef(c.oid)
+        INTO def_after
+        FROM pg_constraint c
+        WHERE c.conname = status_column_constraint
+          AND c.conrelid = tbl.table_name::regclass;
+
+        IF def_before IS NULL THEN
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'create_constraint',
+                jsonb_build_object('procedure', '_p_update_workflow_constraints',
+                                   'feature', 'status_workflow',
+                                   'target', status_column_constraint, 'detail', def_after));
+        ELSIF def_after IS DISTINCT FROM def_before THEN
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'update_constraint',
+                jsonb_build_object('procedure', '_p_update_workflow_constraints',
+                                   'feature', 'status_workflow',
+                                   'target', status_column_constraint, 'detail', def_after));
+        END IF;
+
         RAISE NOTICE 'Constraint "%s" successfully added to table "%s".', status_column_constraint, tbl.table_name;
+
+      EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'Failed to configure status constraint for table: %. Error: %', tbl.table_name, SQLERRM;
+        PERFORM _log_table_activity(tbl.table_name, 'error', 'configure_status_constraint',
+            jsonb_build_object('procedure', '_p_update_workflow_constraints',
+                               'feature', 'status_workflow', 'detail', SQLERRM));
+      END;
     END LOOP;
 
     RAISE NOTICE 'Procedure "_update_workflow_constraints" completed successfully.';

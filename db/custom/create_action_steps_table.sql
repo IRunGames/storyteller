@@ -3,9 +3,9 @@
 -- / _action_log_terminate() into _action_logs.action_log.
 CREATE TABLE _action_steps
 (
-    _action_step_id  BIGSERIAL
+    _id_action_step  BIGSERIAL
         PRIMARY KEY,
-    _action_log_id   BIGINT NOT NULL,
+    _id_action_log   BIGINT NOT NULL,
     step_name        VARCHAR,
     step_log         VARCHAR,
     action_name      VARCHAR,
@@ -18,6 +18,6 @@ CREATE TABLE _action_steps
 );
 
 -- Every read in _action_log_end / _action_log_terminate filters on the log id,
--- then orders by created_at, _action_step_id.
+-- then orders by created_at, _id_action_step.
 CREATE INDEX _action_steps_action_log_id_idx
-    ON _action_steps (_action_log_id, created_at, _action_step_id);
+    ON _action_steps (_id_action_log, created_at, _id_action_step);

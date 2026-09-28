@@ -92,6 +92,12 @@ BEGIN
             IF NOT exists_index THEN
                 EXECUTE format('CREATE INDEX %I ON %I (%I)', index_name, tbl.table_name, fk.fk_column);
                 PERFORM _action_log_step(idLog, CONCAT('Created index: ', index_name, ' on column: ', fk.fk_column), tbl.table_name, 1);
+                -- Only this branch built anything; the ELSE below is the
+                -- index already being there, which is not an event.
+                PERFORM _log_table_activity(tbl.table_name, 'success', 'create_index',
+                    jsonb_build_object('procedure', '_p_update_fk_indexes',
+                                       'feature', 'fk_indexes', 'target', index_name,
+                                       'detail', fk.fk_column));
                 affected_count := affected_count + 1;
             ELSE
                 PERFORM _action_log_step(idLog, CONCAT('Index already exists: ', index_name), tbl.table_name, 0);

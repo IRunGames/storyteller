@@ -20,6 +20,7 @@ NOT NULL with a default of '[]'::jsonb.
 DECLARE
     tbl RECORD;
     column_type TEXT;
+    was_nullable BOOLEAN;
 BEGIN
     RAISE NOTICE 'Starting procedure "_p_update_tables_activity_log".';
 
@@ -32,8 +33,8 @@ BEGIN
 
         BEGIN
             -- Check if activity_log column exists
-            SELECT data_type
-            INTO column_type
+            SELECT data_type, is_nullable = 'YES'
+            INTO column_type, was_nullable
             FROM information_schema.columns
             WHERE table_name = tbl.table_name
               AND column_name = 'activity_log';
@@ -46,6 +47,10 @@ BEGIN
                     tbl.table_name
                 );
                 RAISE NOTICE 'activity_log column added to table: %', tbl.table_name;
+                PERFORM _log_table_activity(tbl.table_name, 'success', 'create_column',
+                    jsonb_build_object('procedure', '_p_update_tables_activity_log',
+                                       'feature', 'activity_log', 'target', 'activity_log',
+                                       'detail', 'JSONB NOT NULL DEFAULT ''[]'''));
             ELSE
                 -- Column exists — backfill NULLs, then ensure NOT NULL + default
                 RAISE NOTICE 'activity_log column exists in table: %. Ensuring NOT NULL with default.', tbl.table_name;
@@ -62,6 +67,13 @@ BEGIN
                     tbl.table_name
                 );
                 RAISE NOTICE 'activity_log column updated in table: %', tbl.table_name;
+                -- Only a column that was actually nullable has changed;
+                -- re-asserting NOT NULL on one that already had it is a no-op.
+                IF was_nullable THEN
+                    PERFORM _log_table_activity(tbl.table_name, 'success', 'set_not_null',
+                        jsonb_build_object('procedure', '_p_update_tables_activity_log',
+                                           'feature', 'activity_log', 'target', 'activity_log'));
+                END IF;
             END IF;
 
             -- Mark success
@@ -73,6 +85,10 @@ BEGIN
 
         EXCEPTION WHEN OTHERS THEN
             RAISE NOTICE 'Failed to configure activity_log for table: %. Error: %', tbl.table_name, SQLERRM;
+            PERFORM _log_table_activity(tbl.table_name, 'error', 'configure_activity_log',
+                jsonb_build_object('procedure', '_p_update_tables_activity_log',
+                                   'feature', 'activity_log', 'target', 'activity_log',
+                                   'detail', SQLERRM));
             UPDATE _tables
             SET has_activity_log = FALSE,
                 updated_at = NOW()

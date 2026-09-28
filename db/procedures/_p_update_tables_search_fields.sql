@@ -46,6 +46,7 @@ BEGIN
 		WHERE t.search_fields IS NOT NULL
 		ORDER BY t.table_name ASC
 		LOOP
+		  BEGIN
 			-- Increment the processed count
 			processed_count := processed_count + 1;
 
@@ -95,6 +96,21 @@ BEGIN
 					-- log added search column
 					PERFORM _action_log_step(idLog, CONCAT('Added search column: ', search_col_name, ' to ', tbl.table_name),
 					                         tbl.table_name::VARCHAR, 1);
+
+					-- Reached only when the column did not exist and was built.
+					PERFORM _log_table_activity(tbl.table_name, 'success', 'create_column',
+						jsonb_build_object('procedure', '_p_update_tables_search_fields',
+						                   'feature', 'search_fields', 'target', search_col_name,
+						                   'detail', col_names));
+				ELSE
+					-- Declared search_fields that match no text column at all.
+					-- Nothing is built, and saying so is the only way the
+					-- caller finds out the declaration was unusable.
+					PERFORM _log_table_activity(tbl.table_name, 'error', 'configure_search_fields',
+						jsonb_build_object('procedure', '_p_update_tables_search_fields',
+						                   'feature', 'search_fields', 'target', search_col_name,
+						                   'detail', 'no text columns matched search_fields: '
+						                             || array_to_string(tbl.search_fields, ', ')));
 				END IF;
 
 			ELSE
@@ -102,6 +118,13 @@ BEGIN
 				                                       '] ; skipping'), tbl.table_name::VARCHAR);
 
 			END IF;
+
+		  EXCEPTION WHEN OTHERS THEN
+			RAISE NOTICE 'Failed to configure search_fields for table: %. Error: %', tbl.table_name, SQLERRM;
+			PERFORM _log_table_activity(tbl.table_name, 'error', 'configure_search_fields',
+				jsonb_build_object('procedure', '_p_update_tables_search_fields',
+				                   'feature', 'search_fields', 'detail', SQLERRM));
+		  END;
 		END LOOP;
 
 	-- End the action log

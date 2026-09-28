@@ -101,6 +101,12 @@ BEGIN
             );
 
             RAISE NOTICE 'Successfully created trigger "%s" on table "%s".', trigger_name, tbl.table_name;
+            -- Reached only when the trigger was absent; the branch above is
+            -- the "No action needed" case and stays unlogged.
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'create_trigger',
+                jsonb_build_object('procedure', '_p_attach_workflow_triggers',
+                                   'feature', 'status_workflow',
+                                   'target', trigger_name, 'detail', workflow_function));
         END IF;
 
         RAISE NOTICE '--------------------------------------';

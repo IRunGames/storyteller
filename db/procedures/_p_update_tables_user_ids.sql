@@ -23,6 +23,10 @@ columns with foreign key constraints to the users table.
 */
 DECLARE
     tbl RECORD;
+    had_created_col BOOLEAN;
+    had_updated_col BOOLEAN;
+    had_created_fk BOOLEAN;
+    had_updated_fk BOOLEAN;
     column_type TEXT;
 BEGIN
     RAISE NOTICE 'Starting procedure "_p_update_tables_user_ids".';
@@ -34,6 +38,18 @@ BEGIN
         WHERE needs_user_ids = TRUE
     LOOP
         RAISE NOTICE 'Processing table: %', tbl.table_name;
+
+      BEGIN
+        -- The helpers below do not report whether they changed anything, and
+        -- the foreign keys are dropped and re-added on every run, so what was
+        -- already there is recorded first. Only what is genuinely new is
+        -- logged; re-adding an identical constraint is not an event.
+        had_created_col := _column_exists(tbl.table_name, 'id_created_by_user');
+        had_updated_col := _column_exists(tbl.table_name, 'id_updated_by_user');
+        had_created_fk  := _constraint_exists(tbl.table_name,
+                               format('fk_%s_id_created_by_user', tbl.table_name));
+        had_updated_fk  := _constraint_exists(tbl.table_name,
+                               format('fk_%s_id_updated_by_user', tbl.table_name));
 
         -- Drop existing foreign key constraints before modifying columns.
         PERFORM _drop_foreign_key_constraint(tbl.table_name, format('fk_%s_id_created_by_user', tbl.table_name));
@@ -55,6 +71,33 @@ BEGIN
         PERFORM _ensure_foreign_key(tbl.table_name, 'id_created_by_user', 'users', 'id_user');
         PERFORM _ensure_foreign_key(tbl.table_name, 'id_updated_by_user', 'users', 'id_user');
 
+        IF NOT had_created_col THEN
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'create_column',
+                jsonb_build_object('procedure', '_p_update_tables_user_ids',
+                                   'feature', 'user_ids', 'target', 'id_created_by_user',
+                                   'detail', 'UUID NULL'));
+        END IF;
+        IF NOT had_updated_col THEN
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'create_column',
+                jsonb_build_object('procedure', '_p_update_tables_user_ids',
+                                   'feature', 'user_ids', 'target', 'id_updated_by_user',
+                                   'detail', 'UUID NULL'));
+        END IF;
+        IF NOT had_created_fk THEN
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'create_foreign_key',
+                jsonb_build_object('procedure', '_p_update_tables_user_ids',
+                                   'feature', 'user_ids',
+                                   'target', format('fk_%s_id_created_by_user', tbl.table_name),
+                                   'detail', 'users.id_user'));
+        END IF;
+        IF NOT had_updated_fk THEN
+            PERFORM _log_table_activity(tbl.table_name, 'success', 'create_foreign_key',
+                jsonb_build_object('procedure', '_p_update_tables_user_ids',
+                                   'feature', 'user_ids',
+                                   'target', format('fk_%s_id_updated_by_user', tbl.table_name),
+                                   'detail', 'users.id_user'));
+        END IF;
+
         -- Update the `needs_user_ids` and `has_user_ids` flags
         RAISE NOTICE 'Updating metadata for table: % in "_tables".', tbl.table_name;
         UPDATE _tables
@@ -62,6 +105,15 @@ BEGIN
             updated_at = NOW()
         WHERE table_name = tbl.table_name;
         RAISE NOTICE 'Metadata updated for table: %', tbl.table_name;
+
+      EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'Failed to configure user_ids for table: %. Error: %', tbl.table_name, SQLERRM;
+        UPDATE _tables SET has_user_ids = FALSE, updated_at = NOW()
+        WHERE table_name = tbl.table_name;
+        PERFORM _log_table_activity(tbl.table_name, 'error', 'configure_user_ids',
+            jsonb_build_object('procedure', '_p_update_tables_user_ids',
+                               'feature', 'user_ids', 'detail', SQLERRM));
+      END;
     END LOOP;
 
     RAISE NOTICE 'Procedure "_p_update_tables_user_ids" completed successfully.';

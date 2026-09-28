@@ -58,6 +58,8 @@ DECLARE
     kind_column TEXT;
     kind_udt_name TEXT;
     kind_values TEXT[];
+    tags_column TEXT;
+    has_tags BOOLEAN;
 
     -- Results tracking
     processed_count BIGINT DEFAULT 0;
@@ -245,26 +247,90 @@ BEGIN
 
         PERFORM _action_log_step(idLog, CONCAT('Primary key dependants for table ', tbl.table_name, ': ', primary_key_dependants), tbl.table_name::VARCHAR, 0);
 
-        -- Kind column info
-        -- Get enum name + column
-        SELECT
-            column_name, udt_name INTO kind_column, kind_udt_name
-        FROM
-            information_schema.columns
-        WHERE
-            table_name = tbl.table_name
-            AND udt_name IN (
-                SELECT t.typname
-                FROM pg_type t
-                JOIN pg_enum e ON t.oid = e.enumtypid
-            );
-        -- Get enum array
-        SELECT ARRAY_AGG(enumlabel ORDER BY enumsortorder) INTO kind_values
-        FROM pg_enum
-        JOIN pg_type ON pg_enum.enumtypid = pg_type.oid
-        WHERE pg_type.typname = kind_udt_name
-        GROUP BY pg_enum.enumtypid;
-        PERFORM _action_log_step(idLog, CONCAT('Kind column for table ', tbl.table_name, ': ', kind_column), tbl.table_name::VARCHAR, 0);
+        -- Kind column.
+        --
+        -- Declared, not guessed. This block used to find a table's kind column
+        -- by scanning for any enum-typed column, which meant a table could
+        -- never carry both a `status` enum and a `kind` enum: the
+        -- SELECT ... INTO raised 'query returned more than one row' as soon as
+        -- there were two. _tables.kind_column names the column instead,
+        -- defaulting to `kind`.
+        --
+        -- This procedure only records what is already there. Building the
+        -- column and its enum type from declared kind_values is
+        -- _p_update_tables_kinds()'s job, the same way needs_timestamps is
+        -- declared here and acted on by _p_update_tables_timestamps().
+        SELECT t.kind_column INTO kind_column
+        FROM _tables t
+        WHERE t.table_name = tbl.table_name;
+
+        kind_column := COALESCE(kind_column, 'kind');
+
+        SELECT c.udt_name INTO kind_udt_name
+        FROM information_schema.columns c
+        WHERE c.table_schema = current_schema()
+          AND c.table_name = tbl.table_name
+          AND c.column_name = kind_column;
+
+        IF kind_udt_name IS NULL THEN
+            -- Nothing there yet. A table that declares kind_values gets its
+            -- column on the next _p_update_tables_kinds() call.
+            kind_column := NULL;
+            kind_values := NULL;
+        ELSE
+            -- The named column exists, so it must be an enum: a declaration
+            -- that cannot be satisfied fails loudly rather than quietly
+            -- recording nothing, as the create scripts' guards do.
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_type ty
+                JOIN pg_enum e ON e.enumtypid = ty.oid
+                WHERE ty.typname = kind_udt_name
+                  AND ty.typnamespace = current_schema()::regnamespace
+            ) THEN
+                RAISE EXCEPTION
+                    'Table %.% names % as its kind column, but that column is % '
+                    'and not an enum type.',
+                    current_schema(), tbl.table_name, kind_column, kind_udt_name;
+            END IF;
+
+            SELECT ARRAY_AGG(enumlabel ORDER BY enumsortorder) INTO kind_values
+            FROM pg_enum
+            JOIN pg_type ON pg_enum.enumtypid = pg_type.oid
+            WHERE pg_type.typname = kind_udt_name
+              AND pg_type.typnamespace = current_schema()::regnamespace
+            GROUP BY pg_enum.enumtypid;
+        END IF;
+
+        PERFORM _action_log_step(idLog, CONCAT('Kind column for table ', tbl.table_name, ': ',
+            COALESCE(kind_column, 'none')), tbl.table_name::VARCHAR, 0);
+
+        -- Tags column. Declared like the kind column: _tables.tags_column
+        -- names it, defaulting to `tags`, and this only records whether it is
+        -- there. _p_update_tables_tags() is what builds it.
+        SELECT t.tags_column INTO tags_column
+        FROM _tables t
+        WHERE t.table_name = tbl.table_name;
+
+        tags_column := COALESCE(tags_column, 'tags');
+
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns c
+            WHERE c.table_schema = current_schema()
+              AND c.table_name = tbl.table_name
+              AND c.column_name = tags_column
+              AND c.udt_name = '_text'
+        ) INTO has_tags;
+
+        -- Only name a column that is actually there, so tags_column stays a
+        -- declaration for tables that have one and null for tables that do not.
+        IF NOT has_tags THEN
+            tags_column := NULL;
+        END IF;
+
+        PERFORM _action_log_step(idLog, CONCAT('Tags column for table ', tbl.table_name, ': ',
+            COALESCE(tags_column, 'none')), tbl.table_name::VARCHAR, 0);
 
         -- Insert or update the table information in `_tables`
         BEGIN
@@ -275,7 +341,8 @@ BEGIN
                 id_is_uuid, foreign_key_dependencies,
                 primary_key_dependants, needs_fk_indexes,
                 created_at, updated_at,
-                kind_column, kind_values
+                kind_column, kind_values,
+                has_tags, tags_column
             )
             VALUES (
                 tbl.table_name,
@@ -294,7 +361,9 @@ BEGIN
                 NOW(),
                 NOW(),
                 kind_column,
-                kind_values
+                kind_values,
+                has_tags,
+                tags_column
             )
             ON CONFLICT (table_name) DO UPDATE
             SET has_timestamps = EXCLUDED.has_timestamps,
@@ -306,7 +375,9 @@ BEGIN
                 primary_key_dependants = EXCLUDED.primary_key_dependants,
                 updated_at = NOW(),
                 kind_column = EXCLUDED.kind_column,
-                kind_values = EXCLUDED.kind_values;
+                kind_values = EXCLUDED.kind_values,
+                has_tags = EXCLUDED.has_tags,
+                tags_column = EXCLUDED.tags_column;
 
             -- Log successful table update
             PERFORM _action_log_step(idLog, CONCAT('Updated metadata for table: ', tbl.table_name), tbl.table_name::VARCHAR, 1);

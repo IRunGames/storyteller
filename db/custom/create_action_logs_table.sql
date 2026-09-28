@@ -4,7 +4,7 @@
 -- and is aggregated into action_log when the entry is closed.
 CREATE TABLE _action_logs
 (
-    _action_log_id   BIGSERIAL
+    _id_action_log   BIGSERIAL
         PRIMARY KEY,
     action_name      VARCHAR,
     action_version   VARCHAR,

@@ -8,5 +8,9 @@
     ".git/{index,*refs,*HEAD}",
     ".vscode",
     ".vscode-insiders"
+  ],
+  "words": [
+    "dbmate",
+    "plpgsql"
   ]
 }

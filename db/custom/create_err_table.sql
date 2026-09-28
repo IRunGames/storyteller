@@ -3,7 +3,7 @@
 -- failure on _action_steps.
 CREATE TABLE _err
 (
-    _err_id    BIGSERIAL
+    _id_err    BIGSERIAL
         PRIMARY KEY,
     error_text TEXT,
     area       VARCHAR,
