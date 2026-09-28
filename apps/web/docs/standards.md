@@ -105,6 +105,12 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   [`authorize.ts`](../src/lib/authorize.ts). That checks the session _and_ the
   `users` row (exists, active), so a stale cookie for a deactivated account
   does nothing. There is no separate query layer.
+- **One exception, and only one: `app/api/blob/upload/route.ts`.** `upload()`
+  from `@vercel/blob/client` needs an HTTP endpoint to POST to for a token,
+  which a server action cannot be. It opens with the same `requireUser()` an
+  action does, and it checks the client-supplied pathname against that user's
+  own prefix. Uploading is the only thing that earns a route handler; adding
+  another needs the same kind of reason.
 - **Every exported action is named with the `sa_` prefix**: `sa_listNews`,
   `sa_setFavorite`, `sa_submitFeedback`. A call site and a `mock.module` then
   both show at a glance that the call crosses the network. Only the export is
