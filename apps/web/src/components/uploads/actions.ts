@@ -4,7 +4,13 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { del } from "@vercel/blob";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/authorize";
-import { isUploadedBlobUrl } from "@/lib/image-uploads";
+import { isOwnUploadedBlobUrl, isUploadedBlobUrl } from "@/lib/image-uploads";
+import {
+  attachmentIdsSchema,
+  attachmentKindSchema,
+  idAttachmentSchema,
+  idExternalSchema,
+} from "@/lib/attachment-schemas";
 import type { Attachment, AttachmentKind } from "@/lib/attachments";
 
 const { attachments, stories, storySessions, storyScenes } = schema;
@@ -72,9 +78,11 @@ export async function sa_createAttachment(input: {
   byteSize?: number;
 }): Promise<{ idAttachment: number; status: string }> {
   const user = await requireUser();
+  const kind = attachmentKindSchema.parse(input.kind);
+  const idExternal = idExternalSchema.nullable().parse(input.idExternal);
 
-  if (input.idExternal !== null) {
-    const owns = await ownsAttachmentParent(user.id, input.kind, input.idExternal);
+  if (idExternal !== null) {
+    const owns = await ownsAttachmentParent(user.id, kind, idExternal);
     if (!owns) throw new Error("You do not have access to that story.");
   }
 
@@ -84,8 +92,8 @@ export async function sa_createAttachment(input: {
   const [row] = await db
     .insert(attachments)
     .values({
-      kind: input.kind,
-      idExternal: input.idExternal,
+      kind,
+      idExternal,
       status: isLink ? "READY" : sql`DEFAULT`,
       url: input.url ?? null,
       isUploaded: !isLink,
@@ -99,31 +107,54 @@ export async function sa_createAttachment(input: {
   return row;
 }
 
-/** Moves an upload from UPLOADING to READY once Blob confirms the file landed. */
+/**
+ * Moves an upload from UPLOADING to READY once Blob confirms the file
+ * landed, and records where it landed. url is client-supplied and otherwise
+ * unconstrained -- a typed external link is legal here too, and is how
+ * sa_createAttachment's own READY rows work -- but a Blob url that is not
+ * the caller's own is refused. Without this check a caller could point a
+ * row they own at another user's key, and sa_deleteAttachment's later
+ * isOwnUploadedBlobUrl guard would not save the victim: the row really
+ * would be "ours" to delete, only the key would not be.
+ */
 export async function sa_markAttachmentReady(id: number, url: string): Promise<void> {
   const user = await requireUser();
+  const attachmentId = idAttachmentSchema.parse(id);
+
+  if (isUploadedBlobUrl(url) && !isOwnUploadedBlobUrl(url, user.id)) {
+    throw new Error("That upload does not belong to you.");
+  }
+
   await db
     .update(attachments)
     .set({ status: "READY", url, idUpdatedByUser: user.id })
-    .where(and(eq(attachments.idAttachment, id), eq(attachments.idCreatedByUser, user.id)));
+    .where(
+      and(eq(attachments.idAttachment, attachmentId), eq(attachments.idCreatedByUser, user.id)),
+    );
 }
 
 /** Moves an upload from UPLOADING to ERROR when Blob reports a failure. */
 export async function sa_markAttachmentError(id: number): Promise<void> {
   const user = await requireUser();
+  const attachmentId = idAttachmentSchema.parse(id);
   await db
     .update(attachments)
     .set({ status: "ERROR", idUpdatedByUser: user.id })
-    .where(and(eq(attachments.idAttachment, id), eq(attachments.idCreatedByUser, user.id)));
+    .where(
+      and(eq(attachments.idAttachment, attachmentId), eq(attachments.idCreatedByUser, user.id)),
+    );
 }
 
 /** Moves a failed upload from ERROR back to UPLOADING so the field can try again. */
 export async function sa_retryAttachment(id: number): Promise<void> {
   const user = await requireUser();
+  const attachmentId = idAttachmentSchema.parse(id);
   await db
     .update(attachments)
     .set({ status: "UPLOADING", idUpdatedByUser: user.id })
-    .where(and(eq(attachments.idAttachment, id), eq(attachments.idCreatedByUser, user.id)));
+    .where(
+      and(eq(attachments.idAttachment, attachmentId), eq(attachments.idCreatedByUser, user.id)),
+    );
 }
 
 /**
@@ -131,13 +162,26 @@ export async function sa_retryAttachment(id: number): Promise<void> {
  * before anything else happens; a mismatch is thrown, the same treatment
  * sa_updateStory gives a story someone else created, since the caller cannot
  * fix "not yours" and does not need to be told which of "not yours" or "not
- * there" it was. Blob's del() is called only when isUploaded is true (this
- * file is ours to remove, not a link someone typed) and the url is still one
- * of ours to delete -- two conditions that do not imply each other, since
- * isUploaded is recorded at write time rather than re-derived from the url.
+ * there" it was.
+ *
+ * The row is deleted before Blob is asked to remove anything, not after: if
+ * del() ran first and the row delete then failed, the attachment would be
+ * left pointing at a 404. Deleting the row first and having a blob call
+ * fail instead just leaves an orphaned blob, which the sweep collects.
+ *
+ * Blob's del() is called only when isUploaded is true (this file is ours to
+ * remove, not a link someone typed) and the url is one of ours to delete --
+ * two conditions that do not imply each other, since isUploaded is recorded
+ * at write time rather than re-derived from the url. "Ours to delete" is
+ * isOwnUploadedBlobUrl, which also proves the key sits under this user's own
+ * uploads/<user-id>/ prefix; isUploadedBlobUrl alone only proves the host is
+ * Blob's, which a row's own url could satisfy while pointing at someone
+ * else's key (sa_markAttachmentReady refuses to write such a url, but this
+ * guard does not rely on that alone).
  */
 export async function sa_deleteAttachment(id: number): Promise<void> {
   const user = await requireUser();
+  const attachmentId = idAttachmentSchema.parse(id);
 
   const [row] = await db
     .select({
@@ -146,19 +190,21 @@ export async function sa_deleteAttachment(id: number): Promise<void> {
       url: attachments.url,
     })
     .from(attachments)
-    .where(eq(attachments.idAttachment, id))
+    .where(eq(attachments.idAttachment, attachmentId))
     .limit(1);
   if (!row || row.idCreatedByUser !== user.id) {
     throw new Error("Attachment not found");
   }
 
-  if (row.isUploaded && row.url && isUploadedBlobUrl(row.url)) {
-    await del(row.url);
-  }
-
   await db
     .delete(attachments)
-    .where(and(eq(attachments.idAttachment, id), eq(attachments.idCreatedByUser, user.id)));
+    .where(
+      and(eq(attachments.idAttachment, attachmentId), eq(attachments.idCreatedByUser, user.id)),
+    );
+
+  if (row.isUploaded && row.url && isOwnUploadedBlobUrl(row.url, user.id)) {
+    await del(row.url);
+  }
 }
 
 /**
@@ -172,7 +218,14 @@ export async function sa_listAttachments(
   idExternal: number,
 ): Promise<Attachment[]> {
   const user = await requireUser();
-  if (!(await ownsAttachmentParent(user.id, kind, idExternal))) return [];
+
+  // A bad kind or an id outside int4 is a query error rather than a missing
+  // row, so it is refused the same way an unowned parent is: an empty list.
+  const parsedKind = attachmentKindSchema.safeParse(kind);
+  const parsedId = idExternalSchema.safeParse(idExternal);
+  if (!parsedKind.success || !parsedId.success) return [];
+
+  if (!(await ownsAttachmentParent(user.id, parsedKind.data, parsedId.data))) return [];
 
   const rows = await db
     .select({
@@ -185,7 +238,7 @@ export async function sa_listAttachments(
       fileName: attachments.fileName,
     })
     .from(attachments)
-    .where(and(eq(attachments.kind, kind), eq(attachments.idExternal, idExternal)))
+    .where(and(eq(attachments.kind, parsedKind.data), eq(attachments.idExternal, parsedId.data)))
     .orderBy(asc(attachments.sortOrder), asc(attachments.idAttachment));
 
   // The kind column is a plain varchar in Drizzle (Postgres cannot point one
@@ -212,11 +265,17 @@ export async function sa_listAttachments(
  * and idExternal. Without this check, a caller could upload a picture of
  * their own -- entirely legitimate, it is the create-form path -- leave it
  * detached, and then claim it onto someone else's story, session or scene.
- * The create actions insert the parent and claim inside the same
- * transaction, so by the time a legitimate claim runs the caller already
- * owns what they just created and this check passes; a claim aimed
- * elsewhere is a request the UI should never make, so it is thrown rather
- * than silently ignored the way a merely-unmatched id is.
+ * A claim aimed elsewhere is a request the UI should never make, so it is
+ * thrown rather than silently ignored the way a merely-unmatched id is, and
+ * it is checked before the UPDATE runs so a refusal never leaves the rows
+ * partly claimed.
+ *
+ * This runs on the module-level `db`, the pooled connection, not inside a
+ * caller's transaction -- there is no `tx` parameter for one to hand in. A
+ * create action that inserts its parent and then calls this must commit the
+ * insert first: an ownsAttachmentParent lookup made from a different pooled
+ * connection cannot see an uncommitted row, and would refuse a claim that
+ * should have succeeded. Do not call this from inside `db.transaction(...)`.
  */
 export async function sa_claimAttachments(
   kind: AttachmentKind,
@@ -224,19 +283,22 @@ export async function sa_claimAttachments(
   ids: number[],
 ): Promise<void> {
   const user = await requireUser();
-  if (ids.length === 0) return;
+  const parsedKind = attachmentKindSchema.parse(kind);
+  const parsedIdExternal = idExternalSchema.parse(idExternal);
+  const parsedIds = attachmentIdsSchema.parse(ids);
+  if (parsedIds.length === 0) return;
 
-  if (!(await ownsAttachmentParent(user.id, kind, idExternal))) {
+  if (!(await ownsAttachmentParent(user.id, parsedKind, parsedIdExternal))) {
     throw new Error("You do not have access to that story.");
   }
 
   await db
     .update(attachments)
-    .set({ idExternal, idUpdatedByUser: user.id, updatedAt: new Date() })
+    .set({ idExternal: parsedIdExternal, idUpdatedByUser: user.id, updatedAt: new Date() })
     .where(
       and(
-        inArray(attachments.idAttachment, ids),
-        eq(attachments.kind, kind),
+        inArray(attachments.idAttachment, parsedIds),
+        eq(attachments.kind, parsedKind),
         isNull(attachments.idExternal),
         eq(attachments.idCreatedByUser, user.id),
       ),

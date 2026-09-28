@@ -206,7 +206,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
   it("deletes an owned upload and removes it from Blob", async () => {
     del.mock.resetCalls();
-    const url = "https://abc123.public.blob.vercel-storage.com/uploads/x/photo.png";
+    const url = `https://abc123.public.blob.vercel-storage.com/uploads/${SEED_USER}/photo.png`;
     const [created] = await db
       .insert(tables.attachments)
       .values({
@@ -252,6 +252,60 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       .from(tables.attachments)
       .where(eq(tables.attachments.idAttachment, created.id));
     expect(rows).toHaveLength(0);
+  });
+
+  // isUploadedBlobUrl alone only proves the host is Blob's; a row that is
+  // genuinely the caller's own can still point at someone else's key if
+  // sa_markAttachmentReady's own guard were ever bypassed (a row inserted
+  // directly, as this fixture does, or a future caller of this action).
+  // isOwnUploadedBlobUrl is what must gate the delete.
+  it("does not call Blob when the row's url is another user's key", async () => {
+    del.mock.resetCalls();
+    const url = `https://abc123.public.blob.vercel-storage.com/uploads/${OTHER_USER}/theirs.png`;
+    const [created] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: null,
+        status: "READY",
+        url,
+        isUploaded: true,
+        idCreatedByUser: SEED_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+
+    await actions.sa_deleteAttachment(created.id);
+
+    expect(del.mock.calls).toHaveLength(0);
+    const rows = await db
+      .select({ id: tables.attachments.idAttachment })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, created.id));
+    // The row itself is still the caller's to remove; only the Blob call is
+    // withheld, since the key was never the caller's to delete.
+    expect(rows).toHaveLength(0);
+  });
+
+  it("refuses to mark ready with another user's blob url", async () => {
+    const [created] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: null,
+        status: "UPLOADING",
+        idCreatedByUser: SEED_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+    const theirUrl =
+      `https://abc123.public.blob.vercel-storage.com/uploads/${OTHER_USER}/theirs.png`;
+
+    await expect(actions.sa_markAttachmentReady(created.id, theirUrl)).rejects.toThrow();
+
+    const [after] = await db
+      .select({ status: tables.attachments.status, url: tables.attachments.url })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, created.id));
+    expect(after).toEqual({ status: "UPLOADING", url: null });
   });
 
   // Review Focus 5: several attachments must order deterministically.
@@ -341,6 +395,11 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       .from(tables.attachments)
       .where(eq(tables.attachments.idAttachment, row.id));
     expect(after.idExternal).toBeNull();
+  });
+
+  it("returns nothing for an id outside int4 rather than erroring", async () => {
+    const rows = await actions.sa_listAttachments("STORY", 3e9);
+    expect(rows).toEqual([]);
   });
 
   // The exists-trigger only proves OTHER_STORY_ID is a real story; it says
