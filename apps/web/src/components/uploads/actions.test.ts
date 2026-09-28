@@ -1,0 +1,407 @@
+// Integration test against the real database, skipped when DATABASE_URL is
+// unset so `just test` stays green offline. Writes rows for the seed user
+// (and one other seeded user, to exercise the ownership checks) and removes
+// them again in `after`; the negative-id seed rows are never touched.
+import { after, before, describe, it, mock } from "node:test";
+import { expect } from "expect";
+import { and, eq, gt, inArray } from "drizzle-orm";
+import { loadEnvConfig } from "@next/env";
+import { createRequire } from "node:module";
+
+loadEnvConfig(process.cwd());
+
+// @vercel/blob is a dual CJS/ESM package. `mock.module` only intercepts the
+// ESM entry a dynamic import() would resolve to, not the CJS entry
+// actions.ts's own require resolves to, so del() is swapped out by
+// monkey-patching the same require-cached module object instead.
+const requireHere = createRequire(__filename);
+
+const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// A different seeded user, owning none of the seeded attachments, so it is
+// safe to use as "someone else" in the ownership tests.
+const OTHER_USER = "00000000-0000-7000-8000-000000000002";
+// Existing seeded story_scene rows. tr_biu_attachments_external_exists
+// raises on a non-null external_id with no parent row, so claim tests need
+// real ids rather than made-up ones.
+const SCENE_ID = -21;
+const OTHER_SCENE_ID = -20;
+// A story seeded as OTHER_USER's own, for the ownership-of-the-parent tests.
+const OTHER_STORY_ID = -16;
+
+const hasDb = Boolean(process.env.DATABASE_URL);
+
+const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+// del() really would reach Vercel Blob, so it is mocked rather than left to
+// run against a url that is not a real blob.
+const del = mock.fn(async () => {});
+let originalDel: unknown;
+
+let actions: typeof import("./actions");
+
+// `@/db` opens its pool at import time, so it has to be pulled in from
+// inside `before` -- a static import is evaluated before loadEnvConfig()
+// above runs, and the pool would be built without a connection string.
+type DbModule = typeof import("@/db");
+let db: DbModule["db"];
+let tables: DbModule["schema"];
+
+describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+  before(async () => {
+    mock.module("@/lib/require-session", { namedExports: { getSession } });
+    const blobModule: { del: unknown } = requireHere("@vercel/blob");
+    originalDel = blobModule.del;
+    blobModule.del = del;
+    ({ db, schema: tables } = await import("@/db"));
+    actions = await import("./actions");
+
+    // A run that died before `after` leaves rows behind, and the first case
+    // counts them, so start clean. Every seeded row has a negative id, so
+    // filtering to positive ones can never touch them.
+    await db
+      .delete(tables.attachments)
+      .where(
+        and(
+          gt(tables.attachments.idAttachment, 0),
+          inArray(tables.attachments.idCreatedByUser, [SEED_USER, OTHER_USER]),
+        ),
+      );
+  });
+
+  after(async () => {
+    const blobModule: { del: unknown } = requireHere("@vercel/blob");
+    blobModule.del = originalDel;
+    if (!db) return;
+    await db
+      .delete(tables.attachments)
+      .where(
+        and(
+          gt(tables.attachments.idAttachment, 0),
+          inArray(tables.attachments.idCreatedByUser, [SEED_USER, OTHER_USER]),
+        ),
+      );
+    // Otherwise the process lingers until the pool's idle timeout.
+    await db.$client.end();
+  });
+
+  it("inserts a typed link as READY with is_uploaded false", async () => {
+    const result = await actions.sa_createAttachment({
+      kind: "STORY_SCENE",
+      idExternal: SCENE_ID,
+      url: "https://example.com/a.jpg",
+    });
+    expect(result.status).toBe("READY");
+
+    const [row] = await db
+      .select({
+        status: tables.attachments.status,
+        isUploaded: tables.attachments.isUploaded,
+        url: tables.attachments.url,
+      })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, result.idAttachment));
+    expect(row).toEqual({ status: "READY", isUploaded: false, url: "https://example.com/a.jpg" });
+
+    // Cleaned up here rather than left for the suite-wide sweep: the "lists"
+    // case below queries this same scene and would otherwise see this row too.
+    await db
+      .delete(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, result.idAttachment));
+  });
+
+  it("inserts a pending upload as UPLOADING with is_uploaded true and no url", async () => {
+    const result = await actions.sa_createAttachment({
+      kind: "STORY_SCENE",
+      idExternal: null,
+      fileName: "photo.png",
+    });
+    expect(result.status).toBe("UPLOADING");
+
+    const [row] = await db
+      .select({
+        status: tables.attachments.status,
+        isUploaded: tables.attachments.isUploaded,
+        url: tables.attachments.url,
+      })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, result.idAttachment));
+    expect(row).toEqual({ status: "UPLOADING", isUploaded: true, url: null });
+  });
+
+  it("stamps id_created_by_user from the session, never the client", async () => {
+    const result = await actions.sa_createAttachment({ kind: "STORY_SCENE", idExternal: null });
+
+    const [row] = await db
+      .select({ idCreatedByUser: tables.attachments.idCreatedByUser })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, result.idAttachment));
+    expect(row.idCreatedByUser).toBe(SEED_USER);
+  });
+
+  it("moves an upload from UPLOADING to READY and sets the url", async () => {
+    const [created] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: null,
+        status: "UPLOADING",
+        idCreatedByUser: SEED_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+
+    await actions.sa_markAttachmentReady(created.id, "https://example.com/ready.jpg");
+
+    const [row] = await db
+      .select({ status: tables.attachments.status, url: tables.attachments.url })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, created.id));
+    expect(row).toEqual({ status: "READY", url: "https://example.com/ready.jpg" });
+  });
+
+  it("moves an upload to ERROR, and a retry moves it back to UPLOADING", async () => {
+    const [created] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: null,
+        status: "UPLOADING",
+        idCreatedByUser: SEED_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+
+    await actions.sa_markAttachmentError(created.id);
+    const [afterError] = await db
+      .select({ status: tables.attachments.status })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, created.id));
+    expect(afterError.status).toBe("ERROR");
+
+    await actions.sa_retryAttachment(created.id);
+    const [afterRetry] = await db
+      .select({ status: tables.attachments.status })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, created.id));
+    expect(afterRetry.status).toBe("UPLOADING");
+  });
+
+  it("refuses to delete a row created by another user", async () => {
+    const [created] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: null,
+        status: "READY",
+        url: "https://example.com/theirs.jpg",
+        idCreatedByUser: OTHER_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+
+    await expect(actions.sa_deleteAttachment(created.id)).rejects.toThrow();
+
+    const rows = await db
+      .select({ id: tables.attachments.idAttachment })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, created.id));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("deletes an owned upload and removes it from Blob", async () => {
+    del.mock.resetCalls();
+    const url = "https://abc123.public.blob.vercel-storage.com/uploads/x/photo.png";
+    const [created] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: null,
+        status: "READY",
+        url,
+        isUploaded: true,
+        idCreatedByUser: SEED_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+
+    await actions.sa_deleteAttachment(created.id);
+
+    expect(del.mock.calls).toHaveLength(1);
+    expect(del.mock.calls[0].arguments).toEqual([url]);
+    const rows = await db
+      .select({ id: tables.attachments.idAttachment })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, created.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("deletes an owned typed link without calling Blob", async () => {
+    del.mock.resetCalls();
+    const [created] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: null,
+        status: "READY",
+        url: "https://example.com/a.jpg",
+        isUploaded: false,
+        idCreatedByUser: SEED_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+
+    await actions.sa_deleteAttachment(created.id);
+
+    expect(del.mock.calls).toHaveLength(0);
+    const rows = await db
+      .select({ id: tables.attachments.idAttachment })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, created.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  // Review Focus 5: several attachments must order deterministically.
+  it("lists an object's attachments by sort_order then id", async () => {
+    const [a] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: SCENE_ID,
+        status: "READY",
+        url: "https://x/a.jpg",
+        sortOrder: 2,
+        idCreatedByUser: SEED_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+    const [b] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: SCENE_ID,
+        status: "READY",
+        url: "https://x/b.jpg",
+        sortOrder: 1,
+        idCreatedByUser: SEED_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+
+    const rows = await actions.sa_listAttachments("STORY_SCENE", SCENE_ID);
+
+    expect(rows.map((r) => r.idAttachment)).toEqual([b.id, a.id]);
+  });
+
+  // Review Focus 1: a double-submitted form must attach once and not throw.
+  it("claims the same ids twice without erroring, attaching once", async () => {
+    const [row] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: null,
+        status: "UPLOADING",
+        idCreatedByUser: SEED_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+
+    await actions.sa_claimAttachments("STORY_SCENE", SCENE_ID, [row.id]);
+    await actions.sa_claimAttachments("STORY_SCENE", OTHER_SCENE_ID, [row.id]);
+
+    const [after] = await db
+      .select({ idExternal: tables.attachments.idExternal })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, row.id));
+    // The second claim matched nothing, because external_id was no longer null.
+    expect(after.idExternal).toBe(SCENE_ID);
+  });
+
+  it("refuses to claim a row created by another user", async () => {
+    const [row] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SCENE",
+        idExternal: null,
+        status: "UPLOADING",
+        idCreatedByUser: OTHER_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+
+    await actions.sa_claimAttachments("STORY_SCENE", SCENE_ID, [row.id]);
+
+    const [after] = await db
+      .select({ idExternal: tables.attachments.idExternal })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, row.id));
+    expect(after.idExternal).toBeNull();
+  });
+
+  it("ignores a claim whose kind does not match the row's own kind", async () => {
+    const [row] = await db
+      .insert(tables.attachments)
+      .values({ kind: "STORY", idExternal: null, status: "UPLOADING", idCreatedByUser: SEED_USER })
+      .returning({ id: tables.attachments.idAttachment });
+
+    // A story picture (kind STORY) must not be claimable as a scene's.
+    await actions.sa_claimAttachments("STORY_SCENE", SCENE_ID, [row.id]);
+
+    const [after] = await db
+      .select({ idExternal: tables.attachments.idExternal })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, row.id));
+    expect(after.idExternal).toBeNull();
+  });
+
+  // The exists-trigger only proves OTHER_STORY_ID is a real story; it says
+  // nothing about whose story it is. The reads prove that themselves.
+  it("returns nothing for an object on a story the caller does not own", async () => {
+    const [row] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY",
+        idExternal: OTHER_STORY_ID,
+        status: "READY",
+        url: "https://x/theirs.jpg",
+        idCreatedByUser: OTHER_USER,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+
+    const rows = await actions.sa_listAttachments("STORY", OTHER_STORY_ID);
+    expect(rows).toEqual([]);
+
+    await db.delete(tables.attachments).where(eq(tables.attachments.idAttachment, row.id));
+  });
+
+  it("refuses to create an attachment on a story the caller does not own", async () => {
+    await expect(
+      actions.sa_createAttachment({
+        kind: "STORY",
+        idExternal: OTHER_STORY_ID,
+        url: "https://x/mine.jpg",
+      }),
+    ).rejects.toThrow();
+
+    const rows = await db
+      .select({ id: tables.attachments.idAttachment })
+      .from(tables.attachments)
+      .where(
+        and(
+          eq(tables.attachments.kind, "STORY"),
+          eq(tables.attachments.idExternal, OTHER_STORY_ID),
+        ),
+      );
+    // Nothing was inserted: the refusal happened before the write.
+    expect(rows.filter((r) => r.id > 0)).toHaveLength(0);
+  });
+
+  // Owning the uploaded rows is not the same as owning the destination: the
+  // caller may only claim onto a parent that is their own.
+  it("refuses to claim onto a story the caller does not own, leaving the rows detached", async () => {
+    const [row] = await db
+      .insert(tables.attachments)
+      .values({ kind: "STORY", idExternal: null, status: "UPLOADING", idCreatedByUser: SEED_USER })
+      .returning({ id: tables.attachments.idAttachment });
+
+    await expect(actions.sa_claimAttachments("STORY", OTHER_STORY_ID, [row.id])).rejects.toThrow();
+
+    const [after] = await db
+      .select({ idExternal: tables.attachments.idExternal })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, row.id));
+    // Not merely that the call threw: the row must still be unclaimed. A
+    // check placed after the UPDATE would also throw while having already
+    // done the damage.
+    expect(after.idExternal).toBeNull();
+  });
+});
