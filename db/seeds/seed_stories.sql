@@ -83,7 +83,7 @@
         (-14, 'Silent Running',         -26,
           'When winter lifts, no word comes from the mountain city of Pesht. Skilled adventurers are hired to climb up and find out why it has fallen silent.',
           9, false, false, '2013-06-10',  '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
-        -- Fixture stories owned by the seed users (no site page, so no image or summary)
+        -- Fixture stories owned by the seed users (no site page, so no summary)
         (-15, 'Vampire',               -10,
           NULL,
           0, true,  false, DEFAULT,            '00000000-0000-7000-8000-000000000001', '00000000-0000-7000-8000-000000000001'),
@@ -91,10 +91,8 @@
           NULL,
           0, false, false, DEFAULT,            '00000000-0000-7000-8000-000000000002', '00000000-0000-7000-8000-000000000002'),
         -- Hogwarts staff stories: each staff member runs a different system.
-        -- Covers are 1920px renditions of Wikimedia Commons photos (CC BY 2.0
-        -- and CC BY-SA, attribution on each file's Commons page): the castle
-        -- model, the Great Hall, Diagon Alley and Hagrid's hut at the Warner
-        -- Bros studio tour, and the Glenfinnan Viaduct of the Hogwarts Express.
+        -- Their covers, and the attribution the Wikimedia photos carry, are in
+        -- db/seeds/seed_attachments.sql.
         (-17, 'The Order of the Phoenix',    -69,
           NULL,
           0, true,  true,  DEFAULT,            '00000000-0000-7000-8000-000000000003', '00000000-0000-7000-8000-000000000003'),
