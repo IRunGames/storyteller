@@ -19,6 +19,14 @@ const noErrors = async (): Promise<Result> => ({ ok: false, errors: {} });
 const sa_createStory = mock.fn<(values: StoryValues) => Promise<Result>>(noErrors);
 const sa_updateStory = mock.fn<(idStory: number, values: StoryValues) => Promise<Result>>(noErrors);
 
+// AttachmentListField uploads to Blob and has a test file of its own; here it
+// is stood in for by the smallest thing that exercises the contract the form
+// depends on. It records the props it was handed -- idExternal is the one the
+// form decides, and getting it wrong is the difference between claiming ids
+// after the insert and never claiming them -- and offers a button that reports
+// an id the way a finished upload would.
+const fieldProps: { kind: string; idExternal: number | null; value: number[] }[] = [];
+
 let StoryForm: typeof import("./story-form").StoryForm;
 
 const existing = {
@@ -27,7 +35,7 @@ const existing = {
     title: "Vampire",
     idSystem: -6,
     summary: "A city of the dead.",
-    imageUrl: "https://rpg.irun.games/images/vampire.jpg",
+    attachmentIds: [],
     isLookingForPlayers: true,
     isActive: true,
     isArchived: false,
@@ -39,10 +47,33 @@ describe("StoryForm", () => {
     mock.module("@/app/(app)/(nav)/stories/actions", {
       namedExports: { sa_createStory, sa_updateStory },
     });
+    mock.module("@/components/uploads/attachment-list-field", {
+      namedExports: {
+        AttachmentListField: ({
+          kind,
+          idExternal,
+          value,
+          onChange,
+        }: {
+          kind: string;
+          idExternal: number | null;
+          value: number[];
+          onChange: (ids: number[]) => void;
+        }) => {
+          fieldProps.push({ kind, idExternal, value });
+          return (
+            <button type="button" onClick={() => onChange([...value, -3])}>
+              Add attachment
+            </button>
+          );
+        },
+      },
+    });
     ({ StoryForm } = await import("./story-form"));
   });
 
   beforeEach(() => {
+    fieldProps.length = 0;
     sa_createStory.mock.resetCalls();
     sa_createStory.mock.mockImplementation(noErrors);
     sa_updateStory.mock.resetCalls();
@@ -75,12 +106,42 @@ describe("StoryForm", () => {
       title: "Embers Leap",
       idSystem: -26,
       summary: "A gala in Satyrine.",
-      imageUrl: "",
+      attachmentIds: [],
       isLookingForPlayers: true,
       isActive: true,
       isArchived: false,
     });
     expect(sa_updateStory.mock.callCount()).toBe(0);
+  });
+
+  it("sends the ids a new story collected, with nothing to attach them to yet", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(<StoryForm systems={systems} />);
+    // No story yet, so the field cannot attach its rows itself and the ids
+    // ride along to sa_createStory instead.
+    expect(fieldProps[0]).toEqual({ kind: "STORY", idExternal: null, value: [] });
+
+    await user.type(screen.getByLabelText(/Title/), "Embers Leap");
+    await user.click(screen.getByRole("button", { name: "Add attachment" }));
+    await user.click(screen.getByRole("button", { name: "Create story" }));
+
+    await waitFor(() => expect(sa_createStory.mock.callCount()).toBe(1));
+    expect(sa_createStory.mock.calls[0].arguments[0].attachmentIds).toEqual([-3]);
+  });
+
+  it("points the field at the story when editing, and posts no ids of its own", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(<StoryForm systems={systems} story={existing} />);
+    // The story exists, so the field attaches straight to it and the form has
+    // nothing left to claim.
+    expect(fieldProps[0]).toEqual({ kind: "STORY", idExternal: -15, value: [] });
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(sa_updateStory.mock.callCount()).toBe(1));
+    expect(sa_updateStory.mock.calls[0].arguments[1].attachmentIds).toEqual([]);
   });
 
   it("starts a new story active, with nothing to archive yet", () => {
@@ -94,15 +155,16 @@ describe("StoryForm", () => {
     const user = userEvent.setup();
     sa_createStory.mock.mockImplementation(async () => ({
       ok: false,
-      errors: { imageUrl: "Please enter a valid URL." },
+      errors: { summary: "Keep the summary under 4000 characters." },
     }));
 
     renderWithProviders(<StoryForm systems={systems} />);
     await user.type(screen.getByLabelText(/Title/), "Embers Leap");
-    await user.type(screen.getByLabelText(/Image URL/), "https://example.com/x.jpg");
     await user.click(screen.getByRole("button", { name: "Create story" }));
 
-    expect(await screen.findByText("Please enter a valid URL.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Keep the summary under 4000 characters."),
+    ).toBeInTheDocument();
   });
 
   it("starts from the story's values when editing, and saves through the update action", async () => {
@@ -113,9 +175,6 @@ describe("StoryForm", () => {
     expect(screen.getByLabelText(/Title/)).toHaveValue("Vampire");
     expect(screen.getByLabelText(/System/)).toHaveValue("-6");
     expect(screen.getByLabelText(/Summary/)).toHaveValue("A city of the dead.");
-    expect(screen.getByLabelText(/Image URL/)).toHaveValue(
-      "https://rpg.irun.games/images/vampire.jpg",
-    );
     expect(screen.getByLabelText(/Looking for players/)).toBeChecked();
 
     await user.clear(screen.getByLabelText(/Title/));

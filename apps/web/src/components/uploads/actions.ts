@@ -8,6 +8,7 @@ import { isOwnUploadedBlobUrl, isUploadedBlobUrl } from "@/lib/image-uploads";
 import {
   attachmentIdsSchema,
   attachmentKindSchema,
+  attachmentUrlSchema,
   idAttachmentSchema,
   idExternalSchema,
 } from "@/lib/attachment-schemas";
@@ -87,15 +88,19 @@ export async function sa_createAttachment(input: {
   }
 
   // A url means a typed link, which is READY at once. No url means an upload
-  // is about to start, so the row exists to be marked ready or failed.
-  const isLink = !!input.url;
+  // is about to start, so the row exists to be marked ready or failed. The
+  // url is pinned to http(s) before it is stored: it is shown later inside a
+  // CSS url("…") on the story card, and a link is the one attachment a caller
+  // types themselves rather than one Blob hands back.
+  const url = input.url ? attachmentUrlSchema.parse(input.url) : null;
+  const isLink = url !== null;
   const [row] = await db
     .insert(attachments)
     .values({
       kind,
       idExternal,
       status: isLink ? "READY" : sql`DEFAULT`,
-      url: input.url ?? null,
+      url,
       isUploaded: !isLink,
       fileName: input.fileName ?? null,
       contentType: input.contentType ?? null,
@@ -109,25 +114,31 @@ export async function sa_createAttachment(input: {
 
 /**
  * Moves an upload from UPLOADING to READY once Blob confirms the file
- * landed, and records where it landed. url is client-supplied and otherwise
- * unconstrained -- a typed external link is legal here too, and is how
- * sa_createAttachment's own READY rows work -- but a Blob url that is not
- * the caller's own is refused. Without this check a caller could point a
- * row they own at another user's key, and sa_deleteAttachment's later
- * isOwnUploadedBlobUrl guard would not save the victim: the row really
- * would be "ours" to delete, only the key would not be.
+ * landed, and records where it landed. url is client-supplied and, beyond
+ * the http(s) rule every attachment url passes, otherwise unconstrained -- a
+ * typed external link is legal here too, and is how sa_createAttachment's
+ * own READY rows work -- but a Blob url that is not the caller's own is
+ * refused. Without this check a caller could point a row they own at another
+ * user's key, and sa_deleteAttachment's later isOwnUploadedBlobUrl guard
+ * would not save the victim: the row really would be "ours" to delete, only
+ * the key would not be.
  */
 export async function sa_markAttachmentReady(id: number, url: string): Promise<void> {
   const user = await requireUser();
   const attachmentId = idAttachmentSchema.parse(id);
+  // Pinned to http(s) like a typed link, for the same reason: this row's url
+  // is what the story card puts inside a CSS url("…"). Blob's own urls always
+  // pass, so the only caller this refuses is one that did not come from an
+  // upload at all.
+  const readyUrl = attachmentUrlSchema.parse(url);
 
-  if (isUploadedBlobUrl(url) && !isOwnUploadedBlobUrl(url, user.id)) {
+  if (isUploadedBlobUrl(readyUrl) && !isOwnUploadedBlobUrl(readyUrl, user.id)) {
     throw new Error("That upload does not belong to you.");
   }
 
   await db
     .update(attachments)
-    .set({ status: "READY", url, idUpdatedByUser: user.id })
+    .set({ status: "READY", url: readyUrl, idUpdatedByUser: user.id })
     .where(
       and(eq(attachments.idAttachment, attachmentId), eq(attachments.idCreatedByUser, user.id)),
     );

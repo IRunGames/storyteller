@@ -5,6 +5,7 @@ import { and, asc, desc, eq, exists, ilike, inArray, not, or, sql } from "drizzl
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { attachmentUrl } from "@/db/attachment-url";
 import { requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
 import {
@@ -19,6 +20,7 @@ import {
   type StorySessionDetail,
 } from "@/lib/stories";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
+import { sa_claimAttachments } from "@/components/uploads/actions";
 
 const {
   stories,
@@ -104,7 +106,9 @@ function cardColumns(userId: string) {
     idStory: stories.idStory,
     title: stories.title,
     summary: stories.summary,
-    imageUrl: stories.imageUrl,
+    // The story's picture is an attachments row now, not a column; the key
+    // keeps its name because it still holds the url a card paints on.
+    imageUrl: attachmentUrl("STORY", stories.idStory),
     lastPlayed: stories.lastPlayed,
     systemName: systems.systemName,
     systemVersion: systems.systemVersion,
@@ -478,7 +482,7 @@ export async function sa_getStorySession(
       title: storySessions.title,
       status: storySessions.status,
       length: storySessions.length,
-      imageLink: storySessions.imageLink,
+      imageLink: attachmentUrl("STORY_SESSION", storySessions.idStorySession),
       summary: storySessions.summary,
       notes: storySessions.notes,
       lingeringQuestions: storySessions.lingeringQuestions,
@@ -588,18 +592,35 @@ export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
   if (!parsed.success) return fieldErrors(parsed);
 
   const values = parsed.data;
-  await db.insert(stories).values({
-    title: values.title,
-    idSystem: values.idSystem,
-    summary: values.summary || null,
-    imageUrl: values.imageUrl || null,
-    isLookingForPlayers: values.isLookingForPlayers,
-    isActive: values.isActive,
-    isArchived: values.isArchived,
-    idArchivedByUser: values.isArchived ? user.id : null,
-    idCreatedByUser: user.id,
-    idUpdatedByUser: user.id,
-  });
+  const [story] = await db
+    .insert(stories)
+    .values({
+      title: values.title,
+      idSystem: values.idSystem,
+      summary: values.summary || null,
+      isLookingForPlayers: values.isLookingForPlayers,
+      isActive: values.isActive,
+      isArchived: values.isArchived,
+      idArchivedByUser: values.isArchived ? user.id : null,
+      idCreatedByUser: user.id,
+      idUpdatedByUser: user.id,
+    })
+    .returning({ idStory: stories.idStory });
+
+  // Deliberately after the insert and outside any transaction with it, which
+  // sa_claimAttachments' own doc comment insists on: it runs on the
+  // module-level pooled db and re-proves the caller owns the parent, so from
+  // another connection it could not see a story this action had not committed
+  // yet and would refuse a claim that should have succeeded.
+  //
+  // It is left to throw rather than swallowed. Everything it checks is
+  // already true here — the story was inserted moments ago with this caller as
+  // its creator, and storySchema has validated the ids — so a rejection means
+  // something unexpected, and the form saying so is better than a story that
+  // quietly lost its pictures. The story does stay behind in that case; the
+  // storyteller can attach them again from the edit form, and any attachment
+  // left detached is what the sweep collects.
+  await sa_claimAttachments("STORY", story.idStory, values.attachmentIds);
 
   redirect("/stories");
 }
@@ -624,7 +645,6 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
       title: stories.title,
       idSystem: stories.idSystem,
       summary: stories.summary,
-      imageUrl: stories.imageUrl,
       isLookingForPlayers: stories.isLookingForPlayers,
       isActive: stories.isActive,
       isArchived: stories.isArchived,
@@ -634,7 +654,11 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
     .limit(1);
   if (!story) return null;
 
-  return { ...story, summary: story.summary ?? "", imageUrl: story.imageUrl ?? "" };
+  // attachmentIds is empty on purpose: the edit form's AttachmentListField
+  // loads the story's own attachments from sa_listAttachments and attaches
+  // anything new as it is made, so there is nothing for the form to carry
+  // and nothing for sa_updateStory to claim.
+  return { ...story, summary: story.summary ?? "", attachmentIds: [] };
 }
 
 /**
@@ -644,6 +668,10 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
  * the client sent; a mismatch is thrown, since the form cannot fix it. The
  * same predicate is repeated in the UPDATE's WHERE so the write cannot land
  * on a row that changed hands between the read and the write.
+ *
+ * storySchema's attachmentIds are validated and then ignored: the edit form's
+ * AttachmentListField creates each row already pointing at this story, so
+ * there is never anything left here to claim.
  */
 export async function sa_updateStory(idStory: number, input: unknown): Promise<StoryFormResult> {
   const user = await requireUser();
@@ -669,7 +697,6 @@ export async function sa_updateStory(idStory: number, input: unknown): Promise<S
       title: values.title,
       idSystem: values.idSystem,
       summary: values.summary || null,
-      imageUrl: values.imageUrl || null,
       isLookingForPlayers: values.isLookingForPlayers,
       isActive: values.isActive,
       isArchived: values.isArchived,

@@ -1,24 +1,13 @@
 import { z } from "zod";
 
+import { attachmentIdsSchema } from "@/lib/attachment-schemas";
+
 // A <select> posts "" for "no system" and a string for a chosen one; the
 // preprocess turns both into what the stories.id_system column wants.
 const idSystem = z.preprocess(
   (value) => (value === "" || value === null || value === undefined ? null : Number(value)),
   z.number().int().nullable(),
 );
-
-// The protocol is pinned to http(s) on purpose: the URL ends up inside a CSS
-// `url("…")` on the story card, so `javascript:` and `data:` must never get
-// that far. The card encodes the value as well — both halves are needed.
-const imageUrl = z
-  .string()
-  .trim()
-  .pipe(
-    z.union([
-      z.literal(""),
-      z.url({ protocol: /^https?$/, error: "Please enter a valid URL." }),
-    ]),
-  );
 
 // One schema for creating and editing: both forms post the same fields.
 const storyFields = z.object({
@@ -29,7 +18,14 @@ const storyFields = z.object({
     .max(200, "Keep the title under 200 characters."),
   idSystem,
   summary: z.string().trim().max(4000, "Keep the summary under 4000 characters."),
-  imageUrl,
+  /**
+   * The attachments the New story form collected before the story existed,
+   * for sa_createStory to claim once it has an id. The edit form's field
+   * attaches its rows to the story as they are made and posts none, so this
+   * defaults to empty and sa_updateStory ignores it; it is validated here all
+   * the same, because the server re-runs whatever the client sent.
+   */
+  attachmentIds: attachmentIdsSchema.default([]),
   isLookingForPlayers: z.boolean(),
   isActive: z.boolean(),
   isArchived: z.boolean(),

@@ -15,3 +15,25 @@ export const attachmentKindSchema = z.enum(["STORY", "STORY_SESSION", "STORY_SCE
 // array from turning a claim into a full-table scan, the same reasoning
 // statusesSchema uses in libraries/actions.ts.
 export const attachmentIdsSchema = z.array(idAttachmentSchema).max(50);
+
+/**
+ * A url an attachment may carry, whether someone typed it or Blob returned
+ * it. The protocol is pinned to http(s) on purpose: a story's picture still
+ * lands inside a CSS `url("…")` on the story card, so `javascript:` and
+ * `data:` must never get that far. The card escapes the value as well, and
+ * both halves are needed — escaping a `javascript:` url leaves it a
+ * `javascript:` url, and pinning the protocol does nothing about a quote in
+ * the path.
+ *
+ * This rule used to live on `storyFields.imageUrl` in story-schemas.ts, back
+ * when a story carried one url in a column of its own. The column is gone;
+ * the reason for the rule is not, so it moved here with the urls.
+ *
+ * Unlike the old field it has no empty case: a story with no picture now has
+ * no attachment row rather than an empty string, so anything reaching here is
+ * meant to be a url.
+ */
+export const attachmentUrlSchema = z
+  .string()
+  .trim()
+  .pipe(z.url({ protocol: /^https?$/, error: "Please enter a valid URL." }));

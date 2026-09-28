@@ -14,7 +14,7 @@ const good = {
   title: "Something Wicked",
   idSystem: -25,
   summary: "A magical gothic horror campaign.",
-  imageUrl: "https://rpg.irun.games/images/x.jpg",
+  attachmentIds: [],
   isLookingForPlayers: false,
   isActive: true,
   isArchived: false,
@@ -71,25 +71,21 @@ describe("storySchema", () => {
     expect(result.data?.idSystem).toBe(-25);
   });
 
-  it("allows an empty image URL but refuses a malformed one", () => {
-    expect(storySchema.safeParse({ ...good, imageUrl: "" }).success).toBe(true);
-    expect(messagesFor(storySchema.safeParse({ ...good, imageUrl: "not a url" }))).toEqual({
-      imageUrl: "Please enter a valid URL.",
-    });
+  it("takes the attachment ids a create form collected, and defaults to none", () => {
+    expect(storySchema.safeParse({ ...good, attachmentIds: [-3, -4] }).data?.attachmentIds).toEqual(
+      [-3, -4],
+    );
+    // The edit form posts no ids at all: its field attaches its rows itself.
+    const { attachmentIds: _omitted, ...withoutIds } = good;
+    expect(storySchema.safeParse(withoutIds).data?.attachmentIds).toEqual([]);
   });
 
-  it("refuses an image URL that is not http(s)", () => {
-    // The value lands inside a CSS url("…") on the story card, so a
-    // javascript: or data: URL must never reach the database.
-    expect(messagesFor(storySchema.safeParse({ ...good, imageUrl: "javascript:alert(1)" }))).toEqual({
-      imageUrl: "Please enter a valid URL.",
-    });
-    expect(messagesFor(storySchema.safeParse({ ...good, imageUrl: "data:text/plain,x" }))).toEqual({
-      imageUrl: "Please enter a valid URL.",
-    });
-    expect(storySchema.safeParse({ ...good, imageUrl: "http://example.com/x.png" }).success).toBe(
-      true,
-    );
+  it("refuses attachment ids Postgres could not compare, or too many of them", () => {
+    expect(storySchema.safeParse({ ...good, attachmentIds: [3e9] }).success).toBe(false);
+    expect(
+      storySchema.safeParse({ ...good, attachmentIds: Array.from({ length: 51 }, (_, i) => i) })
+        .success,
+    ).toBe(false);
   });
 
   it("refuses a summary over 4000 characters", () => {

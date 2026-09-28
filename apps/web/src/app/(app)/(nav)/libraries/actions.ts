@@ -3,6 +3,7 @@
 import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { attachmentUrl } from "@/db/attachment-url";
 import { requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
 import { SCENES_PAGE_SIZE, type StoryScene, type StorySceneDetail } from "@/lib/scenes";
@@ -183,7 +184,9 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
       sceneNumber: vStoryScenes.sceneNumber,
       title: vStoryScenes.sceneTitle,
       description: vStoryScenes.sceneDescription,
-      imageLink: vStoryScenes.imageLink,
+      // The scene's picture is an attachments row now, not a column of the
+      // view; the key keeps its name because it still holds a url to show.
+      imageLink: attachmentUrl("STORY_SCENE", vStoryScenes.idStoryScene),
       sessionNumber: vStoryScenes.sessionNumber,
       sessionTitle: vStoryScenes.sessionTitle,
       owner: stories.idCreatedByUser,

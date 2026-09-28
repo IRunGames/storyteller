@@ -18,6 +18,7 @@ import {
 import { Archive, ArchiveRestore } from "lucide-react";
 import type { z } from "zod";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
+import { AttachmentListField } from "@/components/uploads/attachment-list-field";
 import { sa_createStory, sa_updateStory } from "@/app/(app)/(nav)/stories/actions";
 
 // What the form fields hold before the schema runs: the System <select> keeps
@@ -52,7 +53,7 @@ export function StoryForm({ systems, story }: Props) {
       title: "",
       idSystem: null,
       summary: "",
-      imageUrl: "",
+      attachmentIds: [],
       isLookingForPlayers: false,
       isActive: true,
       isArchived: false,
@@ -158,11 +159,31 @@ export function StoryForm({ systems, story }: Props) {
             <Field.ErrorText>{errors.summary?.message}</Field.ErrorText>
           </Field.Root>
 
-          <Field.Root invalid={!!errors.imageUrl}>
-            <Field.Label>Image URL</Field.Label>
-            <Input type="url" placeholder="https://" {...register("imageUrl")} />
-            <Field.ErrorText>{errors.imageUrl?.message}</Field.ErrorText>
-          </Field.Root>
+          {/*
+            Controller rather than register() for the same reason the
+            checkboxes below use it: the value is a number[] this component
+            hands back through onChange, not something an <input> posts.
+
+            idExternal is the story's id when there is one, and the field then
+            loads and attaches its own rows: an edit form's pictures belong to
+            the story from the moment they are made, so nothing is left for
+            the submit to do. On the New story page there is no story to
+            attach to yet, so idExternal is null, the collected ids travel in
+            the form's value, and sa_createStory claims them once the row it
+            just inserted has an id.
+          */}
+          <Controller
+            control={control}
+            name="attachmentIds"
+            render={({ field }) => (
+              <AttachmentListField
+                kind="STORY"
+                idExternal={story?.idStory ?? null}
+                value={field.value ?? []}
+                onChange={field.onChange}
+              />
+            )}
+          />
 
           {/*
             Controller rather than register(): Chakra's hidden input carries a

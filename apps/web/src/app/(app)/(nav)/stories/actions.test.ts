@@ -462,10 +462,22 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         summary: "What happened.",
         notes: "Private.",
         lingeringQuestions: "Why?",
-        imageLink: "https://x.test/hero.jpg",
         idUsers: [otherUserId, SEED_USER],
       })
       .where(eq(tables.storySessions.idStorySession, openSessionId));
+    // The sitting's picture is an attachments row now, not a column of its
+    // own, so the fixture attaches one the way the uploader would.
+    const [picture] = await db
+      .insert(tables.attachments)
+      .values({
+        kind: "STORY_SESSION",
+        idExternal: openSessionId,
+        status: "READY",
+        url: "https://x.test/hero.jpg",
+        idCreatedByUser: otherUserId,
+        idUpdatedByUser: otherUserId,
+      })
+      .returning({ id: tables.attachments.idAttachment });
     const detail = await actions.sa_getStorySession(openSessionId);
     expect(detail).toMatchObject({
       idStorySession: openSessionId,
@@ -501,6 +513,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
 
     expect(await actions.sa_getStorySession(2 ** 40)).toBeNull();
     expect(await actions.sa_getStorySession(2 ** 30)).toBeNull();
+
+    await db
+      .delete(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, picture.id));
   });
 
   it("lists systems with a display label", async () => {
@@ -520,7 +536,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       title: "",
       idSystem: null,
       summary: "",
-      imageUrl: "",
+      attachmentIds: [],
       isLookingForPlayers: false,
       isActive: true,
       isArchived: false,
@@ -535,7 +551,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       title: TITLE_D,
       idSystem: null,
       summary: "",
-      imageUrl: "",
+      attachmentIds: [],
       isLookingForPlayers: false,
       isActive: false,
       isArchived: false,
@@ -549,7 +565,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       title: `${TITLE_D} (edited)`,
       idSystem: -26,
       summary: "Now with a summary.",
-      imageUrl: "https://example.com/d.jpg",
+      attachmentIds: [],
       isLookingForPlayers: true,
       // D stays inactive: the fixture is what the "hides inactive" test below
       // relies on, and the edit tests only borrow it.
@@ -585,7 +601,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       title: TITLE_D,
       idSystem: null,
       summary: "",
-      imageUrl: "",
+      attachmentIds: [],
       isLookingForPlayers: true,
       isActive: true,
       isArchived: true,

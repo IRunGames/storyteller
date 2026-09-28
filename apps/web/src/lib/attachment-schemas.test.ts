@@ -4,6 +4,7 @@ import { expect } from "expect";
 import {
   attachmentIdsSchema,
   attachmentKindSchema,
+  attachmentUrlSchema,
   idAttachmentSchema,
   idExternalSchema,
 } from "./attachment-schemas";
@@ -50,5 +51,28 @@ describe("attachmentIdsSchema", () => {
 
   it("refuses a non-integer element", () => {
     expect(attachmentIdsSchema.safeParse([1, 2.5]).success).toBe(false);
+  });
+});
+
+describe("attachmentUrlSchema", () => {
+  it("accepts an http or https url and trims it", () => {
+    expect(attachmentUrlSchema.parse("  https://rpg.irun.games/images/x.jpg  ")).toBe(
+      "https://rpg.irun.games/images/x.jpg",
+    );
+    expect(attachmentUrlSchema.safeParse("http://example.com/x.png").success).toBe(true);
+  });
+
+  it("refuses anything that is not a url", () => {
+    expect(attachmentUrlSchema.safeParse("not a url").success).toBe(false);
+    // No empty case, unlike the story field this rule came from: a story with
+    // no picture now has no attachment row at all.
+    expect(attachmentUrlSchema.safeParse("").success).toBe(false);
+  });
+
+  it("refuses a url that is not http(s)", () => {
+    // The value lands inside a CSS url("…") on the story card, so a
+    // javascript: or data: url must never reach the database.
+    expect(attachmentUrlSchema.safeParse("javascript:alert(1)").success).toBe(false);
+    expect(attachmentUrlSchema.safeParse("data:text/plain,x").success).toBe(false);
   });
 });
