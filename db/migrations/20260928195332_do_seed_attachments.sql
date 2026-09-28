@@ -8,18 +8,28 @@ BEGIN
 
     RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
 
-    -- Scoped to the seeded parents rather than the whole table, and scoped by
-    -- the PARENT's id rather than the attachment's own. Seed rows carry
-    -- negative ids, so external_id < 0 is exactly "belongs to something this
-    -- repo seeded", and that is the set this seed is about to rewrite.
+    -- Clears the typed-in pictures belonging to seeded parents: the rows this
+    -- seed is about to write again. Scoped by the PARENT's id, because the
+    -- rows needing clearing do not all carry a seed id of their own.
     --
-    -- A bare DELETE FROM attachments would take real people's pictures with it
-    -- wherever this runs against a database that has any. Deleting by
-    -- id_attachment < 0 would miss the copies the backfill migration made,
-    -- which carry generated positive ids, and the seed would then double every
-    -- picture up. This predicate catches both: the backfill's rows for seeded
-    -- parents and any earlier run of this seed, and nothing else.
-    DELETE FROM attachments WHERE external_id < 0;
+    -- Replaying the migrations in order runs the two seeds that still have the
+    -- image columns, then 20260928192937_move_image_urls_to_attachments, which
+    -- copies them into eighteen rows with generated POSITIVE ids, and only then
+    -- gets here. So id_attachment < 0 would clear nothing on a fresh build and
+    -- leave thirty-seven rows, every reproducible picture doubled. A bare
+    -- DELETE FROM attachments would go the other way and take real people's
+    -- pictures with it.
+    --
+    -- is_uploaded tells the two apart: everything this seed and that migration
+    -- write is a link someone typed, never a file we hold, so an upload on a
+    -- seeded parent -- a fixture story someone attached real content to --
+    -- survives untouched.
+    --
+    -- What it does still take, and cannot avoid taking: a link typed onto a
+    -- seeded parent by hand. That is indistinguishable from what the backfill
+    -- wrote, being the same thing in the same place, so anything worth keeping
+    -- belongs on a story of its own rather than on a fixture.
+    DELETE FROM attachments WHERE external_id < 0 AND is_uploaded = FALSE;
 
     RAISE NOTICE '+++    [%] Seeding attachments', clock_timestamp();
 
@@ -73,7 +83,7 @@ BEGIN
          'https://rpg.irun.games/images/a-time-for-masks/40337142-0b5d-472b-908e-43fb64ee1cb8.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
-        ( -6, 'STORY',  -7, 'READY',  -- Kaliphate
+        ( -6, 'STORY',  -7, 'READY',  -- Embers Leap
          'https://rpg.irun.games/images/invisible-sun/embers-leap/InvisibleSunLogo.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
@@ -85,7 +95,7 @@ BEGIN
          'https://rpg.irun.games/images/true-sight/5376500817_f27ae1c0ef_z-300x300.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
-        ( -9, 'STORY', -12, 'READY',  -- Resurrection (WY)
+        ( -9, 'STORY', -12, 'READY',  -- Amber Spires
          'https://rpg.irun.games/images/numenera/amber-spires/Parc-guell-spires-1024x768.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
@@ -97,7 +107,7 @@ BEGIN
          'https://thumb.wikimedia.org/wikipedia/commons/thumb/1/11/Hogwarts_Castle_Model_%2840395351793%29.jpg/1920px-Hogwarts_Castle_Model_%2840395351793%29.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '00000000-0000-7000-8000-000000000003', '00000000-0000-7000-8000-000000000003'),
-        (-12, 'STORY', -18, 'READY',  -- Hogwarts
+        (-12, 'STORY', -18, 'READY',  -- The Chamber Below
          'https://thumb.wikimedia.org/wikipedia/commons/thumb/b/be/Hogwart%E2%80%98s_Great_Hall%2C_Warner_Bros_Harry_Potter_Studio%2C_London_01.jpg/1920px-Hogwart%E2%80%98s_Great_Hall%2C_Warner_Bros_Harry_Potter_Studio%2C_London_01.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '00000000-0000-7000-8000-000000000004', '00000000-0000-7000-8000-000000000004'),

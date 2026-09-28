@@ -47,7 +47,7 @@
          'https://rpg.irun.games/images/a-time-for-masks/40337142-0b5d-472b-908e-43fb64ee1cb8.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
-        ( -6, 'STORY',  -7, 'READY',  -- Kaliphate
+        ( -6, 'STORY',  -7, 'READY',  -- Embers Leap
          'https://rpg.irun.games/images/invisible-sun/embers-leap/InvisibleSunLogo.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
@@ -59,7 +59,7 @@
          'https://rpg.irun.games/images/true-sight/5376500817_f27ae1c0ef_z-300x300.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
-        ( -9, 'STORY', -12, 'READY',  -- Resurrection (WY)
+        ( -9, 'STORY', -12, 'READY',  -- Amber Spires
          'https://rpg.irun.games/images/numenera/amber-spires/Parc-guell-spires-1024x768.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '01a0b60c-8938-7a0d-ab2b-34e12ce284c9', '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
@@ -71,7 +71,7 @@
          'https://thumb.wikimedia.org/wikipedia/commons/thumb/1/11/Hogwarts_Castle_Model_%2840395351793%29.jpg/1920px-Hogwarts_Castle_Model_%2840395351793%29.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '00000000-0000-7000-8000-000000000003', '00000000-0000-7000-8000-000000000003'),
-        (-12, 'STORY', -18, 'READY',  -- Hogwarts
+        (-12, 'STORY', -18, 'READY',  -- The Chamber Below
          'https://thumb.wikimedia.org/wikipedia/commons/thumb/b/be/Hogwart%E2%80%98s_Great_Hall%2C_Warner_Bros_Harry_Potter_Studio%2C_London_01.jpg/1920px-Hogwart%E2%80%98s_Great_Hall%2C_Warner_Bros_Harry_Potter_Studio%2C_London_01.jpg',
          FALSE, 0, NOW(), DEFAULT, DEFAULT,
          '00000000-0000-7000-8000-000000000004', '00000000-0000-7000-8000-000000000004'),
