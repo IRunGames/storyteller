@@ -12,7 +12,7 @@
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { createRequire } from "node:module";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
@@ -408,6 +408,108 @@ describe("AttachmentListField", () => {
     expect(items[0]).toHaveTextContent("existing.jpg");
     expect(items[1]).toHaveTextContent("added.jpg");
     expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([55, 1]);
+  });
+
+  // handleRemove's commit() and its sa_deleteAttachment call are two
+  // separate round trips. A list fetch's SELECT can land in between and
+  // still see the row -- without removedIds, the merge would treat that as
+  // a legitimate server row and bring it back, reporting the resurrected id
+  // to the parent as if the removal never happened.
+  it("does not resurrect a row removed while a list fetch is still pending", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<
+      Array<{
+        idAttachment: number;
+        kind: string;
+        idExternal: number | null;
+        status: string;
+        url: string | null;
+        isUploaded: boolean;
+        fileName: string | null;
+      }>
+    >();
+    sa_listAttachments.mock.mockImplementation(() => pending.promise);
+    const onChange = mock.fn<(ids: number[]) => void>();
+
+    renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={onChange} />,
+    );
+
+    await user.type(screen.getByRole("textbox", { name: /link/i }), "https://example.com/gone.jpg");
+    await user.click(screen.getByRole("button", { name: /add link/i }));
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+
+    await user.click(screen.getByRole("button", { name: /remove/i }));
+    await waitFor(() => expect(screen.queryByRole("listitem")).not.toBeInTheDocument());
+
+    // Simulates the fetch's SELECT having run before the DELETE committed:
+    // the server still reports the row this test just asked to remove.
+    // Wrapped in act() (rather than an unwrapped tick) because the merge
+    // this triggers happens as a microtask completely off any DOM event
+    // React Testing Library would otherwise wrap for us.
+    await act(async () => {
+      pending.resolve([
+        {
+          idAttachment: 1,
+          kind: "STORY_SCENE",
+          idExternal: SCENE_ID,
+          status: "READY",
+          url: "https://example.com/gone.jpg",
+          isUploaded: false,
+          fileName: null,
+        },
+      ]);
+      await pending.promise;
+    });
+
+    expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
+    expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([]);
+  });
+
+  // Two rapid clicks on Try Again must not start overlapping merges, where
+  // the later-resolving one could win even if it read rowsRef from a staler
+  // snapshot than the earlier one's.
+  it("disables Try Again while a retry load is in flight, and does not double-fetch", async () => {
+    const user = userEvent.setup();
+    sa_listAttachments.mock.mockImplementation(async () => {
+      throw new Error("db down");
+    });
+
+    renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={() => {}} />,
+    );
+    await screen.findByText(/could not load/i);
+
+    const pending = deferred<
+      Array<{
+        idAttachment: number;
+        kind: string;
+        idExternal: number | null;
+        status: string;
+        url: string | null;
+        isUploaded: boolean;
+        fileName: string | null;
+      }>
+    >();
+    sa_listAttachments.mock.mockImplementation(() => pending.promise);
+
+    const retryButton = screen.getByRole("button", { name: /try again/i });
+    await user.click(retryButton);
+    await waitFor(() => expect(retryButton).toHaveAttribute("aria-disabled", "true"));
+
+    // A second click while the first load is still in flight must not
+    // start an overlapping fetch.
+    await user.click(retryButton);
+    expect(sa_listAttachments.mock.callCount()).toBe(2);
+
+    // Resolving lets the guarded load complete and succeed, which clears
+    // loadError -- taking the whole Try Again row, button included, with
+    // it. That disappearance is itself the proof the guard did not leave
+    // the field stuck mid-load.
+    pending.resolve([]);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument(),
+    );
   });
 
   // The one case `value` has a real job: a create form (idExternal null) has

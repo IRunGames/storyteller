@@ -118,6 +118,27 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
   }, [onChange]);
 
   const [loadError, setLoadError] = useState<string | null>(null);
+  // A load in flight, guarding loadAttachments() against a second click on
+  // Try Again starting an overlapping fetch -- the later-resolving one
+  // would otherwise win even if it read rowsRef before the earlier one's
+  // merge applied.
+  const [isLoadingAttachments, setIsLoadingAttachments] = useState(false);
+  const isLoadingRef = useRef(false);
+
+  // Ids sa_deleteAttachment has been asked to remove this session, kept
+  // separately from rowsRef because rowsRef only says what is on screen
+  // *now* -- it cannot tell a merge "this id used to be here and must stay
+  // gone" once handleRemove has already taken it out. The delete is a
+  // separate round trip from the removal itself (commit() runs first,
+  // sa_deleteAttachment is awaited after), so a list fetch's SELECT can run
+  // in between and still see the row: without this, fetchMergedAttachments
+  // would treat that as a legitimate server row and bring it back, and
+  // commit() would report the resurrected id to the parent as if the user
+  // had never removed it. Ids are never removed from this set: the row is
+  // gone for good once sa_deleteAttachment is called, and a re-upload of
+  // the same file gets a brand new id from sa_createAttachment rather than
+  // reusing this one.
+  const removedIds = useRef(new Set<number>());
 
   /**
    * Fetches this field's real rows for a real parent and merges them
@@ -125,7 +146,10 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
    * `loaded` is authoritative for the ids it contains, but a row this
    * session has already added locally (a link typed or a file picked while
    * this request was still in flight) did not exist when the server query
-   * ran, so it cannot be in `loaded` and must not be erased by it. Does not
+   * ran, so it cannot be in `loaded` and must not be erased by it. Ids in
+   * removedIds are dropped regardless of which side they came from, for
+   * the same reason in reverse: a removal already asked for must not be
+   * undone by a select that ran before the delete committed. Does not
    * touch state itself -- callers decide what to do with the result, which
    * is what keeps the actual setState calls inline in whichever caller runs
    * them (see the two call sites below for why that matters).
@@ -135,13 +159,20 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     const loaded = await sa_listAttachments(kind, idExternal as number);
     const loadedIds = new Set(loaded.map((row) => row.idAttachment));
     const localOnly = rowsRef.current.filter((row) => !loadedIds.has(row.idAttachment));
-    return [...loaded, ...localOnly];
+    return [...loaded, ...localOnly].filter((row) => !removedIds.current.has(row.idAttachment));
   }, [kind, idExternal]);
 
   // The Try Again button below calls this directly: a fresh, user-requested
-  // load with no earlier effect run that could race it.
+  // load with no earlier effect run that could race it. isLoadingRef (not
+  // just the isLoadingAttachments state the button's aria-disabled reads)
+  // is what actually stops a second click from starting an overlapping
+  // fetch: state updates are not visible synchronously, so a click that
+  // lands before React re-renders the disabled button would otherwise slip
+  // through.
   async function loadAttachments(): Promise<void> {
-    if (idExternal === null) return;
+    if (idExternal === null || isLoadingRef.current) return;
+    isLoadingRef.current = true;
+    setIsLoadingAttachments(true);
     try {
       const merged = await fetchMergedAttachments();
       setLoadError(null);
@@ -153,6 +184,9 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
       // "this story has no pictures", which invites the user to re-upload
       // everything that is really still there.
       setLoadError("Could not load this story's attachments.");
+    } finally {
+      isLoadingRef.current = false;
+      setIsLoadingAttachments(false);
     }
   }
 
@@ -330,6 +364,11 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
   }
 
   async function handleRemove(id: number) {
+    // Recorded before anything else: a list fetch's SELECT can land between
+    // this function's synchronous commit() below and the sa_deleteAttachment
+    // it then awaits, and would otherwise still see -- and bring back -- a
+    // row this call is in the middle of removing.
+    removedIds.current.add(id);
     // Invalidate first: an upload or retry already in flight for this row
     // must not resurrect it once the user has asked for it to be gone.
     ticketsByAttachment.current.delete(id);
@@ -388,7 +427,12 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
       {loadError && (
         <HStack>
           <Field.ErrorText>{loadError}</Field.ErrorText>
-          <Button size="xs" type="button" onClick={() => void loadAttachments()}>
+          <Button
+            size="xs"
+            type="button"
+            aria-disabled={isLoadingAttachments}
+            onClick={() => void loadAttachments()}
+          >
             Try again
           </Button>
         </HStack>
