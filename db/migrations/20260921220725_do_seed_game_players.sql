@@ -25,9 +25,8 @@ BEGIN
     -- staff member and three students, so staff appear on both sides.
     INSERT INTO game_players (id_game_player, id_game, id_user)
     VALUES
-        -- Vampire (-15), owned by PalmDave: PaulKhash and Pol play
+        -- Vampire (-15), owned by PalmDave: PaulKhash plays
         ( -1, -15, '00000000-0000-7000-8000-000000000002'),
-        ( -2, -15, '01a0b60c-8938-7a0d-ab2b-34e12ce284c9'),
         -- D&D 5e (-16), owned by PaulKhash: PalmDave plays
         ( -3, -16, '00000000-0000-7000-8000-000000000001'),
         -- The Order of the Phoenix (-17), run by Dumbledore: McGonagall, Harry, Hermione, Ron
