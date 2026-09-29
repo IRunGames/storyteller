@@ -113,7 +113,22 @@ CREATE TABLE IF NOT EXISTS games (
     image_url text,
     id_user integer NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
-    last_played timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+    last_played timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    -- The audit and archival columns the metatable would normally add. They
+    -- are declared inline because this foundation script runs before
+    -- _p_update_tables() exists, so there is no procedure to ask yet, and
+    -- because a later seed inserts id_created_by_user / id_updated_by_user by
+    -- name: without them here, replaying this history from scratch died at
+    -- do_seed_games. The live database has carried these columns for a long
+    -- time; only the migration record was missing them. Types and defaults
+    -- match what stories (this table, renamed) holds today.
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    id_created_by_user uuid,
+    id_updated_by_user uuid,
+    is_archived boolean DEFAULT false NOT NULL,
+    archived_at timestamp with time zone,
+    id_archived_by_user uuid
 );
 
 CREATE SEQUENCE IF NOT EXISTS games_id_game_seq
