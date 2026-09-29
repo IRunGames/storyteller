@@ -1,3 +1,18 @@
+-- migrate:up
+DO $$
+DECLARE
+    row_count BIGINT;
+BEGIN
+    RAISE NOTICE '[%] START SEEDING', clock_timestamp();
+    SET session_replication_role = 'replica';
+
+    RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
+
+    DELETE FROM stories WHERE id_story < 0;
+
+    RAISE NOTICE '+++    [%] Seeding stories', clock_timestamp();
+
+    -- ------------------------------------------------------------
     -- Seed data for `stories`: the example campaigns run by the fixture users
     -- in db/seeds/seed_users.sql, so that seed must run first. Who plays in
     -- them is in db/seeds/seed_story_players.sql.
@@ -42,3 +57,16 @@
         (-21, 'Beneath the Floorboards',     -83,
           NULL,
           0, true,  false, DEFAULT,            '00000000-0000-7000-8000-000000000007', '00000000-0000-7000-8000-000000000007');
+    -- ------------------------------------------------------------
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+
+    RAISE NOTICE '>>>    [%] Rows inserted: %', CLOCK_TIMESTAMP(), row_count;
+
+    -- ------------------------------------------------------------
+    SET session_replication_role = 'origin';
+
+    RAISE NOTICE '[%] DONE SEEDING', clock_timestamp();
+END $$;
+
+-- migrate:down
+
