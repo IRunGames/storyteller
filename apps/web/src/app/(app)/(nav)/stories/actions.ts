@@ -567,7 +567,10 @@ export async function sa_listSystems(): Promise<{ idSystem: number; label: strin
   }));
 }
 
-export type StoryFormResult = { ok: false; errors: Record<string, string> };
+// storyCreated marks the one failure that happens after the story was
+// inserted: the form keeps its submit button disabled for it, because a
+// second press would not retry anything, it would create a second story.
+export type StoryFormResult = { ok: false; errors: Record<string, string>; storyCreated?: true };
 
 // The zod issues as the form wants them: one message per field, the first
 // issue winning, keyed by the issue's path. Shared by create and update.
@@ -626,15 +629,13 @@ export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
   // with a story whose pictures quietly went missing.
   //
   // So it comes back on "root", where the form already has an alert waiting.
-  // The message has to say the story was created, because nothing else will:
+  // The message has to say the story was created, because nothing else will.
   // react-hook-form works isSubmitSuccessful out from the error map left
-  // behind after onSubmit, so setting an error here puts the submit button
-  // back to pressable, and a message that only said "could not save" would
-  // invite a second press and a second story. (It does clear root errors at
-  // the start of every submit, so the alert never outlives the attempt that
-  // raised it.) The orphaned attachments stay detached, which is what the
-  // sweep collects, and the storyteller can attach them again from the
-  // story's edit page.
+  // behind after onSubmit, so an error here would ordinarily make the submit
+  // button pressable again, and a second press would create a second story;
+  // storyCreated tells StoryForm to keep it disabled instead. The orphaned
+  // attachments stay detached, which is what the sweep collects, and the
+  // storyteller can attach them again from the story's edit page.
   try {
     await sa_claimAttachments("STORY", story.idStory, values.attachmentIds);
   } catch {
@@ -645,6 +646,7 @@ export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
           "The story was created, but its attachments could not be added to it." +
           " You can add them from the story's edit page.",
       },
+      storyCreated: true,
     };
   }
 

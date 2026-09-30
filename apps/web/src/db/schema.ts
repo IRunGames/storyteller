@@ -535,3 +535,11 @@ export const newsReadsRelations = relations(newsReads, ({ one }) => ({
 export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
   user: one(user, { fields: [userPreferences.idUser], references: [user.id] }),
 }));
+
+// attachments deliberately has no relations() block of its own. A relation
+// needs one fixed pair of columns to join on, and an attachment's parent is
+// named by two columns together -- `kind` chooses the table, `external_id`
+// the row -- so there is no single `references` Drizzle could be given. Any
+// block written here would have to hard-code one of the three tables and
+// would then silently match rows of the other two. The joins live in the
+// actions instead, where the kind is already known.

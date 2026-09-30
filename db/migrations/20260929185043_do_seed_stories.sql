@@ -8,6 +8,13 @@ BEGIN
 
     RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
 
+    -- Safe only under the session_replication_role = 'replica' set above,
+    -- which is load-bearing here rather than incidental. It disables user
+    -- triggers, so tr_ad_stories_attachments never fires and the attachments
+    -- pointing at these stories survive the delete to re-point at the rows
+    -- re-inserted below, which keep the same negative ids. Re-seed stories
+    -- outside replica mode and that trigger takes every story's pictures
+    -- with it.
     DELETE FROM stories WHERE id_story < 0;
 
     RAISE NOTICE '+++    [%] Seeding stories', clock_timestamp();

@@ -169,3 +169,58 @@ All of what you need is in `routines/_tables_metatable`.
    - [`_attach_workflow_triggers.sql`](routines/_tables_metatable/_attach_workflow_triggers.sql)
 
 3. Done! See the [Database Driven Status Workflows](https://www.figma.com/board/nA4Llj9n13U7iI1C5rRQzY/-Docs--Database-Driven-Status-Workflows?node-id=0-1&p=f&t=mMUjmB9rPcul0Br5-0) doc for more details on adding a workflow to a specific table.
+
+---
+
+## Editing a migration that has already run
+
+dbmate keys a migration by its **filename** and records nothing else: no
+checksum, no copy of the SQL. A row in `_dbmate_schema_migrations` says only
+"this version has been applied here". Two consequences follow.
+
+### Editing an applied migration
+
+Changing the body of a migration that has already run **changes only what a
+database built from scratch does**. Every database that already holds its
+version row skips the file for ever, so nothing re-runs and nothing is
+re-checked. That makes editing an applied migration the right tool for one
+job: correcting what a *fresh* build produces — a seed that names a user who
+no longer exists, a `CREATE TABLE` missing a column later migrations assume.
+
+The trap is the other half of the same sentence. An already-migrated database
+never sees the correction, so the edit is only safe when **it is a no-op
+against a database that has already migrated** — when applying old file and
+new file in turn would leave the two databases identical. If the edit would
+actually change an existing database, it is not an edit at all: write a new
+migration with `just new` and let both paths run it.
+
+Before editing an applied migration, ask in this order:
+
+1. Would a fresh build be **wrong** without this edit? If not, do not edit.
+2. Does every database that already ran the old version **already satisfy** the
+   new one? If not, the edit needs a companion migration that brings them up.
+3. Does anything that ran **after** the old version depend on its old output?
+   Ordering is by filename, so an edited file re-runs in its original place on
+   a fresh build, with everything after it still following.
+
+### Marking a migration applied without running it
+
+Sometimes a fresh-build migration describes a state the live database is
+already in — a seed whose data was entered by hand long before the seed file
+existed, say. Running it would be wrong (it would delete and re-insert live
+rows); leaving it pending would block `just migrate` for ever.
+
+The escape is to insert the version row alone, so dbmate treats the file as
+done:
+
+```sql
+INSERT INTO _dbmate_schema_migrations (version)
+VALUES ('20260929185043')
+ON CONFLICT DO NOTHING;
+```
+
+This is a claim about that one database, made by hand, and it is only honest
+when the database really does hold what the migration would have produced.
+Check first, do it on that database only, and say in the commit message which
+database was stamped and why — a stamped-but-unapplied migration is invisible
+afterwards, and the next person has nothing but the history to learn it from.

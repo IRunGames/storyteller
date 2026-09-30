@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Controller,
   useForm,
@@ -85,6 +86,12 @@ export function StoryForm({ systems, story }: Props) {
     },
   });
 
+  // Set when the story was inserted but its attachments could not be claimed.
+  // The action reports that on "root" like any other failure, which makes
+  // isSubmitSuccessful false and would free the button; pressing it again
+  // would create a second story, so the button stays disabled instead.
+  const [storyCreated, setStoryCreated] = useState(false);
+
   // Archiving is a button rather than a third checkbox because it is not
   // one more flag among equals: an archived story is neither active nor
   // looking for players, so pressing it unticks both, and the two boxes stay
@@ -115,6 +122,7 @@ export function StoryForm({ systems, story }: Props) {
     // is not a field react-hook-form knows at all. Both go to "root", where
     // the alert above is already waiting, rather than to a setError call
     // nothing would ever render.
+    if (result.storyCreated) setStoryCreated(true);
     for (const [field, message] of Object.entries(result.errors)) {
       const name = field.startsWith("attachmentIds") ? "root" : field;
       setError(name as keyof StoryInput, { message });
@@ -271,7 +279,12 @@ export function StoryForm({ systems, story }: Props) {
             )}
           />
 
-          <Button type="submit" loading={isSubmitting || isSubmitSuccessful} alignSelf="flex-start">
+          <Button
+            type="submit"
+            loading={isSubmitting || isSubmitSuccessful}
+            disabled={storyCreated}
+            alignSelf="flex-start"
+          >
             {story ? "Save changes" : "Create story"}
           </Button>
         </Stack>

@@ -1,8 +1,9 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
 import { NextRequest } from "next/server";
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 
-import proxy from "./proxy";
+import proxy, { config } from "./proxy";
 
 const ORIGIN = "http://localhost:3000";
 
@@ -71,5 +72,16 @@ describe("proxy", () => {
     const response = proxy(request("/login"));
 
     expect(response.headers.get("location")).toBeNull();
+  });
+
+  // The matcher, not proxy(), decides these, so they are checked against
+  // config directly: a cron job is called by Vercel with no cookie, and a
+  // redirect to /login would stop it running without an error anywhere.
+  it("never runs for /api/cron", () => {
+    expect(unstable_doesMiddlewareMatch({ config, url: "/api/cron/blob-sweep" })).toBe(false);
+  });
+
+  it("still runs for the other API routes", () => {
+    expect(unstable_doesMiddlewareMatch({ config, url: "/api/blob/upload" })).toBe(true);
   });
 });

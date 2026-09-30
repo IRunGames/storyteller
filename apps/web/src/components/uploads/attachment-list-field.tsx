@@ -27,6 +27,10 @@ import {
 } from "./actions";
 import type { Attachment, AttachmentKind } from "@/lib/attachments";
 
+// Twenty is the owner's answer to "how many pictures may one story, sitting
+// or scene carry at any one time" -- a ceiling on what exists at once, not a
+// budget spent by uploading, so removing a row hands its place straight back.
+//
 // Also the cap on concurrent uploads zag's own FileUpload ledger enforces
 // (see fileUpload.deleteFile in handleRemove, which keeps that ledger in
 // step with the rows actually on screen). zag's ledger only ever counts
@@ -143,10 +147,12 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
   // in between and still see the row: without this, fetchMergedAttachments
   // would treat that as a legitimate server row and bring it back, and
   // commit() would report the resurrected id to the parent as if the user
-  // had never removed it. Ids are never removed from this set: the row is
-  // gone for good once sa_deleteAttachment is called, and a re-upload of
-  // the same file gets a brand new id from sa_createAttachment rather than
-  // reusing this one.
+  // had never removed it. An id leaves this set again in exactly one place:
+  // when sa_deleteAttachment rejects and handleRemove puts the row back, at
+  // which point the row really is still there and a later merge is right to
+  // report it. A successful delete keeps its id here for good, and a
+  // re-upload of the same file gets a brand new id from sa_createAttachment
+  // rather than reusing this one.
   const removedIds = useRef(new Set<number>());
 
   /**
@@ -304,20 +310,48 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
       updateRow(id, { status: "READY", url: blob.url });
     } catch {
       if (!isCurrentAttempt(id, ticket)) return;
-      await sa_markAttachmentError(id);
+      try {
+        await sa_markAttachmentError(id);
+      } catch {
+        // Swallowed deliberately: the upload has already failed, and the one
+        // thing the user needs is the ERROR row below with its Retry button.
+        // Rethrowing (or awaiting this unguarded) would skip that update and
+        // leave the row saying UPLOADING for ever, which is the one state
+        // with nothing the user can do about it. The row's server-side
+        // status stays UPLOADING until the retry or the sweep corrects it.
+      }
       if (!isCurrentAttempt(id, ticket)) return;
       updateRow(id, { status: "ERROR" });
     }
   }
 
   async function startUpload(file: File) {
-    const created = await sa_createAttachment({
-      kind,
-      idExternal,
-      fileName: file.name,
-      contentType: file.type,
-      byteSize: file.size,
-    });
+    let created: { idAttachment: number; status: string };
+    try {
+      created = await sa_createAttachment({
+        kind,
+        idExternal,
+        fileName: file.name,
+        contentType: file.type,
+        byteSize: file.size,
+      });
+    } catch {
+      // No row was created, so there is nothing on screen for runUpload to
+      // report against: without this the file would simply vanish, with an
+      // unhandled rejection in the console the only trace. An expired
+      // session, a database failure, or an edit form whose story changed
+      // hands since it was opened all land here.
+      setFieldError("That file could not be added. Please try again.");
+      // Both ledgers were charged for a row that never existed. startedFiles
+      // is what stops the same File being uploaded twice, so releasing it
+      // lets the user simply pick the file again; zag's own accepted-files
+      // count never shrinks by itself, so a file left in it would keep its
+      // place against maxFiles for the rest of the session even though no
+      // row was ever added. handleRemove releases both for the same reason.
+      startedFiles.current.delete(file);
+      fileUpload.deleteFile(file);
+      return;
+    }
     filesByAttachment.current.set(created.idAttachment, file);
     addRow({
       idAttachment: created.idAttachment,
@@ -336,7 +370,10 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     // each accepted file's row only lands in rowsRef once its
     // sa_createAttachment call resolves, so a whole batch dropped at once
     // would otherwise all see the same pre-batch count and all pass, even
-    // once the batch itself would push the total over the cap.
+    // once the batch itself would push the total over the cap. It is only
+    // ever this one batch's budget: the next call recounts rowsRef, so a
+    // file whose sa_createAttachment fails costs nothing beyond its own
+    // batch (startUpload hands its place in the two lasting ledgers back).
     let available = MAX_ATTACHMENTS - rowsRef.current.length;
     for (const file of files) {
       if (startedFiles.current.has(file)) continue;
@@ -400,12 +437,32 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     // can never leave the row saying UPLOADING with nothing behind it to send.
     const file = filesByAttachment.current.get(id);
     if (!file) return;
-    await sa_retryAttachment(id);
+    try {
+      await sa_retryAttachment(id);
+    } catch {
+      // The row stays ERROR with its Retry button, which is exactly the
+      // state to be in when the retry itself could not be started. Going on
+      // to runUpload regardless would show UPLOADING for a row the server
+      // still has as ERROR, and sa_markAttachmentReady would then be asked
+      // to make a transition the workflow refuses.
+      setFieldError("That upload could not be retried. Please try again.");
+      return;
+    }
     updateRow(id, { status: "UPLOADING" });
     await runUpload(id, file);
   }
 
   async function handleRemove(id: number) {
+    // Everything undone below is captured first, because a refused delete
+    // has to put the row back exactly where it was: the row itself and its
+    // position, the cached file Retry would resend, and the in-flight
+    // attempt's ticket.
+    const index = rowsRef.current.findIndex((row) => row.idAttachment === id);
+    if (index === -1) return;
+    const removedRow = rowsRef.current[index];
+    const ticket = ticketsByAttachment.current.get(id);
+    const file = filesByAttachment.current.get(id);
+
     // Recorded before anything else: a list fetch's SELECT can land between
     // this function's synchronous commit() below and the sa_deleteAttachment
     // it then awaits, and would otherwise still see -- and bring back -- a
@@ -414,7 +471,6 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     // Invalidate first: an upload or retry already in flight for this row
     // must not resurrect it once the user has asked for it to be gone.
     ticketsByAttachment.current.delete(id);
-    const file = filesByAttachment.current.get(id);
     filesByAttachment.current.delete(id);
     // zag's own accepted-files ledger only ever grows (nothing else tells it
     // a file left); left alone, an add/remove/re-add cycle burns through
@@ -423,7 +479,28 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     // matching "how many rows are actually on screen".
     if (file) fileUpload.deleteFile(file);
     commit(rowsRef.current.filter((row) => row.idAttachment !== id));
-    await sa_deleteAttachment(id);
+    try {
+      await sa_deleteAttachment(id);
+    } catch {
+      // The row went off screen synchronously above and the parent has
+      // already been told it left, so a refusal that only logged itself
+      // would leave the user believing an attachment is gone that is still
+      // attached -- and, on a story, still its cover. Everything the removal
+      // did is undone and the failure is named inline, next to the field
+      // rather than in a toast, because it is a failure the user has to act
+      // on. zag's ledger is the one thing not put back: deleteFile has no
+      // inverse, and undercounting there is harmless since rowsRef is what
+      // actually enforces the cap.
+      removedIds.current.delete(id);
+      if (ticket !== undefined) ticketsByAttachment.current.set(id, ticket);
+      if (file) filesByAttachment.current.set(id, file);
+      if (!rowsRef.current.some((row) => row.idAttachment === id)) {
+        const restored = [...rowsRef.current];
+        restored.splice(Math.min(index, restored.length), 0, removedRow);
+        commit(restored);
+      }
+      setFieldError("That attachment could not be removed. Please try again.");
+    }
   }
 
   return (
