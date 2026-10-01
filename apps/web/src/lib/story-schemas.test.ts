@@ -14,7 +14,6 @@ const good = {
   title: "Something Wicked",
   idSystem: -25,
   summary: "A magical gothic horror campaign.",
-  attachmentIds: [],
   isLookingForPlayers: false,
   isActive: true,
   isArchived: false,
@@ -69,23 +68,6 @@ describe("storySchema", () => {
 
     expect(result.success).toBe(true);
     expect(result.data?.idSystem).toBe(-25);
-  });
-
-  it("takes the attachment ids a create form collected, and defaults to none", () => {
-    expect(storySchema.safeParse({ ...good, attachmentIds: [-3, -4] }).data?.attachmentIds).toEqual(
-      [-3, -4],
-    );
-    // The edit form posts no ids at all: its field attaches its rows itself.
-    const { attachmentIds: _omitted, ...withoutIds } = good;
-    expect(storySchema.safeParse(withoutIds).data?.attachmentIds).toEqual([]);
-  });
-
-  it("refuses attachment ids Postgres could not compare, or too many of them", () => {
-    expect(storySchema.safeParse({ ...good, attachmentIds: [3e9] }).success).toBe(false);
-    expect(
-      storySchema.safeParse({ ...good, attachmentIds: Array.from({ length: 51 }, (_, i) => i) })
-        .success,
-    ).toBe(false);
   });
 
   it("refuses a summary over 4000 characters", () => {

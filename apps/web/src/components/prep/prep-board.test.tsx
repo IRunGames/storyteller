@@ -117,7 +117,7 @@ const listScenes = mock.fn(
   },
 );
 
-const COLUMNS = ["Timeline", "Scenes", "Characters", "Enemies", "Resources"];
+const COLUMNS = ["Timeline", "Scenes", "Attachments", "Characters", "Resources"];
 
 let PrepBoard: typeof import("./prep-board").PrepBoard;
 
@@ -150,6 +150,30 @@ describe("PrepBoard", () => {
     // board renders without a database.
     mock.module("@/app/(app)/(nav)/stories/actions", {
       namedExports: { sa_listStorySessions: async () => [], sa_getStorySession: async () => null },
+    });
+    // The Attachments column loads and searches the story's attachments
+    // itself and has a test file of its own; here it only has to show the
+    // story it was pointed at and what its search box holds.
+    mock.module("./prep-attachments", {
+      namedExports: {
+        PrepAttachments: ({
+          idStory,
+          filter,
+          showCovers,
+          showAdd,
+        }: {
+          idStory: number;
+          filter: string;
+          showCovers: boolean;
+          showAdd: boolean;
+        }) => (
+          <p>
+            Attachments of {idStory} matching &quot;{filter}&quot;
+            {showCovers ? ", covers shown" : ", covers hidden"}
+            {showAdd ? ", adding" : ""}
+          </p>
+        ),
+      },
     });
     // The Scenes column searches the database rather than filtering the rows
     // in hand, so its action answers here the way story_scenes.search_text
@@ -199,8 +223,8 @@ describe("PrepBoard", () => {
     ).not.toBeInTheDocument();
     for (const [title, singular] of [
       ["Scenes", "scene"],
+      ["Attachments", "attachment"],
       ["Characters", "character"],
-      ["Enemies", "enemy"],
       ["Resources", "resource"],
     ]) {
       expect(
@@ -264,12 +288,16 @@ describe("PrepBoard", () => {
     ).not.toBeInTheDocument();
 
     // Two thirds each would not fit, so expanding another returns the first.
-    await user.click(within(column("Enemies")).getByRole("button", { name: "Expand Enemies" }));
-    expect(column("Enemies")).toHaveAttribute("data-mode", "expanded");
+    await user.click(
+      within(column("Attachments")).getByRole("button", { name: "Expand Attachments" }),
+    );
+    expect(column("Attachments")).toHaveAttribute("data-mode", "expanded");
     expect(column("Scenes")).toHaveAttribute("data-mode", "normal");
 
-    await user.click(within(column("Enemies")).getByRole("button", { name: "Shrink Enemies" }));
-    expect(column("Enemies")).toHaveAttribute("data-mode", "normal");
+    await user.click(
+      within(column("Attachments")).getByRole("button", { name: "Shrink Attachments" }),
+    );
+    expect(column("Attachments")).toHaveAttribute("data-mode", "normal");
   });
 
   it("hides a normal column behind a button above the columns, which brings it back", async () => {
@@ -284,7 +312,7 @@ describe("PrepBoard", () => {
     expect(regions.map((region) => region.getAttribute("data-column"))).toEqual([
       "Timeline",
       "Scenes",
-      "Enemies",
+      "Attachments",
       "Resources",
     ]);
 
@@ -304,9 +332,85 @@ describe("PrepBoard", () => {
 
     expect(within(column("Timeline")).getByText("(88)")).toBeInTheDocument();
     expect(within(column("Scenes")).getByText("(12)")).toBeInTheDocument();
-    for (const title of ["Characters", "Enemies", "Resources"]) {
+    for (const title of ["Attachments", "Characters", "Resources"]) {
       expect(within(column(title)).queryByText(/^\(\d+\)$/)).not.toBeInTheDocument();
     }
+  });
+
+  it("puts the story's attachments after Scenes, with the column's search box handed down", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    const attachments = column("Attachments");
+    expect(
+      within(attachments).getByText(`Attachments of ${story.idStory} matching "", covers shown`),
+    ).toBeInTheDocument();
+    await user.type(
+      within(attachments).getByRole("searchbox", { name: "Search Attachments" }),
+      "map",
+    );
+    expect(
+      within(attachments).getByText(`Attachments of ${story.idStory} matching "map", covers shown`),
+    ).toBeInTheDocument();
+  });
+
+  it("puts a Covers pill over the Attachments search box, like the other columns' filters", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    const group = within(column("Attachments")).getByRole("group", { name: "Filter Attachments" });
+    const covers = within(group).getByRole("button", { name: "Covers" });
+    expect(covers).toHaveAttribute("aria-pressed", "true");
+    // Above the search box, as the status pills are.
+    expect(
+      covers.compareDocumentPosition(
+        within(column("Attachments")).getByRole("searchbox", { name: "Search Attachments" }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await user.click(covers);
+    expect(covers).toHaveAttribute("aria-pressed", "false");
+    expect(within(column("Attachments")).getByText(/covers hidden/)).toBeInTheDocument();
+  });
+
+  it("says over each filter pill whether its rows are being included or excluded", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    const drafted = filterPill("Scenes", "Drafted");
+    await user.hover(drafted);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Including Drafted");
+
+    await user.click(drafted);
+    expect(drafted).toHaveAttribute("aria-pressed", "false");
+    await user.unhover(drafted);
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+    await user.hover(drafted);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Excluding Drafted");
+  });
+
+  it("opens the attachment adder in the column with its +, and closes it again", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    const plus = within(column("Attachments")).getByRole("button", { name: "New attachment" });
+    expect(plus).toHaveAttribute("aria-expanded", "false");
+    expect(within(column("Attachments")).queryByText(/adding/)).not.toBeInTheDocument();
+
+    await user.click(plus);
+    expect(plus).toHaveAttribute("aria-expanded", "true");
+    expect(within(column("Attachments")).getByText(/, adding/)).toBeInTheDocument();
+    // Its place is above the filters, under the + that opened it.
+    const slot = within(column("Attachments")).getByTestId("attachment-adder");
+    expect(
+      slot.compareDocumentPosition(
+        within(column("Attachments")).getByRole("group", { name: "Filter Attachments" }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await user.click(plus);
+    expect(plus).toHaveAttribute("aria-expanded", "false");
+    expect(within(column("Attachments")).queryByTestId("attachment-adder")).not.toBeInTheDocument();
   });
 
   it("lists the story's scenes with their status", () => {

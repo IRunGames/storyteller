@@ -41,3 +41,28 @@ export const attachmentUrlSchema = z
   .string()
   .trim()
   .pipe(z.url({ protocol: /^https?$/, error: "Please enter a valid URL." }));
+
+/**
+ * One tag as a storyteller types it: trimmed, lower-cased so "Map" and "map"
+ * are one tag, and short enough to sit in a chip. "cover" is refused here,
+ * because it is not a tag like the others: it moves between an object's
+ * attachments through sa_setAttachmentCover, which also takes it off the
+ * one that held it. The tags popover turns a typed "cover" into that call
+ * before it ever reaches this schema.
+ */
+export const attachmentTagSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1, "Please enter a tag.")
+  .max(40, "Keep a tag under 40 characters.")
+  .refine((tag) => tag !== "cover", "Cover is set with the Cover button, not as a tag.");
+
+/**
+ * An attachment's tags apart from cover, deduplicated once lower-cased. The
+ * bound keeps a crafted array small, as attachmentIdsSchema's does.
+ */
+export const attachmentTagsSchema = z
+  .array(attachmentTagSchema)
+  .max(20, "That is too many tags. Remove a few first.")
+  .transform((tags) => [...new Set(tags)]);

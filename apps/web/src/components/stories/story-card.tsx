@@ -6,6 +6,7 @@ import {
   Box,
   Button,
   Grid,
+  HStack,
   IconButton,
   LinkBox,
   LinkOverlay,
@@ -21,7 +22,7 @@ import {
   systemLabel,
   type StoryCardData,
 } from "@/lib/stories";
-import { Heart, LogIn, Play } from "lucide-react";
+import { BookOpen, Heart, LogIn, Play } from "lucide-react";
 import { LocalDate } from "@/components/dates/local-date";
 import { PlayerCount } from "./player-count";
 
@@ -141,7 +142,8 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         )}
 
         {/* Bottom row: on the left an Inactive pill for a retired story, else
-            the owner's Play button, else Join for anyone else while the
+            the owner's Play button (with the Library button beside either for the
+            owner), else Join for anyone else while the
             story's current session is open, else nothing; the player count in
             the middle; the date on the right. A grid with equal outer
             columns keeps the count centred whatever the sides hold, and
@@ -157,56 +159,93 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
           gap="2"
           mt="auto"
         >
-          {!story.isActive ? (
-            <Badge size="sm" variant="solid" colorPalette="gray">
-              Inactive
-            </Badge>
-          ) : story.isOwner ? (
-            <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-              <Tooltip.Trigger asChild>
-                <IconButton
-                  asChild
-                  aria-label="Play"
-                  size="sm"
-                  rounded="full"
-                  position="relative"
-                  zIndex="1"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                  }}
-                >
-                  <NextLink href={`/play/${story.idStory}`}>
-                    <Play size={18} />
-                  </NextLink>
-                </IconButton>
-              </Tooltip.Trigger>
-              <Portal>
-                <Tooltip.Positioner>
-                  <Tooltip.Content>Start playing</Tooltip.Content>
-                </Tooltip.Positioner>
-              </Portal>
-            </Tooltip.Root>
-          ) : story.hasOpenSession ? (
-            // Both routes lead to the same table; the owner's Play opens it as
-            // storyteller, this one joins what they have already opened.
-            <Button
-              asChild
-              size="sm"
-              rounded="full"
-              position="relative"
-              zIndex="1"
-              onClick={(event) => {
-                event.stopPropagation();
-              }}
-            >
-              <NextLink href={`/play/${story.idStory}`}>
-                <LogIn size={16} />
-                Join
-              </NextLink>
-            </Button>
-          ) : (
-            <Box />
-          )}
+          {/* The storyteller's Library button rides beside whatever sits
+              here, the Inactive pill included: the story page offers it
+              whatever the story's state, and a retired story's library is
+              still worth opening. */}
+          <HStack gap="1">
+            {!story.isActive ? (
+              <Badge size="sm" variant="solid" colorPalette="gray">
+                Inactive
+              </Badge>
+            ) : story.isOwner ? (
+              <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+                <Tooltip.Trigger asChild>
+                  <IconButton
+                    asChild
+                    aria-label="Play"
+                    size="sm"
+                    rounded="full"
+                    position="relative"
+                    zIndex="1"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                    }}
+                  >
+                    <NextLink href={`/play/${story.idStory}`}>
+                      <Play size={18} />
+                    </NextLink>
+                  </IconButton>
+                </Tooltip.Trigger>
+                <Portal>
+                  <Tooltip.Positioner>
+                    <Tooltip.Content>Start playing</Tooltip.Content>
+                  </Tooltip.Positioner>
+                </Portal>
+              </Tooltip.Root>
+            ) : story.hasOpenSession ? (
+              // Both routes lead to the same table; the owner's Play opens it as
+              // storyteller, this one joins what they have already opened.
+              <Button
+                asChild
+                size="sm"
+                rounded="full"
+                position="relative"
+                zIndex="1"
+                onClick={(event) => {
+                  event.stopPropagation();
+                }}
+              >
+                <NextLink href={`/play/${story.idStory}`}>
+                  <LogIn size={16} />
+                  Join
+                </NextLink>
+              </Button>
+            ) : (
+              <Box />
+            )}
+            {story.isOwner && (
+              <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+                <Tooltip.Trigger asChild>
+                  {/* The story page's own Library button, the book, in the
+                      white-over-cover dressing it wears there. */}
+                  <IconButton
+                    asChild
+                    aria-label="Library: prep game"
+                    variant="ghost"
+                    size="sm"
+                    rounded="full"
+                    color="whiteAlpha.900"
+                    _hover={{ bg: "whiteAlpha.200" }}
+                    position="relative"
+                    zIndex="1"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                    }}
+                  >
+                    <NextLink href={`/libraries/${story.idStory}`}>
+                      <BookOpen size={18} />
+                    </NextLink>
+                  </IconButton>
+                </Tooltip.Trigger>
+                <Portal>
+                  <Tooltip.Positioner>
+                    <Tooltip.Content>Library: prep game</Tooltip.Content>
+                  </Tooltip.Positioner>
+                </Portal>
+              </Tooltip.Root>
+            )}
+          </HStack>
           {/* The card's own dressing over the cover: a dark pill so the
               count reads against whatever the image is doing under it. */}
           <PlayerCount

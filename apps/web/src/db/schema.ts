@@ -380,6 +380,20 @@ export const attachments = pgTable("attachments", {
   contentType: varchar("content_type"),
   byteSize: bigint("byte_size", { mode: "number" }),
   sortOrder: integer("sort_order"),
+  // The standard tags feature from _tables. 'cover' is the one the app reads:
+  // it marks the picture a card, page, popover or panel shows, and a partial
+  // unique index allows at most one per object (COVER_TAG in lib/attachments).
+  tags: text("tags")
+    .array()
+    .notNull()
+    .default(sql`'{}'`),
+  // url, file_name and every tag joined for lookups, built by the database
+  // from the search_fields recipe on the attachments row of _tables
+  // (db/migrations/20261001182236_add_attachments_search_text.sql).
+  // Generated, so an insert or update never names it.
+  searchText: text("search_text").generatedAlwaysAs(
+    sql`immutable_concat_ws(' ', url, file_name, immutable_array_to_string(tags, ' '))`,
+  ),
   activityLog: jsonb("activity_log")
     .default(sql`'[]'::jsonb`)
     .notNull(),

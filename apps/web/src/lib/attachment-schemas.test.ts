@@ -3,6 +3,7 @@ import { expect } from "expect";
 
 import {
   attachmentIdsSchema,
+  attachmentTagsSchema,
   attachmentKindSchema,
   attachmentUrlSchema,
   idAttachmentSchema,
@@ -74,5 +75,20 @@ describe("attachmentUrlSchema", () => {
     // javascript: or data: url must never reach the database.
     expect(attachmentUrlSchema.safeParse("javascript:alert(1)").success).toBe(false);
     expect(attachmentUrlSchema.safeParse("data:text/plain,x").success).toBe(false);
+  });
+});
+
+describe("attachmentTagsSchema", () => {
+  it("trims, lower-cases and drops repeats", () => {
+    expect(attachmentTagsSchema.parse([" Map", "map", "Handout "])).toEqual(["map", "handout"]);
+  });
+
+  it("refuses cover, an empty tag, a long one, and too many", () => {
+    expect(attachmentTagsSchema.safeParse(["Cover"]).success).toBe(false);
+    expect(attachmentTagsSchema.safeParse(["  "]).success).toBe(false);
+    expect(attachmentTagsSchema.safeParse(["x".repeat(41)]).success).toBe(false);
+    expect(
+      attachmentTagsSchema.safeParse(Array.from({ length: 21 }, (_, i) => `t${i}`)).success,
+    ).toBe(false);
   });
 });

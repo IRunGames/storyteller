@@ -12,7 +12,7 @@
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { createRequire } from "node:module";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
@@ -74,9 +74,18 @@ const sa_listAttachments = mock.fn<
       url: string | null;
       isUploaded: boolean;
       fileName: string | null;
+      isCover: boolean;
+      tags: string[];
     }>
   >
 >(async () => []);
+const sa_setAttachmentCover = mock.fn<(id: number, isCover: boolean) => Promise<void>>(
+  async () => {},
+);
+const sa_setAttachmentTags = mock.fn<(id: number, tags: string[]) => Promise<void>>(async () => {});
+// The field re-renders the page around it after a cover change, since the
+// cover that page draws is server-rendered.
+const router = { refresh: mock.fn() };
 
 let AttachmentListField: typeof import("./attachment-list-field").AttachmentListField;
 
@@ -93,8 +102,11 @@ before(async () => {
       sa_retryAttachment,
       sa_deleteAttachment,
       sa_listAttachments,
+      sa_setAttachmentCover,
+      sa_setAttachmentTags,
     },
   });
+  mock.module("next/navigation", { namedExports: { useRouter: () => router } });
   mock.module("@/components/auth/user-provider", {
     namedExports: { useUser: () => ({ id: "u1" }) },
   });
@@ -129,6 +141,315 @@ describe("AttachmentListField", () => {
     sa_deleteAttachment.mock.mockImplementation(async () => {});
     sa_listAttachments.mock.resetCalls();
     sa_listAttachments.mock.mockImplementation(async () => []);
+    sa_setAttachmentCover.mock.resetCalls();
+    sa_setAttachmentCover.mock.mockImplementation(async () => {});
+    router.refresh.mock.resetCalls();
+    sa_setAttachmentTags.mock.resetCalls();
+    sa_setAttachmentTags.mock.mockImplementation(async () => {});
+  });
+
+  /** Presses the one card's bin button and confirms in the popover it opens. */
+  async function confirmRemove(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: /^remove /i }));
+    const dialog = await screen.findByRole("dialog", { name: "Remove this attachment?" });
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+  }
+
+  /** Opens the tags popover on the row for `url` and returns its dialog. */
+  async function openTags(user: ReturnType<typeof userEvent.setup>, url: string) {
+    await user.click(await screen.findByRole("button", { name: `Tags for ${url}` }));
+    return await screen.findByRole("dialog", { name: "Tags" });
+  }
+
+  it("adds a typed tag, lower-cased, and removes it again", async () => {
+    const user = userEvent.setup();
+    twoLinks();
+
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} />);
+    const dialog = await openTags(user, "https://example.com/new.jpg");
+    await user.type(within(dialog).getByRole("textbox", { name: "New tag" }), " Map {Enter}");
+
+    expect(await within(dialog).findByText("map")).toBeInTheDocument();
+    expect(sa_setAttachmentTags.mock.calls[0].arguments).toEqual([8, ["map"]]);
+
+    await user.click(within(dialog).getByRole("button", { name: "Remove tag map" }));
+    await waitFor(() => expect(within(dialog).queryByText("map")).not.toBeInTheDocument());
+    expect(sa_setAttachmentTags.mock.calls[1].arguments).toEqual([8, []]);
+  });
+
+  it("makes a typed cover the cover, not a tag in the list", async () => {
+    const user = userEvent.setup();
+    twoLinks();
+
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} />);
+    const dialog = await openTags(user, "https://example.com/new.jpg");
+    await user.type(within(dialog).getByRole("textbox", { name: "New tag" }), "Cover{Enter}");
+
+    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([8, true]);
+    expect(sa_setAttachmentTags.mock.callCount()).toBe(0);
+    // The starred chip, with its own way off, and nothing called "cover" among
+    // the plain tags.
+    expect(await within(dialog).findByRole("button", { name: "Remove cover" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /remove tag/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Cover https://example.com/new.jpg" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("takes a refused tag back off and says so inside the popover", async () => {
+    const user = userEvent.setup();
+    twoLinks();
+    sa_setAttachmentTags.mock.mockImplementation(async () => {
+      throw new Error("refused");
+    });
+
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} />);
+    const dialog = await openTags(user, "https://example.com/new.jpg");
+    await user.type(within(dialog).getByRole("textbox", { name: "New tag" }), "map{Enter}");
+
+    expect(await within(dialog).findByText(/tag could not be added/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText("map")).not.toBeInTheDocument();
+  });
+
+  /** Two READY links on a scene, the first of them its cover. */
+  function twoLinks() {
+    sa_listAttachments.mock.mockImplementation(async () => [
+      {
+        idAttachment: 7,
+        kind: "STORY_SCENE",
+        idExternal: SCENE_ID,
+        status: "READY",
+        url: "https://example.com/old.jpg",
+        isUploaded: false,
+        fileName: null,
+        isCover: true,
+        tags: [],
+      },
+      {
+        idAttachment: 8,
+        kind: "STORY_SCENE",
+        idExternal: SCENE_ID,
+        status: "READY",
+        url: "https://example.com/new.jpg",
+        isUploaded: false,
+        fileName: null,
+        isCover: false,
+        tags: [],
+      },
+    ]);
+  }
+
+  it("moves the cover to the row pressed and re-renders the page around it", async () => {
+    const user = userEvent.setup();
+    twoLinks();
+
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} />);
+
+    const oldCover = await screen.findByRole("button", {
+      name: "Cover https://example.com/old.jpg",
+    });
+    const newCover = screen.getByRole("button", { name: "Cover https://example.com/new.jpg" });
+    expect(oldCover).toHaveAttribute("aria-pressed", "true");
+    expect(newCover).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(newCover);
+
+    expect(newCover).toHaveAttribute("aria-pressed", "true");
+    expect(oldCover).toHaveAttribute("aria-pressed", "false");
+    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([8, true]);
+    await waitFor(() => expect(router.refresh.mock.callCount()).toBe(1));
+  });
+
+  it("says over the Cover button what pressing it will do", async () => {
+    const user = userEvent.setup();
+    twoLinks();
+
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} />);
+    await user.hover(
+      await screen.findByRole("button", { name: "Cover https://example.com/new.jpg" }),
+    );
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Make this the cover image");
+
+    await user.unhover(screen.getByRole("button", { name: "Cover https://example.com/new.jpg" }));
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+    await user.hover(screen.getByRole("button", { name: "Cover https://example.com/old.jpg" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Stop using this as the cover image",
+    );
+  });
+
+  it("takes the cover off when the cover itself is pressed", async () => {
+    const user = userEvent.setup();
+    twoLinks();
+
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} />);
+    const cover = await screen.findByRole("button", { name: "Cover https://example.com/old.jpg" });
+    await user.click(cover);
+
+    expect(cover).toHaveAttribute("aria-pressed", "false");
+    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([7, false]);
+  });
+
+  it("puts the cover back and says so when the change is refused", async () => {
+    const user = userEvent.setup();
+    twoLinks();
+    sa_setAttachmentCover.mock.mockImplementation(async () => {
+      throw new Error("refused");
+    });
+
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} />);
+    const oldCover = await screen.findByRole("button", {
+      name: "Cover https://example.com/old.jpg",
+    });
+    const newCover = screen.getByRole("button", { name: "Cover https://example.com/new.jpg" });
+    await user.click(newCover);
+
+    expect(await screen.findByText(/cover could not be changed/i)).toBeInTheDocument();
+    expect(oldCover).toHaveAttribute("aria-pressed", "true");
+    expect(newCover).toHaveAttribute("aria-pressed", "false");
+    expect(router.refresh.mock.callCount()).toBe(0);
+  });
+
+  it("opens a picture full size, with its cover and tags along the bottom", async () => {
+    const user = userEvent.setup();
+    sa_listAttachments.mock.mockImplementation(async () => [
+      {
+        idAttachment: 7,
+        kind: "STORY_SCENE",
+        idExternal: SCENE_ID,
+        status: "READY",
+        url: "https://example.com/map.jpg",
+        isUploaded: false,
+        fileName: null,
+        isCover: true,
+        tags: ["map", "handout"],
+      },
+    ]);
+
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Preview https://example.com/map.jpg" }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "https://example.com/map.jpg" });
+    expect(within(dialog).getByRole("img")).toHaveAttribute("src", "https://example.com/map.jpg");
+    const tags = within(dialog).getAllByRole("listitem");
+    expect(tags.map((tag) => tag.textContent)).toEqual(["Cover", "map", "handout"]);
+  });
+
+  it("asks before removing, says it is permanent, and Cancel removes nothing", async () => {
+    const user = userEvent.setup();
+    twoLinks();
+
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Remove https://example.com/old.jpg" }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Remove this attachment?" });
+    expect(dialog).toHaveTextContent(/permanently deletes/i);
+    // old.jpg is the cover, and the popover says what removing it costs.
+    expect(dialog).toHaveTextContent(/it is the cover/i);
+    expect(sa_deleteAttachment.mock.callCount()).toBe(0);
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(dialog).not.toBeVisible());
+    expect(sa_deleteAttachment.mock.callCount()).toBe(0);
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("draws only the matched cards, can leave the cover out, and says when none are left", async () => {
+    twoLinks();
+    const onChange = mock.fn<(ids: number[]) => void>();
+
+    const { rerender } = renderWithProviders(
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        onChange={onChange}
+        shownIds={new Set([8])}
+        showEmpty
+      />,
+    );
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+    expect(
+      screen.getByRole("button", { name: "Preview https://example.com/new.jpg" }),
+    ).toBeInTheDocument();
+    // What is reported is still the whole set: the search only narrows the view.
+    expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([7, 8]);
+
+    // 7 is the cover; with covers left out and only 7 matched, nothing is left.
+    rerender(
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        onChange={onChange}
+        shownIds={new Set([7])}
+        hideCovers
+        showEmpty
+      />,
+    );
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.getByText("No matches.")).toBeInTheDocument();
+  });
+
+  it("says there are none yet once an object with no attachments has loaded", async () => {
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} showEmpty />);
+    expect(await screen.findByText("No attachments yet.")).toBeInTheDocument();
+  });
+
+  it("draws the link input and dropzone into the box the page gives it", async () => {
+    const user = userEvent.setup();
+    const box = document.createElement("div");
+    document.body.append(box);
+
+    const { container } = renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} addTarget={box} />,
+    );
+
+    expect(box.querySelector('input[type="file"]')).not.toBeNull();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    // Still the field's own: a link added there lands among its cards.
+    await user.type(screen.getByRole("textbox", { name: /link/i }), "https://example.com/a.jpg");
+    await user.click(screen.getByRole("button", { name: /add link/i }));
+    expect(
+      await screen.findByRole("button", { name: "Remove https://example.com/a.jpg" }),
+    ).toBeInTheDocument();
+    box.remove();
+  });
+
+  it("draws nothing while the page's box is not there yet", () => {
+    const { container } = renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} addTarget={null} />,
+    );
+
+    expect(screen.queryByRole("textbox", { name: /link/i })).not.toBeInTheDocument();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+  });
+
+  it("hides the link input and dropzone when told to, still showing the cards", async () => {
+    twoLinks();
+
+    const { container } = renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} showAdd={false} />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Tags for https://example.com/new.jpg" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /link/i })).not.toBeInTheDocument();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+  });
+
+  it("offers no Cover on a create form, where there is no object to be the cover of", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(<AttachmentListField kind="STORY" idExternal={null} />);
+    await user.type(screen.getByRole("textbox", { name: /link/i }), "https://example.com/a.jpg");
+    await user.click(screen.getByRole("button", { name: /add link/i }));
+
+    expect(await screen.findByRole("button", { name: /^remove /i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^cover/i })).not.toBeInTheDocument();
   });
 
   it("adds a typed URL as an attachment and reports its id", async () => {
@@ -201,7 +522,8 @@ describe("AttachmentListField", () => {
 
     // The first, successful attachment must still be intact.
     expect(screen.getByRole("img")).toHaveAttribute("src", URL_A);
-    expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([1, 2]);
+    // Newest first: the second file's row went in front of the first's.
+    expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([2, 1]);
   });
 
   it("renders a Retry button on an ERROR row that calls sa_retryAttachment and re-uploads", async () => {
@@ -239,7 +561,7 @@ describe("AttachmentListField", () => {
     await user.click(screen.getByRole("button", { name: /add link/i }));
     await waitFor(() => expect(onChange.mock.callCount()).toBeGreaterThan(0));
 
-    await user.click(screen.getByRole("button", { name: /remove/i }));
+    await confirmRemove(user);
 
     await waitFor(() => expect(sa_deleteAttachment.mock.callCount()).toBe(1));
     expect(sa_deleteAttachment.mock.calls[0].arguments[0]).toBe(1);
@@ -247,7 +569,7 @@ describe("AttachmentListField", () => {
     expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
   });
 
-  it("renders several attachments in the order they were added", async () => {
+  it("puts each new attachment at the front, as the list runs newest first", async () => {
     const user = userEvent.setup();
     const onChange = mock.fn<(ids: number[]) => void>();
 
@@ -264,8 +586,8 @@ describe("AttachmentListField", () => {
 
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
     const items = screen.getAllByRole("listitem");
-    expect(items[0]).toHaveTextContent("first.jpg");
-    expect(items[1]).toHaveTextContent("second.jpg");
+    expect(items[0]).toHaveTextContent("second.jpg");
+    expect(items[1]).toHaveTextContent("first.jpg");
   });
 
   it("collects ids without claiming when idExternal is null (a create form)", async () => {
@@ -300,6 +622,8 @@ describe("AttachmentListField", () => {
         url: null,
         isUploaded: true,
         fileName: "broken.jpg",
+        isCover: false,
+        tags: [],
       },
     ]);
     const onChange = mock.fn<(ids: number[]) => void>();
@@ -345,6 +669,8 @@ describe("AttachmentListField", () => {
           url: "https://example.com/ok.jpg",
           isUploaded: false,
           fileName: null,
+          isCover: false,
+          tags: [],
         },
       ];
     });
@@ -378,6 +704,8 @@ describe("AttachmentListField", () => {
         url: string | null;
         isUploaded: boolean;
         fileName: string | null;
+        isCover: boolean;
+        tags: string[];
       }>
     >();
     sa_listAttachments.mock.mockImplementation(() => pending.promise);
@@ -400,14 +728,17 @@ describe("AttachmentListField", () => {
         url: "https://example.com/existing.jpg",
         isUploaded: false,
         fileName: null,
+        isCover: false,
+        tags: [],
       },
     ]);
 
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(2));
     const items = screen.getAllByRole("listitem");
-    expect(items[0]).toHaveTextContent("existing.jpg");
-    expect(items[1]).toHaveTextContent("added.jpg");
-    expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([55, 1]);
+    // The row added during the load is the newer one, so it leads.
+    expect(items[0]).toHaveTextContent("added.jpg");
+    expect(items[1]).toHaveTextContent("existing.jpg");
+    expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([1, 55]);
   });
 
   // handleRemove's commit() and its sa_deleteAttachment call are two
@@ -426,6 +757,8 @@ describe("AttachmentListField", () => {
         url: string | null;
         isUploaded: boolean;
         fileName: string | null;
+        isCover: boolean;
+        tags: string[];
       }>
     >();
     sa_listAttachments.mock.mockImplementation(() => pending.promise);
@@ -439,7 +772,7 @@ describe("AttachmentListField", () => {
     await user.click(screen.getByRole("button", { name: /add link/i }));
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
 
-    await user.click(screen.getByRole("button", { name: /remove/i }));
+    await confirmRemove(user);
     await waitFor(() => expect(screen.queryByRole("listitem")).not.toBeInTheDocument());
 
     // Simulates the fetch's SELECT having run before the DELETE committed:
@@ -457,6 +790,8 @@ describe("AttachmentListField", () => {
           url: "https://example.com/gone.jpg",
           isUploaded: false,
           fileName: null,
+          isCover: false,
+          tags: [],
         },
       ]);
       await pending.promise;
@@ -489,6 +824,8 @@ describe("AttachmentListField", () => {
         url: string | null;
         isUploaded: boolean;
         fileName: string | null;
+        isCover: boolean;
+        tags: string[];
       }>
     >();
     sa_listAttachments.mock.mockImplementation(() => pending.promise);
@@ -527,7 +864,7 @@ describe("AttachmentListField", () => {
     expect(items[0]).toHaveTextContent("Attachment 5");
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /remove/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^remove /i })).toBeInTheDocument();
   });
 
   // zag's own FileUpload ledger only ever counts files accepted through the

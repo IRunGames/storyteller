@@ -8,8 +8,14 @@
 export const PREP_COLUMNS = [
   { title: "Timeline", singular: "session", width: "32rem", expandable: false, creatable: false },
   { title: "Scenes", singular: "scene", width: "20rem", expandable: true, creatable: true },
+  {
+    title: "Attachments",
+    singular: "attachment",
+    width: "20rem",
+    expandable: true,
+    creatable: true,
+  },
   { title: "Characters", singular: "character", width: "20rem", expandable: true, creatable: true },
-  { title: "Enemies", singular: "enemy", width: "20rem", expandable: true, creatable: true },
   { title: "Resources", singular: "resource", width: "20rem", expandable: true, creatable: true },
 ] as const;
 

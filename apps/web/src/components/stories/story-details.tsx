@@ -12,7 +12,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { Pencil, Play, Timer } from "lucide-react";
+import { BookOpen, Pencil, Play } from "lucide-react";
 import {
   cssUrlValue,
   systemLabel,
@@ -21,6 +21,7 @@ import {
   type StorySession,
 } from "@/lib/stories";
 import { LocalDate } from "@/components/dates/local-date";
+import { StoryAttachments } from "./story-attachments";
 import { StoryPlayers } from "./story-players";
 import type { StatusOption } from "@/lib/status";
 import { StorySessions } from "./story-sessions";
@@ -123,16 +124,16 @@ export function StoryDetails({ story, players, sessions, sessionStatusOptions }:
                 {story.title}
               </Heading>
               {story.isOwner && (
-                // Prep Work is the storyteller's library for the story: its
-                // scenes and enemies are what the players are not meant to
+                // The storyteller's library for the story, where the game is
+                // prepped: its scenes are what the players are not meant to
                 // see yet, so the door to it is theirs alone, like Edit. A
-                // link styled as a button, since the library is a page of its
-                // own.
+                // book, as on the Library page's list. A link styled as a
+                // button, since the library is a page of its own.
                 <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
                   <Tooltip.Trigger asChild>
                     <IconButton
                       asChild
-                      aria-label="Prep Work"
+                      aria-label="Library: prep game"
                       variant="ghost"
                       size="lg"
                       rounded="full"
@@ -140,13 +141,13 @@ export function StoryDetails({ story, players, sessions, sessionStatusOptions }:
                       _hover={story.imageUrl ? { bg: "whiteAlpha.200" } : undefined}
                     >
                       <NextLink href={`/libraries/${story.idStory}`}>
-                        <Timer size={24} />
+                        <BookOpen size={24} />
                       </NextLink>
                     </IconButton>
                   </Tooltip.Trigger>
                   <Portal>
                     <Tooltip.Positioner>
-                      <Tooltip.Content>Prep Work</Tooltip.Content>
+                      <Tooltip.Content>Library: prep game</Tooltip.Content>
                     </Tooltip.Positioner>
                   </Portal>
                 </Tooltip.Root>
@@ -202,6 +203,16 @@ export function StoryDetails({ story, players, sessions, sessionStatusOptions }:
               showTitles
             />
           </Stack>
+
+          {story.isOwner && (
+            // The one place a story's pictures are added or removed: the New
+            // story form has no story to attach them to yet, so creating one
+            // lands here instead. The field loads and attaches its own rows
+            // against the story's id, so nothing is handed back to the page.
+            // The storyteller's alone, as Edit is: sa_createAttachment refuses
+            // anyone else.
+            <StoryAttachments idStory={story.idStory} onImage={!!story.imageUrl} />
+          )}
         </Stack>
       </Container>
     </Box>

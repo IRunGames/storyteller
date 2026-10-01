@@ -3,8 +3,6 @@ import { expect } from "expect";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { useEffect } from "react";
-
 import { renderWithProviders } from "@/test/render";
 import type { StoryValues } from "@/lib/story-schemas";
 
@@ -21,21 +19,6 @@ const noErrors = async (): Promise<Result> => ({ ok: false, errors: {} });
 const sa_createStory = mock.fn<(values: StoryValues) => Promise<Result>>(noErrors);
 const sa_updateStory = mock.fn<(idStory: number, values: StoryValues) => Promise<Result>>(noErrors);
 
-// AttachmentListField uploads to Blob and has a test file of its own; here it
-// is stood in for by the smallest thing that exercises the contract the form
-// depends on. It records the props it was handed -- idExternal is the one the
-// form decides, and getting it wrong is the difference between claiming ids
-// after the insert and never claiming them -- and offers a button that reports
-// an id the way a finished upload would.
-//
-// With a real idExternal it also reports its ids once on mount, because the
-// real field does: it loads the parent's rows from sa_listAttachments and
-// commit() hands them straight to onChange. Leaving that out would let an edit
-// test "prove" the form posts no ids, which is not true of the field it stands
-// in for -- what makes the edit path safe is sa_updateStory ignoring them.
-const HYDRATED_ID = -7;
-const fieldProps: { kind: string; idExternal: number | null; value: number[] }[] = [];
-
 let StoryForm: typeof import("./story-form").StoryForm;
 
 const existing = {
@@ -44,7 +27,6 @@ const existing = {
     title: "Vampire",
     idSystem: -6,
     summary: "A city of the dead.",
-    attachmentIds: [],
     isLookingForPlayers: true,
     isActive: true,
     isArchived: false,
@@ -56,38 +38,10 @@ describe("StoryForm", () => {
     mock.module("@/app/(app)/(nav)/stories/actions", {
       namedExports: { sa_createStory, sa_updateStory },
     });
-    mock.module("@/components/uploads/attachment-list-field", {
-      namedExports: {
-        AttachmentListField: ({
-          kind,
-          idExternal,
-          value,
-          onChange,
-        }: {
-          kind: string;
-          idExternal: number | null;
-          value: number[];
-          onChange: (ids: number[]) => void;
-        }) => {
-          fieldProps.push({ kind, idExternal, value });
-          useEffect(() => {
-            if (idExternal !== null) onChange([HYDRATED_ID]);
-            // Once on mount, as the real field's own load effect runs once.
-            // eslint-disable-next-line react-hooks/exhaustive-deps
-          }, []);
-          return (
-            <button type="button" onClick={() => onChange([...value, -3])}>
-              Add attachment
-            </button>
-          );
-        },
-      },
-    });
     ({ StoryForm } = await import("./story-form"));
   });
 
   beforeEach(() => {
-    fieldProps.length = 0;
     sa_createStory.mock.resetCalls();
     sa_createStory.mock.mockImplementation(noErrors);
     sa_updateStory.mock.resetCalls();
@@ -120,81 +74,11 @@ describe("StoryForm", () => {
       title: "Embers Leap",
       idSystem: -26,
       summary: "A gala in Satyrine.",
-      attachmentIds: [],
       isLookingForPlayers: true,
       isActive: true,
       isArchived: false,
     });
     expect(sa_updateStory.mock.callCount()).toBe(0);
-  });
-
-  it("sends the ids a new story collected, with nothing to attach them to yet", async () => {
-    const user = userEvent.setup();
-
-    renderWithProviders(<StoryForm systems={systems} />);
-    // No story yet, so the field cannot attach its rows itself and the ids
-    // ride along to sa_createStory instead.
-    expect(fieldProps[0]).toEqual({ kind: "STORY", idExternal: null, value: [] });
-
-    await user.type(screen.getByLabelText(/Title/), "Embers Leap");
-    await user.click(screen.getByRole("button", { name: "Add attachment" }));
-    await user.click(screen.getByRole("button", { name: "Create story" }));
-
-    await waitFor(() => expect(sa_createStory.mock.callCount()).toBe(1));
-    expect(sa_createStory.mock.calls[0].arguments[0].attachmentIds).toEqual([-3]);
-  });
-
-  it("points the field at the story when editing, so the field attaches its own rows", async () => {
-    const user = userEvent.setup();
-
-    renderWithProviders(<StoryForm systems={systems} story={existing} />);
-    // The story exists, so the field is handed its id and creates every row
-    // already pointing at it. Nothing here has to be claimed afterwards.
-    expect(fieldProps[0]).toEqual({ kind: "STORY", idExternal: -15, value: [] });
-
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    await waitFor(() => expect(sa_updateStory.mock.callCount()).toBe(1));
-    // The ids the field loaded do travel with the form -- it is one schema for
-    // both pages -- and sa_updateStory is what ignores them; see its doc
-    // comment. The form withholding them is not what makes the edit path safe.
-    expect(sa_updateStory.mock.calls[0].arguments[1].attachmentIds).toEqual([HYDRATED_ID]);
-  });
-
-  it("shows a form-level alert when the client check refuses the attachment ids", async () => {
-    const user = userEvent.setup();
-
-    renderWithProviders(<StoryForm systems={systems} />);
-    await user.type(screen.getByLabelText(/Title/), "Embers Leap");
-    // attachmentIdsSchema caps the list at 50, and the field has no input of
-    // its own to hang a message on: without the onInvalid handler this makes
-    // Create a silent no-op rather than a refusal the storyteller can see.
-    for (let i = 0; i < 51; i += 1) {
-      await user.click(screen.getByRole("button", { name: "Add attachment" }));
-    }
-    await user.click(screen.getByRole("button", { name: "Create story" }));
-
-    expect(
-      await screen.findByText("That is too many attachments. Remove a few and try again."),
-    ).toBeInTheDocument();
-    expect(sa_createStory.mock.callCount()).toBe(0);
-  });
-
-  it("puts an attachmentIds error the server sends onto the form-level alert", async () => {
-    const user = userEvent.setup();
-    sa_createStory.mock.mockImplementation(async () => ({
-      ok: false,
-      // Keyed per element, which is not a field react-hook-form knows at all.
-      errors: { "attachmentIds.0": "That attachment is no longer available." },
-    }));
-
-    renderWithProviders(<StoryForm systems={systems} />);
-    await user.type(screen.getByLabelText(/Title/), "Embers Leap");
-    await user.click(screen.getByRole("button", { name: "Create story" }));
-
-    expect(
-      await screen.findByText("That attachment is no longer available."),
-    ).toBeInTheDocument();
   });
 
   it("starts a new story active, with nothing to archive yet", () => {
@@ -237,7 +121,7 @@ describe("StoryForm", () => {
     await waitFor(() => expect(sa_updateStory.mock.callCount()).toBe(1));
     expect(sa_updateStory.mock.calls[0].arguments).toEqual([
       -15,
-      { ...existing.values, title: "Vampire: Chicago", attachmentIds: [HYDRATED_ID] },
+      { ...existing.values, title: "Vampire: Chicago" },
     ]);
     expect(sa_createStory.mock.callCount()).toBe(0);
   });
@@ -261,7 +145,6 @@ describe("StoryForm", () => {
     await waitFor(() => expect(sa_updateStory.mock.callCount()).toBe(1));
     expect(sa_updateStory.mock.calls[0].arguments[1]).toEqual({
       ...existing.values,
-      attachmentIds: [HYDRATED_ID],
       isLookingForPlayers: false,
       isActive: false,
       isArchived: true,

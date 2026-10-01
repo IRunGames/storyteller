@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-import { attachmentIdsSchema } from "@/lib/attachment-schemas";
-
 // A <select> posts "" for "no system" and a string for a chosen one; the
 // preprocess turns both into what the stories.id_system column wants.
 const idSystem = z.preprocess(
@@ -18,14 +16,6 @@ const storyFields = z.object({
     .max(200, "Keep the title under 200 characters."),
   idSystem,
   summary: z.string().trim().max(4000, "Keep the summary under 4000 characters."),
-  /**
-   * The attachments the New story form collected before the story existed,
-   * for sa_createStory to claim once it has an id. The edit form's field
-   * attaches its rows to the story as they are made and posts none, so this
-   * defaults to empty and sa_updateStory ignores it; it is validated here all
-   * the same, because the server re-runs whatever the client sent.
-   */
-  attachmentIds: attachmentIdsSchema.default([]),
   isLookingForPlayers: z.boolean(),
   isActive: z.boolean(),
   isArchived: z.boolean(),

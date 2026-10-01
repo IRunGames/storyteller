@@ -20,7 +20,6 @@ import {
   type StorySessionDetail,
 } from "@/lib/stories";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
-import { sa_claimAttachments } from "@/components/uploads/actions";
 
 const {
   stories,
@@ -567,10 +566,7 @@ export async function sa_listSystems(): Promise<{ idSystem: number; label: strin
   }));
 }
 
-// storyCreated marks the one failure that happens after the story was
-// inserted: the form keeps its submit button disabled for it, because a
-// second press would not retry anything, it would create a second story.
-export type StoryFormResult = { ok: false; errors: Record<string, string>; storyCreated?: true };
+export type StoryFormResult = { ok: false; errors: Record<string, string> };
 
 // The zod issues as the form wants them: one message per field, the first
 // issue winning, keyed by the issue's path. Shared by create and update.
@@ -584,12 +580,11 @@ function fieldErrors(parsed: z.ZodSafeParseError<unknown>): StoryFormResult {
 }
 
 /**
- * Validates and inserts a new story owned by the caller, claims the
- * attachments the form collected before the story had an id, then redirects
- * to the Stories page. Validation failures come back as field errors for the
- * form, and a claim that fails over an already-inserted story comes back on
- * "root"; on success the redirect throws, so this never resolves with
- * ok: true.
+ * Validates and inserts a new story owned by the caller, then redirects to
+ * the story's own page, where its attachments are added: the New story form
+ * has none, since there is no story to attach them to until this returns.
+ * Validation failures come back as field errors for the form; on success the
+ * redirect throws, so this never resolves with ok: true.
  */
 export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
   const user = await requireUser();
@@ -613,44 +608,7 @@ export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
     })
     .returning({ idStory: stories.idStory });
 
-  // Deliberately after the insert and outside any transaction with it, which
-  // sa_claimAttachments' own doc comment insists on: it runs on the
-  // module-level pooled db and re-proves the caller owns the parent, so from
-  // another connection it could not see a story this action had not committed
-  // yet and would refuse a claim that should have succeeded.
-  //
-  // Everything the claim checks is already true here — the story was inserted
-  // moments ago with this caller as its creator, and storySchema validated the
-  // ids — so a rejection means something unexpected rather than something the
-  // user did. It is caught all the same, because the alternative is worse in
-  // both directions: rethrown, react-hook-form would rethrow it out of
-  // onSubmit and the user would get no redirect, no message and an unhandled
-  // rejection in the console; swallowed, they would land on the Stories page
-  // with a story whose pictures quietly went missing.
-  //
-  // So it comes back on "root", where the form already has an alert waiting.
-  // The message has to say the story was created, because nothing else will.
-  // react-hook-form works isSubmitSuccessful out from the error map left
-  // behind after onSubmit, so an error here would ordinarily make the submit
-  // button pressable again, and a second press would create a second story;
-  // storyCreated tells StoryForm to keep it disabled instead. The orphaned
-  // attachments stay detached, which is what the sweep collects, and the
-  // storyteller can attach them again from the story's edit page.
-  try {
-    await sa_claimAttachments("STORY", story.idStory, values.attachmentIds);
-  } catch {
-    return {
-      ok: false,
-      errors: {
-        root:
-          "The story was created, but its attachments could not be added to it." +
-          " You can add them from the story's edit page.",
-      },
-      storyCreated: true,
-    };
-  }
-
-  redirect("/stories");
+  redirect(`/stories/${story.idStory}`);
 }
 
 /**
@@ -682,11 +640,7 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
     .limit(1);
   if (!story) return null;
 
-  // attachmentIds is empty on purpose: the edit form's AttachmentListField
-  // loads the story's own attachments from sa_listAttachments and attaches
-  // anything new as it is made, so there is nothing for the form to carry
-  // and nothing for sa_updateStory to claim.
-  return { ...story, summary: story.summary ?? "", attachmentIds: [] };
+  return { ...story, summary: story.summary ?? "" };
 }
 
 /**
@@ -696,10 +650,6 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
  * the client sent; a mismatch is thrown, since the form cannot fix it. The
  * same predicate is repeated in the UPDATE's WHERE so the write cannot land
  * on a row that changed hands between the read and the write.
- *
- * storySchema's attachmentIds are validated and then ignored: the edit form's
- * AttachmentListField creates each row already pointing at this story, so
- * there is never anything left here to claim.
  */
 export async function sa_updateStory(idStory: number, input: unknown): Promise<StoryFormResult> {
   const user = await requireUser();

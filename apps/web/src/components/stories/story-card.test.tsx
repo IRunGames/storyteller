@@ -177,6 +177,31 @@ describe("StoryCard", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Start playing");
   });
 
+  it("offers the owner the Library beside Play, and beside the Inactive pill", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<StoryCard story={story} />);
+    expect(screen.queryByRole("link", { name: "Library: prep game" })).not.toBeInTheDocument();
+
+    renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
+    const prep = screen.getByRole("link", { name: "Library: prep game" });
+    expect(prep).toHaveAttribute("href", "/libraries/-13");
+    // Right of Play: it comes after it in document order.
+    expect(
+      screen.getByRole("link", { name: "Play" }).compareDocumentPosition(prep) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await user.hover(prep);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Library: prep game");
+  });
+
+  it("keeps the Library for the owner of a retired story", () => {
+    renderWithProviders(<StoryCard story={{ ...story, isOwner: true, isActive: false }} />);
+    expect(screen.getByRole("link", { name: "Library: prep game" })).toHaveAttribute(
+      "href",
+      "/libraries/-13",
+    );
+  });
+
   it("offers Join in Play's place to a non-owner while a session is open", () => {
     renderWithProviders(<StoryCard story={story} />);
     expect(screen.queryByRole("link", { name: "Join" })).not.toBeInTheDocument();
@@ -223,8 +248,9 @@ describe("StoryCard", () => {
     renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
     const play = screen.getByRole("link", { name: "Play" });
     // A grid item stretches to its column unless told otherwise; the cell
-    // must start-align so the round button keeps its width.
-    expect(play.parentElement).toHaveStyle({ justifyItems: "start" });
+    // must start-align so the round button keeps its width. Play sits in the
+    // row it shares with the Library button, and that row is the grid's item.
+    expect(play.parentElement?.parentElement).toHaveStyle({ justifyItems: "start" });
   });
 
   it("disables the heart while a toggle is pending", async () => {

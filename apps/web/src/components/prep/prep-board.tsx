@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import NextLink from "next/link";
-import { Button, Flex, Heading, HStack, Link, List, Stack, Text } from "@chakra-ui/react";
-import { Maximize2 } from "lucide-react";
+import { Box, Button, Flex, Heading, HStack, Link, List, Stack, Text } from "@chakra-ui/react";
+import { Maximize } from "lucide-react";
 import { matchesFilter } from "@/lib/filter-text";
 import type { StoryScene } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import { PREP_SESSIONS_PAGE_SIZE, type StoryCardData, type StorySession } from "@/lib/stories";
 import { StorySessions } from "@/components/stories/story-sessions";
 import { PREP_COLUMNS, type PrepColumnMode, type PrepColumnTitle } from "./prep-columns";
+import { PrepAttachments } from "./prep-attachments";
 import { PrepColumn } from "./prep-column";
 import { PrepScenes } from "./prep-scenes";
 
@@ -31,10 +32,23 @@ type Props = {
 };
 
 // Until each column has its own rows, a few lines stand where they will go.
-const PLACEHOLDERS: Record<Exclude<PrepColumnTitle, "Timeline" | "Scenes">, string[]> = {
+const PLACEHOLDERS: Record<
+  Exclude<PrepColumnTitle, "Timeline" | "Scenes" | "Attachments">,
+  string[]
+> = {
   Characters: ["The innkeeper", "The magistrate", "The stranger"],
-  Enemies: ["Wolves", "The cult", "The dragon"],
   Resources: ["Regional map", "House rules", "Loot tables"],
+};
+
+// The Attachments column's one pill over its search box. Not a status, but a
+// pill like the status ones, so the column's filters read the same as its
+// neighbours': on to begin with, outlined when switched off, and off leaves
+// the story's cover out of the cards.
+const COVERS_FILTER: StatusOption = {
+  key: "COVER",
+  label: "Covers",
+  description: "Show the story's cover among its attachments",
+  from: null,
 };
 
 // The stand-in rows, filtered like the real ones will be.
@@ -71,6 +85,15 @@ export function PrepBoard({
   sceneStatusOptions,
 }: Props) {
   const [modes, setModes] = useState(initialModes);
+  // The Attachments column's + opens the link input and dropzone at the top of
+  // the column, over the cards, and closes them again.
+  const [addingAttachments, setAddingAttachments] = useState(false);
+  // Where that column's adding controls are drawn: an empty box above its
+  // filters, there only while they are open. The controls themselves stay
+  // part of the attachments field, which owns the rows they add to and the
+  // uploads in flight; it draws them into this box through a portal. A
+  // callback ref into state, so the field re-renders once the box exists.
+  const [attachmentAdderSlot, setAttachmentAdderSlot] = useState<HTMLDivElement | null>(null);
 
   function setMode(title: PrepColumnTitle, mode: PrepColumnMode) {
     setModes((current) => {
@@ -91,6 +114,7 @@ export function PrepBoard({
   const COLUMN_WORKFLOWS: Partial<Record<PrepColumnTitle, StatusOption[]>> = {
     Timeline: sessionStatusOptions,
     Scenes: sceneStatusOptions,
+    Attachments: [COVERS_FILTER],
   };
 
   const hidden = PREP_COLUMNS.filter((column) => modes[column.title] === "hidden");
@@ -117,7 +141,7 @@ export function PrepBoard({
               size="sm"
               onClick={() => setMode(column.title, "normal")}
             >
-              <Maximize2 />
+              <Maximize />
               {column.title}
             </Button>
           ))}
@@ -136,14 +160,26 @@ export function PrepBoard({
               singular={column.singular}
               count={counts[column.title] ?? null}
               statusOptions={COLUMN_WORKFLOWS[column.title]}
+              filterLabel={column.title === "Attachments" ? "Filter Attachments" : undefined}
               mode={mode}
               width={column.width}
               expandable={column.expandable}
               creatable={column.creatable}
               bordered={index > 0}
-              // Creating rows is the next piece of work; the buttons are in
-              // place so the layout is settled first.
-              onCreate={() => {}}
+              creating={column.title === "Attachments" ? addingAttachments : undefined}
+              aboveFilters={
+                column.title === "Attachments" && addingAttachments ? (
+                  <Box ref={setAttachmentAdderSlot} data-testid="attachment-adder" />
+                ) : undefined
+              }
+              // Creating rows is the next piece of work for the other
+              // columns; their buttons are in place so the layout is settled
+              // first.
+              onCreate={
+                column.title === "Attachments"
+                  ? () => setAddingAttachments((open) => !open)
+                  : () => {}
+              }
               onExpand={() => setMode(column.title, "expanded")}
               onContract={() => setMode(column.title, mode === "expanded" ? "normal" : "hidden")}
             >
@@ -172,6 +208,17 @@ export function PrepBoard({
                       shownStatuses={filter.statuses}
                       statusOptions={sceneStatusOptions}
                       canEdit={story.isOwner}
+                    />
+                  );
+                }
+                if (column.title === "Attachments") {
+                  return (
+                    <PrepAttachments
+                      idStory={story.idStory}
+                      filter={filter.query}
+                      showCovers={filter.statuses.includes(COVERS_FILTER.key)}
+                      showAdd={addingAttachments}
+                      addTarget={attachmentAdderSlot}
                     />
                   );
                 }

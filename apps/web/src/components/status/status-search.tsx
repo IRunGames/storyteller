@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import { chakra, HStack, Input, InputGroup, Stack } from "@chakra-ui/react";
+import { chakra, HStack, Input, InputGroup, Portal, Stack, Tooltip } from "@chakra-ui/react";
 import { Search } from "lucide-react";
 import type { StatusOption } from "@/lib/status";
 import { pillStyle } from "./pill-style";
@@ -32,6 +32,12 @@ type Props = {
   options: StatusOption[];
   value: StatusSearchValue;
   onChange: (next: StatusSearchValue) => void;
+  /**
+   * What a screen reader hears the pills called. Defaults to "Filter <label>
+   * by status"; a column whose pills are not statuses (the Attachments
+   * column's Covers) says what they are instead.
+   */
+  groupLabel?: string;
 };
 
 // A toggle, not a status: same colours as the pill that shows a row's status,
@@ -53,7 +59,7 @@ const ToggleButton = chakra("button");
  * The pills come from the workflow, so a status added to it appears here
  * without anything being changed.
  */
-export function StatusSearch({ label, options, value, onChange }: Props) {
+export function StatusSearch({ label, options, value, onChange, groupLabel }: Props) {
   const groupId = useId();
 
   function toggle(key: string) {
@@ -84,38 +90,51 @@ export function StatusSearch({ label, options, value, onChange }: Props) {
           css={{ scrollbarWidth: "thin" }}
         >
           <chakra.span id={groupId} srOnly>
-            Filter {label} by status
+            {groupLabel ?? `Filter ${label} by status`}
           </chakra.span>
           {options.map((option) => {
             const on = value.statuses.includes(option.key);
             return (
-              <ToggleButton
-                key={option.key}
-                type="button"
-                // A toggle rather than a checkbox: it is pressed or it is not,
-                // and pressing it changes what is listed rather than filling
-                // in a form.
-                aria-pressed={on}
-                data-status={option.key}
-                onClick={() => toggle(option.key)}
-                flex="none"
-                cursor="pointer"
-                title={option.description ?? undefined}
-                {...pillStyle()}
-                {...(on
-                  ? {}
-                  : {
-                      // Switched off: the colour goes, the outline stays, so
-                      // the row keeps its shape and the eye goes to what is
-                      // still on.
-                      bg: "transparent",
-                      color: "fg.muted",
-                      borderColor: "border",
-                      opacity: 0.7,
-                    })}
-              >
-                {option.label}
-              </ToggleButton>
+              // The tooltip says what the pill is doing to the list right
+              // now, so the two states need no legend. It takes the place of
+              // the status's description as a title attribute, which would
+              // be a second tooltip over the same pill.
+              <Tooltip.Root key={option.key} openDelay={200} positioning={{ placement: "top" }}>
+                <Tooltip.Trigger asChild>
+                  <ToggleButton
+                    type="button"
+                    // A toggle rather than a checkbox: it is pressed or it is not,
+                    // and pressing it changes what is listed rather than filling
+                    // in a form.
+                    aria-pressed={on}
+                    data-status={option.key}
+                    onClick={() => toggle(option.key)}
+                    flex="none"
+                    cursor="pointer"
+                    {...pillStyle()}
+                    {...(on
+                      ? {}
+                      : {
+                          // Switched off: the colour goes, the outline stays, so
+                          // the row keeps its shape and the eye goes to what is
+                          // still on.
+                          bg: "transparent",
+                          color: "fg.muted",
+                          borderColor: "border",
+                          opacity: 0.7,
+                        })}
+                  >
+                    {option.label}
+                  </ToggleButton>
+                </Tooltip.Trigger>
+                <Portal>
+                  <Tooltip.Positioner>
+                    <Tooltip.Content>
+                      {on ? `Including ${option.label}` : `Excluding ${option.label}`}
+                    </Tooltip.Content>
+                  </Tooltip.Positioner>
+                </Portal>
+              </Tooltip.Root>
             );
           })}
         </HStack>

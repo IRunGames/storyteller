@@ -70,6 +70,23 @@ describe("StoryDetails", () => {
         sa_addStoryPlayers: async () => [],
       },
     });
+    // The attachments field uploads to Blob and has a test file of its own;
+    // here it only has to show which parent it was pointed at.
+    mock.module("@/components/uploads/attachment-list-field", {
+      namedExports: {
+        AttachmentListField: ({
+          kind,
+          idExternal,
+        }: {
+          kind: string;
+          idExternal: number | null;
+        }) => (
+          <p>
+            Attachments for {kind} {idExternal}
+          </p>
+        ),
+      },
+    });
     ({ StoryDetails } = await import("./story-details"));
   });
 
@@ -106,7 +123,7 @@ describe("StoryDetails", () => {
     );
   });
 
-  it("offers the storyteller a Prep Work button after the title that leads to the library", () => {
+  it("offers the storyteller a Library button after the title that leads to the library", () => {
     renderWithProviders(
       <StoryDetails
         story={{ ...story, isOwner: true }}
@@ -116,14 +133,14 @@ describe("StoryDetails", () => {
       />,
     );
 
-    const link = screen.getByRole("link", { name: "Prep Work" });
+    const link = screen.getByRole("link", { name: "Library: prep game" });
     expect(link).toHaveAttribute("href", "/libraries/-15");
     // Right of the title: the button comes after the h1 in document order.
     const title = screen.getByRole("heading", { level: 1, name: "Vampire" });
     expect(title.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("shows no Prep Work button to anyone but the storyteller", () => {
+  it("shows no Library button to anyone but the storyteller", () => {
     renderWithProviders(
       <StoryDetails
         story={story}
@@ -133,7 +150,39 @@ describe("StoryDetails", () => {
       />,
     );
 
-    expect(screen.queryByRole("link", { name: "Prep Work" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Library: prep game" })).not.toBeInTheDocument();
+  });
+
+  it("gives the storyteller an Attachments section at the foot of the page, for this story", () => {
+    renderWithProviders(
+      <StoryDetails
+        story={{ ...story, isOwner: true }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+
+    const attachments = section("Attachments");
+    expect(within(attachments).getByText("Attachments for STORY -15")).toBeInTheDocument();
+    // Last: after the sessions, which were the foot of the page before it.
+    expect(
+      section("Recent sessions").compareDocumentPosition(attachments) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows no Attachments section to anyone but the storyteller", () => {
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+
+    expect(screen.queryByRole("region", { name: "Attachments" })).not.toBeInTheDocument();
   });
 
   it("shows no edit button to anyone but the storyteller", () => {

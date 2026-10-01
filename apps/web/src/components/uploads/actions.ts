@@ -1,20 +1,27 @@
 "use server";
 
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 import { del } from "@vercel/blob";
+import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/authorize";
+import { likeContains } from "@/lib/filter-text";
 import { isOwnUploadedBlobUrl, isUploadedBlobUrl } from "@/lib/image-uploads";
 import {
   attachmentIdsSchema,
   attachmentKindSchema,
+  attachmentTagsSchema,
   attachmentUrlSchema,
   idAttachmentSchema,
   idExternalSchema,
 } from "@/lib/attachment-schemas";
-import type { Attachment, AttachmentKind } from "@/lib/attachments";
+import { COVER_TAG, type Attachment, type AttachmentKind } from "@/lib/attachments";
 
 const { attachments, stories, storySessions, storyScenes } = schema;
+
+// tags @> '{cover}', the predicate attachments_one_cover_idx is built on, so
+// the planner can match it to the index; = ANY would not.
+const isCoverSql = sql<boolean>`${attachments.tags} @> array[${COVER_TAG}]::text[]`;
 
 /**
  * Whether the caller may reach the story, session or scene a kind and
@@ -219,7 +226,120 @@ export async function sa_deleteAttachment(id: number): Promise<void> {
 }
 
 /**
- * An object's attachments, in the order a gallery or form shows them. A
+ * An attachment on an object the caller is the storyteller of, or a throw.
+ * Covers and tags are choices about the story, so the authority is the
+ * object's storyteller rather than whoever uploaded the row. A row that is
+ * not there, is detached (no object to own yet), or sits on someone else's
+ * object answers the same way, like sa_deleteAttachment's "not yours": the
+ * UI never offers any of them, and the caller need not learn which it was.
+ */
+async function findAttachmentOnOwnedParent(userId: string, attachmentId: number) {
+  const [row] = await db
+    .select({
+      kind: attachments.kind,
+      idExternal: attachments.idExternal,
+      status: attachments.status,
+    })
+    .from(attachments)
+    .where(eq(attachments.idAttachment, attachmentId))
+    .limit(1);
+  if (
+    !row ||
+    row.idExternal === null ||
+    !(await ownsAttachmentParent(userId, row.kind as AttachmentKind, row.idExternal))
+  ) {
+    throw new Error("Attachment not found");
+  }
+  return { ...row, idExternal: row.idExternal };
+}
+
+/**
+ * Makes an attachment its object's cover, or stops it being one. Making one
+ * the cover takes the tag off whichever sibling held it, in the same
+ * transaction and before the tag is added, since attachments_one_cover_idx
+ * would refuse two at once. Every other tag a row carries is left alone.
+ *
+ * Only the object's storyteller may (findAttachmentOnOwnedParent), and a row
+ * that is not READY is refused as well: it has no picture to show.
+ */
+export async function sa_setAttachmentCover(id: number, isCover: boolean): Promise<void> {
+  const user = await requireUser();
+  const attachmentId = idAttachmentSchema.parse(id);
+
+  const row = await findAttachmentOnOwnedParent(user.id, attachmentId);
+  if (isCover && row.status !== "READY") {
+    throw new Error("Only a finished attachment can be the cover");
+  }
+  const { kind, idExternal } = row;
+
+  await db.transaction(async (tx) => {
+    if (isCover) {
+      await tx
+        .update(attachments)
+        .set({
+          tags: sql`array_remove(${attachments.tags}, ${COVER_TAG})`,
+          idUpdatedByUser: user.id,
+        })
+        .where(
+          and(
+            eq(attachments.kind, kind),
+            eq(attachments.idExternal, idExternal),
+            isCoverSql,
+            sql`${attachments.idAttachment} <> ${attachmentId}`,
+          ),
+        );
+      await tx
+        .update(attachments)
+        .set({
+          tags: sql`array_append(${attachments.tags}, ${COVER_TAG})`,
+          idUpdatedByUser: user.id,
+        })
+        .where(and(eq(attachments.idAttachment, attachmentId), sql`not ${isCoverSql}`));
+    } else {
+      await tx
+        .update(attachments)
+        .set({
+          tags: sql`array_remove(${attachments.tags}, ${COVER_TAG})`,
+          idUpdatedByUser: user.id,
+        })
+        .where(and(eq(attachments.idAttachment, attachmentId), isCoverSql));
+    }
+  });
+}
+
+/**
+ * Replaces an attachment's tags, all but cover: whether the row is its
+ * object's cover is sa_setAttachmentCover's to change, so the cover tag is
+ * kept exactly as it was, and attachmentTagsSchema refuses one in `tags`.
+ * The whole list rather than one tag added or removed, so what the popover
+ * shows is what is stored, however its presses interleave.
+ */
+export async function sa_setAttachmentTags(id: number, tags: string[]): Promise<void> {
+  const user = await requireUser();
+  const attachmentId = idAttachmentSchema.parse(id);
+  const parsedTags = attachmentTagsSchema.parse(tags);
+
+  await findAttachmentOnOwnedParent(user.id, attachmentId);
+
+  // Spelled out element by element: Drizzle expands a JS array in a sql
+  // template into a parenthesised list, not a Postgres array. array[] with
+  // nothing in it is still a valid text[] once cast.
+  const next = sql`array[${sql.join(
+    parsedTags.map((tag) => sql`${tag}`),
+    sql`, `,
+  )}]::text[]`;
+  await db
+    .update(attachments)
+    .set({
+      tags: sql`${next} || case when ${isCoverSql} then array[${COVER_TAG}]::text[] else '{}'::text[] end`,
+      idUpdatedByUser: user.id,
+    })
+    .where(eq(attachments.idAttachment, attachmentId));
+}
+
+/**
+ * An object's attachments, newest first, in the order a gallery or form
+ * shows them. A
  * parent that is not there and a parent that is someone else's story answer
  * the same way -- an empty list -- exactly as sa_getStoryScene answers null
  * for both, since the board is the storyteller's alone.
@@ -247,15 +367,59 @@ export async function sa_listAttachments(
       url: attachments.url,
       isUploaded: attachments.isUploaded,
       fileName: attachments.fileName,
+      isCover: isCoverSql,
+      tags: sql<string[]>`array_remove(${attachments.tags}, ${COVER_TAG})`,
     })
     .from(attachments)
     .where(and(eq(attachments.kind, parsedKind.data), eq(attachments.idExternal, parsedId.data)))
-    .orderBy(asc(attachments.sortOrder), asc(attachments.idAttachment));
+    // Newest first by updated_at, which the set_updated_at trigger moves on
+    // every change, so a picture just finished, retagged or made the cover
+    // comes to the front. The id breaks ties the same way, since rows
+    // inserted in one statement (the seed's) share a timestamp.
+    .orderBy(desc(attachments.updatedAt), desc(attachments.idAttachment));
 
   // The kind column is a plain varchar in Drizzle (Postgres cannot point one
   // foreign key at three tables, so nothing narrows it at the schema level),
   // but the WHERE above already restricts every row to the kind asked for.
   return rows.map((row) => ({ ...row, kind: row.kind as AttachmentKind }));
+}
+
+// A search box's contents, bounded like the Scenes column's.
+const attachmentQuerySchema = z.string().max(200);
+
+/**
+ * Which of an object's attachments match what a search box holds, by
+ * attachments.search_text: the address, the file name and every tag, cover
+ * included. Ids rather than rows, because the field asking already holds
+ * every row (an object has at most twenty) and only needs to know which to
+ * show. An unowned or unusable parent answers like sa_listAttachments does,
+ * with nothing.
+ */
+export async function sa_searchAttachments(
+  kind: AttachmentKind,
+  idExternal: number,
+  query: string,
+): Promise<number[]> {
+  const user = await requireUser();
+
+  const parsedKind = attachmentKindSchema.safeParse(kind);
+  const parsedId = idExternalSchema.safeParse(idExternal);
+  const needle = attachmentQuerySchema.parse(query).trim();
+  if (!parsedKind.success || !parsedId.success) return [];
+
+  if (!(await ownsAttachmentParent(user.id, parsedKind.data, parsedId.data))) return [];
+
+  const rows = await db
+    .select({ idAttachment: attachments.idAttachment })
+    .from(attachments)
+    .where(
+      and(
+        eq(attachments.kind, parsedKind.data),
+        eq(attachments.idExternal, parsedId.data),
+        needle === "" ? undefined : ilike(attachments.searchText, likeContains(needle)),
+      ),
+    );
+  return rows.map((row) => row.idAttachment);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { useId, useState, type ReactNode } from "react";
 import { Heading, HStack, Spacer, Stack, Text } from "@chakra-ui/react";
-import { Maximize2, Minimize2, Plus } from "lucide-react";
+import { Maximize2, Minimize, Plus } from "lucide-react";
 import type { StatusOption } from "@/lib/status";
 import {
   allSelected,
@@ -35,6 +35,19 @@ type Props = {
    * only the box.
    */
   statusOptions?: StatusOption[];
+  /** What the pills are called when they are not statuses; see StatusSearch. */
+  filterLabel?: string;
+  /**
+   * For a column whose + opens a form in place rather than acting at once:
+   * whether that form is showing. See PrepIconButton's expanded.
+   */
+  creating?: boolean;
+  /**
+   * Drawn between the heading and the filters: where a + that opens a form
+   * in place puts it, so the form sits under the button that opened it
+   * rather than below the search box.
+   */
+  aboveFilters?: ReactNode;
   onCreate: () => void;
   onExpand: () => void;
   /** Shrinks an expanded column, hides a normal one. */
@@ -62,6 +75,9 @@ export function PrepColumn({
   creatable,
   bordered,
   statusOptions,
+  filterLabel,
+  creating,
+  aboveFilters,
   onCreate,
   onExpand,
   onContract,
@@ -106,7 +122,7 @@ export function PrepColumn({
             holds; the layout buttons are about the column itself and keep
             to the far edge, so the two are not mistaken for each other. */}
         {creatable && (
-          <PrepIconButton label={`New ${singular}`} onClick={onCreate}>
+          <PrepIconButton label={`New ${singular}`} onClick={onCreate} expanded={creating}>
             <Plus />
           </PrepIconButton>
         )}
@@ -123,10 +139,17 @@ export function PrepColumn({
           label={mode === "expanded" ? `Shrink ${title}` : `Hide ${title}`}
           onClick={onContract}
         >
-          <Minimize2 />
+          <Minimize />
         </PrepIconButton>
       </HStack>
-      <StatusSearch label={title} options={options} value={filter} onChange={setFilter} />
+      {aboveFilters}
+      <StatusSearch
+        label={title}
+        options={options}
+        value={filter}
+        onChange={setFilter}
+        groupLabel={filterLabel}
+      />
       {children(filter)}
     </Stack>
   );

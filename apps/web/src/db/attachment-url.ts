@@ -1,18 +1,22 @@
 import { sql, type SQLWrapper } from "drizzle-orm";
 
 import { attachments } from "./schema";
-import type { AttachmentKind } from "@/lib/attachments";
+import { COVER_TAG, type AttachmentKind } from "@/lib/attachments";
 
 /**
- * The one picture a card or a popover shows for a row that may now carry
- * several: the url of its first READY attachment, in the order
- * sa_listAttachments lists them — sort_order, then id_attachment — so a story
- * with three covers always shows the same one rather than whichever the
- * planner happened to reach first. Null when there is none, which is what the
- * dropped image column held for a story with no picture.
+ * The one picture a card or a popover shows for a row that may carry several:
+ * the url of its attachment tagged COVER_TAG, and only that. An object with
+ * attachments but no cover shows none, which is the storyteller's choice to
+ * make with the Cover toggle, not something to guess at. Null when there is
+ * no cover.
  *
- * READY is the whole filter on status: an UPLOADING row has no url yet and an
- * ERROR one never will, so neither is a picture to show.
+ * It must also be READY: a cover is only ever set on a READY row, but an
+ * UPLOADING row has no url and an ERROR one never will, so neither is a
+ * picture to show however it came to be tagged.
+ *
+ * attachments_one_cover_idx allows one cover per object, so LIMIT 1 never
+ * has to choose. @> rather than = ANY so the tags column's GIN index serves
+ * it.
  *
  * A correlated scalar subquery rather than a join, for the reason favoritedBy
  * in stories/actions.ts gives: a second attachment must never duplicate or
@@ -31,7 +35,7 @@ export function attachmentUrl(kind: AttachmentKind, idExternal: SQLWrapper) {
     where ${attachments.kind} = ${kind}
       and ${attachments.idExternal} = ${idExternal}
       and ${attachments.status} = 'READY'
-    order by ${attachments.sortOrder}, ${attachments.idAttachment}
+      and ${attachments.tags} @> array[${COVER_TAG}]::text[]
     limit 1
   )`;
 }

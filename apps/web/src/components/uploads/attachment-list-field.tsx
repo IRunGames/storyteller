@@ -1,19 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import {
-  Box,
   Button,
   Field,
   FileUpload,
+  Grid,
   HStack,
-  Image,
   Input,
   Stack,
   Text,
   useFileUpload,
 } from "@chakra-ui/react";
+import { Image as ImageIcon } from "lucide-react";
 import { useUser } from "@/components/auth/user-provider";
 import { attachmentUrlSchema } from "@/lib/attachment-schemas";
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, uploadPrefix } from "@/lib/image-uploads";
@@ -24,7 +26,10 @@ import {
   sa_markAttachmentError,
   sa_markAttachmentReady,
   sa_retryAttachment,
+  sa_setAttachmentCover,
+  sa_setAttachmentTags,
 } from "./actions";
+import { AttachmentCard } from "./attachment-card";
 import type { Attachment, AttachmentKind } from "@/lib/attachments";
 
 // Twenty is the owner's answer to "how many pictures may one story, sitting
@@ -74,8 +79,50 @@ type Props = {
    * (a status this field never recorded is not something `value` could ever
    * carry, since it is just ids).
    */
-  value: number[];
-  onChange: (ids: number[]) => void;
+  value?: number[];
+  /**
+   * Told the ids whenever the set or its order changes. Optional because a
+   * field with a real idExternal attaches its rows itself and has nothing a
+   * parent must collect: the story page mounts it that way from a server
+   * component, which cannot hand a function to a client one.
+   */
+  onChange?: (ids: number[]) => void;
+  /**
+   * Whether the link input and the dropzone show. Defaults to shown; the story
+   * page keeps them behind its Add Attachments toggle so the cards are what
+   * the section opens on. Hiding them unmounts nothing that matters: uploads
+   * in flight, the typed link and zag's FileUpload machine all live in this
+   * component, which stays mounted either way.
+   */
+  showAdd?: boolean;
+  /** An id for the block holding the link input and dropzone, for aria-controls. */
+  addId?: string;
+  /**
+   * Somewhere else on the page to draw the link input and dropzone, when the
+   * page wants them away from the cards: the Prep Work board puts them above
+   * its column's filters. Drawn there through a portal, so they are still
+   * this component's own, with the rows, the typed link and any upload in
+   * flight. Undefined draws them in place; null means the page's box is not
+   * there yet, and nothing is drawn until it is.
+   */
+  addTarget?: HTMLElement | null;
+  /**
+   * Only these attachments show, when given: the ids a search matched, from
+   * sa_searchAttachments. The field still holds every row (an object has at
+   * most MAX_ATTACHMENTS), so narrowing it is a matter of what is drawn, and
+   * clearing the search brings the rest straight back. Null or absent shows
+   * them all.
+   */
+  shownIds?: ReadonlySet<number> | null;
+  /** Leaves the cover out of the cards, for the Prep Work board's Covers switch. */
+  hideCovers?: boolean;
+  /**
+   * Says so in words when there is nothing to show, once the rows have
+   * loaded: "No attachments yet" for an object with none, "No matches" when
+   * the search or the Covers switch leaves none. The story page goes without,
+   * since its heading and toggle already say what the section is for.
+   */
+  showEmpty?: boolean;
 };
 
 function rejectionMessage(rejection: { errors: string[] } | undefined): string {
@@ -106,8 +153,20 @@ function rejectionMessage(rejection: { errors: string[] } | undefined): string {
  * whatever this session has added on top. An effect below loads the real
  * rows once on mount when there is a real idExternal to load them for.
  */
-export function AttachmentListField({ kind, idExternal, value, onChange }: Props) {
+export function AttachmentListField({
+  kind,
+  idExternal,
+  value = [],
+  onChange,
+  showAdd = true,
+  addId,
+  addTarget,
+  shownIds = null,
+  hideCovers = false,
+  showEmpty = false,
+}: Props) {
   const { id: userId } = useUser();
+  const router = useRouter();
   const [rows, setRows] = useState<Attachment[]>(() =>
     idExternal === null
       ? value.map((id) => ({
@@ -118,6 +177,8 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
           url: null,
           isUploaded: false,
           fileName: null,
+          isCover: false,
+          tags: [],
         }))
       : [],
   );
@@ -131,6 +192,10 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
   }, [onChange]);
 
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Whether the first load has come back, so an empty list can say "none"
+  // without saying it while the rows are still on their way. A create form
+  // has nothing to load and starts loaded.
+  const [hasLoaded, setHasLoaded] = useState(idExternal === null);
   // A load in flight, guarding loadAttachments() against a second click on
   // Try Again starting an overlapping fetch -- the later-resolving one
   // would otherwise win even if it read rowsRef before the earlier one's
@@ -174,7 +239,9 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     const loaded = await sa_listAttachments(kind, idExternal as number);
     const loadedIds = new Set(loaded.map((row) => row.idAttachment));
     const localOnly = rowsRef.current.filter((row) => !loadedIds.has(row.idAttachment));
-    return [...loaded, ...localOnly].filter((row) => !removedIds.current.has(row.idAttachment));
+    // Local rows first: they were added after the query ran, and the list runs
+    // newest first.
+    return [...localOnly, ...loaded].filter((row) => !removedIds.current.has(row.idAttachment));
   }, [kind, idExternal]);
 
   // The Try Again button below calls this directly: a fresh, user-requested
@@ -191,6 +258,7 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     try {
       const merged = await fetchMergedAttachments();
       setLoadError(null);
+      setHasLoaded(true);
       commit(merged);
     } catch {
       // sa_listAttachments calls requireUser() and runs a db.select, either
@@ -218,6 +286,7 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
         const merged = await fetchMergedAttachments();
         if (cancelled) return;
         setLoadError(null);
+        setHasLoaded(true);
         commit(merged);
       } catch {
         if (cancelled) return;
@@ -274,11 +343,17 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     // only needs to fire when the id set or its order actually moved.
     const idsChanged =
       prevIds.length !== nextIds.length || prevIds.some((id, i) => id !== nextIds[i]);
-    if (idsChanged) onChangeRef.current(nextIds);
+    if (idsChanged) onChangeRef.current?.(nextIds);
   }
 
+  // Ids added through this field, which a search that ran before they existed
+  // cannot have matched; see visibleRows.
+  const addedHere = useRef(new Set<number>());
+
+  // At the front, as sa_listAttachments orders the list: newest first.
   function addRow(row: Attachment) {
-    commit([...rowsRef.current, row]);
+    addedHere.current.add(row.idAttachment);
+    commit([row, ...rowsRef.current]);
   }
 
   function updateRow(id: number, patch: Partial<Attachment>) {
@@ -361,6 +436,8 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
       url: null,
       isUploaded: true,
       fileName: file.name,
+      isCover: false,
+      tags: [],
     });
     await runUpload(created.idAttachment, file);
   }
@@ -420,6 +497,8 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
         url: parsed.data,
         isUploaded: false,
         fileName: null,
+        isCover: false,
+        tags: [],
       });
       setUrlValue("");
     } catch {
@@ -452,6 +531,59 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     await runUpload(id, file);
   }
 
+  /**
+   * Makes a row the cover, or stops it being one. Shown at once: the row
+   * pressed takes the cover and every other row loses it, matching what
+   * sa_setAttachmentCover does in one transaction, and the old flags go back
+   * if the action refuses. On success the page around the field re-renders,
+   * since the cover it draws (the story page's backdrop) is server-rendered.
+   * Resolves false on a refusal, for the card or popover to say so beside
+   * the control that was pressed.
+   */
+  async function handleCover(id: number, isCover: boolean): Promise<boolean> {
+    const before = rowsRef.current;
+    commit(
+      before.map((row) => ({
+        ...row,
+        isCover: row.idAttachment === id ? isCover : isCover ? false : row.isCover,
+      })),
+    );
+    try {
+      await sa_setAttachmentCover(id, isCover);
+      router.refresh();
+      return true;
+    } catch {
+      // Back to the flags as they were for every row this press touched,
+      // matched by id because rows may have been added or removed meanwhile.
+      const previous = new Map(before.map((row) => [row.idAttachment, row.isCover]));
+      commit(
+        rowsRef.current.map((row) => ({
+          ...row,
+          isCover: previous.get(row.idAttachment) ?? row.isCover,
+        })),
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Replaces a row's tags, shown at once and put back if the action refuses.
+   * Resolves false on a refusal, which the tags popover reports itself. No
+   * refresh: nothing outside this field shows a plain tag.
+   */
+  async function handleTags(id: number, tags: string[]): Promise<boolean> {
+    const previous = rowsRef.current.find((row) => row.idAttachment === id)?.tags;
+    if (!previous) return false;
+    updateRow(id, { tags });
+    try {
+      await sa_setAttachmentTags(id, tags);
+      return true;
+    } catch {
+      updateRow(id, { tags: previous });
+      return false;
+    }
+  }
+
   async function handleRemove(id: number) {
     // Everything undone below is captured first, because a refused delete
     // has to put the row back exactly where it was: the row itself and its
@@ -481,6 +613,10 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     commit(rowsRef.current.filter((row) => row.idAttachment !== id));
     try {
       await sa_deleteAttachment(id);
+      // The cover is drawn by the server-rendered page around this field (the
+      // story page's backdrop), which knows nothing of this list. Removing it
+      // leaves that page showing a picture that is gone until it re-renders.
+      if (removedRow.isCover) router.refresh();
     } catch {
       // The row went off screen synchronously above and the parent has
       // already been told it left, so a refusal that only logged itself
@@ -503,45 +639,76 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
     }
   }
 
-  return (
-    <Field.Root invalid={!!fieldError || !!loadError}>
-      {/* Not Field.Label: this Field.Root holds two controls (the link input
-          and the dropzone's hidden file input), and a label can only bind to
-          one of them. Each control names itself instead. */}
-      <Text fontWeight="medium">Attachments</Text>
+  // The link input and dropzone, drawn below where the field starts or into
+  // addTarget.
+  const addControls = (
+    <Stack id={addId} w="full" gap="3">
+      <Field.Root w="full">
+        <Field.Label>Link</Field.Label>
+        <HStack w="full">
+          <Input
+            flex="1"
+            placeholder="https://…"
+            value={urlValue}
+            onChange={(event) => setUrlValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void handleAddUrl();
+              }
+            }}
+          />
+          <Button
+            type="button"
+            aria-disabled={!urlValue.trim()}
+            onClick={() => {
+              if (urlValue.trim()) void handleAddUrl();
+            }}
+          >
+            Add link
+          </Button>
+        </HStack>
+      </Field.Root>
 
-      <HStack>
-        <Input
-          aria-label="Attachment link"
-          placeholder="https://…"
-          value={urlValue}
-          onChange={(event) => setUrlValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void handleAddUrl();
-            }
-          }}
-        />
-        <Button
-          type="button"
-          aria-disabled={!urlValue.trim()}
-          onClick={() => {
-            if (urlValue.trim()) void handleAddUrl();
-          }}
-        >
-          Add link
-        </Button>
-      </HStack>
-
-      <FileUpload.RootProvider value={fileUpload}>
+      <FileUpload.RootProvider value={fileUpload} w="full">
         <FileUpload.HiddenInput />
-        <FileUpload.Dropzone>
+        {/* 12.8rem is four fifths of the recipe's 2xs (16rem) minimum. */}
+        <FileUpload.Dropzone w="full" minH="12.8rem">
+          <ImageIcon size={32} />
           <FileUpload.DropzoneContent>
             <Text>Drag images here or click to browse</Text>
           </FileUpload.DropzoneContent>
         </FileUpload.Dropzone>
       </FileUpload.RootProvider>
+    </Stack>
+  );
+
+  // What is drawn: every row, less any a search left out and, when the
+  // Covers pill is off, the cover. Filtering what is drawn rather than rows
+  // itself keeps the ids reported through onChange the whole set. A row
+  // added here always shows: the search that would decide it ran before it
+  // existed, and a picture vanishing as it is added would look like a failure.
+  const visibleRows = rows.filter(
+    (row) =>
+      (shownIds === null ||
+        shownIds.has(row.idAttachment) ||
+        addedHere.current.has(row.idAttachment)) &&
+      !(hideCovers && row.isCover),
+  );
+
+  return (
+    <Field.Root invalid={!!fieldError || !!loadError} w="full" gap="3">
+      {/* No caption for the whole field: the page around it supplies the
+          heading, as the story page's Attachments section does. This
+          Field.Root holds two controls (the link input and the dropzone's
+          hidden file input) and a label binds to one, so the link gets a
+          Field.Root of its own for its "Link" label; the outer one stays for
+          the field-wide error state and its ErrorText. */}
+      {/* In place, or in the box the page asked for; see addTarget. */}
+      {showAdd &&
+        (addTarget === undefined
+          ? addControls
+          : addTarget !== null && createPortal(addControls, addTarget))}
 
       {loadError && (
         <HStack>
@@ -557,53 +724,39 @@ export function AttachmentListField({ kind, idExternal, value, onChange }: Props
         </HStack>
       )}
 
-      <Stack role="list" aria-label="Current attachments" direction={{ base: "column", sm: "row" }} gap="3" wrap="wrap">
-        {rows.map((row) => {
-          const label = row.fileName ?? row.url ?? `Attachment ${row.idAttachment}`;
-          const placeholder =
-            row.status === "ERROR" ? "Failed" : row.status === UNKNOWN_STATUS ? "Attachment" : "Uploading…";
-          return (
-            <Box role="listitem" key={row.idAttachment} borderWidth="1px" rounded="md" p="2" w={{ base: "full", sm: "40" }}>
-              {row.url ? (
-                <Image src={row.url} alt={label} boxSize="16" objectFit="cover" rounded="md" />
-              ) : (
-                <Box boxSize="16" rounded="md" bg="bg.muted" display="flex" alignItems="center" justifyContent="center">
-                  <Text fontSize="xs" color="fg.muted">
-                    {placeholder}
-                  </Text>
-                </Box>
-              )}
-              <Text fontSize="sm" truncate>
-                {label}
-              </Text>
-              {row.status === "ERROR" && (
-                <>
-                  <Text fontSize="xs" color="fg.error">
-                    That file could not be uploaded.
-                  </Text>
-                  <Button
-                    size="xs"
-                    type="button"
-                    aria-label={`Retry ${label}`}
-                    onClick={() => void handleRetry(row.idAttachment)}
-                  >
-                    Retry
-                  </Button>
-                </>
-              )}
-              <Button
-                size="xs"
-                variant="ghost"
-                type="button"
-                aria-label={`Remove ${label}`}
-                onClick={() => void handleRemove(row.idAttachment)}
-              >
-                Remove
-              </Button>
-            </Box>
-          );
-        })}
-      </Stack>
+      {showEmpty && hasLoaded && !loadError && visibleRows.length === 0 && (
+        <Text color="fg.muted">{rows.length === 0 ? "No attachments yet." : "No matches."}</Text>
+      )}
+
+      {/* auto-fill, so the cards fill the row and wrap to as many columns
+          as the width holds, down to one on a phone. */}
+      <Grid
+        role="list"
+        aria-label="Current attachments"
+        w="full"
+        gap="3"
+        templateColumns="repeat(auto-fill, minmax(13rem, 1fr))"
+      >
+        {visibleRows.map((row) => (
+          <AttachmentCard
+            key={row.idAttachment}
+            row={row}
+            label={row.fileName ?? row.url ?? `Attachment ${row.idAttachment}`}
+            placeholder={
+              row.status === "ERROR"
+                ? "Failed"
+                : row.status === UNKNOWN_STATUS
+                  ? "Attachment"
+                  : "Uploading…"
+            }
+            canTag={idExternal !== null}
+            onRetry={() => void handleRetry(row.idAttachment)}
+            onRemove={() => void handleRemove(row.idAttachment)}
+            onCoverChange={(isCover) => handleCover(row.idAttachment, isCover)}
+            onTagsChange={(tags) => handleTags(row.idAttachment, tags)}
+          />
+        ))}
+      </Grid>
 
       <Field.ErrorText>{fieldError}</Field.ErrorText>
     </Field.Root>

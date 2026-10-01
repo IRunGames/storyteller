@@ -295,13 +295,16 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
   });
 
   // Review Focus 5: several attachments must order deterministically.
-  it("lists an object's attachments by sort_order then id", async () => {
+  it("lists an object's attachments newest updated first, then by id", async () => {
+    // a was touched most recently, though b is the later row and sorts first
+    // by sort_order; updated_at is what decides.
     const a = await insertAttachment({
       kind: "STORY_SCENE",
       idExternal: SCENE_ID,
       status: "READY",
       url: "https://x/a.jpg",
       sortOrder: 2,
+      updatedAt: new Date("2026-09-30T12:00:00Z"),
       idCreatedByUser: SEED_USER,
     });
     const b = await insertAttachment({
@@ -310,6 +313,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       status: "READY",
       url: "https://x/b.jpg",
       sortOrder: 1,
+      updatedAt: new Date("2026-09-29T12:00:00Z"),
       idCreatedByUser: SEED_USER,
     });
 
@@ -319,10 +323,10 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     // list, because this scene is shared: earlier cases here attach to it,
     // blob-sweep/route.test.ts uses it for its "claimed" fixture, and both
     // may be running concurrently. Filtering keeps their relative order, so
-    // it still proves what it set out to -- sort_order 1 comes before
-    // sort_order 2 -- without depending on nobody else touching the scene.
+    // it still proves what it set out to -- the newer row first -- without
+    // depending on nobody else touching the scene.
     const ours = rows.map((r) => r.idAttachment).filter((id) => id === a.id || id === b.id);
-    expect(ours).toEqual([b.id, a.id]);
+    expect(ours).toEqual([a.id, b.id]);
   });
 
   // Review Focus 1: a double-submitted form must attach once and not throw.
@@ -428,6 +432,177 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       );
     // Nothing was inserted: the refusal happened before the write.
     expect(rows.filter((r) => r.id > 0)).toHaveLength(0);
+  });
+
+  describe("covers", () => {
+    // A story of the test's own, so moving a cover never takes the tag off a
+    // seeded row that other files' fixtures (and the seed's own pictures)
+    // rely on.
+    let idStory: number;
+    const title = "Fixture — attachment covers";
+
+    before(async () => {
+      await db.delete(tables.stories).where(eq(tables.stories.title, title));
+      [{ idStory }] = await db
+        .insert(tables.stories)
+        .values({ title, idCreatedByUser: SEED_USER, idUpdatedByUser: SEED_USER })
+        .returning({ idStory: tables.stories.idStory });
+    });
+
+    after(async () => {
+      await db
+        .delete(tables.attachments)
+        .where(
+          and(eq(tables.attachments.kind, "STORY"), eq(tables.attachments.idExternal, idStory)),
+        );
+      await db.delete(tables.stories).where(eq(tables.stories.idStory, idStory));
+    });
+
+    const link = (url: string, values: { status?: string; tags?: string[] } = {}) =>
+      insertAttachment({
+        kind: "STORY",
+        idExternal: idStory,
+        status: "READY",
+        url,
+        idCreatedByUser: SEED_USER,
+        ...values,
+      });
+    const tagsOf = async (id: number) =>
+      (
+        await db
+          .select({ tags: tables.attachments.tags })
+          .from(tables.attachments)
+          .where(eq(tables.attachments.idAttachment, id))
+      )[0].tags;
+
+    it("moves the cover from one attachment to another, keeping every other tag", async () => {
+      const old = await link("https://x/old-cover.jpg", { tags: ["map", "cover"] });
+      const next = await link("https://x/new-cover.jpg", { tags: ["handout"] });
+
+      await actions.sa_setAttachmentCover(next.id, true);
+
+      expect(await tagsOf(old.id)).toEqual(["map"]);
+      expect(await tagsOf(next.id)).toEqual(["handout", "cover"]);
+      const listed = await actions.sa_listAttachments("STORY", idStory);
+      expect(listed.filter((row) => row.isCover).map((row) => row.idAttachment)).toEqual([next.id]);
+
+      // Again is a no-op, not a second 'cover' in the array.
+      await actions.sa_setAttachmentCover(next.id, true);
+      expect(await tagsOf(next.id)).toEqual(["handout", "cover"]);
+
+      // And off leaves the story with no cover at all.
+      await actions.sa_setAttachmentCover(next.id, false);
+      expect(await tagsOf(next.id)).toEqual(["handout"]);
+    });
+
+    it("refuses to make an unfinished upload the cover", async () => {
+      const row = await link("https://x/failed.jpg", { status: "ERROR" });
+
+      await expect(actions.sa_setAttachmentCover(row.id, true)).rejects.toThrow();
+      expect(await tagsOf(row.id)).toEqual([]);
+    });
+
+    it("replaces an attachment's tags, lower-cased and once each, keeping its cover", async () => {
+      const row = await link("https://x/tagged.jpg", { tags: ["old", "cover"] });
+
+      await actions.sa_setAttachmentTags(row.id, ["Map", " handout ", "map"]);
+
+      expect(await tagsOf(row.id)).toEqual(["map", "handout", "cover"]);
+      const listed = (await actions.sa_listAttachments("STORY", idStory)).find(
+        (r) => r.idAttachment === row.id,
+      );
+      // Cover travels as isCover, never among the plain tags.
+      expect(listed).toMatchObject({ isCover: true, tags: ["map", "handout"] });
+
+      await actions.sa_setAttachmentTags(row.id, []);
+      expect(await tagsOf(row.id)).toEqual(["cover"]);
+      // Off again, so the one-cover case below starts from none.
+      await actions.sa_setAttachmentCover(row.id, false);
+    });
+
+    it("refuses cover as a plain tag", async () => {
+      const row = await link("https://x/sneaky.jpg");
+
+      await expect(actions.sa_setAttachmentTags(row.id, ["cover"])).rejects.toThrow();
+      expect(await tagsOf(row.id)).toEqual([]);
+    });
+
+    it("finds attachments by a tag, the address or the file name, cover included", async () => {
+      // Words no other case on this story uses, so each search has one answer.
+      const map = await link("https://x/region.jpg", { tags: ["atlas", "parchment"] });
+      const named = await insertAttachment({
+        kind: "STORY",
+        idExternal: idStory,
+        status: "READY",
+        url: "https://x/blob-key.png",
+        fileName: "Dragon Lair.png",
+        isUploaded: true,
+        idCreatedByUser: SEED_USER,
+      });
+      // An address without the word, so only the tag can be what "cover" finds;
+      // the earlier cases' addresses carry it, so they are expected as well.
+      const cover = await link("https://x/frontispiece.jpg", { tags: ["cover"] });
+
+      expect(await actions.sa_searchAttachments("STORY", idStory, "PARCHMENT")).toEqual([map.id]);
+      expect(await actions.sa_searchAttachments("STORY", idStory, "region")).toEqual([map.id]);
+      expect(await actions.sa_searchAttachments("STORY", idStory, "dragon lair")).toEqual([
+        named.id,
+      ]);
+      expect(await actions.sa_searchAttachments("STORY", idStory, "cover")).toContain(cover.id);
+      expect(await actions.sa_searchAttachments("STORY", idStory, "frontispiece")).toEqual([
+        cover.id,
+      ]);
+      // An empty box matches everything on the object.
+      const all = await actions.sa_searchAttachments("STORY", idStory, " ");
+      for (const id of [map.id, named.id, cover.id]) expect(all).toContain(id);
+
+      // The one-cover case below starts from none.
+      await actions.sa_setAttachmentCover(cover.id, false);
+    });
+
+    it("lets the database hold only one cover per object", async () => {
+      await link("https://x/one.jpg", { tags: ["cover"] }).catch(() => null);
+      await expect(link("https://x/two.jpg", { tags: ["cover"] })).rejects.toThrow();
+    });
+  });
+
+  it("finds nothing on a story the caller does not own", async () => {
+    const row = await insertAttachment({
+      kind: "STORY",
+      idExternal: OTHER_STORY_ID,
+      status: "READY",
+      url: "https://x/their-secret-map.jpg",
+      idCreatedByUser: OTHER_USER,
+    });
+
+    try {
+      expect(await actions.sa_searchAttachments("STORY", OTHER_STORY_ID, "secret")).toEqual([]);
+    } finally {
+      // The next cases count this story's rows.
+      await db.delete(tables.attachments).where(eq(tables.attachments.idAttachment, row.id));
+    }
+  });
+
+  it("refuses to change the cover or tags on a story the caller does not own", async () => {
+    const row = await insertAttachment({
+      kind: "STORY",
+      idExternal: OTHER_STORY_ID,
+      status: "READY",
+      url: "https://x/their-cover.jpg",
+      idCreatedByUser: OTHER_USER,
+    });
+
+    try {
+      await expect(actions.sa_setAttachmentCover(row.id, true)).rejects.toThrow(
+        "Attachment not found",
+      );
+      await expect(actions.sa_setAttachmentTags(row.id, ["mine"])).rejects.toThrow(
+        "Attachment not found",
+      );
+    } finally {
+      // As in the listing case above: the next cases count this story's rows.
+      await db.delete(tables.attachments).where(eq(tables.attachments.idAttachment, row.id));
+    }
   });
 
   // Owning the uploaded rows is not the same as owning the destination: the
