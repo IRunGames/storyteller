@@ -280,6 +280,10 @@ export const vStoryScenes = pgView("v_story_scenes", {
   // is finished.
   completedAt: timestamp("completed_at", { withTimezone: true }),
   sceneNumber: bigint("scene_number", { mode: "number" }),
+  // Minutes in play, once finished; see storyScenes.length.
+  length: integer("length"),
+  // When the scene last went into play: the workflow restamps it each time.
+  activeAt: timestamp("active_at", { withTimezone: true }),
   // The status's place in its workflow. The seed numbers statuses downwards,
   // so this descends through the workflow's own order.
   idStatus: bigint("s_status_id", { mode: "number" }),
@@ -356,6 +360,14 @@ export const storyScenes = pgTable("story_scenes", {
   pendingAt: timestamp("pending_at", { withTimezone: true }),
   activeAt: timestamp("active_at", { withTimezone: true }),
   completeAt: timestamp("complete_at", { withTimezone: true }),
+  // playedTime is the sum of the row's stretches in active, added to by a
+  // trigger as each one ends (functions/tr_add_story_scenes_played_time.sql),
+  // and length is that in whole minutes once the scene has been finished,
+  // null before. Generated, so an insert or update never names it.
+  playedTime: interval("played_time").default("0").notNull(),
+  length: integer("length").generatedAlwaysAs(
+    sql`CASE WHEN complete_at IS NOT NULL THEN round(EXTRACT(EPOCH FROM played_time) / 60)::integer END`,
+  ),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -400,6 +412,48 @@ export const attachments = pgTable("attachments", {
   uploadingAt: timestamp("uploading_at", { withTimezone: true }),
   readyAt: timestamp("ready_at", { withTimezone: true }),
   errorAt: timestamp("error_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// Something a story keeps track of: a person, a place, a thing, a piece of
+// ephemera, or anything else. `kind` is the elements_kind enum the database
+// builds from kind_values on the elements row of _tables, a plain varchar
+// here as it is for attachments. status runs through the elements workflow
+// in s_statuses, so it is a plain varchar for the same reason
+// story_scenes.status is.
+export const elements = pgTable("elements", {
+  idElement: integer("id_element").primaryKey().generatedByDefaultAsIdentity(),
+  idStory: integer("id_story").notNull(),
+  kind: varchar("kind").notNull(),
+  status: varchar("status")
+    .notNull()
+    .default(sql`DEFAULT`),
+  initialName: text("initial_name"),
+  name: text("name").notNull(),
+  title: text("title"),
+  description: text("description"),
+  notes: text("notes"),
+  // The standard tags feature from _tables.
+  tags: text("tags")
+    .array()
+    .notNull()
+    .default(sql`'{}'`),
+  // status, every text column and every tag joined for lookups, built by the
+  // database from the search_fields recipe on the elements row of _tables
+  // (db/migrations/20261002192226_add_elements_search_text.sql). Generated,
+  // so an insert or update never names it.
+  searchText: text("search_text").generatedAlwaysAs(
+    sql`immutable_concat_ws(' ', status, initial_name, name, title, description, notes, immutable_array_to_string(tags, ' '))`,
+  ),
+  activityLog: jsonb("activity_log")
+    .default(sql`'[]'::jsonb`)
+    .notNull(),
+  pendingAt: timestamp("pending_at", { withTimezone: true }),
+  readyAt: timestamp("ready_at", { withTimezone: true }),
+  inactiveAt: timestamp("inactive_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -500,6 +554,7 @@ export const storiesRelations = relations(stories, ({ one, many }) => ({
   favorites: many(storyFavorites),
   sessions: many(storySessions),
   scenes: many(storyScenes),
+  elements: many(elements),
   currentSession: one(storySessions, {
     fields: [stories.idStorySession],
     references: [storySessions.idStorySession],
@@ -529,6 +584,11 @@ export const storyScenesRelations = relations(storyScenes, ({ one }) => ({
     references: [storySessions.idStorySession],
   }),
   storyteller: one(user, { fields: [storyScenes.idCreatedByUser], references: [user.id] }),
+}));
+
+export const elementsRelations = relations(elements, ({ one }) => ({
+  story: one(stories, { fields: [elements.idStory], references: [stories.idStory] }),
+  storyteller: one(user, { fields: [elements.idCreatedByUser], references: [user.id] }),
 }));
 
 export const feedbackRelations = relations(feedback, ({ one }) => ({

@@ -7,4 +7,5 @@
     VALUES
         (-1, 'Story Sessions Status Workflow', 'status', NULL),
         (-2, 'Story Scenes Status Workflow', 'status', NULL),
-        (-3, 'Attachments Status Workflow', 'status', NULL);
+        (-3, 'Attachments Status Workflow', 'status', NULL),
+        (-4, 'Elements Status Workflow', 'status', NULL);

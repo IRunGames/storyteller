@@ -1,9 +1,11 @@
 import { before, beforeEach, describe, it, mock } from "node:test";
+import { useEffect } from "react";
 import { expect } from "expect";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
+import type { ElementKind, StoryElement } from "@/lib/elements";
 import type { StoryScene } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import type { StoryCardData, StorySession } from "@/lib/stories";
@@ -70,6 +72,7 @@ const scenes: StoryScene[] = [
     status: lastScene.key,
     statusAt: new Date("2026-03-20T19:30:00Z"),
     sceneNumber: 1,
+    length: 45,
     title: "The vault",
     description: "A door of old iron.",
     sessionNumber: 2,
@@ -82,6 +85,7 @@ const scenes: StoryScene[] = [
     statusAt: new Date("2026-03-20T20:00:00Z"),
     // Still being played, so it has no number yet.
     sceneNumber: null,
+    length: null,
     title: "The feast",
     description: null,
     sessionNumber: 2,
@@ -94,6 +98,7 @@ const scenes: StoryScene[] = [
     // Never stamped and never played: the card shows no date and no sitting.
     statusAt: null,
     sceneNumber: null,
+    length: null,
     title: "The arrival",
     description: null,
     sessionNumber: null,
@@ -117,7 +122,66 @@ const listScenes = mock.fn(
   },
 );
 
-const COLUMNS = ["Timeline", "Scenes", "Attachments", "Characters", "Resources"];
+// Made up like the other workflows, for the same reason.
+const elementStatusOptions: StatusOption[] = [
+  { key: "noted", label: "Noted", description: null, from: ["used", "shelved"] },
+  { key: "used", label: "Used", description: null, from: ["noted", "shelved"] },
+  { key: "shelved", label: "Shelved", description: null, from: ["noted", "used"] },
+];
+
+// Two people and a place; the other kinds have none.
+const elements: Record<ElementKind, StoryElement[]> = {
+  PERSON: [
+    {
+      idElement: 1,
+      status: "noted",
+      name: "Aldric",
+      title: "Magistrate",
+      description: "Keeps the keys.",
+    },
+    { idElement: 2, status: "used", name: "The stranger", title: null, description: null },
+  ],
+  PLACE: [{ idElement: 3, status: "noted", name: "The vault", title: null, description: null }],
+  THING: [],
+  OTHER: [],
+  EPHEMERA: [],
+};
+
+// The element columns search the database too; this answers the way
+// elements.search_text would, for the one kind each column asks about.
+const listElements = mock.fn(
+  async (
+    _idStory: number,
+    kind: ElementKind,
+    offset: number,
+    query: string,
+    statuses?: string[],
+  ) => {
+    if (offset > 0) return [];
+    const needle = query.trim().toLowerCase();
+    return elements[kind].filter(
+      (element) =>
+        (statuses === undefined || statuses.includes(element.status)) &&
+        `${element.status} ${element.name} ${element.title ?? ""} ${element.description ?? ""}`
+          .toLowerCase()
+          .includes(needle),
+    );
+  },
+);
+
+const COLUMNS = [
+  "Timeline",
+  "Scenes",
+  "Attachments",
+  "People",
+  "Places",
+  "Things",
+  "Other",
+  "Ephemera",
+];
+
+// The Scenes column's + goes to the New scene page.
+const router = { push: mock.fn<(href: string) => void>(), refresh: mock.fn() };
 
 let PrepBoard: typeof import("./prep-board").PrepBoard;
 
@@ -137,15 +201,18 @@ function renderBoard() {
       story={story}
       sessions={sessions}
       scenes={scenes}
-      counts={{ Timeline: 88, Scenes: 12 }}
+      elements={elements}
+      counts={{ Timeline: 88, Scenes: 12, People: 2, Places: 1, Things: 0, Other: 0, Ephemera: 0 }}
       sessionStatusOptions={sessionStatusOptions}
       sceneStatusOptions={sceneStatusOptions}
+      elementStatusOptions={elementStatusOptions}
     />,
   );
 }
 
 describe("PrepBoard", () => {
   before(async () => {
+    mock.module("next/navigation", { namedExports: { useRouter: () => router } });
     // The Timeline's list imports its server action itself; mocked so the
     // board renders without a database.
     mock.module("@/app/(app)/(nav)/stories/actions", {
@@ -156,23 +223,30 @@ describe("PrepBoard", () => {
     // story it was pointed at and what its search box holds.
     mock.module("./prep-attachments", {
       namedExports: {
-        PrepAttachments: ({
+        PrepAttachments: function PrepAttachments({
           idStory,
           filter,
           showCovers,
           showAdd,
+          onCountChange,
         }: {
           idStory: number;
           filter: string;
           showCovers: boolean;
           showAdd: boolean;
-        }) => (
-          <p>
-            Attachments of {idStory} matching &quot;{filter}&quot;
-            {showCovers ? ", covers shown" : ", covers hidden"}
-            {showAdd ? ", adding" : ""}
-          </p>
-        ),
+          onCountChange?: (count: number) => void;
+        }) {
+          // Reports a count once mounted, as the real field does once its
+          // rows have loaded.
+          useEffect(() => onCountChange?.(4), [onCountChange]);
+          return (
+            <p>
+              Attachments of {idStory} matching &quot;{filter}&quot;
+              {showCovers ? ", covers shown" : ", covers hidden"}
+              {showAdd ? ", adding" : ""}
+            </p>
+          );
+        },
       },
     });
     // The Scenes column searches the database rather than filtering the rows
@@ -182,6 +256,7 @@ describe("PrepBoard", () => {
       namedExports: {
         sa_listStoryScenes: listScenes,
         sa_countStoryScenes: async () => scenes.length,
+        sa_listStoryElements: listElements,
         sa_getStoryScene: async () => null,
       },
     });
@@ -199,19 +274,21 @@ describe("PrepBoard", () => {
 
   beforeEach(() => {
     listScenes.mock.resetCalls();
+    listElements.mock.resetCalls();
+    router.push.mock.resetCalls();
   });
 
   it("names the page after the story in one line, with the title linking back to it", () => {
     renderBoard();
 
-    const heading = screen.getByRole("heading", { level: 1, name: "Preparing Vampire" });
+    const heading = screen.getByRole("heading", { level: 1, name: "Library (Game Prep) for Vampire" });
     expect(within(heading).getByRole("link", { name: "Vampire" })).toHaveAttribute(
       "href",
       "/stories/-15",
     );
   });
 
-  it("shows the five columns in order, with a button to add one of its kind on all but the Timeline", () => {
+  it("shows the columns in order, one per kind of element after Attachments, with a button to add one of its kind on all but the Timeline", () => {
     renderBoard();
 
     const regions = screen.getAllByRole("region");
@@ -224,8 +301,11 @@ describe("PrepBoard", () => {
     for (const [title, singular] of [
       ["Scenes", "scene"],
       ["Attachments", "attachment"],
-      ["Characters", "character"],
-      ["Resources", "resource"],
+      ["People", "person"],
+      ["Places", "place"],
+      ["Things", "thing"],
+      ["Other", "element"],
+      ["Ephemera", "ephemera"],
     ]) {
       expect(
         within(column(title)).getByRole("button", { name: `New ${singular}` }),
@@ -246,14 +326,17 @@ describe("PrepBoard", () => {
     expect(within(players).getByText("3 players")).toBeInTheDocument();
     expect(within(items[0]).getByText("2.5 hours")).toBeInTheDocument();
     // A session with no length yet says its status instead. The last status
-    // of this workflow has nothing leading out of it, so its pill is not a
-    // menu; the first has moves, so it is.
-    expect(within(items[0]).getByText(lastSession.label)).toBeInTheDocument();
-    expect(
-      within(items[0]).queryByRole("button", { name: lastSession.label }),
-    ).not.toBeInTheDocument();
+    // of this workflow has nothing leading out of it, so its pill opens a
+    // note saying so rather than a menu; the first has moves, so it is a menu.
+    expect(within(items[0]).getByRole("button", { name: lastSession.label })).toHaveAttribute(
+      "aria-haspopup",
+      "dialog",
+    );
     expect(within(items[1]).queryByText(/hours?$/)).not.toBeInTheDocument();
-    expect(within(items[1]).getByRole("button", { name: firstSession.label })).toBeInTheDocument();
+    expect(within(items[1]).getByRole("button", { name: firstSession.label })).toHaveAttribute(
+      "aria-haspopup",
+      "menu",
+    );
   });
 
   it("leads each Timeline row with its number and title, and offers only to hide the column", () => {
@@ -304,37 +387,66 @@ describe("PrepBoard", () => {
     const user = userEvent.setup();
     renderBoard();
 
-    expect(screen.queryByRole("button", { name: "Show Characters" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show People" })).not.toBeInTheDocument();
 
-    await user.click(within(column("Characters")).getByRole("button", { name: "Hide Characters" }));
-    expect(screen.queryByRole("region", { name: "Characters" })).not.toBeInTheDocument();
+    await user.click(within(column("People")).getByRole("button", { name: "Hide People" }));
+    expect(screen.queryByRole("region", { name: "People" })).not.toBeInTheDocument();
     const regions = screen.getAllByRole("region");
-    expect(regions.map((region) => region.getAttribute("data-column"))).toEqual([
-      "Timeline",
-      "Scenes",
-      "Attachments",
-      "Resources",
-    ]);
+    expect(regions.map((region) => region.getAttribute("data-column"))).toEqual(
+      COLUMNS.filter((title) => title !== "People"),
+    );
 
-    const show = screen.getByRole("button", { name: "Show Characters" });
+    const show = screen.getByRole("button", { name: "Show People" });
     // Above the columns: the button comes before the first region in document order.
     expect(
       show.compareDocumentPosition(regions[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
     await user.click(show);
-    expect(column("Characters")).toHaveAttribute("data-mode", "normal");
-    expect(screen.queryByRole("button", { name: "Show Characters" })).not.toBeInTheDocument();
+    expect(column("People")).toHaveAttribute("data-mode", "normal");
+    expect(screen.queryByRole("button", { name: "Show People" })).not.toBeInTheDocument();
   });
 
-  it("shows how many rows a column holds, and nothing for the columns still on stand-ins", () => {
+  it("shows how many rows each column holds, Attachments as its column reports it", async () => {
     renderBoard();
 
     expect(within(column("Timeline")).getByText("(88)")).toBeInTheDocument();
     expect(within(column("Scenes")).getByText("(12)")).toBeInTheDocument();
-    for (const title of ["Attachments", "Characters", "Resources"]) {
-      expect(within(column(title)).queryByText(/^\(\d+\)$/)).not.toBeInTheDocument();
-    }
+    expect(within(column("People")).getByText("(2)")).toBeInTheDocument();
+    expect(within(column("Places")).getByText("(1)")).toBeInTheDocument();
+    expect(await within(column("Attachments")).findByText("(4)")).toBeInTheDocument();
+  });
+
+  it("lists each kind of element in its own column, with its status, and says so when a kind has none", () => {
+    renderBoard();
+
+    const people = within(column("People")).getAllByRole("listitem");
+    expect(people).toHaveLength(2);
+    expect(within(people[0]).getByText("Aldric")).toBeInTheDocument();
+    expect(within(people[0]).getByText("Magistrate")).toBeInTheDocument();
+    expect(within(people[0]).getByText("Keeps the keys.")).toBeInTheDocument();
+    expect(within(people[1]).getByRole("button", { name: /Used/ })).toBeInTheDocument();
+
+    expect(within(column("Places")).getByText("The vault")).toBeInTheDocument();
+    expect(within(column("Things")).getByText("Nothing here yet.")).toBeInTheDocument();
+  });
+
+  it("searches one kind's elements in the database, for that kind alone", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    await user.type(
+      within(column("People")).getByRole("searchbox", { name: "Search People" }),
+      "keys",
+    );
+
+    await waitFor(() => {
+      expect(within(column("People")).getAllByRole("listitem")).toHaveLength(1);
+    });
+    expect(within(column("People")).getByText("Aldric")).toBeInTheDocument();
+    expect(listElements.mock.calls.every((call) => call.arguments[1] === "PERSON")).toBe(true);
+    // The Places column was not asked again and still holds its row.
+    expect(within(column("Places")).getAllByRole("listitem")).toHaveLength(1);
   });
 
   it("puts the story's attachments after Scenes, with the column's search box handed down", async () => {
@@ -459,7 +571,7 @@ describe("PrepBoard", () => {
       expect(within(column("Scenes")).getAllByRole("listitem")).toHaveLength(1);
     });
     expect(within(column("Scenes")).getByText("1. The vault")).toBeInTheDocument();
-    expect(within(column("Characters")).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(column("People")).getAllByRole("listitem")).toHaveLength(2);
 
     await user.type(
       within(column("Scenes")).getByRole("searchbox", { name: "Search Scenes" }),
@@ -506,18 +618,21 @@ describe("PrepBoard", () => {
 
     const bordered = () =>
       screen.getAllByRole("region").map((region) => region.getAttribute("data-bordered"));
-    expect(bordered()).toEqual(["false", "true", "true", "true", "true"]);
+    const allButFirst = (count: number) => ["false", ...Array(count - 1).fill("true")];
+    expect(bordered()).toEqual(allButFirst(COLUMNS.length));
 
     await user.click(within(column("Timeline")).getByRole("button", { name: "Hide Timeline" }));
-    expect(bordered()).toEqual(["false", "true", "true", "true"]);
+    expect(bordered()).toEqual(allButFirst(COLUMNS.length - 1));
   });
 
-  it("puts a pill for every status above the search box, all on, and none on a column with no workflow", () => {
+  it("puts a pill for every status above the search box, all on, in every column with a workflow", () => {
     renderBoard();
 
     for (const [title, workflow] of [
       ["Timeline", sessionStatusOptions],
       ["Scenes", sceneStatusOptions],
+      ["People", elementStatusOptions],
+      ["Ephemera", elementStatusOptions],
     ] as const) {
       const group = within(column(title)).getByRole("group", {
         name: `Filter ${title} by status`,
@@ -527,11 +642,6 @@ describe("PrepBoard", () => {
       // Everything is shown until something is switched off.
       for (const pill of pills) expect(pill).toHaveAttribute("aria-pressed", "true");
     }
-
-    // Characters and the rest have no statuses, so they have no pills.
-    expect(
-      within(column("Characters")).queryByRole("group", { name: /Filter/ }),
-    ).not.toBeInTheDocument();
   });
 
   it("switching a status off takes its Timeline rows out, and switching it back brings them in", async () => {
@@ -586,5 +696,60 @@ describe("PrepBoard", () => {
     await waitFor(() => {
       expect(within(column("Scenes")).getByText("No matches.")).toBeInTheDocument();
     });
+  });
+
+  it("goes to the New scene page from the Scenes column's +", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    await user.click(within(column("Scenes")).getByRole("button", { name: "New scene" }));
+    expect(router.push.mock.calls.map((call) => call.arguments)).toEqual([
+      ["/libraries/-15/scenes/new"],
+    ]);
+  });
+
+  it("offers an edit on every scene card but a completed one", () => {
+    renderWithProviders(
+      <PrepBoard
+        story={story}
+        sessions={sessions}
+        scenes={[scenes[0], { ...scenes[1], status: "COMPLETE" }]}
+        elements={elements}
+        counts={{}}
+        sessionStatusOptions={sessionStatusOptions}
+        sceneStatusOptions={sceneStatusOptions}
+        elementStatusOptions={elementStatusOptions}
+      />,
+    );
+
+    const [open, done] = within(column("Scenes")).getAllByRole("listitem");
+    expect(within(open).getByRole("link", { name: "Edit scene" })).toHaveAttribute(
+      "href",
+      `/scenes/${scenes[0].idStoryScene}/edit`,
+    );
+    expect(within(done).queryByRole("link", { name: "Edit scene" })).not.toBeInTheDocument();
+  });
+
+  it("offers an expanded column both Shrink and Hide, and Hide folds it straight into a button", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    // At its usual width a column has no shrink, only hide.
+    expect(
+      within(column("Scenes")).queryByRole("button", { name: "Shrink Scenes" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(within(column("Scenes")).getByRole("button", { name: "Expand Scenes" }));
+    const shrink = within(column("Scenes")).getByRole("button", { name: "Shrink Scenes" });
+    // Expand's arrows turned inward.
+    expect(shrink.querySelector(".lucide-minimize-2")).toBeInTheDocument();
+    const hide = within(column("Scenes")).getByRole("button", { name: "Hide Scenes" });
+    expect(hide.querySelector(".lucide-minimize")).toBeInTheDocument();
+
+    await user.click(hide);
+    expect(screen.queryByRole("region", { name: "Scenes" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Show Scenes" }));
+    // Brought back at its usual width, not expanded.
+    expect(column("Scenes")).toHaveAttribute("data-mode", "normal");
   });
 });

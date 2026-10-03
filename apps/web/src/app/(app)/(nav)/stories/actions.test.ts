@@ -784,6 +784,8 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .where(eq(tables.storyScenes.idStoryScene, idOf("Scene written first")));
 
     const detail = await actions.sa_getStorySession(session.id);
+    // The seed user's own story, so the session's pill is theirs to move.
+    expect(detail?.isStoryteller).toBe(true);
     expect(detail?.scenes.map((scene) => scene.title)).toEqual([
       "Scene written second",
       "Scene written first",
@@ -819,6 +821,8 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     const detail = await actions.sa_getStorySession(openSessionId);
     expect(detail?.notes).toBeNull();
     expect(detail?.scenes).toEqual([]);
+    // Nor is its status theirs to move.
+    expect(detail?.isStoryteller).toBe(false);
 
     await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, scene.id));
   });

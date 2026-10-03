@@ -1,10 +1,17 @@
 import { notFound } from "next/navigation";
+import { ELEMENT_KINDS, type ElementKind, type StoryElement } from "@/lib/elements";
 import { PREP_SESSIONS_PAGE_SIZE } from "@/lib/stories";
 import { requireSession } from "@/lib/require-session";
 import { PrepBoard } from "@/components/prep/prep-board";
+import { ELEMENT_COLUMNS } from "@/components/prep/prep-columns";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getStory, sa_countStorySessions, sa_listStorySessions } from "../../stories/actions";
-import { sa_countStoryScenes, sa_listStoryScenes } from "../actions";
+import {
+  sa_countStoryElements,
+  sa_countStoryScenes,
+  sa_listStoryElements,
+  sa_listStoryScenes,
+} from "../actions";
 
 // A story's Prep Work board, behind the stopwatch on the story's page.
 // requireSession() here rather than trusting the group layout; see
@@ -32,6 +39,9 @@ export default async function LibraryPage({ params }: { params: Promise<{ id_sto
     sceneCount,
     sessionStatusOptions,
     sceneStatusOptions,
+    elementStatusOptions,
+    elementCounts,
+    ...elementPages
   ] = await Promise.all([
     sa_getStory(idStory),
     sa_listStorySessions(idStory, 0, PREP_SESSIONS_PAGE_SIZE),
@@ -40,20 +50,37 @@ export default async function LibraryPage({ params }: { params: Promise<{ id_sto
     sa_countStoryScenes(idStory),
     sa_listStatusOptions("story_sessions"),
     sa_listStatusOptions("story_scenes"),
+    sa_listStatusOptions("elements"),
+    sa_countStoryElements(idStory),
+    // One first page per kind, in ELEMENT_KINDS order, for the column each
+    // kind has.
+    ...ELEMENT_KINDS.map((kind) => sa_listStoryElements(idStory, kind, 0)),
   ]);
   // The library is the storyteller's: scenes and enemies are what the
   // players are not meant to see yet. A player gets the same not-found page
   // as a bad id rather than a hint that there is something here.
   if (!story || !story.isOwner) notFound();
 
+  const elements = Object.fromEntries(
+    ELEMENT_KINDS.map((kind, index) => [kind, elementPages[index]]),
+  ) as Record<ElementKind, StoryElement[]>;
+
   return (
     <PrepBoard
       story={story}
       sessions={sessions}
       scenes={scenes}
-      counts={{ Timeline: sessionCount, Scenes: sceneCount }}
+      elements={elements}
+      counts={{
+        Timeline: sessionCount,
+        Scenes: sceneCount,
+        ...Object.fromEntries(
+          ELEMENT_COLUMNS.map((column) => [column.title, elementCounts[column.kind]]),
+        ),
+      }}
       sessionStatusOptions={sessionStatusOptions}
       sceneStatusOptions={sceneStatusOptions}
+      elementStatusOptions={elementStatusOptions}
     />
   );
 }

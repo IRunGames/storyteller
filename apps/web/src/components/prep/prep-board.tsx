@@ -2,16 +2,35 @@
 
 import { useState } from "react";
 import NextLink from "next/link";
-import { Box, Button, Flex, Heading, HStack, Link, List, Stack, Text } from "@chakra-ui/react";
+import { useRouter } from "next/navigation";
+import {
+  Box,
+  Button,
+  Flex,
+  Heading,
+  HStack,
+  Link,
+  Stack,
+} from "@chakra-ui/react";
 import { Maximize } from "lucide-react";
-import { matchesFilter } from "@/lib/filter-text";
+import type { ElementKind, StoryElement } from "@/lib/elements";
 import type { StoryScene } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
-import { PREP_SESSIONS_PAGE_SIZE, type StoryCardData, type StorySession } from "@/lib/stories";
+import {
+  PREP_SESSIONS_PAGE_SIZE,
+  type StoryCardData,
+  type StorySession,
+} from "@/lib/stories";
 import { StorySessions } from "@/components/stories/story-sessions";
-import { PREP_COLUMNS, type PrepColumnMode, type PrepColumnTitle } from "./prep-columns";
+import {
+  ELEMENT_COLUMNS,
+  PREP_COLUMNS,
+  type PrepColumnMode,
+  type PrepColumnTitle,
+} from "./prep-columns";
 import { PrepAttachments } from "./prep-attachments";
 import { PrepColumn } from "./prep-column";
+import { PrepElements } from "./prep-elements";
 import { PrepScenes } from "./prep-scenes";
 
 type Props = {
@@ -20,24 +39,17 @@ type Props = {
   sessions: StorySession[];
   /** The first page of the story's scenes; the column fetches the rest. */
   scenes: StoryScene[];
+  /** The first page of the story's elements of each kind; each column fetches the rest. */
+  elements: Record<ElementKind, StoryElement[]>;
   /**
-   * How many rows each column that has real ones holds in all, for the number
-   * beside its heading. A column still on stand-ins is left out and shows no
-   * count rather than counting its stand-ins.
+   * How many rows each column holds in all, for the number beside its
+   * heading. A column left out shows no count.
    */
   counts: Partial<Record<PrepColumnTitle, number>>;
-  /** The story_sessions and story_scenes workflows, for the status pills. */
+  /** The story_sessions, story_scenes and elements workflows, for the status pills. */
   sessionStatusOptions: StatusOption[];
   sceneStatusOptions: StatusOption[];
-};
-
-// Until each column has its own rows, a few lines stand where they will go.
-const PLACEHOLDERS: Record<
-  Exclude<PrepColumnTitle, "Timeline" | "Scenes" | "Attachments">,
-  string[]
-> = {
-  Characters: ["The innkeeper", "The magistrate", "The stranger"],
-  Resources: ["Regional map", "House rules", "Loot tables"],
+  elementStatusOptions: StatusOption[];
 };
 
 // The Attachments column's one pill over its search box. Not a status, but a
@@ -50,21 +62,6 @@ const COVERS_FILTER: StatusOption = {
   description: "Show the story's cover among its attachments",
   from: null,
 };
-
-// The stand-in rows, filtered like the real ones will be.
-function PlaceholderRows({ lines, query }: { lines: readonly string[]; query: string }) {
-  const shown = lines.filter((line) => matchesFilter(line, query));
-  if (shown.length === 0) return <Text color="fg.muted">No matches.</Text>;
-  return (
-    <List.Root listStyleType="none" gap="2">
-      {shown.map((line) => (
-        <List.Item key={line}>
-          <Text color="fg.muted">{line}</Text>
-        </List.Item>
-      ))}
-    </List.Root>
-  );
-}
 
 const initialModes = Object.fromEntries(
   PREP_COLUMNS.map((column) => [column.title, "normal"]),
@@ -80,10 +77,13 @@ export function PrepBoard({
   story,
   sessions,
   scenes,
+  elements,
   counts,
   sessionStatusOptions,
   sceneStatusOptions,
+  elementStatusOptions,
 }: Props) {
+  const router = useRouter();
   const [modes, setModes] = useState(initialModes);
   // The Attachments column's + opens the link input and dropzone at the top of
   // the column, over the cards, and closes them again.
@@ -93,7 +93,15 @@ export function PrepBoard({
   // part of the attachments field, which owns the rows they add to and the
   // uploads in flight; it draws them into this box through a portal. A
   // callback ref into state, so the field re-renders once the box exists.
-  const [attachmentAdderSlot, setAttachmentAdderSlot] = useState<HTMLDivElement | null>(null);
+  const [attachmentAdderSlot, setAttachmentAdderSlot] =
+    useState<HTMLDivElement | null>(null);
+  // The Attachments column loads its own rows in the browser, so the page has
+  // no count to hand down for it; the column reports one once it has them,
+  // and again as rows are added or deleted there. Null until then, which
+  // shows no count rather than a wrong one.
+  const [attachmentCount, setAttachmentCount] = useState<number | null>(null);
+  const shownCounts: Partial<Record<PrepColumnTitle, number>> =
+    attachmentCount === null ? counts : { ...counts, Attachments: attachmentCount };
 
   function setMode(title: PrepColumnTitle, mode: PrepColumnMode) {
     setModes((current) => {
@@ -110,22 +118,27 @@ export function PrepBoard({
   }
 
   // Which workflow each column's rows run through, for the status pills over
-  // its search box. A column still on stand-in rows has none.
+  // its search box. Every element column runs through the same one.
   const COLUMN_WORKFLOWS: Partial<Record<PrepColumnTitle, StatusOption[]>> = {
     Timeline: sessionStatusOptions,
     Scenes: sceneStatusOptions,
     Attachments: [COVERS_FILTER],
+    ...Object.fromEntries(ELEMENT_COLUMNS.map((column) => [column.title, elementStatusOptions])),
   };
 
-  const hidden = PREP_COLUMNS.filter((column) => modes[column.title] === "hidden");
-  const visible = PREP_COLUMNS.filter((column) => modes[column.title] !== "hidden");
+  const hidden = PREP_COLUMNS.filter(
+    (column) => modes[column.title] === "hidden",
+  );
+  const visible = PREP_COLUMNS.filter(
+    (column) => modes[column.title] !== "hidden",
+  );
 
   return (
     <Stack flex="1" gap="4" py="6">
       {/* The title is the way back to the story, so it stays a link inside
           the one-line heading. */}
       <Heading as="h1" size="2xl" px="4">
-        Preparing{" "}
+        Library (Game Prep) for{" "}
         <Link asChild>
           <NextLink href={`/stories/${story.idStory}`}>{story.title}</NextLink>
         </Link>
@@ -158,30 +171,43 @@ export function PrepBoard({
               key={column.title}
               title={column.title}
               singular={column.singular}
-              count={counts[column.title] ?? null}
+              count={shownCounts[column.title] ?? null}
               statusOptions={COLUMN_WORKFLOWS[column.title]}
-              filterLabel={column.title === "Attachments" ? "Filter Attachments" : undefined}
+              filterLabel={
+                column.title === "Attachments"
+                  ? "Filter Attachments"
+                  : undefined
+              }
               mode={mode}
               width={column.width}
               expandable={column.expandable}
               creatable={column.creatable}
               bordered={index > 0}
-              creating={column.title === "Attachments" ? addingAttachments : undefined}
+              creating={
+                column.title === "Attachments" ? addingAttachments : undefined
+              }
               aboveFilters={
                 column.title === "Attachments" && addingAttachments ? (
-                  <Box ref={setAttachmentAdderSlot} data-testid="attachment-adder" />
+                  <Box
+                    ref={setAttachmentAdderSlot}
+                    data-testid="attachment-adder"
+                  />
                 ) : undefined
               }
-              // Creating rows is the next piece of work for the other
-              // columns; their buttons are in place so the layout is settled
-              // first.
+              // Scenes are written on a page of their own, which comes back
+              // here once saved. Creating rows is the next piece of work for
+              // the element columns; their buttons are in place so the layout
+              // is settled first.
               onCreate={
                 column.title === "Attachments"
                   ? () => setAddingAttachments((open) => !open)
-                  : () => {}
+                  : column.title === "Scenes"
+                    ? () => router.push(`/libraries/${story.idStory}/scenes/new`)
+                    : () => {}
               }
               onExpand={() => setMode(column.title, "expanded")}
-              onContract={() => setMode(column.title, mode === "expanded" ? "normal" : "hidden")}
+              onShrink={() => setMode(column.title, "normal")}
+              onHide={() => setMode(column.title, "hidden")}
             >
               {(filter) => {
                 if (column.title === "Timeline") {
@@ -219,10 +245,25 @@ export function PrepBoard({
                       showCovers={filter.statuses.includes(COVERS_FILTER.key)}
                       showAdd={addingAttachments}
                       addTarget={attachmentAdderSlot}
+                      onCountChange={setAttachmentCount}
                     />
                   );
                 }
-                return <PlaceholderRows lines={PLACEHOLDERS[column.title]} query={filter.query} />;
+                const elementColumn = ELEMENT_COLUMNS.find(
+                  (candidate) => candidate.title === column.title,
+                );
+                if (!elementColumn) return null;
+                return (
+                  <PrepElements
+                    idStory={story.idStory}
+                    kind={elementColumn.kind}
+                    initial={elements[elementColumn.kind]}
+                    filter={filter.query}
+                    shownStatuses={filter.statuses}
+                    statusOptions={elementStatusOptions}
+                    canEdit={story.isOwner}
+                  />
+                );
               }}
             </PrepColumn>
           );

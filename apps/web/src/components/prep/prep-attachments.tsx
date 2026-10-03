@@ -15,6 +15,8 @@ type Props = {
   showAdd: boolean;
   /** Where the board wants them drawn, above the column's filters; see the field. */
   addTarget?: HTMLElement | null;
+  /** How many attachments the story has, for the count beside the heading; see the field. */
+  onCountChange?: (count: number) => void;
 };
 
 /**
@@ -30,7 +32,14 @@ type Props = {
  * The column's + opens the same link input and dropzone the story page has,
  * drawn above the column's filters.
  */
-export function PrepAttachments({ idStory, filter, showCovers, showAdd, addTarget }: Props) {
+export function PrepAttachments({
+  idStory,
+  filter,
+  showCovers,
+  showAdd,
+  addTarget,
+  onCountChange,
+}: Props) {
   const [shownIds, setShownIds] = useState<ReadonlySet<number> | null>(null);
   // Which search is the latest: a slow reply to an earlier query must not
   // land on top of the results for what the box says now.
@@ -66,6 +75,7 @@ export function PrepAttachments({ idStory, filter, showCovers, showAdd, addTarge
       shownIds={shownIds}
       hideCovers={!showCovers}
       showEmpty
+      onCountChange={onCountChange}
     />
   );
 }

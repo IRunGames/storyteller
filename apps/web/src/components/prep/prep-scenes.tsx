@@ -13,12 +13,18 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { ChevronsRight } from "lucide-react";
-import { SCENE_SEARCH_DELAY_MS, SCENES_PAGE_SIZE, type StoryScene } from "@/lib/scenes";
+import { ChevronsRight, Pencil } from "lucide-react";
+import {
+  SCENE_LOCKED_STATUS,
+  SCENE_SEARCH_DELAY_MS,
+  SCENES_PAGE_SIZE,
+  type StoryScene,
+} from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import { sa_listStoryScenes } from "@/app/(app)/(nav)/libraries/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { LocalDate } from "@/components/dates/local-date";
+import { IconLink } from "@/components/links/icon-link";
 import { SceneInfoPopover } from "./scene-info-popover";
 
 type Props = {
@@ -189,14 +195,24 @@ export function PrepScenes({
                     ? scene.title
                     : `${scene.sceneNumber}. ${scene.title}`}
                 </Text>
-                {/* The card shows the first lines of what the storyteller
-                    wrote; the panel behind this button shows all of it. */}
-                <SceneInfoPopover
-                  idStoryScene={scene.idStoryScene}
-                  statusOptions={statusOptions}
-                  canEdit={canEdit}
-                  onStatusChanged={(status) => onStatusChanged(scene.idStoryScene, status)}
-                />
+                <HStack gap="0" flexShrink="0">
+                  {/* A completed scene is the record of what was played,
+                      so only one still to play, or in play, can be edited.
+                      The edit action refuses the rest as well. */}
+                  {canEdit && scene.status !== SCENE_LOCKED_STATUS && (
+                    <IconLink label="Edit scene" href={`/scenes/${scene.idStoryScene}/edit`}>
+                      <Pencil />
+                    </IconLink>
+                  )}
+                  {/* The card shows the first lines of what the storyteller
+                      wrote; the panel behind this button shows all of it. */}
+                  <SceneInfoPopover
+                    idStoryScene={scene.idStoryScene}
+                    statusOptions={statusOptions}
+                    canEdit={canEdit}
+                    onStatusChanged={(status) => onStatusChanged(scene.idStoryScene, status)}
+                  />
+                </HStack>
               </HStack>
 
               {/* The description runs to several lines in the database — the

@@ -1,6 +1,6 @@
 import { useId, useState, type ReactNode } from "react";
 import { Heading, HStack, Spacer, Stack, Text } from "@chakra-ui/react";
-import { Maximize2, Minimize, Plus } from "lucide-react";
+import { Maximize2, Minimize, Minimize2, Plus } from "lucide-react";
 import type { StatusOption } from "@/lib/status";
 import {
   allSelected,
@@ -50,8 +50,10 @@ type Props = {
   aboveFilters?: ReactNode;
   onCreate: () => void;
   onExpand: () => void;
-  /** Shrinks an expanded column, hides a normal one. */
-  onContract: () => void;
+  /** Shrinks an expanded column back to its usual width. */
+  onShrink: () => void;
+  /** Folds the column away into a button above the board, from either width. */
+  onHide: () => void;
   /**
    * The rows, given what the column is narrowed to — the words typed and the
    * statuses still switched on — so they can narrow themselves. The column
@@ -80,7 +82,8 @@ export function PrepColumn({
   aboveFilters,
   onCreate,
   onExpand,
-  onContract,
+  onShrink,
+  onHide,
   children,
 }: Props) {
   const headingId = useId();
@@ -132,13 +135,16 @@ export function PrepColumn({
             <Maximize2 />
           </PrepIconButton>
         )}
-        {/* One contract button does both, so a column never carries more
-            buttons than it has moves: the way down from expanded is normal,
-            and from normal it is out of the way entirely. */}
-        <PrepIconButton
-          label={mode === "expanded" ? `Shrink ${title}` : `Hide ${title}`}
-          onClick={onContract}
-        >
+        {/* Expanded, the column offers both ways down: back to its usual
+            width, drawn as Expand's arrows pointing back in, or straight out
+            of the way into a button above the board. At its usual width only
+            the second is a move. */}
+        {mode === "expanded" && (
+          <PrepIconButton label={`Shrink ${title}`} onClick={onShrink}>
+            <Minimize2 />
+          </PrepIconButton>
+        )}
+        <PrepIconButton label={`Hide ${title}`} onClick={onHide}>
           <Minimize />
         </PrepIconButton>
       </HStack>

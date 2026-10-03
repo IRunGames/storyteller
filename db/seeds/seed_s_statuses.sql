@@ -45,7 +45,16 @@
             -- link be inserted straight into READY without faking an upload.
             (-3, 'UPLOADING', 'The file is being uploaded.',           ARRAY['ERROR']),
             (-3, 'READY',     'The file is stored and can be shown.',  ARRAY['UPLOADING']),
-            (-3, 'ERROR',     'The upload failed and may be retried.', ARRAY['UPLOADING'])
+            (-3, 'ERROR',     'The upload failed and may be retried.', ARRAY['UPLOADING']),
+
+            -- Elements: `elements`. Every status leads to every other: an
+            -- element is noted down, made ready for play, retired, and brought
+            -- back whenever the story wants it. PENDING is the default an
+            -- element is created with, so its list is the two it can return
+            -- from rather than empty.
+            (-4, 'PENDING',  'The element is noted but not yet ready for play.', ARRAY['READY', 'INACTIVE']),
+            (-4, 'READY',    'The element is ready to be used in play.',         ARRAY['PENDING', 'INACTIVE']),
+            (-4, 'INACTIVE', 'The element is set aside and not in use.',         ARRAY['PENDING', 'READY'])
     ),
     numbered_statuses AS (
         SELECT -ROW_NUMBER() OVER () AS s_status_id, *

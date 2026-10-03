@@ -1,8 +1,18 @@
 "use client";
 
 import { useId, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { Alert, IconButton, Popover, Portal, Skeleton, Stack, Tooltip } from "@chakra-ui/react";
-import { Info } from "lucide-react";
+import {
+  Alert,
+  HStack,
+  IconButton,
+  Popover,
+  Portal,
+  Skeleton,
+  Stack,
+  Tooltip,
+} from "@chakra-ui/react";
+import { ExternalLink, Info } from "lucide-react";
+import { IconLink } from "@/components/links/icon-link";
 import { POPOVER_EDGE_GAP, usePopoverMaxHeight } from "./use-popover-max-height";
 
 type Props<T> = {
@@ -18,6 +28,11 @@ type Props<T> = {
   errorText: string;
   /** The panel's heading, asked before the load as well as after it. */
   heading: (loaded: T | null) => string;
+  /**
+   * A page showing the same detail on its own, opened in a new tab from a
+   * button beside the heading. Absent means the panel has no page.
+   */
+  popoutHref?: string;
   /**
    * The panel's body, once there is something to show it. The setter is for a
    * body that changes what it was given — a pill that moves the status.
@@ -39,6 +54,7 @@ export function InfoPopover<T>({
   missingText,
   errorText,
   heading,
+  popoutHref,
   children,
 }: Props<T>) {
   const [open, setOpen] = useState(false);
@@ -105,7 +121,14 @@ export function InfoPopover<T>({
             {/* Popover.Title, not bare text: it is what the dialog's
                 aria-labelledby points at, so the popover gets a name. */}
             <Popover.Header fontWeight="semibold">
-              <Popover.Title>{heading(loaded)}</Popover.Title>
+              <HStack justify="space-between" align="start" gap="2">
+                <Popover.Title>{heading(loaded)}</Popover.Title>
+                {popoutHref && (
+                  <IconLink label="Open in a new tab" href={popoutHref} newTab>
+                    <ExternalLink />
+                  </IconLink>
+                )}
+              </HStack>
             </Popover.Header>
             <Popover.Body>
               {error ? (

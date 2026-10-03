@@ -13,7 +13,7 @@ import { expect } from "expect";
 import { eq, inArray, sql } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 
-import { SCENES_PAGE_SIZE } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS, SCENES_PAGE_SIZE } from "@/lib/scenes";
 import { transitionsFrom } from "@/lib/status";
 
 loadEnvConfig(process.cwd());
@@ -89,10 +89,33 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       sceneTitle: "Fixture scene of theirs",
       idCreatedByUser: otherUserId,
     });
+
+    // Elements: two people out of name order, a place, and one person on the
+    // other user's story. Only the place carries the word "lantern", and only
+    // in its notes, which the card never shows.
+    await db.insert(tables.elements).values([
+      { idStory: myStory, kind: "PERSON", name: "Fixture Zara", idCreatedByUser: SEED_USER },
+      {
+        idStory: myStory,
+        kind: "PERSON",
+        name: "Fixture Aldric",
+        title: "Magistrate",
+        idCreatedByUser: SEED_USER,
+      },
+      {
+        idStory: myStory,
+        kind: "PLACE",
+        name: "Fixture vault",
+        notes: "A lantern hangs by the door.",
+        idCreatedByUser: SEED_USER,
+      },
+      { idStory: theirStory, kind: "PERSON", name: "Fixture theirs", idCreatedByUser: otherUserId },
+    ]);
   });
 
   after(async () => {
     if (!db) return;
+    await db.delete(tables.elements).where(inArray(tables.elements.idStory, [myStory, theirStory]));
     await db
       .delete(tables.storyScenes)
       .where(inArray(tables.storyScenes.idStory, [myStory, theirStory]));
@@ -122,6 +145,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       "description",
       "idStoryScene",
       "idStorySession",
+      "length",
       "sceneNumber",
       "sessionHeading",
       "sessionNumber",
@@ -183,6 +207,52 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
   it("tells a visitor nothing about a story they do not own", async () => {
     expect(await actions.sa_listStoryScenes(theirStory, 0)).toEqual([]);
     expect(await actions.sa_countStoryScenes(theirStory)).toBe(0);
+  });
+
+  it("lists one kind of element at a time, by name", async () => {
+    const people = await actions.sa_listStoryElements(myStory, "PERSON", 0);
+    expect(people.map((element) => element.name)).toEqual(["Fixture Aldric", "Fixture Zara"]);
+    expect(people[0].title).toBe("Magistrate");
+
+    const places = await actions.sa_listStoryElements(myStory, "PLACE", 0);
+    expect(places.map((element) => element.name)).toEqual(["Fixture vault"]);
+    expect(await actions.sa_listStoryElements(myStory, "EPHEMERA", 0)).toEqual([]);
+
+    // A new element takes the workflow's starting status, whatever it is called.
+    const workflow = await (
+      await import("@/components/status/actions")
+    ).sa_listStatusOptions("elements");
+    expect(people[0].status).toBe(workflow[0].key);
+  });
+
+  it("searches an element's search_text, including what the card does not show", async () => {
+    const found = await actions.sa_listStoryElements(myStory, "PLACE", 0, "LANTERN");
+    expect(found.map((element) => element.name)).toEqual(["Fixture vault"]);
+    // The search stays inside the kind it was asked about.
+    expect(await actions.sa_listStoryElements(myStory, "PERSON", 0, "lantern")).toEqual([]);
+    // And the statuses still switched on narrow it; none switched on is nothing.
+    expect(await actions.sa_listStoryElements(myStory, "PLACE", 0, "", [])).toEqual([]);
+  });
+
+  it("counts a story's elements by kind, zero for a kind it has none of", async () => {
+    expect(await actions.sa_countStoryElements(myStory)).toEqual({
+      PERSON: 2,
+      PLACE: 1,
+      THING: 0,
+      OTHER: 0,
+      EPHEMERA: 0,
+    });
+  });
+
+  it("tells a visitor nothing about another storyteller's elements", async () => {
+    expect(await actions.sa_listStoryElements(theirStory, "PERSON", 0)).toEqual([]);
+    expect(await actions.sa_countStoryElements(theirStory)).toEqual({
+      PERSON: 0,
+      PLACE: 0,
+      THING: 0,
+      OTHER: 0,
+      EPHEMERA: 0,
+    });
   });
 
   it("treats an id Postgres cannot compare as no story at all", async () => {
@@ -415,5 +485,189 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     await db
       .delete(tables.storySessions)
       .where(eq(tables.storySessions.idStorySession, session.id));
+  });
+
+  it("times a scene by its stretches in play, and gives it a length once finished", async () => {
+    const [scene] = await db
+      .insert(tables.storyScenes)
+      .values({ idStory: myStory, sceneTitle: "Fixture timed scene", idCreatedByUser: SEED_USER })
+      .returning({ id: tables.storyScenes.idStoryScene });
+    const byId = eq(tables.storyScenes.idStoryScene, scene.id);
+    // Each stretch is backdated after the move into ACTIVE, because the
+    // workflow trigger stamps active_at with now() as the row arrives.
+    async function playFor(minutes: number) {
+      await db.update(tables.storyScenes).set({ status: "ACTIVE" }).where(byId);
+      await db
+        .update(tables.storyScenes)
+        .set({ activeAt: sql`now() - make_interval(mins => ${minutes})` })
+        .where(byId);
+    }
+
+    try {
+      await playFor(10);
+      await db.update(tables.storyScenes).set({ status: "PENDING" }).where(byId);
+      // Set down part way: timed so far, but not finished, so no length yet.
+      expect((await actions.sa_getStoryScene(scene.id))?.length).toBeNull();
+
+      await playFor(5);
+      await db.update(tables.storyScenes).set({ status: SCENE_LOCKED_STATUS }).where(byId);
+      // Both stretches, and not the time it sat in between.
+      expect((await actions.sa_getStoryScene(scene.id))?.length).toBe(15);
+    } finally {
+      await db.delete(tables.storyScenes).where(byId);
+    }
+  });
+
+  describe("writing scenes", () => {
+    const TITLE = "Fixture written scene";
+    let mySession = 0;
+    let theirSession = 0;
+
+    // Next implements redirect() by throwing; the target rides in the digest.
+    async function redirectOf(promise: Promise<unknown>): Promise<string | null> {
+      const thrown = await promise.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      const digest = (thrown as { digest?: string } | null)?.digest ?? "";
+      return digest.startsWith("NEXT_REDIRECT") ? digest.split(";")[2] : null;
+    }
+
+    async function written() {
+      return db
+        .select({
+          id: tables.storyScenes.idStoryScene,
+          title: tables.storyScenes.sceneTitle,
+          description: tables.storyScenes.sceneDescription,
+          idStorySession: tables.storyScenes.idStorySession,
+          idCreatedByUser: tables.storyScenes.idCreatedByUser,
+        })
+        .from(tables.storyScenes)
+        .where(eq(tables.storyScenes.sceneTitle, TITLE));
+    }
+
+    before(async () => {
+      const rows = await db
+        .insert(tables.storySessions)
+        .values([
+          { idStory: myStory, title: "Fixture sitting", idCreatedByUser: SEED_USER },
+          { idStory: theirStory, idCreatedByUser: otherUserId },
+        ])
+        .returning({
+          id: tables.storySessions.idStorySession,
+          idStory: tables.storySessions.idStory,
+        });
+      mySession = rows.find((row) => row.idStory === myStory)!.id;
+      theirSession = rows.find((row) => row.idStory === theirStory)!.id;
+    });
+
+    after(async () => {
+      await db.delete(tables.storyScenes).where(eq(tables.storyScenes.sceneTitle, TITLE));
+      await db
+        .delete(tables.storySessions)
+        .where(inArray(tables.storySessions.idStorySession, [mySession, theirSession]));
+    });
+
+    it("offers the story's sittings to its storyteller, named as the Timeline names them", async () => {
+      expect(await actions.sa_listSceneSessionOptions(myStory)).toEqual([
+        { idStorySession: mySession, label: "1. Fixture sitting" },
+      ]);
+      expect(await actions.sa_listSceneSessionOptions(theirStory)).toEqual([]);
+    });
+
+    it("creates a scene on the caller's story and goes back to its board", async () => {
+      const target = await redirectOf(
+        actions.sa_createStoryScene(myStory, {
+          title: `  ${TITLE}  `,
+          description: "",
+          idStorySession: String(mySession),
+        }),
+      );
+      expect(target).toBe(`/libraries/${myStory}`);
+
+      const [row] = await written();
+      expect(row).toMatchObject({
+        title: TITLE,
+        description: null,
+        idStorySession: mySession,
+        idCreatedByUser: SEED_USER,
+      });
+    });
+
+    it("refuses a sitting from another story, and a story that is not the caller's", async () => {
+      expect(
+        await actions.sa_createStoryScene(myStory, {
+          title: "Fixture never written",
+          description: "",
+          idStorySession: String(theirSession),
+        }),
+      ).toEqual({
+        ok: false,
+        errors: { idStorySession: "That session is not part of this story." },
+      });
+      await expect(
+        actions.sa_createStoryScene(theirStory, {
+          title: "Fixture never written",
+          description: "",
+          idStorySession: "",
+        }),
+      ).rejects.toThrow(/storyteller/);
+    });
+
+    it("loads a scene for editing, and saves it back to the board", async () => {
+      const [{ id }] = await written();
+
+      const loaded = await actions.sa_getStorySceneForEdit(id);
+      expect(loaded).toMatchObject({
+        idStory: myStory,
+        locked: false,
+        values: { title: TITLE, description: "", idStorySession: mySession },
+      });
+
+      const target = await redirectOf(
+        actions.sa_updateStoryScene(id, {
+          title: TITLE,
+          description: "Two guards at the door.",
+          idStorySession: "",
+        }),
+      );
+      expect(target).toBe(`/libraries/${myStory}`);
+      const [row] = await written();
+      expect(row.description).toBe("Two guards at the door.");
+      expect(row.idStorySession).toBeNull();
+    });
+
+    it("will not edit a completed scene", async () => {
+      const [{ id }] = await written();
+      await db
+        .update(tables.storyScenes)
+        .set({ status: SCENE_LOCKED_STATUS })
+        .where(eq(tables.storyScenes.idStoryScene, id));
+
+      expect((await actions.sa_getStorySceneForEdit(id))?.locked).toBe(true);
+      expect(
+        await actions.sa_updateStoryScene(id, {
+          title: "Fixture rewritten",
+          description: "",
+          idStorySession: "",
+        }),
+      ).toEqual({ ok: false, errors: { "": "A completed scene can no longer be edited." } });
+      expect((await written())[0].description).toBe("Two guards at the door.");
+    });
+
+    it("gives nobody but the storyteller a scene to edit", async () => {
+      const [theirs] = await db
+        .select({ id: tables.storyScenes.idStoryScene })
+        .from(tables.storyScenes)
+        .where(eq(tables.storyScenes.idStory, theirStory));
+      expect(await actions.sa_getStorySceneForEdit(theirs.id)).toBeNull();
+      await expect(
+        actions.sa_updateStoryScene(theirs.id, {
+          title: "Fixture never written",
+          description: "",
+          idStorySession: "",
+        }),
+      ).rejects.toThrow(/storyteller/);
+    });
   });
 });

@@ -12,7 +12,7 @@ import {
   type StatusTable,
 } from "@/lib/status";
 
-const { sStatuses, tablesMeta, stories, storyScenes, storySessions } = schema;
+const { sStatuses, tablesMeta, stories, storyScenes, storySessions, elements } = schema;
 
 // The status pill belongs to no one page — it sits on scenes, on sessions and
 // on whatever gets a workflow next — so its actions live beside it rather
@@ -23,7 +23,7 @@ const { sStatuses, tablesMeta, stories, storyScenes, storySessions } = schema;
 // else is not a table with a workflow, it is someone trying their luck.
 const tableSchema = z.enum(STATUS_TABLES);
 
-// Both tables carry int4 keys, as story ids do: an id outside the range is a
+// Every one of these tables carries int4 keys, as story ids do: an id outside the range is a
 // query error rather than a missing row, so it is refused up front.
 const idSchema = z.number().int().min(-2147483648).max(2147483647);
 
@@ -110,12 +110,19 @@ export async function sa_setRowStatus(
           .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
           .where(eq(storyScenes.idStoryScene, rowId))
           .limit(1)
-      : await db
-          .select({ status: storySessions.status, owner: stories.idCreatedByUser })
-          .from(storySessions)
-          .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
-          .where(eq(storySessions.idStorySession, rowId))
-          .limit(1);
+      : name === "story_sessions"
+        ? await db
+            .select({ status: storySessions.status, owner: stories.idCreatedByUser })
+            .from(storySessions)
+            .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
+            .where(eq(storySessions.idStorySession, rowId))
+            .limit(1)
+        : await db
+            .select({ status: elements.status, owner: stories.idCreatedByUser })
+            .from(elements)
+            .innerJoin(stories, eq(stories.idStory, elements.idStory))
+            .where(eq(elements.idElement, rowId))
+            .limit(1);
 
   const row = current[0];
   if (!row || row.owner !== user.id) {
@@ -141,13 +148,19 @@ export async function sa_setRowStatus(
             .set({ status: next, idUpdatedByUser: user.id })
             .where(and(eq(storyScenes.idStoryScene, rowId), eq(storyScenes.status, row.status)))
             .returning({ status: storyScenes.status })
-        : await db
-            .update(storySessions)
-            .set({ status: next, idUpdatedByUser: user.id })
-            .where(
-              and(eq(storySessions.idStorySession, rowId), eq(storySessions.status, row.status)),
-            )
-            .returning({ status: storySessions.status });
+        : name === "story_sessions"
+          ? await db
+              .update(storySessions)
+              .set({ status: next, idUpdatedByUser: user.id })
+              .where(
+                and(eq(storySessions.idStorySession, rowId), eq(storySessions.status, row.status)),
+              )
+              .returning({ status: storySessions.status })
+          : await db
+              .update(elements)
+              .set({ status: next, idUpdatedByUser: user.id })
+              .where(and(eq(elements.idElement, rowId), eq(elements.status, row.status)))
+              .returning({ status: elements.status });
 
     if (updated.length === 0) {
       return { ok: false, error: "That status changed while you were looking; try again." };

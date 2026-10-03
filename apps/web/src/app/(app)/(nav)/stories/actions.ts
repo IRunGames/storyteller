@@ -478,6 +478,7 @@ export async function sa_getStorySession(
   const [row] = await db
     .select({
       idStorySession: storySessions.idStorySession,
+      startedAt: sql<Date>`${storySessions.createdAt}`.mapWith(storySessions.createdAt),
       title: storySessions.title,
       status: storySessions.status,
       length: storySessions.length,
@@ -534,6 +535,7 @@ export async function sa_getStorySession(
 
   return {
     idStorySession: row.idStorySession,
+    startedAt: row.startedAt,
     number: row.number,
     title: row.title,
     status: row.status,
@@ -544,6 +546,7 @@ export async function sa_getStorySession(
     lingeringQuestions: isStoryteller ? row.lingeringQuestions : null,
     players,
     scenes,
+    isStoryteller,
   };
 }
 

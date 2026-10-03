@@ -102,7 +102,6 @@ describe("AppHeader", () => {
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["Play", "/play"],
       ["Stories", "/stories"],
-      ["Characters", "/characters"],
       ["Library", "/library"],
     ]);
     expect(links[1]).toHaveAttribute("aria-current", "page");
@@ -173,7 +172,6 @@ describe("AppHeader", () => {
       ["Play", "/play"],
       ["Stories", "/stories"],
       ["Find a Story", "/stories/find"],
-      ["Characters", "/characters"],
       ["Library", "/library"],
     ]);
   });
@@ -202,13 +200,10 @@ describe("AppHeader", () => {
   });
 
   it("treats a nested path as part of its section", () => {
-    pathname = "/characters/42";
+    pathname = "/library/42";
     renderHeader();
 
-    expect(screen.getByRole("link", { name: "Characters" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(screen.getByRole("link", { name: "Library" })).toHaveAttribute("aria-current", "page");
   });
 
   it("shows the notifications bell disabled", () => {
@@ -461,7 +456,7 @@ describe("AppHeader", () => {
     });
 
     it("sends the rating, the text and the current page, then closes and toasts thanks", async () => {
-      pathname = "/characters/42";
+      pathname = "/library/42";
       const { u, dialog } = await openFeedback();
 
       const notGood = within(dialog).getByRole("radio", { name: "Not good" });
@@ -479,7 +474,7 @@ describe("AppHeader", () => {
       expect(sa_submitFeedback.mock.calls[0].arguments[0]).toEqual({
         isPositive: false,
         feedback: "Nice cards",
-        pagePath: "/characters/42",
+        pagePath: "/library/42",
       });
       // The popover closes straight away and the confirmation is a toast, so
       // the thanks must appear outside the dialog and the dialog must go. The

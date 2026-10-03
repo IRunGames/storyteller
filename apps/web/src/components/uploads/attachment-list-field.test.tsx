@@ -398,6 +398,28 @@ describe("AttachmentListField", () => {
     expect(await screen.findByText("No attachments yet.")).toBeInTheDocument();
   });
 
+  it("reports how many it holds once loaded, counting the cover even when it is hidden, and again after a delete", async () => {
+    const user = userEvent.setup();
+    twoLinks();
+    const onCountChange = mock.fn<(count: number) => void>();
+
+    renderWithProviders(
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        hideCovers
+        onCountChange={onCountChange}
+      />,
+    );
+
+    await waitFor(() => expect(onCountChange.mock.calls.at(-1)?.arguments[0]).toBe(2));
+    // Nothing is said while the rows are still on their way: no (0) first.
+    expect(onCountChange.mock.calls.map((call) => call.arguments[0])).toEqual([2]);
+
+    await confirmRemove(user);
+    await waitFor(() => expect(onCountChange.mock.calls.at(-1)?.arguments[0]).toBe(1));
+  });
+
   it("draws the link input and dropzone into the box the page gives it", async () => {
     const user = userEvent.setup();
     const box = document.createElement("div");

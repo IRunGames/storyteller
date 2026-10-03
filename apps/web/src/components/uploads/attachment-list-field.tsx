@@ -123,6 +123,13 @@ type Props = {
    * since its heading and toggle already say what the section is for.
    */
   showEmpty?: boolean;
+  /**
+   * Told how many attachments the field holds, once the first load is back
+   * and whenever an add or a delete changes it: the Prep Work board's count
+   * beside the Attachments heading. Every row counts, whatever the search or
+   * the Covers switch leaves drawn, as the Scenes count ignores its search.
+   */
+  onCountChange?: (count: number) => void;
 };
 
 function rejectionMessage(rejection: { errors: string[] } | undefined): string {
@@ -164,6 +171,7 @@ export function AttachmentListField({
   shownIds = null,
   hideCovers = false,
   showEmpty = false,
+  onCountChange,
 }: Props) {
   const { id: userId } = useUser();
   const router = useRouter();
@@ -196,6 +204,17 @@ export function AttachmentListField({
   // without saying it while the rows are still on their way. A create form
   // has nothing to load and starts loaded.
   const [hasLoaded, setHasLoaded] = useState(idExternal === null);
+
+  // Not until the first load is back, so the heading never says (0) for a
+  // story whose attachments are still on their way. A ref for the callback,
+  // so a parent passing a fresh function each render does not re-report.
+  const onCountChangeRef = useRef(onCountChange);
+  useEffect(() => {
+    onCountChangeRef.current = onCountChange;
+  }, [onCountChange]);
+  useEffect(() => {
+    if (hasLoaded) onCountChangeRef.current?.(rows.length);
+  }, [hasLoaded, rows.length]);
   // A load in flight, guarding loadAttachments() against a second click on
   // Try Again starting an overlapping fetch -- the later-resolving one
   // would otherwise win even if it read rowsRef before the earlier one's

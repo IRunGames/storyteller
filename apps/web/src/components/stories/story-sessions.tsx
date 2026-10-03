@@ -187,7 +187,11 @@ export function StorySessions({
                     onChanged={(status) => onStatusChanged(session.idStorySession, status)}
                   />
                 )}
-                <SessionInfoPopover idStorySession={session.idStorySession} color={mutedColor} />
+                <SessionInfoPopover
+                  idStorySession={session.idStorySession}
+                  color={mutedColor}
+                  onStatusChanged={(status) => onStatusChanged(session.idStorySession, status)}
+                />
               </HStack>
             </List.Item>
           ))}

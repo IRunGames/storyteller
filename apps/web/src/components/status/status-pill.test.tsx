@@ -100,11 +100,22 @@ describe("StatusPill", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("is not a menu when the workflow leads nowhere out of the status", () => {
+  it("warns the owner instead of offering a menu when the workflow leads nowhere out of the status", async () => {
+    const user = userEvent.setup();
     pill(last.key);
 
     // Nothing lists LAST among the statuses it can be reached from, so there
-    // is no move to offer and the pill stays plain text however it is owned.
+    // is no move to offer: pressing it says so rather than doing nothing.
+    await user.click(screen.getByRole("button", { name: last.label }));
+    const note = await screen.findByRole("dialog", { name: `${last.label} is final` });
+    expect(note).toHaveTextContent(/cannot be moved to another status/);
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+    expect(sa_setRowStatus.mock.callCount()).toBe(0);
+  });
+
+  it("is plain text, with no note, for anyone else", () => {
+    pill(last.key, false);
+
     expect(screen.getByText(last.label)).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });

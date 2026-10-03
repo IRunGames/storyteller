@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { chakra, Menu, Portal, Span } from "@chakra-ui/react";
+import { chakra, Menu, Popover, Portal, Span, Text } from "@chakra-ui/react";
 import { statusLabel, transitionsFrom, type StatusOption, type StatusTable } from "@/lib/status";
 import { sa_setRowStatus } from "./actions";
 import { pillStyle } from "./pill-style";
@@ -35,7 +35,7 @@ const PillButton = chakra("button");
  * A row's status, coloured by how far through its workflow it has come. For
  * the owner it is also the way to move it: the menu lists the transitions the
  * workflow allows out of the status the row holds, and choosing one takes
- * effect immediately.
+ * effect immediately. A status with no way out opens a note saying so.
  *
  * The change is shown before the action answers, because the menu closing on
  * a pill that still reads the old word looks like nothing happened. A refusal
@@ -77,11 +77,46 @@ export function StatusPill({ table, id, status, options, canEdit = false, onChan
     });
   }
 
-  if (!canEdit || moves.length === 0) {
+  if (!canEdit) {
     return (
       <Span data-status={shown} {...pillStyle()}>
         {label}
       </Span>
+    );
+  }
+
+  // The owner pressing a status the workflow leads nowhere out of would
+  // otherwise get nothing at all, which reads as broken. Say why instead:
+  // this one is final, and the database would refuse any move out of it.
+  if (moves.length === 0) {
+    return (
+      <Popover.Root positioning={{ placement: "bottom-start" }}>
+        <Popover.Trigger asChild>
+          <PillButton
+            type="button"
+            data-status={shown}
+            cursor="pointer"
+            {...pillStyle()}
+            _hover={{ borderColor: "status.contrast" }}
+          >
+            {label}
+          </PillButton>
+        </Popover.Trigger>
+        <Portal>
+          <Popover.Positioner>
+            <Popover.Content w="xs">
+              <Popover.Arrow />
+              <Popover.Body>
+                <Popover.Title fontWeight="semibold">{label} is final</Popover.Title>
+                <Text textStyle="sm" color="fg.muted" mt="1">
+                  Nothing in this workflow leads out of {label.toLowerCase()}, so it cannot be moved
+                  to another status.
+                </Text>
+              </Popover.Body>
+            </Popover.Content>
+          </Popover.Positioner>
+        </Portal>
+      </Popover.Root>
     );
   }
 

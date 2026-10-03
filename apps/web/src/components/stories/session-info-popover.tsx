@@ -2,22 +2,21 @@
 
 import { useId } from "react";
 import { Accordion, Avatar, HStack, Image, List, Stack, Text } from "@chakra-ui/react";
-import {
-  formatSessionLength,
-  sessionStatusText,
-  sessionHeading,
-  type StorySessionDetail,
-} from "@/lib/stories";
+import { formatSessionLength, sessionHeading, type StorySessionDetail } from "@/lib/stories";
 import type { StatusOption } from "@/lib/status";
 import { sa_getStorySession } from "@/app/(app)/(nav)/stories/actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { InfoPopover } from "@/components/popovers/info-popover";
+import { LocalDate } from "@/components/dates/local-date";
+import { SceneInfoPopover } from "@/components/prep/scene-info-popover";
 
 type Props = {
   idStorySession: number;
   /** The button's colour; the story page passes its panel's muted text. */
   color?: string;
+  /** The new status, once the panel's pill has moved it, so the row can follow. */
+  onStatusChanged?: (status: string) => void;
 };
 
 // The workflow travels with the detail rather than being state of its own, so
@@ -25,6 +24,8 @@ type Props = {
 // uncoloured to coloured.
 type Loaded = {
   detail: StorySessionDetail;
+  /** The story_sessions workflow, for the session's own pill. */
+  sessionStatusOptions: StatusOption[];
   /** The story_scenes workflow, for the pills in the scenes fold. */
   sceneStatusOptions: StatusOption[];
 };
@@ -32,20 +33,22 @@ type Loaded = {
 // What the info button on a session row opens: the session's image, heading,
 // length, who came, its summary, and the notes and lingering questions folded
 // into an accordion so a long entry does not push the rest out of sight.
-// InfoPopover owns the button, the panel and the fetch; nothing in here
-// changes while the page is up.
-export function SessionInfoPopover({ idStorySession, color }: Props) {
+// InfoPopover owns the button, the panel and the fetch; the button beside
+// the heading opens the same detail on /sessions/[id].
+export function SessionInfoPopover({ idStorySession, color, onStatusChanged }: Props) {
   // The workflow is fetched here rather than threaded down from the page,
   // because this popover is opened from the story page too, which knows
   // nothing about scenes.
   async function load(): Promise<Loaded | null> {
     const detail = await sa_getStorySession(idStorySession);
     if (!detail) return null;
-    // Only worth asking when there are scenes to colour, which is only ever
-    // for the storyteller.
-    const sceneStatusOptions =
-      detail.scenes.length > 0 ? await sa_listStatusOptions("story_scenes") : [];
-    return { detail, sceneStatusOptions };
+    // The scenes' workflow is only worth asking for when there are scenes to
+    // colour, which is only ever for the storyteller.
+    const [sessionStatusOptions, sceneStatusOptions] = await Promise.all([
+      sa_listStatusOptions("story_sessions"),
+      detail.scenes.length > 0 ? sa_listStatusOptions("story_scenes") : [],
+    ]);
+    return { detail, sessionStatusOptions, sceneStatusOptions };
   }
 
   return (
@@ -56,20 +59,37 @@ export function SessionInfoPopover({ idStorySession, color }: Props) {
       missingText="This session is no longer here."
       errorText="Could not load the session."
       heading={(loaded) => (loaded ? sessionHeading(loaded.detail) : "Session")}
+      popoutHref={`/sessions/${idStorySession}`}
     >
-      {({ detail, sceneStatusOptions }) => (
-        <SessionDetail detail={detail} sceneStatusOptions={sceneStatusOptions} />
+      {(loaded, setLoaded) => (
+        <SessionDetail
+          {...loaded}
+          onStatusChanged={(status) => {
+            setLoaded((current) =>
+              current ? { ...current, detail: { ...current.detail, status } } : current,
+            );
+            onStatusChanged?.(status);
+          }}
+        />
       )}
     </InfoPopover>
   );
 }
 
-function SessionDetail({
+/**
+ * The body of a session's panel, shared by the popover and the session's own
+ * page: everything but the heading.
+ */
+export function SessionDetail({
   detail,
+  sessionStatusOptions,
   sceneStatusOptions,
+  onStatusChanged,
 }: {
   detail: StorySessionDetail;
+  sessionStatusOptions: StatusOption[];
   sceneStatusOptions: StatusOption[];
+  onStatusChanged: (status: string) => void;
 }) {
   const playersId = useId();
   const folds = [
@@ -85,13 +105,22 @@ function SessionDetail({
         <Image src={detail.imageLink} alt="" rounded="md" w="full" maxH="40" objectFit="cover" />
       )}
 
-      {/* The length is generated once the session is done; before that the
-          status says why there is none. */}
-      <Text textStyle="sm" color="fg.muted">
-        {detail.length === null
-          ? sessionStatusText(detail.status)
-          : formatSessionLength(detail.length)}
-      </Text>
+      {/* The status, as a menu for the storyteller only, then the length
+          once the session is done and the day it was opened. */}
+      <HStack gap="3">
+        <StatusPill
+          table="story_sessions"
+          id={detail.idStorySession}
+          status={detail.status}
+          options={sessionStatusOptions}
+          canEdit={detail.isStoryteller}
+          onChanged={onStatusChanged}
+        />
+        <Text textStyle="sm" color="fg.muted">
+          {detail.length !== null && `${formatSessionLength(detail.length)} `}
+          on <LocalDate value={detail.startedAt} />
+        </Text>
+      </HStack>
 
       <Stack gap="2">
         <Text id={playersId} textStyle="sm" fontWeight="semibold">
@@ -156,7 +185,7 @@ function SessionDetail({
                     {detail.scenes.map((scene, index) => (
                       <List.Item key={scene.idStoryScene}>
                         <HStack gap="2" justify="space-between" align="start">
-                          <Text textStyle="sm">
+                          <Text textStyle="sm" flex="1">
                             {index + 1}. {scene.title}
                           </Text>
                           {/* Shown, not changed: this panel is opened from
@@ -167,6 +196,13 @@ function SessionDetail({
                             id={scene.idStoryScene}
                             status={scene.status}
                             options={sceneStatusOptions}
+                          />
+                          {/* The scene's own panel, over this one. Read
+                              only, like the pill beside it. */}
+                          <SceneInfoPopover
+                            idStoryScene={scene.idStoryScene}
+                            statusOptions={sceneStatusOptions}
+                            canEdit={false}
                           />
                         </HStack>
                       </List.Item>

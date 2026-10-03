@@ -33,6 +33,8 @@ let myStory = 0;
 let theirStory = 0;
 let myScene = 0;
 let theirScene = 0;
+let myElement = 0;
+let theirElement = 0;
 let workflow: StatusOption[] = [];
 
 describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
@@ -72,10 +74,21 @@ describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => 
       .returning({ id: tables.storyScenes.idStoryScene, title: tables.storyScenes.sceneTitle });
     myScene = scenes.find((row) => row.title === "Mine")!.id;
     theirScene = scenes.find((row) => row.title === "Theirs")!.id;
+
+    const elements = await db
+      .insert(tables.elements)
+      .values([
+        { idStory: myStory, kind: "THING", name: "Mine", idCreatedByUser: SEED_USER },
+        { idStory: theirStory, kind: "THING", name: "Theirs", idCreatedByUser: otherUserId },
+      ])
+      .returning({ id: tables.elements.idElement, name: tables.elements.name });
+    myElement = elements.find((row) => row.name === "Mine")!.id;
+    theirElement = elements.find((row) => row.name === "Theirs")!.id;
   });
 
   after(async () => {
     if (!db) return;
+    await db.delete(tables.elements).where(inArray(tables.elements.idStory, [myStory, theirStory]));
     await db
       .delete(tables.storyScenes)
       .where(inArray(tables.storyScenes.idStory, [myStory, theirStory]));
@@ -191,6 +204,25 @@ describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => 
     expect(await actions.sa_setRowStatus("story_scenes", myScene, from)).toEqual({
       ok: true,
       status: from,
+    });
+  });
+
+  it("moves an element through the elements workflow, and only on the caller's own story", async () => {
+    const elementWorkflow = await actions.sa_listStatusOptions("elements");
+    const [row] = await db
+      .select({ status: tables.elements.status })
+      .from(tables.elements)
+      .where(eq(tables.elements.idElement, myElement));
+    const [move] = transitionsFrom(row.status, elementWorkflow);
+    expect(move).toBeDefined();
+
+    expect(await actions.sa_setRowStatus("elements", myElement, move.key)).toEqual({
+      ok: true,
+      status: move.key,
+    });
+    expect(await actions.sa_setRowStatus("elements", theirElement, move.key)).toEqual({
+      ok: false,
+      error: "That is not yours to change.",
     });
   });
 });

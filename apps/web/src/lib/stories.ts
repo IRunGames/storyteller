@@ -72,6 +72,8 @@ export type StorySession = {
 /** What the session info popover shows for one session. */
 export type StorySessionDetail = {
   idStorySession: number;
+  /** When it was opened: the same date the Timeline shows for it. */
+  startedAt: Date;
   /** 1 for the story's first session, counted in the order they opened. */
   number: number;
   title: string | null;
@@ -91,6 +93,11 @@ export type StorySessionDetail = {
    * like the notes: empty for anyone else, however the row reads.
    */
   scenes: SessionScene[];
+  /**
+   * The viewer created the story, so the panel's status pill is a menu.
+   * sa_setRowStatus makes the same check before it moves anything.
+   */
+  isStoryteller: boolean;
 };
 
 /** "3. Kildealg", or "Session 3" for a session with no title yet. */
