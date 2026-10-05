@@ -1,5 +1,5 @@
     -- Seed data for `news`: the three placeholder announcements the home page
-    -- shipped with, posted by PalmDave Quist (db/seeds/seed_users.sql), a
+    -- shipped with, posted by PalmDave Quist (db/seeds/seed_s_users.sql), a
     -- fixture storyteller, since the real storyteller@irun.games account that
     -- originally authored them is made by signing in and no seed creates it.
     -- starts_at is the day each was written; none of them expires.

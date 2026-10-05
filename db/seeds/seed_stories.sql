@@ -1,5 +1,5 @@
     -- Seed data for `stories`: the example campaigns run by the fixture users
-    -- in db/seeds/seed_users.sql, so that seed must run first. Who plays in
+    -- in db/seeds/seed_s_users.sql, so that seed must run first. Who plays in
     -- them is in db/seeds/seed_story_players.sql.
     --
     -- The campaigns of https://rpg.irun.games used to be seeded here too,

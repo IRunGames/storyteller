@@ -123,7 +123,7 @@ describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => 
     // rejected before it reaches a query.
     await expect(
       // @ts-expect-error the point of the case is a table the type forbids
-      actions.sa_listStatusOptions("users"),
+      actions.sa_listStatusOptions("s_users"),
     ).rejects.toThrow();
   });
 

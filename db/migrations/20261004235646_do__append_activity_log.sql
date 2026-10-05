@@ -1,3 +1,11 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE FUNCTION', clock_timestamp();
+
+    DROP FUNCTION IF EXISTS _append_activity_log;
+
+    -- ------------------------------------------------------------
 /*
 ====================================================================
 - Description -
@@ -142,3 +150,10 @@ EXCEPTION
         RETURN NULL;
 END;
 $func$ LANGUAGE plpgsql;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_FUNCTION.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

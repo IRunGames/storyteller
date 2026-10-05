@@ -3,7 +3,7 @@
     -- on `stories` and does not get a story_players row.
     --
     -- id_story points at db/seeds/seed_stories.sql and id_user at
-    -- db/seeds/seed_users.sql (plus the storyteller@irun.games account), so
+    -- db/seeds/seed_s_users.sql (plus the storyteller@irun.games account), so
     -- both of those seeds must run first.
     --
     -- Each Hogwarts staff story (-17 to -21) seats four players: one other

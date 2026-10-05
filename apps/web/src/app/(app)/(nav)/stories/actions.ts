@@ -320,7 +320,7 @@ export async function sa_removeStoryPlayer(
 /**
  * Up to ten users whose name, nickname or email contains the query, for the
  * Invite Players popover on a story the caller created. Case blind, over the
- * generated users.search_text column, and without the storyteller or anyone
+ * generated s_users.search_text column, and without the storyteller or anyone
  * already seated, so the list only ever offers people who can be added. A
  * blank query finds nobody rather than everybody.
  */
@@ -649,7 +649,7 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
 /**
  * Validates and saves the edit form over a story the caller created, then
  * redirects to the story's page. The story is read first and its creator
- * compared with the id of the users row requireUser() loaded, never an id
+ * compared with the id of the s_users row requireUser() loaded, never an id
  * the client sent; a mismatch is thrown, since the form cannot fix it. The
  * same predicate is repeated in the UPDATE's WHERE so the write cannot land
  * on a row that changed hands between the read and the write.

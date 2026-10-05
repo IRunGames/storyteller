@@ -1,4 +1,4 @@
-    -- Seed data for `users`: fixture people to play alongside the signed-in
+    -- Seed data for `s_users`: fixture people to play alongside the signed-in
     -- storyteller@irun.games account, so the Stories page has stories owned by,
     -- and played with, someone else.
     --
@@ -15,7 +15,7 @@
     --
     -- …001 and …002 are two friends of the storyteller. …003 to …017 are the
     -- Hogwarts cast: five staff, who each run a story, and ten students.
-    INSERT INTO users (id_user, name, nick_name, email, id_user_type)
+    INSERT INTO s_users (id_user, name, nick_name, email, id_user_type)
     VALUES
         ('00000000-0000-7000-8000-000000000001', 'PalmDave Quist',     'PalmDave',  'palmdave.quist@example.com',     -2),
         ('00000000-0000-7000-8000-000000000002', 'PaulKhash Manian',   'PaulKhash', 'paulkhash.manian@example.com',   -2),

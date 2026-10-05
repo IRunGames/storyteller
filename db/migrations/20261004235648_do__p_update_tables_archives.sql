@@ -1,3 +1,11 @@
+-- migrate:up
+DO $migrate$
+BEGIN
+    RAISE NOTICE '[%] START CREATE OR REPLACE PROCEDURE', clock_timestamp();
+
+    DROP PROCEDURE IF EXISTS _p_update_tables_archives;
+
+    -- ------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE _p_update_tables_archives()
 LANGUAGE plpgsql
 AS $$
@@ -196,3 +204,10 @@ BEGIN
 
     RAISE NOTICE 'Archival updates completed successfully.';
 END $$;
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE MAKE_PROCEDURE.SH', clock_timestamp();
+END $migrate$;
+
+-- migrate:down
+

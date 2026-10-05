@@ -103,7 +103,7 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   `"use server"` at the top, and every exported function starts with
   `const user = await requireUser()` from
   [`authorize.ts`](../src/lib/authorize.ts). That checks the session _and_ the
-  `users` row (exists, active), so a stale cookie for a deactivated account
+  `s_users` row (exists, active), so a stale cookie for a deactivated account
   does nothing. There is no separate query layer.
 - **One exception, and only one: `app/api/blob/upload/route.ts`.** `upload()`
   from `@vercel/blob/client` needs an HTTP endpoint to POST to for a token,

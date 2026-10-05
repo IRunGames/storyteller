@@ -80,7 +80,7 @@ describe("SignupForm", () => {
 
   it("refuses a blank name without calling better-auth", async () => {
     // The form is noValidate, and better-auth accepts name: "" (z.string()
-    // with no minimum), so nothing else stops "" reaching users.name.
+    // with no minimum), so nothing else stops "" reaching s_users.name.
     const user = userEvent.setup();
     renderWithProviders(<SignupForm redirectTo="/home" />);
 

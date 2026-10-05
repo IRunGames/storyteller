@@ -27,8 +27,8 @@ import type { UserPreferenceMap } from "@/lib/user-preference-schemas";
 // create_auth_tables.sql). uuidv7 is time-ordered, so inserts append to the
 // right edge of the primary key index instead of scattering across it.
 
-export const user = pgTable("users", {
-  // Better Auth field -> users column
+export const user = pgTable("s_users", {
+  // Better Auth field -> s_users column
   id: uuid("id_user")
     .primaryKey()
     .default(sql`uuidv7()`),
@@ -51,7 +51,7 @@ export const user = pgTable("users", {
   tags: integer("tags"),
   isActive: boolean("is_active").default(true).notNull(),
   // name, email and nick_name joined for lookups, built by the database from
-  // the search_fields recipe on the users row of _tables
+  // the search_fields recipe on the s_users row of _tables
   // (db/migrations/20260923181837_add_users_search_text.sql). Generated, so
   // an insert or update never names it.
   searchText: text("search_text").generatedAlwaysAs(
@@ -60,7 +60,7 @@ export const user = pgTable("users", {
 });
 
 export const session = pgTable(
-  "sessions",
+  "s_sessions",
   {
     id: uuid("id_session")
       .primaryKey()
@@ -79,13 +79,13 @@ export const session = pgTable(
       .notNull(),
   },
   (table) => [
-    index("sessions_id_user_idx").on(table.userId),
-    index("sessions_expires_at_idx").on(table.expiresAt),
+    index("s_sessions_id_user_idx").on(table.userId),
+    index("s_sessions_expires_at_idx").on(table.expiresAt),
   ],
 );
 
 export const account = pgTable(
-  "accounts",
+  "s_accounts",
   {
     id: uuid("id_account")
       .primaryKey()
@@ -108,11 +108,11 @@ export const account = pgTable(
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },
-  (table) => [index("accounts_id_user_idx").on(table.userId)],
+  (table) => [index("s_accounts_id_user_idx").on(table.userId)],
 );
 
 export const verification = pgTable(
-  "verifications",
+  "s_verifications",
   {
     id: uuid("id_verification")
       .primaryKey()
@@ -126,7 +126,7 @@ export const verification = pgTable(
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },
-  (table) => [index("verifications_identifier_idx").on(table.identifier)],
+  (table) => [index("s_verifications_identifier_idx").on(table.identifier)],
 );
 
 // ---------------------------------------------------------------------------
