@@ -672,10 +672,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       ...(await actions.sa_listMyStories(0, true)),
       ...(await actions.sa_listMyStories(10, true)),
     ];
-    // Vampire seats two in db/seeds/seed_story_players.sql and Something
-    // Wicked three; the seed user is fixture A's only player.
+    // Vampire seats two in db/seeds/seed_story_players.sql; the seed user is
+    // fixture A's only player. Story -1 is the owner's real story, whose
+    // players change with play, so it is not counted here.
     expect(all.find((s) => s.idStory === -15)?.playerCount).toBe(2);
-    expect(all.find((s) => s.idStory === -1)?.playerCount).toBe(3);
     expect(all.find((s) => s.idStory === storyA)?.playerCount).toBe(1);
   });
 

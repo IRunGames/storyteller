@@ -1,3 +1,18 @@
+-- migrate:up
+DO $$
+DECLARE
+    row_count BIGINT;
+BEGIN
+    RAISE NOTICE '[%] START SEEDING', clock_timestamp();
+    SET session_replication_role = 'replica';
+
+    RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
+
+    DELETE FROM s_statuses WHERE s_status_id < 0;
+
+    RAISE NOTICE '+++    [%] Seeding xxx', clock_timestamp();
+
+    -- ------------------------------------------------------------
     -- Seed data for `s_statuses`: the statuses of every workflow in
     -- s_status_workflows. transition_from_status_keys lists the statuses a
     -- row may arrive FROM. An empty array means nothing leads to it; NULL
@@ -57,15 +72,13 @@
             (-4, 'INACTIVE', 'The element is set aside and not in use.',         ARRAY['PENDING', 'READY']),
 
             -- Scene elements: `scene_elements`. Every status leads to every
-            -- other: an element in a scene starts out initial, and can be
-            -- hidden from the players, shown, or switched off, and back
-            -- again, initial included. INITIAL is the default a link is
-            -- created with, so its list is the three it can return from
-            -- rather than empty.
-            (-5, 'INITIAL',   'The element has just been brought into the scene.',       ARRAY['INVISIBLE', 'READY', 'DISABLED']),
-            (-5, 'INVISIBLE', 'The element is in the scene but hidden from the players.', ARRAY['INITIAL', 'READY', 'DISABLED']),
-            (-5, 'READY',     'The element is in the scene and can be used.',            ARRAY['INITIAL', 'INVISIBLE', 'DISABLED']),
-            (-5, 'DISABLED',  'The element is in the scene but switched off.',           ARRAY['INITIAL', 'INVISIBLE', 'READY'])
+            -- other: an element in a scene can be hidden from the players,
+            -- shown, or switched off, and back again. READY is the default a
+            -- link is created with, so its list is the two it can return
+            -- from rather than empty.
+            (-5, 'INVISIBLE', 'The element is in the scene but hidden from the players.', ARRAY['READY', 'DISABLED']),
+            (-5, 'READY',     'The element is in the scene and can be used.',            ARRAY['INVISIBLE', 'DISABLED']),
+            (-5, 'DISABLED',  'The element is in the scene but switched off.',           ARRAY['INVISIBLE', 'READY'])
     ),
     numbered_statuses AS (
         SELECT -ROW_NUMBER() OVER () AS s_status_id, *
@@ -84,3 +97,16 @@
     CALL _p_update_workflow_status_timestamp_triggers();
     CALL _p_attach_workflow_triggers();
     CALL _p_attach_status_transition_triggers();
+    -- ------------------------------------------------------------
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+
+    RAISE NOTICE '>>>    [%] Rows inserted: %', CLOCK_TIMESTAMP(), row_count;
+
+    -- ------------------------------------------------------------
+    SET session_replication_role = 'origin';
+
+    RAISE NOTICE '[%] DONE SEEDING', clock_timestamp();
+END $$;
+
+-- migrate:down
+

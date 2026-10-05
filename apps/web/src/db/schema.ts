@@ -464,6 +464,65 @@ export const elements = pgTable("elements", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
+// An element brought into a scene, once per scene (UNIQUE on the pair). status
+// runs through the scene elements workflow in s_statuses -- how the element
+// stands in this scene, apart from its own status in the story -- so it is a
+// plain varchar for the same reason story_scenes.status is. Nothing in the
+// database holds the scene and the element to the same story: the action
+// that links them checks it.
+export const sceneElements = pgTable("scene_elements", {
+  idSceneElement: integer("id_scene_element").primaryKey().generatedByDefaultAsIdentity(),
+  idStoryScene: integer("id_story_scene").notNull(),
+  idElement: integer("id_element").notNull(),
+  status: varchar("status")
+    .notNull()
+    .default(sql`DEFAULT`),
+  activityLog: jsonb("activity_log")
+    .default(sql`'[]'::jsonb`)
+    .notNull(),
+  initialAt: timestamp("initial_at", { withTimezone: true }),
+  invisibleAt: timestamp("invisible_at", { withTimezone: true }),
+  readyAt: timestamp("ready_at", { withTimezone: true }),
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// db/views/v_scene_elements.sql: each scene_elements row with the element it
+// brings in, for reading a scene's elements by id_story_scene. The link's
+// columns keep their names; the element's that clash are prefixed element_,
+// so status is the element's standing in the scene and elementStatus its
+// standing in the story.
+//
+// .existing() because dbmate builds it; Drizzle only selects from it.
+export const vSceneElements = pgView("v_scene_elements", {
+  idSceneElement: integer("id_scene_element"),
+  idStoryScene: integer("id_story_scene"),
+  idElement: integer("id_element"),
+  status: varchar("status"),
+  initialAt: timestamp("initial_at", { withTimezone: true }),
+  invisibleAt: timestamp("invisible_at", { withTimezone: true }),
+  readyAt: timestamp("ready_at", { withTimezone: true }),
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+  idStory: integer("id_story"),
+  kind: varchar("kind"),
+  elementStatus: varchar("element_status"),
+  initialName: text("initial_name"),
+  name: text("name"),
+  title: text("title"),
+  description: text("description"),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  elementSearchText: text("element_search_text"),
+  elementUpdatedAt: timestamp("element_updated_at", { withTimezone: true }),
+}).existing();
+
 export type Story = typeof stories.$inferSelect;
 export type System = typeof systems.$inferSelect;
 
