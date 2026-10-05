@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import NextLink from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -11,25 +12,27 @@ import {
   HStack,
   Input,
   NativeSelect,
+  Separator,
   Stack,
   Text,
   Textarea,
 } from "@chakra-ui/react";
 import type { z } from "zod";
 import { sceneSchema, type SceneValues } from "@/lib/scene-schemas";
-import type { SceneSessionOption } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS, type SceneSessionOption } from "@/lib/scenes";
+import type { StatusOption } from "@/lib/status";
 import { sa_createStoryScene, sa_updateStoryScene } from "@/app/(app)/(nav)/libraries/actions";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
+import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
+import { StatusPill } from "@/components/status/status-pill";
 
 // What the fields hold before the schema runs: the Session <select> keeps its
 // raw string, and sceneSchema's preprocess turns it into a number or null.
 type SceneInput = z.input<typeof sceneSchema>;
 
 type Props = {
-  /** The story the scene belongs to, and the board both buttons go back to. */
+  /** The story the scene belongs to, and the board the edit form goes back to. */
   idStory: number;
-  /** For the New scene heading's line under it; the edit form goes without. */
-  storyTitle?: string;
   /** The story's sittings, for the select. */
   sessions: SceneSessionOption[];
   /**
@@ -38,18 +41,46 @@ type Props = {
    */
   scene?: {
     idStoryScene: number;
+    /** The status it holds, for the pill under the heading. */
+    status: string;
     values: { title: string; description: string; idStorySession: number | null };
   };
+  /** The story_scenes workflow, for the edit form's pill. */
+  statusOptions?: StatusOption[];
+  /** New scene only: the scene is in, so the dialog it sits in can close. */
+  onCreated?: () => void;
+  /** New scene only: the dialog's Cancel. */
+  onCancel?: () => void;
 };
 
 // One form for New scene and Edit scene, as StoryForm is for stories: the
 // fields, the client check and the way server errors land are the same;
-// only the heading, the button and the action differ.
+// only the heading, the buttons and the action differ. New scene sits in the
+// board's dialog, which carries the title and closes when it is done; Edit
+// scene is a page of its own and goes back to the board when it saves.
 //
-// The pictures are on the edit form only. Each one is an attachments row
-// saved the moment it is added, as on the story page, so it needs the scene
-// to exist; a new scene gets its pictures once it has been created.
-export function SceneForm({ idStory, storyTitle, sessions, scene }: Props) {
+// The status pill and the pictures are on the edit form only, and both take
+// effect at once rather than on Save: the pill moves the row as the board's
+// card does, and each picture is an attachments row saved the moment it is
+// added, as on the story page. Both need the scene to exist, so a new scene
+// gets them once it has been created. Moving the pill to SCENE_LOCKED_STATUS
+// finishes the scene, which the edit action then refuses to save over, so
+// the form says so and Save goes quiet until it is moved back.
+export function SceneForm({
+  idStory,
+  sessions,
+  scene,
+  statusOptions = [],
+  onCreated,
+  onCancel,
+}: Props) {
+  const [status, setStatus] = useState(scene?.status ?? null);
+  // Bumped when the picker moves some of the story's attachments onto the
+  // scene: the pictures field loads its rows once, on mount, so a new key is
+  // what makes it fetch them again with the new ones in.
+  const [picturesKey, setPicturesKey] = useState(0);
+  const locked = status === SCENE_LOCKED_STATUS;
+
   const {
     register,
     handleSubmit,
@@ -71,8 +102,12 @@ export function SceneForm({ idStory, storyTitle, sessions, scene }: Props) {
     const result = scene
       ? await sa_updateStoryScene(scene.idStoryScene, values)
       : await sa_createStoryScene(idStory, values);
+    if (result.ok) {
+      onCreated?.();
+      return;
+    }
 
-    // On success the action redirects and this never runs. Anything that
+    // An edit that saves redirects, so this never runs for it. Anything that
     // comes back is an error the client check did not catch; one with no
     // field to sit on (a scene completed since the form opened) goes on top.
     let anyField = false;
@@ -94,10 +129,33 @@ export function SceneForm({ idStory, storyTitle, sessions, scene }: Props) {
 
   return (
     <Stack gap="6">
-      <Stack gap="1">
-        <Heading size="2xl">{scene ? "Edit scene" : "New scene"}</Heading>
-        {storyTitle && <Text color="fg.muted">For {storyTitle}.</Text>}
-      </Stack>
+      {scene && (
+        <Stack gap="2" align="start">
+          <Heading size="2xl">Edit scene</Heading>
+          {status !== null && (
+            <StatusPill
+              table="story_scenes"
+              id={scene.idStoryScene}
+              status={status}
+              options={statusOptions}
+              canEdit
+              onChanged={setStatus}
+            />
+          )}
+        </Stack>
+      )}
+
+      {locked && (
+        <Alert.Root status="info">
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Description>
+              This scene is complete, so its words can no longer be changed. Move it back to another
+              status to edit it.
+            </Alert.Description>
+          </Alert.Content>
+        </Alert.Root>
+      )}
 
       {errors.root && (
         <Alert.Root status="error">
@@ -141,15 +199,23 @@ export function SceneForm({ idStory, storyTitle, sessions, scene }: Props) {
           </Field.Root>
 
           <HStack gap="3">
-            <Button type="submit" loading={isSubmitting || isSubmitSuccessful}>
+            <Button type="submit" loading={isSubmitting || isSubmitSuccessful} disabled={locked}>
               {scene ? "Save changes" : "Create scene"}
             </Button>
-            <Button asChild variant="ghost">
-              <NextLink href={`/libraries/${idStory}`}>Cancel</NextLink>
-            </Button>
+            {scene ? (
+              <Button asChild variant="ghost">
+                <NextLink href={`/libraries/${idStory}`}>Cancel</NextLink>
+              </Button>
+            ) : (
+              <Button type="button" variant="ghost" onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
           </HStack>
         </Stack>
       </form>
+
+      {scene && <Separator />}
 
       {scene && (
         <Stack gap="2">
@@ -159,7 +225,17 @@ export function SceneForm({ idStory, storyTitle, sessions, scene }: Props) {
           <Text textStyle="sm" color="fg.muted">
             Saved as soon as they are added. The cover is the one the scene&apos;s panel shows.
           </Text>
-          <AttachmentListField kind="STORY_SCENE" idExternal={scene.idStoryScene} showEmpty />
+          <AttachmentListField
+            key={picturesKey}
+            kind="STORY_SCENE"
+            idExternal={scene.idStoryScene}
+            showEmpty
+          />
+          <StoryAttachmentPicker
+            idStory={idStory}
+            idStoryScene={scene.idStoryScene}
+            onAttached={() => setPicturesKey((key) => key + 1)}
+          />
         </Stack>
       )}
     </Stack>

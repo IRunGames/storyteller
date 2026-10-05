@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Box, Button, List, Stack, Text } from "@chakra-ui/react";
-import { ChevronsRight } from "lucide-react";
+import { Box, Button, HStack, List, Stack, Text } from "@chakra-ui/react";
+import { ChevronsRight, Pencil } from "lucide-react";
 import {
   ELEMENT_SEARCH_DELAY_MS,
   ELEMENTS_PAGE_SIZE,
@@ -12,6 +12,7 @@ import {
 import type { StatusOption } from "@/lib/status";
 import { sa_listStoryElements } from "@/app/(app)/(nav)/libraries/actions";
 import { StatusPill } from "@/components/status/status-pill";
+import { IconLink } from "@/components/links/icon-link";
 
 type Props = {
   idStory: number;
@@ -30,6 +31,11 @@ type Props = {
   statusOptions: StatusOption[];
   /** The viewer is the storyteller, so the pills are menus. */
   canEdit: boolean;
+  /**
+   * Changes when the board has created a row here, so the column asks the
+   * database again with what it is narrowed to. 0 until then.
+   */
+  reloadKey?: number;
 };
 
 // One element column of the Prep Work board, one kind of element. The search
@@ -43,6 +49,7 @@ export function PrepElements({
   shownStatuses,
   statusOptions,
   canEdit,
+  reloadKey = 0,
 }: Props) {
   const [elements, setElements] = useState(initial);
   const [hasMore, setHasMore] = useState(initial.length === ELEMENTS_PAGE_SIZE);
@@ -64,7 +71,7 @@ export function PrepElements({
 
   useEffect(() => {
     const needle = filter.trim();
-    if (!searched.current && needle === "" && everyStatus) return;
+    if (!searched.current && needle === "" && everyStatus && reloadKey === 0) return;
     searched.current = true;
 
     const seq = ++searchSeq.current;
@@ -85,7 +92,7 @@ export function PrepElements({
     // shownStatuses is rebuilt on every render; statusKey is what actually
     // changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idStory, kind, filter, statusKey, everyStatus]);
+  }, [idStory, kind, filter, statusKey, everyStatus, reloadKey]);
 
   function onMore() {
     const offset = elements.length;
@@ -138,7 +145,16 @@ export function PrepElements({
         {elements.map((element) => (
           <List.Item key={element.idElement}>
             <Stack gap="1">
-              <Text fontWeight="medium">{element.name}</Text>
+              <HStack gap="1" align="start" justify="space-between">
+                <Text fontWeight="medium" minW="0">
+                  {element.name}
+                </Text>
+                {canEdit && (
+                  <IconLink label="Edit element" href={`/elements/${element.idElement}/edit`}>
+                    <Pencil />
+                  </IconLink>
+                )}
+              </HStack>
               {element.title && (
                 <Text color="fg.muted" fontSize="sm">
                   {element.title}

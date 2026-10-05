@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Container } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
 import { SceneForm } from "@/components/prep/scene-form";
+import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getStorySceneForEdit } from "../../../libraries/actions";
 
 // A scene's edit form, behind the pencil on its card. requireSession() here
@@ -16,7 +17,10 @@ export default async function EditScenePage({ params }: { params: Promise<{ id: 
   if (!/^-?\d+$/.test(id)) notFound();
   const idStoryScene = Number(id);
 
-  const scene = await sa_getStorySceneForEdit(idStoryScene);
+  const [scene, statusOptions] = await Promise.all([
+    sa_getStorySceneForEdit(idStoryScene),
+    sa_listStatusOptions("story_scenes"),
+  ]);
   if (!scene || scene.locked) notFound();
 
   return (
@@ -24,7 +28,8 @@ export default async function EditScenePage({ params }: { params: Promise<{ id: 
       <SceneForm
         idStory={scene.idStory}
         sessions={scene.sessions}
-        scene={{ idStoryScene, values: scene.values }}
+        scene={{ idStoryScene, status: scene.status, values: scene.values }}
+        statusOptions={statusOptions}
       />
     </Container>
   );

@@ -6,6 +6,15 @@
  */
 export const COVER_TAG = "cover";
 
+/**
+ * How many attachments one story, sitting or scene may carry at any one time
+ * -- a ceiling on what exists at once, not a budget spent by uploading, so
+ * removing a row hands its place straight back. The attachments field holds
+ * an upload to it, and moving the story's attachments onto a scene is held
+ * to it on the server.
+ */
+export const MAX_ATTACHMENTS = 20;
+
 /** Which kind of row an attachment hangs off. Mirrors the attachments_kind enum. */
 export type AttachmentKind = "STORY" | "STORY_SESSION" | "STORY_SCENE";
 

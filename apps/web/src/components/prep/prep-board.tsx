@@ -30,6 +30,7 @@ import {
 } from "./prep-columns";
 import { PrepAttachments } from "./prep-attachments";
 import { PrepColumn } from "./prep-column";
+import { PrepCreateDialog, type PrepCreating } from "./prep-create-dialog";
 import { PrepElements } from "./prep-elements";
 import { PrepScenes } from "./prep-scenes";
 
@@ -88,6 +89,18 @@ export function PrepBoard({
   // The Attachments column's + opens the link input and dropzone at the top of
   // the column, over the cards, and closes them again.
   const [addingAttachments, setAddingAttachments] = useState(false);
+  // What the + of the Scenes or an element column has opened the dialog to
+  // create, or null while it is shut.
+  const [creating, setCreating] = useState<PrepCreating | null>(null);
+  // Bumped for a column once something has been created in it, so it asks
+  // the database again with whatever it is narrowed to; the counts come back
+  // with the page through router.refresh().
+  const [reloadKeys, setReloadKeys] = useState<Partial<Record<PrepColumnTitle, number>>>({});
+  function created(title: PrepColumnTitle) {
+    setCreating(null);
+    setReloadKeys((current) => ({ ...current, [title]: (current[title] ?? 0) + 1 }));
+    router.refresh();
+  }
   // Where that column's adding controls are drawn: an empty box above its
   // filters, there only while they are open. The controls themselves stay
   // part of the attachments field, which owns the rows they add to and the
@@ -137,29 +150,33 @@ export function PrepBoard({
     <Stack flex="1" gap="4" py="6">
       {/* The title is the way back to the story, so it stays a link inside
           the one-line heading. */}
-      <Heading as="h1" size="2xl" px="4">
-        Library (Game Prep) for{" "}
-        <Link asChild>
-          <NextLink href={`/stories/${story.idStory}`}>{story.title}</NextLink>
-        </Link>
-      </Heading>
+      {/* A hidden column's button sits on the heading's row, after the
+          title, and the row wraps when there are more than fit beside it. */}
+      <HStack gap="4" px="4" wrap="wrap" align="center">
+        <Heading as="h1" size="2xl">
+          Library (Game Prep) for{" "}
+          <Link asChild>
+            <NextLink href={`/stories/${story.idStory}`}>{story.title}</NextLink>
+          </Link>
+        </Heading>
 
-      {hidden.length > 0 && (
-        <HStack gap="2" px="4" wrap="wrap">
-          {hidden.map((column) => (
-            <Button
-              key={column.title}
-              aria-label={`Show ${column.title}`}
-              variant="outline"
-              size="sm"
-              onClick={() => setMode(column.title, "normal")}
-            >
-              <Maximize />
-              {column.title}
-            </Button>
-          ))}
-        </HStack>
-      )}
+        {hidden.length > 0 && (
+          <HStack gap="2" wrap="wrap">
+            {hidden.map((column) => (
+              <Button
+                key={column.title}
+                aria-label={`Show ${column.title}`}
+                variant="outline"
+                size="sm"
+                onClick={() => setMode(column.title, "normal")}
+              >
+                <Maximize />
+                {column.title}
+              </Button>
+            ))}
+          </HStack>
+        )}
+      </HStack>
 
       {/* The columns keep their width and overflow sideways, and each one
           runs as tall as its rows, so the page scrolls down past them. */}
@@ -198,13 +215,21 @@ export function PrepBoard({
               // here once saved. Creating rows is the next piece of work for
               // the element columns; their buttons are in place so the layout
               // is settled first.
-              onCreate={
-                column.title === "Attachments"
-                  ? () => setAddingAttachments((open) => !open)
-                  : column.title === "Scenes"
-                    ? () => router.push(`/libraries/${story.idStory}/scenes/new`)
-                    : () => {}
-              }
+              // Attachments add in place, at the top of their column; a scene
+              // or an element is written in the dialog, which starts an
+              // element as the kind of the column it was opened from.
+              onCreate={() => {
+                if (column.title === "Attachments") {
+                  setAddingAttachments((open) => !open);
+                } else if (column.title === "Scenes") {
+                  setCreating({ type: "scene" });
+                } else {
+                  const elementColumn = ELEMENT_COLUMNS.find(
+                    (candidate) => candidate.title === column.title,
+                  );
+                  if (elementColumn) setCreating({ type: "element", kind: elementColumn.kind });
+                }
+              }}
               onExpand={() => setMode(column.title, "expanded")}
               onShrink={() => setMode(column.title, "normal")}
               onHide={() => setMode(column.title, "hidden")}
@@ -230,6 +255,7 @@ export function PrepBoard({
                     <PrepScenes
                       idStory={story.idStory}
                       initial={scenes}
+                      reloadKey={reloadKeys.Scenes ?? 0}
                       filter={filter.query}
                       shownStatuses={filter.statuses}
                       statusOptions={sceneStatusOptions}
@@ -258,6 +284,7 @@ export function PrepBoard({
                     idStory={story.idStory}
                     kind={elementColumn.kind}
                     initial={elements[elementColumn.kind]}
+                    reloadKey={reloadKeys[elementColumn.title] ?? 0}
                     filter={filter.query}
                     shownStatuses={filter.statuses}
                     statusOptions={elementStatusOptions}
@@ -269,6 +296,17 @@ export function PrepBoard({
           );
         })}
       </Flex>
+
+      <PrepCreateDialog
+        idStory={story.idStory}
+        creating={creating}
+        onClose={() => setCreating(null)}
+        onSceneCreated={() => created("Scenes")}
+        onElementCreated={(kind) => {
+          const elementColumn = ELEMENT_COLUMNS.find((candidate) => candidate.kind === kind);
+          if (elementColumn) created(elementColumn.title);
+        }}
+      />
     </Stack>
   );
 }

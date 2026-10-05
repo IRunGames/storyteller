@@ -6,6 +6,20 @@
 export const ELEMENT_KINDS = ["PERSON", "PLACE", "THING", "OTHER", "EPHEMERA"] as const;
 export type ElementKind = (typeof ELEMENT_KINDS)[number];
 
+/** Each kind as the kind dropdown and anything else naming one says it. */
+export const ELEMENT_KIND_LABELS: Record<ElementKind, string> = {
+  PERSON: "Person",
+  PLACE: "Place",
+  THING: "Thing",
+  OTHER: "Other",
+  EPHEMERA: "Ephemera",
+};
+
+/** Whether a string, such as a ?kind= in the address, is one of the kinds. */
+export function isElementKind(value: unknown): value is ElementKind {
+  return typeof value === "string" && (ELEMENT_KINDS as readonly string[]).includes(value);
+}
+
 /** Elements per fetch in the Prep Work board's Elements column. */
 export const ELEMENTS_PAGE_SIZE = 10;
 

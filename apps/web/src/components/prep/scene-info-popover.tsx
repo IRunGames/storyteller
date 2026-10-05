@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Image, Stack, Text } from "@chakra-ui/react";
 import { formatSceneLength, type StorySceneDetail } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
@@ -7,6 +8,7 @@ import { sa_getStoryScene } from "@/app/(app)/(nav)/libraries/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { InfoPopover } from "@/components/popovers/info-popover";
 import { LocalDate } from "@/components/dates/local-date";
+import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
 
 type Props = {
   idStoryScene: number;
@@ -16,6 +18,8 @@ type Props = {
   canEdit: boolean;
   /** The new status, once the panel's pill has moved it. */
   onStatusChanged?: (status: string) => void;
+  /** The button's icon, when not the info icon: the board's cards use a magnifying glass. */
+  icon?: ReactNode;
 };
 
 // What the info button on a scene card opens: the scene's picture, its status,
@@ -26,10 +30,17 @@ type Props = {
 //
 // The status is the one live thing in here, so the pill tells the column when
 // it moves and the panel keeps showing what the card shows.
-export function SceneInfoPopover({ idStoryScene, statusOptions, canEdit, onStatusChanged }: Props) {
+export function SceneInfoPopover({
+  idStoryScene,
+  statusOptions,
+  canEdit,
+  onStatusChanged,
+  icon,
+}: Props) {
   return (
     <InfoPopover<StorySceneDetail>
       label="Scene info"
+      icon={icon}
       load={() => sa_getStoryScene(idStoryScene)}
       missingText="This scene is no longer here."
       errorText="Could not load the scene."
@@ -114,6 +125,12 @@ export function SceneDetail({
         <Text textStyle="sm" color="fg.muted">
           Nothing written down yet.
         </Text>
+      )}
+
+      {/* The storyteller can bring the story's own attachments onto the
+          scene from here; nobody else sees the fold. */}
+      {canEdit && (
+        <StoryAttachmentPicker idStory={detail.idStory} idStoryScene={detail.idStoryScene} />
       )}
     </Stack>
   );

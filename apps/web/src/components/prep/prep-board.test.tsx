@@ -180,8 +180,11 @@ const COLUMNS = [
   "Ephemera",
 ];
 
-// The Scenes column's + goes to the New scene page.
+// The board refreshes the page's counts once its dialog has created something.
 const router = { push: mock.fn<(href: string) => void>(), refresh: mock.fn() };
+
+const createScene = mock.fn(async () => ({ ok: true as const }));
+const createElement = mock.fn(async () => ({ ok: true as const }));
 
 let PrepBoard: typeof import("./prep-board").PrepBoard;
 
@@ -258,6 +261,12 @@ describe("PrepBoard", () => {
         sa_countStoryScenes: async () => scenes.length,
         sa_listStoryElements: listElements,
         sa_getStoryScene: async () => null,
+        // What the board's create dialog and its forms ask for.
+        sa_listSceneSessionOptions: async () => [{ idStorySession: 3, label: "2. Kildealg" }],
+        sa_createStoryScene: createScene,
+        sa_updateStoryScene: async () => ({ ok: false, errors: {} }),
+        sa_createElement: createElement,
+        sa_updateElement: async () => ({ ok: false, errors: {} }),
       },
     });
     mock.module("@/components/status/actions", {
@@ -276,12 +285,18 @@ describe("PrepBoard", () => {
     listScenes.mock.resetCalls();
     listElements.mock.resetCalls();
     router.push.mock.resetCalls();
+    router.refresh.mock.resetCalls();
+    createScene.mock.resetCalls();
+    createElement.mock.resetCalls();
   });
 
   it("names the page after the story in one line, with the title linking back to it", () => {
     renderBoard();
 
-    const heading = screen.getByRole("heading", { level: 1, name: "Library (Game Prep) for Vampire" });
+    const heading = screen.getByRole("heading", {
+      level: 1,
+      name: "Library (Game Prep) for Vampire",
+    });
     expect(within(heading).getByRole("link", { name: "Vampire" })).toHaveAttribute(
       "href",
       "/stories/-15",
@@ -401,6 +416,10 @@ describe("PrepBoard", () => {
     expect(
       show.compareDocumentPosition(regions[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    // On the heading's own row, after the title.
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.parentElement).toContainElement(show);
+    expect(heading.compareDocumentPosition(show) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await user.click(show);
     expect(column("People")).toHaveAttribute("data-mode", "normal");
@@ -537,6 +556,9 @@ describe("PrepBoard", () => {
     expect(within(items[0]).getByText("A door of old iron.")).toBeInTheDocument();
     expect(within(items[0]).getByRole("button", { name: lastScene.label })).toBeInTheDocument();
     expect(within(items[2]).getByRole("button", { name: firstScene.label })).toBeInTheDocument();
+    // The panel behind each card is a closer look, so its button is a magnifying glass.
+    const info = within(items[0]).getByRole("button", { name: "Scene info" });
+    expect(info.querySelector(".lucide-search")).toBeInTheDocument();
   });
 
   it("names the sitting between the status and the date, with its full name behind it", async () => {
@@ -698,14 +720,68 @@ describe("PrepBoard", () => {
     });
   });
 
-  it("goes to the New scene page from the Scenes column's +", async () => {
+  it("writes a new scene in a dialog from the Scenes column's +, then has the column ask again", async () => {
     const user = userEvent.setup();
     renderBoard();
 
     await user.click(within(column("Scenes")).getByRole("button", { name: "New scene" }));
-    expect(router.push.mock.calls.map((call) => call.arguments)).toEqual([
-      ["/libraries/-15/scenes/new"],
-    ]);
+    const dialog = await screen.findByRole("dialog", { name: "New scene" });
+    // The sittings are fetched as it opens, for the form's select.
+    await within(dialog).findByRole("option", { name: "2. Kildealg" });
+    expect(router.push.mock.callCount()).toBe(0);
+
+    const before = listScenes.mock.callCount();
+    await user.type(within(dialog).getByRole("textbox", { name: /Title/ }), "The ford");
+    await user.click(within(dialog).getByRole("button", { name: "Create scene" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "New scene" })).not.toBeInTheDocument(),
+    );
+    expect(createScene.mock.callCount()).toBe(1);
+    expect(router.refresh.mock.callCount()).toBe(1);
+    await waitFor(() => expect(listScenes.mock.callCount()).toBeGreaterThan(before));
+  });
+
+  it("starts a new element as the kind of the column whose + opened it", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    await user.click(within(column("Places")).getByRole("button", { name: "New place" }));
+    const dialog = await screen.findByRole("dialog", { name: "New place" });
+    expect(within(dialog).getByRole("combobox", { name: /Kind/ })).toHaveValue("PLACE");
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "New place" })).not.toBeInTheDocument(),
+    );
+    expect(createElement.mock.callCount()).toBe(0);
+  });
+
+  it("has the column of the kind chosen ask again once an element is created", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    await user.click(within(column("People")).getByRole("button", { name: "New person" }));
+    const dialog = await screen.findByRole("dialog", { name: "New person" });
+    // Changed on the way: it is the Things column that has a new row.
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: /Kind/ }), "Thing");
+    await user.type(within(dialog).getByRole("textbox", { name: /^Name/ }), "The silver blade");
+    await user.click(within(dialog).getByRole("button", { name: "Create element" }));
+
+    await waitFor(() => expect(createElement.mock.callCount()).toBe(1));
+    await waitFor(() =>
+      expect(listElements.mock.calls.some((call) => call.arguments[1] === "THING")).toBe(true),
+    );
+    expect(listElements.mock.calls.some((call) => call.arguments[1] === "PERSON")).toBe(false);
+  });
+
+  it("offers an edit on every element card", () => {
+    renderBoard();
+    const [first] = within(column("People")).getAllByRole("listitem");
+    expect(within(first).getByRole("link", { name: "Edit element" })).toHaveAttribute(
+      "href",
+      "/elements/1/edit",
+    );
   });
 
   it("offers an edit on every scene card but a completed one", () => {

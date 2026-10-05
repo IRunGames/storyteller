@@ -15,7 +15,12 @@ import {
   idAttachmentSchema,
   idExternalSchema,
 } from "@/lib/attachment-schemas";
-import { COVER_TAG, type Attachment, type AttachmentKind } from "@/lib/attachments";
+import {
+  COVER_TAG,
+  MAX_ATTACHMENTS,
+  type Attachment,
+  type AttachmentKind,
+} from "@/lib/attachments";
 
 const { attachments, stories, storySessions, storyScenes } = schema;
 
@@ -478,4 +483,76 @@ export async function sa_claimAttachments(
         eq(attachments.idCreatedByUser, user.id),
       ),
     );
+}
+
+export type MoveAttachmentsResult = { ok: true; moved: number[] } | { ok: false; error: string };
+
+/**
+ * Moves some of a story's own attachments onto one of its scenes: the
+ * story attachment picker's Add button. Each row's kind and external_id are
+ * repointed at the scene, so it leaves the story's list and joins the
+ * scene's; tr_attachments_set_id_story keeps id_story on the same story.
+ *
+ * Only the scene's storyteller may (ownsAttachmentParent), and only rows
+ * that are still the story's own, READY and not its cover are moved: the
+ * picker offers no others, and the WHERE repeats each condition so a row
+ * that changed since the picker loaded is left where it is rather than
+ * moved by mistake. What did move comes back, for the picker to drop.
+ *
+ * The scene is held to MAX_ATTACHMENTS like an upload is. The count and the
+ * move run in one transaction, with the scene row locked, so two moves at
+ * once cannot each find room for the same last places.
+ */
+export async function sa_moveStoryAttachmentsToScene(
+  idStoryScene: number,
+  ids: number[],
+): Promise<MoveAttachmentsResult> {
+  const user = await requireUser();
+  const sceneId = idExternalSchema.parse(idStoryScene);
+  const parsedIds = attachmentIdsSchema.parse(ids);
+  if (parsedIds.length === 0) return { ok: true, moved: [] };
+
+  if (!(await ownsAttachmentParent(user.id, "STORY_SCENE", sceneId))) {
+    throw new Error("You do not have access to that story.");
+  }
+
+  return db.transaction(async (tx) => {
+    const [scene] = await tx
+      .select({ idStory: storyScenes.idStory })
+      .from(storyScenes)
+      .where(eq(storyScenes.idStoryScene, sceneId))
+      .for("update")
+      .limit(1);
+    if (!scene) throw new Error("Scene not found");
+
+    const [{ count }] = await tx
+      .select({ count: sql<number>`count(*)`.mapWith(Number) })
+      .from(attachments)
+      .where(and(eq(attachments.kind, "STORY_SCENE"), eq(attachments.idExternal, sceneId)));
+    if (count + parsedIds.length > MAX_ATTACHMENTS) {
+      const room = Math.max(MAX_ATTACHMENTS - count, 0);
+      return {
+        ok: false as const,
+        error:
+          room === 0
+            ? `This scene already has ${MAX_ATTACHMENTS} attachments. Remove one first.`
+            : `This scene has room for ${room} more. Choose fewer.`,
+      };
+    }
+
+    const moved = await tx
+      .update(attachments)
+      .set({ kind: "STORY_SCENE", idExternal: sceneId, idUpdatedByUser: user.id })
+      .where(
+        and(
+          inArray(attachments.idAttachment, parsedIds),
+          eq(attachments.kind, "STORY"),
+          eq(attachments.idExternal, scene.idStory),
+          eq(attachments.status, "READY"),
+          sql`not ${isCoverSql}`,
+        ),
+      )
+      .returning({ idAttachment: attachments.idAttachment });
+    return { ok: true as const, moved: moved.map((row) => row.idAttachment) };
+  });
 }

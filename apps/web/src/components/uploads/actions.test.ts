@@ -16,6 +16,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 import { createRequire } from "node:module";
 
+import { MAX_ATTACHMENTS } from "@/lib/attachments";
+
 loadEnvConfig(process.cwd());
 
 // @vercel/blob is a dual CJS/ESM package. `mock.module` only intercepts the
@@ -432,6 +434,155 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       );
     // Nothing was inserted: the refusal happened before the write.
     expect(rows.filter((r) => r.id > 0)).toHaveLength(0);
+  });
+
+  describe("the story's own attachments, moved onto a scene", () => {
+    // A story, a scene on it, and a scene on OTHER_USER's story, all the
+    // test's own, so nothing seeded is ever moved.
+    const title = "Fixture — attachment picker";
+    let idStory = 0;
+    let idScene = 0;
+    let theirScene = 0;
+
+    before(async () => {
+      await db.delete(tables.stories).where(eq(tables.stories.title, title));
+      [{ idStory }] = await db
+        .insert(tables.stories)
+        .values({ title, idCreatedByUser: SEED_USER, idUpdatedByUser: SEED_USER })
+        .returning({ idStory: tables.stories.idStory });
+      [{ id: idScene }] = await db
+        .insert(tables.storyScenes)
+        .values({ idStory, sceneTitle: "Fixture picker scene", idCreatedByUser: SEED_USER })
+        .returning({ id: tables.storyScenes.idStoryScene });
+      [{ id: theirScene }] = await db
+        .insert(tables.storyScenes)
+        .values({
+          idStory: OTHER_STORY_ID,
+          sceneTitle: "Fixture picker scene of theirs",
+          idCreatedByUser: OTHER_USER,
+        })
+        .returning({ id: tables.storyScenes.idStoryScene });
+    });
+
+    after(async () => {
+      // The scene's and the story's attachments go with them: the parents'
+      // delete triggers, and id_story's ON DELETE CASCADE besides.
+      await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, theirScene));
+      await db.delete(tables.stories).where(eq(tables.stories.idStory, idStory));
+    });
+
+    const onStory = (url: string, values: { status?: string; tags?: string[] } = {}) =>
+      insertAttachment({
+        kind: "STORY",
+        idExternal: idStory,
+        status: "READY",
+        url,
+        idCreatedByUser: SEED_USER,
+        ...values,
+      });
+    const rowOf = async (id: number) => {
+      const [row] = await db
+        .select({
+          kind: tables.attachments.kind,
+          idExternal: tables.attachments.idExternal,
+          idStory: tables.attachments.idStory,
+        })
+        .from(tables.attachments)
+        .where(eq(tables.attachments.idAttachment, id));
+      return row;
+    };
+
+    it("fills id_story from whatever part of the story an attachment is on", async () => {
+      const { id: onTheStory } = await onStory("https://example.com/picker-story.jpg");
+      const { id: onTheScene } = await insertAttachment({
+        kind: "STORY_SCENE",
+        idExternal: idScene,
+        status: "READY",
+        url: "https://example.com/picker-scene.jpg",
+        idCreatedByUser: SEED_USER,
+      });
+      expect((await rowOf(onTheStory)).idStory).toBe(idStory);
+      expect((await rowOf(onTheScene)).idStory).toBe(idStory);
+
+      // And through the action an upload goes through, as well as a raw insert.
+      const { idAttachment } = await actions.sa_createAttachment({
+        kind: "STORY_SCENE",
+        idExternal: idScene,
+        url: "https://example.com/picker-created.jpg",
+      });
+      created.push(idAttachment);
+      expect((await rowOf(idAttachment)).idStory).toBe(idStory);
+    });
+
+    it("moves only the story's own finished attachments that are not its cover", async () => {
+      const { id: plain } = await onStory("https://example.com/picker-plain.jpg");
+      const { id: cover } = await onStory("https://example.com/picker-cover.jpg", {
+        tags: ["cover"],
+      });
+      const { id: uploading } = await insertAttachment({
+        kind: "STORY",
+        idExternal: idStory,
+        idCreatedByUser: SEED_USER,
+        isUploaded: true,
+      });
+
+      const result = await actions.sa_moveStoryAttachmentsToScene(idScene, [
+        plain,
+        cover,
+        uploading,
+      ]);
+      expect(result).toEqual({ ok: true, moved: [plain] });
+
+      expect(await rowOf(plain)).toEqual({ kind: "STORY_SCENE", idExternal: idScene, idStory });
+      expect(await rowOf(cover)).toEqual({ kind: "STORY", idExternal: idStory, idStory });
+      expect(await rowOf(uploading)).toEqual({ kind: "STORY", idExternal: idStory, idStory });
+
+      // It is no longer the story's to offer.
+      const left = await actions.sa_listAttachments("STORY", idStory);
+      expect(left.map((row) => row.idAttachment)).not.toContain(plain);
+    });
+
+    it("holds the scene to the most attachments one object may have", async () => {
+      const already = await db
+        .select({ count: tables.attachments.idAttachment })
+        .from(tables.attachments)
+        .where(
+          and(
+            eq(tables.attachments.kind, "STORY_SCENE"),
+            eq(tables.attachments.idExternal, idScene),
+          ),
+        );
+      // Fill the scene to one short of the limit.
+      for (let n = already.length; n < MAX_ATTACHMENTS - 1; n += 1) {
+        await insertAttachment({
+          kind: "STORY_SCENE",
+          idExternal: idScene,
+          status: "READY",
+          url: `https://example.com/picker-fill-${n}.jpg`,
+          idCreatedByUser: SEED_USER,
+        });
+      }
+      const { id: first } = await onStory("https://example.com/picker-first.jpg");
+      const { id: second } = await onStory("https://example.com/picker-second.jpg");
+
+      expect(await actions.sa_moveStoryAttachmentsToScene(idScene, [first, second])).toEqual({
+        ok: false,
+        error: "This scene has room for 1 more. Choose fewer.",
+      });
+      expect((await rowOf(first)).kind).toBe("STORY");
+      expect(await actions.sa_moveStoryAttachmentsToScene(idScene, [first])).toEqual({
+        ok: true,
+        moved: [first],
+      });
+    });
+
+    it("refuses a scene on a story the caller does not own", async () => {
+      const { id } = await onStory("https://example.com/picker-refused.jpg");
+      await expect(actions.sa_moveStoryAttachmentsToScene(theirScene, [id])).rejects.toThrow(
+        "You do not have access to that story.",
+      );
+      expect((await rowOf(id)).kind).toBe("STORY");
+    });
   });
 
   describe("covers", () => {

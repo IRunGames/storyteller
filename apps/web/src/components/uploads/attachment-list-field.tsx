@@ -30,13 +30,9 @@ import {
   sa_setAttachmentTags,
 } from "./actions";
 import { AttachmentCard } from "./attachment-card";
-import type { Attachment, AttachmentKind } from "@/lib/attachments";
+import { MAX_ATTACHMENTS, type Attachment, type AttachmentKind } from "@/lib/attachments";
 
-// Twenty is the owner's answer to "how many pictures may one story, sitting
-// or scene carry at any one time" -- a ceiling on what exists at once, not a
-// budget spent by uploading, so removing a row hands its place straight back.
-//
-// Also the cap on concurrent uploads zag's own FileUpload ledger enforces
+// MAX_ATTACHMENTS (lib/attachments.ts) is also the cap on concurrent uploads zag's own FileUpload ledger enforces
 // (see fileUpload.deleteFile in handleRemove, which keeps that ledger in
 // step with the rows actually on screen). zag's ledger only ever counts
 // files accepted through the dropzone, though -- a link added through
@@ -45,7 +41,6 @@ import type { Attachment, AttachmentKind } from "@/lib/attachments";
 // this cap when the two kinds of row mix. rowsRef.current.length is: both
 // handleAddUrl and handleFilesAccepted check it directly before adding
 // anything, rather than leaning on zag's own count.
-const MAX_ATTACHMENTS = 20;
 
 const MAX_ATTACHMENTS_MESSAGE = `You can have at most ${MAX_ATTACHMENTS} attachments at once here. Remove one first.`;
 

@@ -52,6 +52,8 @@ export type StoryScene = {
 
 /** What the scene info panel shows for one scene: the card's fields and the picture. */
 export type StorySceneDetail = StoryScene & {
+  /** The story it belongs to, whose attachments the panel can offer it. */
+  idStory: number;
   imageLink: string | null;
   /**
    * When the scene went into play, from active_at; null for one that never

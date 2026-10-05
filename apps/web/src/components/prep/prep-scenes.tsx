@@ -13,7 +13,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { ChevronsRight, Pencil } from "lucide-react";
+import { ChevronsRight, Pencil, Search } from "lucide-react";
 import {
   SCENE_LOCKED_STATUS,
   SCENE_SEARCH_DELAY_MS,
@@ -43,6 +43,11 @@ type Props = {
   statusOptions: StatusOption[];
   /** The viewer is the storyteller, so the pills are menus. */
   canEdit: boolean;
+  /**
+   * Changes when the board has created a row here, so the column asks the
+   * database again with what it is narrowed to. 0 until then.
+   */
+  reloadKey?: number;
 };
 
 // A real button, so it takes focus and a tap; Text polymorphed with `as`
@@ -96,6 +101,7 @@ export function PrepScenes({
   shownStatuses,
   statusOptions,
   canEdit,
+  reloadKey = 0,
 }: Props) {
   const [scenes, setScenes] = useState(initial);
   const [hasMore, setHasMore] = useState(initial.length === SCENES_PAGE_SIZE);
@@ -119,8 +125,9 @@ export function PrepScenes({
   useEffect(() => {
     const needle = filter.trim();
     // Nothing has been touched yet: the page already loaded the first page
-    // unfiltered, with every status on.
-    if (!searched.current && needle === "" && everyStatus) return;
+    // unfiltered, with every status on, and the board has created nothing
+    // here since.
+    if (!searched.current && needle === "" && everyStatus && reloadKey === 0) return;
     searched.current = true;
 
     const seq = ++searchSeq.current;
@@ -141,7 +148,7 @@ export function PrepScenes({
     // shownStatuses is rebuilt on every render; statusKey is what actually
     // changed. eslint cannot see through that, hence the disable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idStory, filter, statusKey, everyStatus]);
+  }, [idStory, filter, statusKey, everyStatus, reloadKey]);
 
   function onMore() {
     const offset = scenes.length;
@@ -205,8 +212,10 @@ export function PrepScenes({
                     </IconLink>
                   )}
                   {/* The card shows the first lines of what the storyteller
-                      wrote; the panel behind this button shows all of it. */}
+                      wrote; the panel behind this button shows all of it, so
+                      the button is a magnifying glass: a closer look. */}
                   <SceneInfoPopover
+                    icon={<Search />}
                     idStoryScene={scene.idStoryScene}
                     statusOptions={statusOptions}
                     canEdit={canEdit}

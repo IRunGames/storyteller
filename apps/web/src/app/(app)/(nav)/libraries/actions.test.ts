@@ -40,6 +40,16 @@ let sceneIds: number[] = [];
 // One more than a page, so paging has a short second page to end on.
 const SCENE_COUNT = SCENES_PAGE_SIZE + 1;
 
+// Next implements redirect() by throwing; the target rides in the digest.
+async function redirectOf(promise: Promise<unknown>): Promise<string | null> {
+  const thrown = await promise.then(
+    () => null,
+    (error: unknown) => error,
+  );
+  const digest = (thrown as { digest?: string } | null)?.digest ?? "";
+  return digest.startsWith("NEXT_REDIRECT") ? digest.split(";")[2] : null;
+}
+
 describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
@@ -523,16 +533,6 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     let mySession = 0;
     let theirSession = 0;
 
-    // Next implements redirect() by throwing; the target rides in the digest.
-    async function redirectOf(promise: Promise<unknown>): Promise<string | null> {
-      const thrown = await promise.then(
-        () => null,
-        (error: unknown) => error,
-      );
-      const digest = (thrown as { digest?: string } | null)?.digest ?? "";
-      return digest.startsWith("NEXT_REDIRECT") ? digest.split(";")[2] : null;
-    }
-
     async function written() {
       return db
         .select({
@@ -575,15 +575,14 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       expect(await actions.sa_listSceneSessionOptions(theirStory)).toEqual([]);
     });
 
-    it("creates a scene on the caller's story and goes back to its board", async () => {
-      const target = await redirectOf(
-        actions.sa_createStoryScene(myStory, {
+    it("creates a scene on the caller's story, for the board's dialog to close on", async () => {
+      expect(
+        await actions.sa_createStoryScene(myStory, {
           title: `  ${TITLE}  `,
           description: "",
           idStorySession: String(mySession),
         }),
-      );
-      expect(target).toBe(`/libraries/${myStory}`);
+      ).toEqual({ ok: true });
 
       const [row] = await written();
       expect(row).toMatchObject({
@@ -620,6 +619,8 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       const loaded = await actions.sa_getStorySceneForEdit(id);
       expect(loaded).toMatchObject({
         idStory: myStory,
+        // A new scene takes the workflow's default, whatever it is called.
+        status: expect.any(String),
         locked: false,
         values: { title: TITLE, description: "", idStorySession: mySession },
       });
@@ -667,6 +668,95 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
           description: "",
           idStorySession: "",
         }),
+      ).rejects.toThrow(/storyteller/);
+    });
+  });
+
+  describe("writing elements", () => {
+    const NAME = "Fixture written element";
+    const blank = { initialName: "", title: "", description: "", notes: "" };
+
+    async function written() {
+      return db
+        .select({
+          id: tables.elements.idElement,
+          kind: tables.elements.kind,
+          name: tables.elements.name,
+          initialName: tables.elements.initialName,
+          title: tables.elements.title,
+          idCreatedByUser: tables.elements.idCreatedByUser,
+        })
+        .from(tables.elements)
+        .where(eq(tables.elements.name, NAME));
+    }
+
+    after(async () => {
+      await db.delete(tables.elements).where(eq(tables.elements.name, NAME));
+    });
+
+    it("creates an element of the kind chosen on the caller's story", async () => {
+      expect(
+        await actions.sa_createElement(myStory, {
+          ...blank,
+          kind: "PLACE",
+          name: `  ${NAME}  `,
+          title: "Under the dun",
+        }),
+      ).toEqual({ ok: true });
+
+      const [row] = await written();
+      expect(row).toMatchObject({
+        kind: "PLACE",
+        name: NAME,
+        initialName: null,
+        title: "Under the dun",
+        idCreatedByUser: SEED_USER,
+      });
+    });
+
+    it("refuses an element with no name, and a story that is not the caller's", async () => {
+      expect(
+        await actions.sa_createElement(myStory, { ...blank, kind: "PERSON", name: " " }),
+      ).toEqual({ ok: false, errors: { name: "Please give the element a name." } });
+      await expect(
+        actions.sa_createElement(theirStory, { ...blank, kind: "PERSON", name: "Nobody" }),
+      ).rejects.toThrow(/storyteller/);
+    });
+
+    it("loads an element for editing, and saves it back to the board, kind and all", async () => {
+      const [{ id }] = await written();
+      expect(await actions.sa_getElementForEdit(id)).toEqual({
+        idStory: myStory,
+        values: {
+          ...blank,
+          kind: "PLACE",
+          name: NAME,
+          title: "Under the dun",
+        },
+      });
+
+      const target = await redirectOf(
+        actions.sa_updateElement(id, {
+          ...blank,
+          kind: "THING",
+          name: NAME,
+          initialName: "The box",
+        }),
+      );
+      expect(target).toBe(`/libraries/${myStory}`);
+      const [row] = await written();
+      expect(row).toMatchObject({ kind: "THING", initialName: "The box", title: null });
+    });
+
+    it("gives nobody but the storyteller an element to edit", async () => {
+      const [theirs] = await db
+        .insert(tables.elements)
+        .values({ idStory: theirStory, kind: "PERSON", name: NAME, idCreatedByUser: otherUserId })
+        .returning({ id: tables.elements.idElement });
+
+      expect(await actions.sa_getElementForEdit(theirs.id)).toBeNull();
+      await expect(
+        actions.sa_updateElement(theirs.id, { ...blank, kind: "PERSON", name: NAME }),
       ).rejects.toThrow(/storyteller/);
     });
   });

@@ -21,6 +21,7 @@ const options: StatusOption[] = [
 
 const detail: StorySceneDetail = {
   idStoryScene: -15,
+  idStory: -4,
   idStorySession: -3,
   status: "SECOND",
   statusAt: new Date("2026-09-12T18:00:00Z"),

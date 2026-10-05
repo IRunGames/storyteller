@@ -13,6 +13,7 @@ import {
   type StoryElement,
 } from "@/lib/elements";
 import { likeContains } from "@/lib/filter-text";
+import { elementSchema } from "@/lib/element-schemas";
 import { sceneSchema, type SceneValues } from "@/lib/scene-schemas";
 import {
   SCENE_LOCKED_STATUS,
@@ -283,6 +284,7 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
       title: vStoryScenes.sceneTitle,
       description: vStoryScenes.sceneDescription,
       startedAt: vStoryScenes.activeAt,
+      idStory: vStoryScenes.idStory,
       // The scene's picture is an attachments row now, not a column of the
       // view; the key keeps its name because it still holds a url to show.
       imageLink: attachmentUrl("STORY_SCENE", vStoryScenes.idStoryScene),
@@ -310,6 +312,7 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
     description: row.description,
     imageLink: row.imageLink,
     startedAt: row.startedAt,
+    idStory: row.idStory!,
     ...sessionOf(row),
   };
 }
@@ -344,9 +347,16 @@ export async function sa_listSceneSessionOptions(idStory: number): Promise<Scene
 
 export type SceneFormResult = { ok: false; errors: Record<string, string> };
 
-// The form's answer to a submission the action refused: one message per
-// field, the first issue winning, keyed by the issue's path.
-function sceneErrors(issues: { path: PropertyKey[]; message: string }[]): SceneFormResult {
+/**
+ * What a create action answers: ok once the row is in, so the board's dialog
+ * can close and the column fetch it, or the errors for the form.
+ */
+export type CreateResult = { ok: true } | SceneFormResult;
+
+// A form's answer to a submission the action refused: one message per field,
+// the first issue winning, keyed by the issue's path. The scene and element
+// forms both take it.
+function formErrors(issues: { path: PropertyKey[]; message: string }[]): SceneFormResult {
   const errors: Record<string, string> = {};
   for (const issue of issues) {
     errors[issue.path.join(".")] ??= issue.message;
@@ -364,7 +374,7 @@ async function parseScene(
   input: unknown,
 ): Promise<{ values: SceneValues } | SceneFormResult> {
   const parsed = sceneSchema.safeParse(input);
-  if (!parsed.success) return sceneErrors(parsed.error.issues);
+  if (!parsed.success) return formErrors(parsed.error.issues);
 
   const { idStorySession } = parsed.data;
   if (idStorySession !== null) {
@@ -374,7 +384,7 @@ async function parseScene(
       .where(eq(storySessions.idStorySession, idStorySession))
       .limit(1);
     if (session?.idStory !== idStory) {
-      return sceneErrors([
+      return formErrors([
         { path: ["idStorySession"], message: "That session is not part of this story." },
       ]);
     }
@@ -383,16 +393,12 @@ async function parseScene(
 }
 
 /**
- * Validates and adds a scene to a story the caller created, then goes back to
- * the story's Prep Work board, where the new scene waits in its column. The
- * status is left to the column default, the workflow's first. Field errors
- * come back for the form; on success the redirect throws, so this never
- * resolves with ok: true.
+ * Validates and adds a scene to a story the caller created, from the board's
+ * New scene dialog. The status is left to the column default, the workflow's
+ * first. Field errors come back for the form; ok means the dialog can close
+ * and the Scenes column load the new scene.
  */
-export async function sa_createStoryScene(
-  idStory: number,
-  input: unknown,
-): Promise<SceneFormResult> {
+export async function sa_createStoryScene(idStory: number, input: unknown): Promise<CreateResult> {
   const user = await requireUser();
   const id = idStorySchema.parse(idStory);
   if (!(await ownsStory(user.id, id))) {
@@ -412,17 +418,19 @@ export async function sa_createStoryScene(
     idUpdatedByUser: user.id,
   });
 
-  redirect(`/libraries/${id}`);
+  return { ok: true };
 }
 
 /**
  * A scene as the edit form holds it, with the story it belongs to and the
  * sittings that story has, or null when there is no such scene, the id is
  * unusable, or the caller is not its storyteller. `locked` is true for a
- * scene in SCENE_LOCKED_STATUS, which the form shows but will not save.
+ * scene in SCENE_LOCKED_STATUS, which the form shows but will not save;
+ * `status` is what the form's pill starts from.
  */
 export async function sa_getStorySceneForEdit(idStoryScene: number): Promise<{
   idStory: number;
+  status: string;
   locked: boolean;
   values: { title: string; description: string; idStorySession: number | null };
   sessions: SceneSessionOption[];
@@ -449,6 +457,7 @@ export async function sa_getStorySceneForEdit(idStoryScene: number): Promise<{
 
   return {
     idStory: row.idStory,
+    status: row.status,
     locked: row.status === SCENE_LOCKED_STATUS,
     // "" rather than null for the textarea, as sa_getStoryForEdit does.
     values: {
@@ -489,7 +498,7 @@ export async function sa_updateStoryScene(
     throw new Error("Only the storyteller who created a story can edit its scenes");
   }
   if (row.status === SCENE_LOCKED_STATUS) {
-    return sceneErrors([{ path: [], message: "A completed scene can no longer be edited." }]);
+    return formErrors([{ path: [], message: "A completed scene can no longer be edited." }]);
   }
 
   const parsed = await parseScene(row.idStory, input);
@@ -509,8 +518,138 @@ export async function sa_updateStoryScene(
     )
     .returning({ idStoryScene: storyScenes.idStoryScene });
   if (updated.length === 0) {
-    return sceneErrors([{ path: [], message: "A completed scene can no longer be edited." }]);
+    return formErrors([{ path: [], message: "A completed scene can no longer be edited." }]);
   }
+
+  redirect(`/libraries/${row.idStory}`);
+}
+
+export type ElementFormResult = SceneFormResult;
+
+/**
+ * Validates and adds an element to a story the caller created, from the
+ * board's New element dialog. The status is left to the column default, the
+ * workflow's first. Field errors come back for the form; ok means the dialog
+ * can close and the element's kind column load it.
+ */
+export async function sa_createElement(idStory: number, input: unknown): Promise<CreateResult> {
+  const user = await requireUser();
+  const id = idStorySchema.parse(idStory);
+  if (!(await ownsStory(user.id, id))) {
+    throw new Error("Only the storyteller who created a story can add elements to it");
+  }
+
+  const parsed = elementSchema.safeParse(input);
+  if (!parsed.success) return formErrors(parsed.error.issues);
+
+  const values = parsed.data;
+  await db.insert(elements).values({
+    idStory: id,
+    kind: values.kind,
+    name: values.name,
+    initialName: values.initialName || null,
+    title: values.title || null,
+    description: values.description || null,
+    notes: values.notes || null,
+    idCreatedByUser: user.id,
+    idUpdatedByUser: user.id,
+  });
+
+  return { ok: true };
+}
+
+/**
+ * An element as the edit form holds it, with the story it belongs to, or null
+ * when there is no such element, the id is unusable, or the caller is not its
+ * storyteller. The nullable columns come back as "" for the inputs, as
+ * sa_getStorySceneForEdit's do.
+ */
+export async function sa_getElementForEdit(idElement: number): Promise<{
+  idStory: number;
+  values: {
+    kind: ElementKind;
+    name: string;
+    initialName: string;
+    title: string;
+    description: string;
+    notes: string;
+  };
+} | null> {
+  const user = await requireUser();
+
+  const id = idStorySchema.safeParse(idElement);
+  if (!id.success) return null;
+
+  const [row] = await db
+    .select({
+      idStory: elements.idStory,
+      kind: elements.kind,
+      name: elements.name,
+      initialName: elements.initialName,
+      title: elements.title,
+      description: elements.description,
+      notes: elements.notes,
+      owner: stories.idCreatedByUser,
+    })
+    .from(elements)
+    .innerJoin(stories, eq(stories.idStory, elements.idStory))
+    .where(eq(elements.idElement, id.data))
+    .limit(1);
+  if (!row || row.owner !== user.id) return null;
+
+  return {
+    idStory: row.idStory,
+    values: {
+      // The column is the elements_kind enum, so it is always one of these.
+      kind: kindSchema.parse(row.kind),
+      name: row.name,
+      initialName: row.initialName ?? "",
+      title: row.title ?? "",
+      description: row.description ?? "",
+      notes: row.notes ?? "",
+    },
+  };
+}
+
+/**
+ * Validates and saves the edit form over an element on a story the caller
+ * created, then goes back to the story's Prep Work board. The kind may
+ * change, which moves the element to that kind's column.
+ */
+export async function sa_updateElement(
+  idElement: number,
+  input: unknown,
+): Promise<ElementFormResult> {
+  const user = await requireUser();
+  const id = idStorySchema.parse(idElement);
+
+  const [row] = await db
+    .select({ idStory: elements.idStory, owner: stories.idCreatedByUser })
+    .from(elements)
+    .innerJoin(stories, eq(stories.idStory, elements.idStory))
+    .where(eq(elements.idElement, id))
+    .limit(1);
+  if (!row) throw new Error("Element not found");
+  if (row.owner !== user.id) {
+    throw new Error("Only the storyteller who created a story can edit its elements");
+  }
+
+  const parsed = elementSchema.safeParse(input);
+  if (!parsed.success) return formErrors(parsed.error.issues);
+
+  const values = parsed.data;
+  await db
+    .update(elements)
+    .set({
+      kind: values.kind,
+      name: values.name,
+      initialName: values.initialName || null,
+      title: values.title || null,
+      description: values.description || null,
+      notes: values.notes || null,
+      idUpdatedByUser: user.id,
+    })
+    .where(eq(elements.idElement, id));
 
   redirect(`/libraries/${row.idStory}`);
 }

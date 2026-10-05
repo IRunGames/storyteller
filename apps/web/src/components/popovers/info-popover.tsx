@@ -20,6 +20,8 @@ type Props<T> = {
   label: string;
   /** The button's colour; the story page passes its panel's muted text. */
   color?: string;
+  /** What the button shows; the info icon unless a caller wants another. */
+  icon?: ReactNode;
   /** Read on first open. Null means the row is no longer there. */
   load: () => Promise<T | null>;
   /** What the panel says when load comes back null. */
@@ -50,6 +52,7 @@ type Props<T> = {
 export function InfoPopover<T>({
   label,
   color,
+  icon,
   load,
   missingText,
   errorText,
@@ -101,7 +104,7 @@ export function InfoPopover<T>({
         <Tooltip.Trigger asChild>
           <Popover.Trigger asChild>
             <IconButton aria-label={label} variant="ghost" size="xs" rounded="full" color={color}>
-              <Info />
+              {icon ?? <Info />}
             </IconButton>
           </Popover.Trigger>
         </Tooltip.Trigger>

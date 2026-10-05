@@ -383,6 +383,10 @@ export const attachments = pgTable("attachments", {
   idAttachment: integer("id_attachment").primaryKey().generatedByDefaultAsIdentity(),
   kind: varchar("kind").notNull(),
   idExternal: integer("external_id"),
+  // The story the attachment belongs to, whichever part of it the kind and
+  // external_id name. Kept by a trigger (tr_attachments_set_id_story), never
+  // written by the app, and read by no list: it is for cleaning up a story.
+  idStory: integer("id_story"),
   status: varchar("status")
     .notNull()
     .default(sql`DEFAULT`),
