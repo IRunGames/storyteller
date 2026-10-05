@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import NextLink from "next/link";
 import {
-  Avatar,
   Badge,
   Box,
   Flex,
@@ -10,13 +10,13 @@ import {
   HStack,
   IconButton,
   Input,
+  Link,
   Text,
   Wrap,
 } from "@chakra-ui/react";
 import { useUser } from "@/components/auth/user-provider";
 import { Send } from "lucide-react";
-import { ColorModeButton } from "@/components/ui/color-mode";
-import { SignOutButton } from "@/components/auth/sign-out-button";
+import { NavActions } from "@/components/nav/nav-actions";
 
 interface ChatMessage {
   userId: string;
@@ -61,18 +61,13 @@ export function PlayTable() {
         borderBottomWidth="1px"
         bg="bg.subtle"
       >
+        {/* With no menu bar here, the name is the way back to the home page. */}
         <Heading size="lg" flexGrow="1">
-          Storyteller
+          <Link asChild>
+            <NextLink href="/home">Storyteller</NextLink>
+          </Link>
         </Heading>
-        <HStack gap="2">
-          <Avatar.Root size="xs">
-            <Avatar.Fallback name={user.name} />
-            <Avatar.Image src={user.image ?? undefined} />
-          </Avatar.Root>
-          <Text textStyle="sm">{user.name}</Text>
-        </HStack>
-        <ColorModeButton />
-        <SignOutButton />
+        <NavActions />
       </HStack>
 
       {/* Users online */}
