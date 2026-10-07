@@ -12,8 +12,9 @@ type Props = {
 };
 
 // The scene's own page: its heading and the popover's body, holding the
-// detail in state so the pill's move shows without a reload. Only the
-// storyteller ever gets this far, so the pill is always a menu.
+// detail in state so the pill's move shows without a reload. The story's
+// players can open it too; whether the pill is a menu and the attachment
+// picker shows is the detail's isStoryteller.
 export function ScenePageDetail({ initial, statusOptions }: Props) {
   const [detail, setDetail] = useState(initial);
   return (
@@ -24,7 +25,7 @@ export function ScenePageDetail({ initial, statusOptions }: Props) {
       <SceneDetail
         detail={detail}
         statusOptions={statusOptions}
-        canEdit
+        canEdit={detail.isStoryteller}
         onStatusChanged={(status) => setDetail((current) => ({ ...current, status }))}
       />
     </Stack>

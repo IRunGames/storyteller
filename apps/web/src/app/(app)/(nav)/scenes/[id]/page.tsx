@@ -7,9 +7,10 @@ import { sa_getStoryScene } from "../../libraries/actions";
 
 // A scene's info panel on a page of its own, opened in a new tab from the
 // panel's pop-out button. requireSession() here rather than trusting the
-// group layout; see lib/require-session.ts for why. sa_getStoryScene answers
-// null for a scene on someone else's story as for one that does not exist,
-// so both land on the not-found page.
+// group layout; see lib/require-session.ts for why. The story's storyteller
+// and its players can read it. sa_getStoryScene answers null for a scene on
+// a story the caller has no part in as for one that does not exist, so both
+// land on the not-found page.
 export default async function ScenePage({ params }: { params: Promise<{ id: string }> }) {
   await requireSession();
 

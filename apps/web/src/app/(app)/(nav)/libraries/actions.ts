@@ -24,7 +24,7 @@ import {
 } from "@/lib/scenes";
 import { sessionHeading } from "@/lib/stories";
 
-const { elements, stories, storyScenes, storySessions, vStoryScenes } = schema;
+const { elements, stories, storyPlayers, storyScenes, storySessions, vStoryScenes } = schema;
 
 // The Prep Work board's own reads. The board is the storyteller's working
 // material, so every one of these proves the caller owns the story before it
@@ -57,6 +57,16 @@ async function ownsStory(userId: string, idStory: number): Promise<boolean> {
     .where(eq(stories.idStory, idStory))
     .limit(1);
   return story?.owner === userId;
+}
+
+/** Whether the caller has a seat at the story, as one of its players. */
+async function playsInStory(userId: string, idStory: number): Promise<boolean> {
+  const [seat] = await db
+    .select({ one: storyPlayers.idStoryPlayer })
+    .from(storyPlayers)
+    .where(and(eq(storyPlayers.idStory, idStory), eq(storyPlayers.idUser, userId)))
+    .limit(1);
+  return Boolean(seat);
 }
 
 /**
@@ -297,9 +307,14 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
     .where(eq(vStoryScenes.idStoryScene, id.data))
     .limit(1);
 
-  // A scene on someone else's story answers the same as one that is not
-  // there: the board is the storyteller's alone.
-  if (!row || row.owner !== user.id) return null;
+  if (!row) return null;
+
+  // The storyteller and the story's players may read a scene; anyone else
+  // gets the same answer as for a scene that is not there. Only the
+  // storyteller may change it, which the page and the panel learn from
+  // isStoryteller.
+  const isStoryteller = row.owner === user.id;
+  if (!isStoryteller && !(await playsInStory(user.id, row.idStory!))) return null;
 
   return {
     idStoryScene: row.idStoryScene!,
@@ -314,6 +329,7 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
     startedAt: row.startedAt,
     idStory: row.idStory!,
     ...sessionOf(row),
+    isStoryteller,
   };
 }
 

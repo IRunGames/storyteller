@@ -309,7 +309,12 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       .where(eq(tables.storySessions.idStorySession, session.id));
   });
 
-  it("gives nobody but the storyteller a scene, and nothing for an unusable id", async () => {
+  it("marks a scene the storyteller's own", async () => {
+    const [scene] = await actions.sa_listStoryScenes(myStory, 0);
+    expect((await actions.sa_getStoryScene(scene.idStoryScene))?.isStoryteller).toBe(true);
+  });
+
+  it("gives nobody outside the story a scene, and nothing for an unusable id", async () => {
     const [theirs] = await db
       .select({ id: tables.storyScenes.idStoryScene })
       .from(tables.storyScenes)
@@ -318,6 +323,24 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(await actions.sa_getStoryScene(theirs.id)).toBeNull();
     expect(await actions.sa_getStoryScene(2147483648)).toBeNull();
     expect(await actions.sa_getStoryScene(2147483647)).toBeNull();
+  });
+
+  it("gives a player of the story its scene, as someone who is not the storyteller", async () => {
+    const [theirs] = await db
+      .select({ id: tables.storyScenes.idStoryScene })
+      .from(tables.storyScenes)
+      .where(eq(tables.storyScenes.idStory, theirStory));
+    await db.insert(tables.storyPlayers).values({ idStory: theirStory, idUser: SEED_USER });
+
+    try {
+      expect(await actions.sa_getStoryScene(theirs.id)).toMatchObject({
+        idStoryScene: theirs.id,
+        title: "Fixture scene of theirs",
+        isStoryteller: false,
+      });
+    } finally {
+      await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, theirStory));
+    }
   });
 
   it("orders by the sitting, then through the workflow, with unplayed scenes first", async () => {

@@ -61,6 +61,11 @@ export type StorySceneDetail = StoryScene & {
    * shows the latest.
    */
   startedAt: Date | null;
+  /**
+   * The caller is the story's storyteller rather than one of its players, so
+   * the status is theirs to move and the story's attachments theirs to add.
+   */
+  isStoryteller: boolean;
 };
 
 /** One scene as a session's info panel lists it. */

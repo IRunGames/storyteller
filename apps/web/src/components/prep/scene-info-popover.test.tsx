@@ -34,6 +34,7 @@ const detail: StorySceneDetail = {
   sessionHeading: "3. Kildealg",
   // Noon UTC, so the day is the same in whatever zone the tests run in.
   startedAt: new Date("2026-09-12T12:00:00Z"),
+  isStoryteller: true,
 };
 
 const sa_getStoryScene = mock.fn<(id: number) => Promise<StorySceneDetail | null>>(
