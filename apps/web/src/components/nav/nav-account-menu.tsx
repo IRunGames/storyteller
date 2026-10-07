@@ -1,10 +1,11 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import NextLink from "next/link";
 import { Avatar, Menu, Portal, Tooltip, chakra } from "@chakra-ui/react";
 import { useSignOut } from "@/components/auth/sign-out-button";
 import { useUser } from "@/components/auth/user-provider";
+import { isDevelopment } from "@/lib/dev-mode";
 
 // Tooltip and menu each stamp an id on the one button and look their trigger
 // up by that id when positioning. Left to their own ids, the tooltip's wins
@@ -14,6 +15,13 @@ export function NavAccountMenu() {
   const user = useUser();
   const { signOut, isSigningOut } = useSignOut();
   const triggerId = useId();
+  const [causeError, setCauseError] = useState(false);
+
+  // Cause error, in development only, is how to see (app)/error.tsx without
+  // breaking something real. It throws while rendering rather than from the
+  // menu's handler because an error boundary only catches errors thrown in
+  // render; one thrown from an event handler would never reach the page.
+  if (causeError) throw new Error("Cause error, chosen from the account menu.");
 
   // What the tooltip calls the user: the nickname they chose, else their
   // name, else the email, which is the one thing every account has. `||`
@@ -26,6 +34,7 @@ export function NavAccountMenu() {
       ids={{ trigger: triggerId }}
       onSelect={(details) => {
         if (details.value === "logout") void signOut();
+        if (details.value === "cause-error") setCauseError(true);
       }}
     >
       {/* Both triggers use asChild, so their props merge onto the one
@@ -73,6 +82,11 @@ export function NavAccountMenu() {
             <Menu.Item value="profile" asChild>
               <NextLink href="/profile">Profile</NextLink>
             </Menu.Item>
+            {isDevelopment() && (
+              <Menu.Item value="cause-error" color="fg.error">
+                Cause error
+              </Menu.Item>
+            )}
             <Menu.Separator />
             <Menu.Item value="logout" disabled={isSigningOut}>
               Logout

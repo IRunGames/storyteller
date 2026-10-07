@@ -24,6 +24,16 @@ export function UserProvider({
   return <UserContext.Provider value={user}>{children}</UserContext.Provider>;
 }
 
+/**
+ * The signed-in user, or null where nothing above mounted UserProvider. For
+ * the few components that can render either side of sign-in, such as
+ * (app)/error.tsx; everything else wants useUser(), which says loudly when
+ * the provider is missing.
+ */
+export function useOptionalUser(): CurrentUser | null {
+  return useContext(UserContext);
+}
+
 export function useUser(): CurrentUser {
   const user = useContext(UserContext);
   if (!user) {

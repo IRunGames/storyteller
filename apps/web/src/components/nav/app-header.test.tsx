@@ -2,6 +2,7 @@ import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Component, type ReactNode } from "react";
 
 import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
@@ -413,6 +414,68 @@ describe("AppHeader", () => {
     const profile = await screen.findByRole("menuitem", { name: "Profile" });
     expect(profile).toHaveAttribute("href", "/profile");
     expect(screen.getByRole("menuitem", { name: "Logout" })).toBeInTheDocument();
+  });
+
+  describe("the Cause error item", () => {
+    const nodeEnv = process.env.NODE_ENV;
+    // `process.env` is typed read-only for NODE_ENV; the tests need to flip it.
+    const env = process.env as Record<string, string | undefined>;
+    afterEach(() => {
+      env.NODE_ENV = nodeEnv;
+    });
+
+    it("is not on the account menu outside development", async () => {
+      env.NODE_ENV = "production";
+      const u = userEvent.setup();
+      renderHeader();
+
+      await u.click(screen.getByRole("button", { name: "Account menu" }));
+      await screen.findByRole("menuitem", { name: "Profile" });
+
+      expect(screen.queryByRole("menuitem", { name: "Cause error" })).not.toBeInTheDocument();
+    });
+
+    it("throws to the error page in development", async () => {
+      env.NODE_ENV = "development";
+      // The app's error.tsx is the boundary in the app; a plain one stands in.
+      class Boundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+        state = { error: null as Error | null };
+        static getDerivedStateFromError(error: Error) {
+          return { error };
+        }
+        render() {
+          return this.state.error ? <p>Caught: {this.state.error.message}</p> : this.props.children;
+        }
+      }
+      // React logs the error it caught; that is the point here, not a failure.
+      const consoleError = mock.method(console, "error", () => {});
+      const u = userEvent.setup();
+      renderWithProviders(
+        <Boundary>
+          <UserProvider user={user}>
+            <UserPreferencesProvider preferences={{}}>
+              <AppHeader />
+            </UserPreferencesProvider>
+          </UserProvider>
+        </Boundary>,
+      );
+
+      await u.click(screen.getByRole("button", { name: "Account menu" }));
+      const item = await screen.findByRole("menuitem", { name: "Cause error" });
+      // Highlight before clicking, for the reason given in the logout test.
+      let step = 0;
+      await waitFor(async () => {
+        step += 1;
+        await u.pointer({ target: item, coords: { clientX: step, clientY: step } });
+        expect(item).toHaveAttribute("data-highlighted");
+      });
+      await u.click(item);
+
+      expect(await screen.findByText(/^Caught: /)).toHaveTextContent(
+        "Caught: Cause error, chosen from the account menu.",
+      );
+      consoleError.mock.restore();
+    });
   });
 
   it("logs out and returns to the landing page", async () => {
