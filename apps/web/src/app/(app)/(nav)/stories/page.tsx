@@ -33,9 +33,13 @@ export default async function StoriesPage() {
         }}
         // On the My Stories row rather than above the page: it is that list
         // the button adds to, and Favorites may not be there to push it down.
+        // The key is for React, not for a list of ours: an element made here
+        // and handed to a client component reaches the section's HStack
+        // without the key check a client-made element gets, and React then
+        // reports it as an unkeyed child in a list.
         headerActions={{
           mine: (
-            <Button asChild>
+            <Button key="new-story" asChild>
               <NextLink href="/stories/new">New story</NextLink>
             </Button>
           ),

@@ -1,22 +1,24 @@
 "use client";
 
-import { ClientOnly, IconButton, Menu, Portal, Skeleton, Tooltip } from "@chakra-ui/react";
+import { Box, ClientOnly, IconButton, Menu, Portal, Skeleton, Tooltip } from "@chakra-ui/react";
 import { useId, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
 import { THEMES, type Theme } from "@/lib/themes";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
-import { BerryIcon, PumpkinIcon, SprigIcon } from "./icons";
+import { BerryIcon, PumpkinIcon, SprigIcon, WaveIcon } from "./icons";
 
-// The button shows the icon of the theme in force. The pumpkin, berry and
-// sprig are the Halloween, Blackberry and Mint brand marks reused, which is
-// why they are not Lucide icons.
+// The button shows the icon of the theme in force, and each menu item shows
+// its own beside its name. The pumpkin, berry, sprig and wave are the
+// Halloween, Blackberry, Mint and Wave brand marks reused, which is why they
+// are not Lucide icons.
 const ICONS: Record<Theme, ReactNode> = {
   light: <Sun />,
   dark: <Moon />,
   halloween: <PumpkinIcon />,
   blackberry: <BerryIcon />,
   mint: <SprigIcon />,
+  wave: <WaveIcon />,
 };
 
 // A selector rather than a toggle so a new theme is one more entry in THEMES.
@@ -77,6 +79,19 @@ export function NavThemeMenu() {
                 {THEMES.map((entry) => (
                   <Menu.RadioItem key={entry.value} value={entry.value}>
                     <Menu.ItemIndicator />
+                    {/* The brand marks draw themselves at 28px for the
+                        header; here every icon is scaled to the item's
+                        text size, Lucide's and the marks alike. */}
+                    <Box
+                      as="span"
+                      data-theme-icon
+                      display="inline-flex"
+                      boxSize="4"
+                      color="nav.icon"
+                      css={{ "& svg": { width: "100%", height: "100%" } }}
+                    >
+                      {ICONS[entry.value]}
+                    </Box>
                     <Menu.ItemText>{entry.label}</Menu.ItemText>
                   </Menu.RadioItem>
                 ))}

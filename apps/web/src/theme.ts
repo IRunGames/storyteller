@@ -6,20 +6,22 @@ import { createSystem, defaultConfig, defineConfig } from "@chakra-ui/react";
 // sets the --font-figtree variable this falls back through.
 //
 // next-themes puts the chosen theme's name on <html> as a class, and every
-// token below switches on that class. Halloween, Blackberry and Mint are
-// dark themes with their own tint, so rather than restate Chakra's few
+// token below switches on that class. Halloween, Blackberry, Mint and Wave
+// are dark themes with their own tint, so rather than restate Chakra's few
 // hundred dark values for each, the `dark` condition is widened to match
 // their classes too: every Chakra default (menus, popovers, text, borders)
-// starts from dark under them, and the `_halloween` / `_blackberry` / `_mint`
-// values below override only the tokens that carry the theme's colour.
+// starts from dark under them, and the `_halloween` / `_blackberry` /
+// `_mint` / `_wave` values below override only the tokens that carry the
+// theme's colour.
 // Chakra emits the per-theme rules after the dark rule, so the override wins
 // at equal specificity.
 const config = defineConfig({
   conditions: {
-    dark: ".dark &, .halloween &, .blackberry &, .mint &, .dark .chakra-theme:not(.light) &",
+    dark: ".dark &, .halloween &, .blackberry &, .mint &, .wave &, .dark .chakra-theme:not(.light) &",
     halloween: ".halloween &",
     blackberry: ".blackberry &",
     mint: ".mint &",
+    wave: ".wave &",
   },
   theme: {
     tokens: {
@@ -37,45 +39,178 @@ const config = defineConfig({
         // Chakra's own surface, text and border tokens. Halloween is true
         // black with burnt-orange surfaces and orange text; Blackberry is
         // near-black purple with lavender text; Mint is deep teal with
-        // mint-white text and a blue-green accent. The surfaces and secondary
+        // mint-white text and a blue-green accent; Wave is deep ocean navy
+        // with ice-blue text and a sky-blue accent. The surfaces and secondary
         // text carry the hue, not just the accent, or the themes read as
         // plain dark with one coloured logo. The gray.* palette is what ghost
         // buttons, menu items and skeletons use, so it is tinted too.
         bg: {
-          DEFAULT: { value: { _halloween: "#000000", _blackberry: "#0e0518", _mint: "#03120f" } },
-          subtle: { value: { _halloween: "#160902", _blackberry: "#1c0b33", _mint: "#072420" } },
-          muted: { value: { _halloween: "#2a1105", _blackberry: "#2e1352", _mint: "#0c3a33" } },
-          emphasized: {
-            value: { _halloween: "#431a06", _blackberry: "#45207a", _mint: "#125248" },
+          DEFAULT: {
+            value: {
+              _halloween: "#000000",
+              _blackberry: "#0e0518",
+              _mint: "#03120f",
+              _wave: "#030b1a",
+            },
           },
-          panel: { value: { _halloween: "#160902", _blackberry: "#1c0b33", _mint: "#072420" } },
+          subtle: {
+            value: {
+              _halloween: "#160902",
+              _blackberry: "#1c0b33",
+              _mint: "#072420",
+              _wave: "#071a33",
+            },
+          },
+          muted: {
+            value: {
+              _halloween: "#2a1105",
+              _blackberry: "#2e1352",
+              _mint: "#0c3a33",
+              _wave: "#0c2a4d",
+            },
+          },
+          emphasized: {
+            value: {
+              _halloween: "#431a06",
+              _blackberry: "#45207a",
+              _mint: "#125248",
+              _wave: "#133c6b",
+            },
+          },
+          panel: {
+            value: {
+              _halloween: "#160902",
+              _blackberry: "#1c0b33",
+              _mint: "#072420",
+              _wave: "#071a33",
+            },
+          },
         },
         fg: {
-          DEFAULT: { value: { _halloween: "#fff3e6", _blackberry: "#f7edff", _mint: "#ecfdf7" } },
-          muted: { value: { _halloween: "#fdba74", _blackberry: "#d8b4fe", _mint: "#99f6e4" } },
-          subtle: { value: { _halloween: "#c2410c", _blackberry: "#a855f7", _mint: "#2dd4bf" } },
+          DEFAULT: {
+            value: {
+              _halloween: "#fff3e6",
+              _blackberry: "#f7edff",
+              _mint: "#ecfdf7",
+              _wave: "#eef6ff",
+            },
+          },
+          muted: {
+            value: {
+              _halloween: "#fdba74",
+              _blackberry: "#d8b4fe",
+              _mint: "#99f6e4",
+              _wave: "#93c5fd",
+            },
+          },
+          subtle: {
+            value: {
+              _halloween: "#c2410c",
+              _blackberry: "#a855f7",
+              _mint: "#2dd4bf",
+              _wave: "#3b82f6",
+            },
+          },
         },
         border: {
-          DEFAULT: { value: { _halloween: "#431a06", _blackberry: "#45207a", _mint: "#125248" } },
-          muted: { value: { _halloween: "#2a1105", _blackberry: "#2e1352", _mint: "#0c3a33" } },
-          subtle: { value: { _halloween: "#160902", _blackberry: "#1c0b33", _mint: "#072420" } },
+          DEFAULT: {
+            value: {
+              _halloween: "#431a06",
+              _blackberry: "#45207a",
+              _mint: "#125248",
+              _wave: "#133c6b",
+            },
+          },
+          muted: {
+            value: {
+              _halloween: "#2a1105",
+              _blackberry: "#2e1352",
+              _mint: "#0c3a33",
+              _wave: "#0c2a4d",
+            },
+          },
+          subtle: {
+            value: {
+              _halloween: "#160902",
+              _blackberry: "#1c0b33",
+              _mint: "#072420",
+              _wave: "#071a33",
+            },
+          },
           emphasized: {
-            value: { _halloween: "#9a3412", _blackberry: "#6b21a8", _mint: "#0f766e" },
+            value: {
+              _halloween: "#9a3412",
+              _blackberry: "#6b21a8",
+              _mint: "#0f766e",
+              _wave: "#1d4ed8",
+            },
           },
         },
         gray: {
-          contrast: { value: { _halloween: "#000000", _blackberry: "#0e0518", _mint: "#03120f" } },
-          fg: { value: { _halloween: "#fdba74", _blackberry: "#e9d5ff", _mint: "#ccfbf1" } },
-          subtle: { value: { _halloween: "#2a1105", _blackberry: "#2e1352", _mint: "#0c3a33" } },
-          muted: { value: { _halloween: "#431a06", _blackberry: "#45207a", _mint: "#125248" } },
+          contrast: {
+            value: {
+              _halloween: "#000000",
+              _blackberry: "#0e0518",
+              _mint: "#03120f",
+              _wave: "#030b1a",
+            },
+          },
+          fg: {
+            value: {
+              _halloween: "#fdba74",
+              _blackberry: "#e9d5ff",
+              _mint: "#ccfbf1",
+              _wave: "#dbeafe",
+            },
+          },
+          subtle: {
+            value: {
+              _halloween: "#2a1105",
+              _blackberry: "#2e1352",
+              _mint: "#0c3a33",
+              _wave: "#0c2a4d",
+            },
+          },
+          muted: {
+            value: {
+              _halloween: "#431a06",
+              _blackberry: "#45207a",
+              _mint: "#125248",
+              _wave: "#133c6b",
+            },
+          },
           emphasized: {
-            value: { _halloween: "#9a3412", _blackberry: "#6b21a8", _mint: "#0f766e" },
+            value: {
+              _halloween: "#9a3412",
+              _blackberry: "#6b21a8",
+              _mint: "#0f766e",
+              _wave: "#1d4ed8",
+            },
           },
-          solid: { value: { _halloween: "#f97316", _blackberry: "#c084fc", _mint: "#5eead4" } },
+          solid: {
+            value: {
+              _halloween: "#f97316",
+              _blackberry: "#c084fc",
+              _mint: "#5eead4",
+              _wave: "#38bdf8",
+            },
+          },
           focusRing: {
-            value: { _halloween: "#f97316", _blackberry: "#c084fc", _mint: "#5eead4" },
+            value: {
+              _halloween: "#f97316",
+              _blackberry: "#c084fc",
+              _mint: "#5eead4",
+              _wave: "#38bdf8",
+            },
           },
-          border: { value: { _halloween: "#431a06", _blackberry: "#45207a", _mint: "#125248" } },
+          border: {
+            value: {
+              _halloween: "#431a06",
+              _blackberry: "#45207a",
+              _mint: "#125248",
+              _wave: "#133c6b",
+            },
+          },
         },
         // The status pill: the theme's highlight, and the colour that reads
         // on it. Every pill is the highlight at full strength — nothing is
@@ -90,6 +225,7 @@ const config = defineConfig({
               _halloween: "#f97316",
               _blackberry: "#c084fc",
               _mint: "#5eead4",
+              _wave: "#38bdf8",
             },
           },
           // The theme's own background, which is what the highlight was
@@ -102,6 +238,7 @@ const config = defineConfig({
               _halloween: "#000000",
               _blackberry: "#14072a",
               _mint: "#061d19",
+              _wave: "#051428",
             },
           },
         },
@@ -121,6 +258,7 @@ const config = defineConfig({
               _halloween: "#f97316",
               _blackberry: "#c084fc",
               _mint: "#5eead4",
+              _wave: "#38bdf8",
             },
           },
           contrast: {
@@ -130,6 +268,7 @@ const config = defineConfig({
               _halloween: "#000000",
               _blackberry: "#14072a",
               _mint: "#061d19",
+              _wave: "#051428",
             },
           },
         },
@@ -141,6 +280,7 @@ const config = defineConfig({
               _halloween: "#000000",
               _blackberry: "#14072a",
               _mint: "#061d19",
+              _wave: "#051428",
             },
           },
           border: {
@@ -150,6 +290,7 @@ const config = defineConfig({
               _halloween: "#431a06",
               _blackberry: "#45207a",
               _mint: "#125248",
+              _wave: "#133c6b",
             },
           },
           fg: {
@@ -159,6 +300,7 @@ const config = defineConfig({
               _halloween: "#fff3e6",
               _blackberry: "#f7edff",
               _mint: "#ecfdf7",
+              _wave: "#eef6ff",
             },
           },
           fgMuted: {
@@ -168,6 +310,7 @@ const config = defineConfig({
               _halloween: "#fdba74",
               _blackberry: "#d8b4fe",
               _mint: "#99f6e4",
+              _wave: "#93c5fd",
             },
           },
           icon: {
@@ -177,6 +320,7 @@ const config = defineConfig({
               _halloween: "#fb923c",
               _blackberry: "#c084fc",
               _mint: "#5eead4",
+              _wave: "#38bdf8",
             },
           },
           accent: {
@@ -186,6 +330,7 @@ const config = defineConfig({
               _halloween: "#f97316",
               _blackberry: "#c084fc",
               _mint: "#5eead4",
+              _wave: "#38bdf8",
             },
           },
           accentTint: {
@@ -195,6 +340,7 @@ const config = defineConfig({
               _halloween: "#431a06",
               _blackberry: "#45207a",
               _mint: "#125248",
+              _wave: "#133c6b",
             },
           },
           avatarBg: {
@@ -204,6 +350,7 @@ const config = defineConfig({
               _halloween: "#9a3412",
               _blackberry: "#6b21a8",
               _mint: "#0f766e",
+              _wave: "#1d4ed8",
             },
           },
           avatarFg: {
@@ -213,6 +360,7 @@ const config = defineConfig({
               _halloween: "#fff3e6",
               _blackberry: "#f7edff",
               _mint: "#ecfdf7",
+              _wave: "#eef6ff",
             },
           },
         },

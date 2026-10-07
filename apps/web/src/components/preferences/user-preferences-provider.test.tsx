@@ -2,6 +2,7 @@ import { before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useTheme } from "next-themes";
 
 import { renderWithProviders } from "@/test/render";
 import type { UserPreferenceMap } from "@/lib/user-preference-schemas";
@@ -146,6 +147,34 @@ describe("UserPreferencesProvider", () => {
     // The optimistic write applies the theme; the refusal takes it back.
     await waitFor(() => expect(document.documentElement).toHaveClass("halloween"));
     expect(document.documentElement).not.toHaveClass("blackberry");
+  });
+
+  it("does not undo a theme change that came from outside the provider", async () => {
+    // next-themes applies a theme another tab saved to localStorage by
+    // calling its own setter, which this button stands in for. Two tabs that
+    // each pushed their stored theme back on every change would take turns
+    // overwriting each other for as long as both were open.
+    function OtherTab() {
+      const { setTheme } = useTheme();
+      return (
+        <button type="button" onClick={() => setTheme("mint")}>
+          Other tab
+        </button>
+      );
+    }
+    renderWithProviders(
+      <UserPreferencesProvider preferences={{ theme: "halloween" }}>
+        <OtherTab />
+      </UserPreferencesProvider>,
+    );
+    await waitFor(() => expect(document.documentElement).toHaveClass("halloween"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Other tab" }));
+
+    await waitFor(() => expect(document.documentElement).toHaveClass("mint"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.documentElement).toHaveClass("mint");
+    expect(document.documentElement).not.toHaveClass("halloween");
   });
 
   it("leaves the theme alone when the stored value is not a theme it knows", async () => {

@@ -110,3 +110,34 @@ export function SprigIcon() {
     </svg>
   );
 }
+
+// The Wave theme's brand mark: a breaking wave over a ripple. The crest's
+// curl is the hollow of a single filled shape rather than a stroked spiral,
+// so it keeps its weight at 28px, and it has no stroke for the same reason
+// as the pumpkin body. The ripple is a stroke, as the stems are.
+export function WaveIcon() {
+  return (
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      data-icon="wave"
+    >
+      <path
+        stroke="none"
+        d="M2 19 C2.5 11.5 7.5 4.5 14.5 3.6 C18.6 3.1 21.6 5.2 22 8.6 C20.2 6.9 17.2 7 15.6 8.9 C14 10.8 14.6 13.4 17 14 C14.6 15.8 11.4 15.2 10.4 12.8 C8.8 15.2 8.8 17.4 10.2 19 Z"
+      />
+      <path
+        d="M2 21.5 C4 20.3 6 20.3 8 21.5 C10 22.7 12 22.7 14 21.5 C16 20.3 18 20.3 20 21.5"
+        fill="none"
+        strokeWidth="1.6"
+      />
+    </svg>
+  );
+}

@@ -241,6 +241,7 @@ describe("AppHeader", () => {
       "Halloween",
       "Blackberry",
       "Mint",
+      "Wave",
     ]);
 
     await u.click(light);
@@ -248,6 +249,23 @@ describe("AppHeader", () => {
     await waitFor(() =>
       expect(document.documentElement).toHaveClass("light"),
     );
+  });
+
+  it("shows each theme's icon beside its name in the menu", async () => {
+    const u = userEvent.setup();
+    renderHeader();
+
+    await u.click(await screen.findByRole("button", { name: "Choose theme" }));
+    await screen.findByRole("menuitemradio", { name: "Light" });
+
+    const icon = (name: string) =>
+      screen.getByRole("menuitemradio", { name }).querySelector("[data-theme-icon] svg");
+    expect(icon("Light")).toHaveClass("lucide-sun");
+    expect(icon("Dark")).toHaveClass("lucide-moon");
+    expect(icon("Halloween")).toHaveAttribute("data-icon", "pumpkin");
+    expect(icon("Blackberry")).toHaveAttribute("data-icon", "berry");
+    expect(icon("Mint")).toHaveAttribute("data-icon", "sprig");
+    expect(icon("Wave")).toHaveAttribute("data-icon", "wave");
   });
 
   it("puts the chosen theme's class on <html> and takes the old one off", async () => {
@@ -269,6 +287,11 @@ describe("AppHeader", () => {
     await u.click(await screen.findByRole("menuitemradio", { name: "Mint" }));
     await waitFor(() => expect(document.documentElement).toHaveClass("mint"));
     expect(document.documentElement).not.toHaveClass("blackberry");
+
+    await u.click(await screen.findByRole("button", { name: "Choose theme" }));
+    await u.click(await screen.findByRole("menuitemradio", { name: "Wave" }));
+    await waitFor(() => expect(document.documentElement).toHaveClass("wave"));
+    expect(document.documentElement).not.toHaveClass("mint");
   });
 
   it("records the chosen theme as the user's theme preference", async () => {
@@ -284,7 +307,7 @@ describe("AppHeader", () => {
     ]);
   });
 
-  it("shows the brand mark of the theme in force: sparkle, pumpkin, berry or sprig", async () => {
+  it("shows the brand mark of the theme in force: sparkle, pumpkin, berry, sprig or wave", async () => {
     const u = userEvent.setup();
     renderHeader();
 
@@ -293,6 +316,7 @@ describe("AppHeader", () => {
     const pumpkin = brand.querySelector('[data-icon="pumpkin"]')!;
     const berry = brand.querySelector('[data-icon="berry"]')!;
     const sprig = brand.querySelector('[data-icon="sprig"]')!;
+    const wave = brand.querySelector('[data-icon="wave"]')!;
 
     async function choose(label: string, className: string) {
       await u.click(await screen.findByRole("button", { name: "Choose theme" }));
@@ -305,24 +329,35 @@ describe("AppHeader", () => {
     expect(pumpkin).not.toBeVisible();
     expect(berry).not.toBeVisible();
     expect(sprig).not.toBeVisible();
+    expect(wave).not.toBeVisible();
 
     await choose("Halloween", "halloween");
     expect(pumpkin).toBeVisible();
     expect(sparkle).not.toBeVisible();
     expect(berry).not.toBeVisible();
     expect(sprig).not.toBeVisible();
+    expect(wave).not.toBeVisible();
 
     await choose("Blackberry", "blackberry");
     expect(berry).toBeVisible();
     expect(sparkle).not.toBeVisible();
     expect(pumpkin).not.toBeVisible();
     expect(sprig).not.toBeVisible();
+    expect(wave).not.toBeVisible();
 
     await choose("Mint", "mint");
     expect(sprig).toBeVisible();
     expect(sparkle).not.toBeVisible();
     expect(pumpkin).not.toBeVisible();
     expect(berry).not.toBeVisible();
+    expect(wave).not.toBeVisible();
+
+    await choose("Wave", "wave");
+    expect(wave).toBeVisible();
+    expect(sparkle).not.toBeVisible();
+    expect(pumpkin).not.toBeVisible();
+    expect(berry).not.toBeVisible();
+    expect(sprig).not.toBeVisible();
   });
 
   it("names the account button with the nickname, else the name, else the email", async () => {

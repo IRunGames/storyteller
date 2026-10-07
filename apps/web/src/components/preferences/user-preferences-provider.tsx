@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { THEME_NAMES, type Theme } from "@/lib/themes";
 import type { JsonValue, UserPreferenceMap } from "@/lib/user-preference-schemas";
@@ -46,13 +46,25 @@ export function UserPreferencesProvider({
   // map reverts, the theme reverts with it. A value that is not in THEMES
   // (a theme since removed, or a hand-edited row) is left alone rather than
   // put on <html> as a class nothing styles.
+  //
+  // Only the stored value is a dependency. next-themes hands out a new
+  // setTheme whenever the theme changes, including when it follows another
+  // tab's choice through localStorage; with setTheme in the dependencies,
+  // that change re-ran this effect and put this tab's stored theme back,
+  // which the other tab then followed and undid in turn, so two open tabs
+  // flickered between their themes. The latest setTheme is read through a
+  // ref instead.
   const { setTheme } = useTheme();
+  const setThemeRef = useRef(setTheme);
+  useEffect(() => {
+    setThemeRef.current = setTheme;
+  });
   const storedTheme = map.theme;
   useEffect(() => {
     if (typeof storedTheme === "string" && THEME_NAMES.includes(storedTheme as Theme)) {
-      setTheme(storedTheme);
+      setThemeRef.current(storedTheme);
     }
-  }, [storedTheme, setTheme]);
+  }, [storedTheme]);
 
   // Rebuilt only when the map changes, so a consumer that reads nothing that
   // moved is not re-rendered by a parent's render.

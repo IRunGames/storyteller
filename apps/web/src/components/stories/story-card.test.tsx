@@ -391,6 +391,19 @@ describe("StoryCard", () => {
       expect(sa_startPlaying.mock.calls[0].arguments[2]).toMatch(/ session$/);
       expect(await within(popover).findByRole("alert")).toHaveTextContent("Refused.");
     });
+
+    it("closes on Cancel without opening the table", async () => {
+      const { user, popover } = await openPopover();
+
+      await user.click(within(popover).getByRole("button", { name: "Cancel" }));
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", { name: "Play The Devil's Spine" }),
+        ).not.toBeInTheDocument(),
+      );
+      expect(sa_startPlaying.mock.callCount()).toBe(0);
+    });
   });
 
   it("keeps the owner's Play about waiting players even while a session is open", () => {

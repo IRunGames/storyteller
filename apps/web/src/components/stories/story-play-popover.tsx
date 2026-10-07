@@ -5,6 +5,7 @@ import {
   Alert,
   Button,
   Field,
+  HStack,
   NativeSelect,
   Popover,
   Portal,
@@ -40,7 +41,8 @@ const NEW = "";
  * sa_startPlaying. The select starts on the session most recently touched
  * that is not DONE, since carrying on is the likelier wish, and on "Create
  * new session" when there is none. The button says Start for a new session
- * and Resume for one that already exists.
+ * and Resume for one that already exists; Cancel beside it closes the
+ * popover, as Escape and a click outside do.
  *
  * The sessions are fetched each time the popover opens, not with the card:
  * a board of cards would otherwise ask for every story's sessions to show a
@@ -159,15 +161,16 @@ export function StoryPlayPopover({ idStory, title, count, label, tooltip }: Prop
                     </Alert.Content>
                   </Alert.Root>
                 )}
-                <Button
-                  size="sm"
-                  alignSelf="end"
-                  onClick={start}
-                  disabled={isLoading}
-                  loading={isStarting}
-                >
-                  {choice === NEW ? "Start" : "Resume"}
-                </Button>
+                {/* Cancel at the start and the action at the end, as a
+                    dialog's footer lays them out. */}
+                <HStack justify="space-between" gap="2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={start} disabled={isLoading} loading={isStarting}>
+                    {choice === NEW ? "Start" : "Resume"}
+                  </Button>
+                </HStack>
               </Stack>
             </Popover.Body>
           </Popover.Content>
