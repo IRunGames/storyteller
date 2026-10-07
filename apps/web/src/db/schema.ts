@@ -242,6 +242,11 @@ export const storySessions = pgTable("story_sessions", {
   summary: text("summary"),
   lingeringQuestions: text("lingering_questions"),
   link: text("link"),
+  // The scene at the table right now, if any; null before the first scene
+  // and between scenes. storyScenes.idStorySession keeps which scenes the
+  // sitting ran, this is only the current one, as stories.idStorySession is
+  // for sessions.
+  idStoryScene: integer("id_story_scene"),
   // Who came, as user ids. An array, not a join table: attendance is a note
   // the storyteller takes, and nothing points at it. No foreign key either,
   // since an array cannot carry one.
@@ -249,6 +254,35 @@ export const storySessions = pgTable("story_sessions", {
     .array()
     .notNull()
     .default(sql`'{}'::uuid[]`),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// A player's presence at a story's sessions; see
+// db/custom/create_session_players_table.sql. The player is idCreatedByUser
+// and updatedAt is their page's last heartbeat. idStorySession is null while
+// they wait for a table that has not opened, and is filled in when it does.
+// status runs through the session players workflow (WAITING, PRESENT, AWAY,
+// LEFT) in s_statuses, so it is a plain varchar for the same reason
+// story_scenes.status is; waitingAt is restamped each time the row re-enters
+// WAITING, and is what the waiting room's clock counts from.
+export const sessionPlayers = pgTable("session_players", {
+  idSessionPlayer: integer("id_session_player").primaryKey().generatedByDefaultAsIdentity(),
+  idStory: integer("id_story").notNull(),
+  idStorySession: integer("id_story_session"),
+  // See storySessions.status for why sql`DEFAULT`.
+  status: varchar("status")
+    .notNull()
+    .default(sql`DEFAULT`),
+  waitingAt: timestamp("waiting_at", { withTimezone: true }),
+  presentAt: timestamp("present_at", { withTimezone: true }),
+  awayAt: timestamp("away_at", { withTimezone: true }),
+  leftAt: timestamp("left_at", { withTimezone: true }),
+  activityLog: jsonb("activity_log")
+    .default(sql`'[]'::jsonb`)
+    .notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -638,6 +672,19 @@ export const storySessionsRelations = relations(storySessions, ({ one, many }) =
   story: one(stories, { fields: [storySessions.idStory], references: [stories.idStory] }),
   storyteller: one(user, { fields: [storySessions.idCreatedByUser], references: [user.id] }),
   scenes: many(storyScenes),
+  currentScene: one(storyScenes, {
+    fields: [storySessions.idStoryScene],
+    references: [storyScenes.idStoryScene],
+  }),
+}));
+
+export const sessionPlayersRelations = relations(sessionPlayers, ({ one }) => ({
+  story: one(stories, { fields: [sessionPlayers.idStory], references: [stories.idStory] }),
+  session: one(storySessions, {
+    fields: [sessionPlayers.idStorySession],
+    references: [storySessions.idStorySession],
+  }),
+  player: one(user, { fields: [sessionPlayers.idCreatedByUser], references: [user.id] }),
 }));
 
 export const storyScenesRelations = relations(storyScenes, ({ one }) => ({

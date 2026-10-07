@@ -184,8 +184,8 @@ export function SessionDetail({
                   <List.Root as="ol" listStyleType="none" gap="2">
                     {detail.scenes.map((scene, index) => (
                       <List.Item key={scene.idStoryScene}>
-                        <HStack gap="2" justify="space-between" align="start">
-                          <Text textStyle="sm" flex="1">
+                        <HStack justify="space-between" align="start" gap="2">
+                          <Text flex="1" textStyle="sm">
                             {index + 1}. {scene.title}
                           </Text>
                           {/* Shown, not changed: this panel is opened from

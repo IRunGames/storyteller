@@ -156,7 +156,7 @@ export function PrepElements({
                 )}
               </HStack>
               {element.title && (
-                <Text color="fg.muted" fontSize="sm">
+                <Text fontSize="sm" color="fg.muted">
                   {element.title}
                 </Text>
               )}

@@ -22,9 +22,11 @@ import {
   systemLabel,
   type StoryCardData,
 } from "@/lib/stories";
-import { BookOpen, Heart, LogIn, Play } from "lucide-react";
+import { BookOpen, Heart } from "lucide-react";
 import { LocalDate } from "@/components/dates/local-date";
 import { PlayerCount } from "./player-count";
+import { StoryPlayButton } from "./story-play-button";
+import { StoryPlayPopover } from "./story-play-popover";
 
 type Props = {
   story: StoryCardData;
@@ -45,6 +47,13 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
   // One string for the accessible name and the tooltip, so they never drift.
   const favoriteLabel = story.isFavorite ? "Remove from Favorites" : "Add to Favorites";
 
+  // Players in the waiting room, as the storyteller sees them: on Play, and
+  // as the outline round the card. Only the owner's card shows it, because
+  // Play is theirs, and an outline a player could not account for would only
+  // puzzle them. An inactive story has no Play to put the count on.
+  const waiting = story.isOwner && story.isActive ? story.waitingCount : 0;
+  const waitingText = `${waiting} ${waiting === 1 ? "player" : "players"} waiting`;
+
   return (
     <LinkBox
       as="article"
@@ -56,7 +65,26 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
       color="white"
       _hover={{ boxShadow: "lg" }}
       transition="box-shadow 0.15s"
+      data-waiting={waiting > 0 ? "" : undefined}
     >
+      {/* The highlight round a card with players waiting. A layer of its own
+          above everything else rather than the card's border or outline:
+          a border takes room, so the card would shrink beside its
+          neighbours, and Chrome paints the positioned cover, scrim and
+          heart over an outline drawn inside the card. pointerEvents none so
+          every click still lands on what is underneath. */}
+      {waiting > 0 && (
+        <Box
+          aria-hidden
+          position="absolute"
+          inset="0"
+          zIndex="2"
+          rounded="xl"
+          borderWidth="3px"
+          borderColor="play.accent"
+          pointerEvents="none"
+        />
+      )}
       <Box
         data-testid="story-cover"
         position="absolute"
@@ -141,11 +169,10 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
           </Box>
         )}
 
-        {/* Bottom row: on the left an Inactive pill for a retired story, else
-            the owner's Play button (with the Library button beside either for the
-            owner), else Join for anyone else while the
-            story's current session is open, else nothing; the player count in
-            the middle; the date on the right. A grid with equal outer
+        {/* Bottom row: on the left an Inactive pill for a retired story,
+            else Play for everyone (StoryPlayButton), with the Library button
+            beside either for the owner; the player count in the middle; the
+            date on the right. A grid with equal outer
             columns keeps the count centred whatever the sides hold, and
             justifyItems start stops the round Play button being stretched to
             its column's width. In the flow rather than floated like the
@@ -169,50 +196,23 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
                 Inactive
               </Badge>
             ) : story.isOwner ? (
-              <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-                <Tooltip.Trigger asChild>
-                  <IconButton
-                    asChild
-                    aria-label="Play"
-                    size="sm"
-                    rounded="full"
-                    position="relative"
-                    zIndex="1"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                    }}
-                  >
-                    <NextLink href={`/play/${story.idStory}`}>
-                      <Play size={18} />
-                    </NextLink>
-                  </IconButton>
-                </Tooltip.Trigger>
-                <Portal>
-                  <Tooltip.Positioner>
-                    <Tooltip.Content>Start playing</Tooltip.Content>
-                  </Tooltip.Positioner>
-                </Portal>
-              </Tooltip.Root>
-            ) : story.hasOpenSession ? (
-              // Both routes lead to the same table; the owner's Play opens it as
-              // storyteller, this one joins what they have already opened.
-              <Button
-                asChild
-                size="sm"
-                rounded="full"
-                position="relative"
-                zIndex="1"
-                onClick={(event) => {
-                  event.stopPropagation();
-                }}
-              >
-                <NextLink href={`/play/${story.idStory}`}>
-                  <LogIn size={16} />
-                  Join
-                </NextLink>
-              </Button>
+              // The storyteller chooses the session first; see the popover.
+              <StoryPlayPopover
+                idStory={story.idStory}
+                title={story.title}
+                count={waiting > 0 ? waiting : null}
+                label={waiting > 0 ? `Play, ${waitingText}` : "Play"}
+                tooltip={waiting > 0 ? `Start playing · ${waiting} waiting` : "Start playing"}
+              />
             ) : (
-              <Box />
+              // A player's Play is there whether or not a session is on, and
+              // is highlighted when there is someone to join: the players at
+              // the table while a session is on, or the others already
+              // waiting for one. Plain only when it would be an empty room.
+              <StoryPlayButton
+                idStory={story.idStory}
+                {...playerPlay(story)}
+              />
             )}
             {story.isOwner && (
               <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
@@ -311,4 +311,26 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
       )}
     </LinkBox>
   );
+}
+
+// What a player's Play shows: the count it is highlighted with, or null for
+// the plain button, with the name and tooltip that say what the count is.
+function playerPlay(story: StoryCardData): { count: number | null; label: string; tooltip: string } {
+  if (story.hasOpenSession) {
+    const n = story.presentCount;
+    return {
+      count: n,
+      label: `Play, ${n} ${n === 1 ? "player" : "players"} at the table`,
+      tooltip: `Session in progress · ${n} at the table`,
+    };
+  }
+  if (story.waitingCount > 0) {
+    const n = story.waitingCount;
+    return {
+      count: n,
+      label: `Play, ${n} ${n === 1 ? "player" : "players"} waiting`,
+      tooltip: `${n} waiting for the storyteller`,
+    };
+  }
+  return { count: null, label: "Play", tooltip: "Go to the table" };
 }

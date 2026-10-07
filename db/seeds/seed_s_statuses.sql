@@ -65,7 +65,20 @@
             (-5, 'INITIAL',   'The element has just been brought into the scene.',       ARRAY['INVISIBLE', 'READY', 'DISABLED']),
             (-5, 'INVISIBLE', 'The element is in the scene but hidden from the players.', ARRAY['INITIAL', 'READY', 'DISABLED']),
             (-5, 'READY',     'The element is in the scene and can be used.',            ARRAY['INITIAL', 'INVISIBLE', 'DISABLED']),
-            (-5, 'DISABLED',  'The element is in the scene but switched off.',           ARRAY['INITIAL', 'INVISIBLE', 'READY'])
+            (-5, 'DISABLED',  'The element is in the scene but switched off.',           ARRAY['INITIAL', 'INVISIBLE', 'READY']),
+
+            -- Session players: `session_players`. Read as transitions FROM
+            -- each status: waiting -> present, away or left; present -> away
+            -- or left; away -> waiting, present or left; left -> waiting or
+            -- present. WAITING is the default a row is created with, and a
+            -- player who comes back from away or from leaving waits again,
+            -- which restamps waiting_at, so the waiting room's clock starts
+            -- over. Nothing leads from present back to waiting: once at the
+            -- table, a player who drops out is away, not waiting.
+            (-6, 'WAITING', 'The player is in the waiting room, before the table opens.', ARRAY['AWAY', 'LEFT']),
+            (-6, 'PRESENT', 'The player is at the table.',                               ARRAY['WAITING', 'AWAY', 'LEFT']),
+            (-6, 'AWAY',    'The player''s page has gone quiet without them leaving.',   ARRAY['WAITING', 'PRESENT']),
+            (-6, 'LEFT',    'The player has left.',                                      ARRAY['WAITING', 'PRESENT', 'AWAY'])
     ),
     numbered_statuses AS (
         SELECT -ROW_NUMBER() OVER () AS s_status_id, *

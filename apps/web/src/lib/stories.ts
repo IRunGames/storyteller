@@ -31,11 +31,23 @@ export type StoryCardData = {
   storytellerName: string | null;
   /**
    * The story's current session is open, so play is under way at its table.
-   * A non-owner gets a Join button in the Play button's place.
+   * A non-owner's Play is highlighted, with presentCount on it.
    */
   hasOpenSession: boolean;
   /** How many players sit at the table; the storyteller is not one of them. */
   playerCount: number;
+  /**
+   * How many players are in the waiting room for the table to open; see
+   * db/session-player-counts.ts, leaving out the viewer. Play shows it: on the
+   * storyteller's card always, and on a player's while no session is on.
+   */
+  waitingCount: number;
+  /**
+   * How many players are at the table in the current session; see
+   * db/session-player-counts.ts. A player's card shows it on Play while a
+   * session is being played.
+   */
+  presentCount: number;
 };
 
 /** Sessions per fetch in a story's Recent sessions section. */

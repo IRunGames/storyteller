@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --disable-warning=ExperimentalWarning --experimental-test-module-mocks --import ./src/test/setup.ts --test \"src/**/*.test.ts?(x)\"",
+    "test": "node scripts/run-tests.mjs",
     "auth:generate": "npx @better-auth/cli@latest generate --config src/lib/auth.ts",
     "db:studio": "drizzle-kit studio"
   },

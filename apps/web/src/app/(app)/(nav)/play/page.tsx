@@ -41,7 +41,7 @@ export default async function PlayPage() {
 
         <Stack as="section" aria-labelledby="play-picker-heading" gap="4">
           <Heading id="play-picker-heading" size="xl">
-            Start playing
+            Start a session
           </Heading>
           <PlayPicker stories={stories} />
         </Stack>

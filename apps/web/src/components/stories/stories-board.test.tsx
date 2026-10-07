@@ -23,6 +23,8 @@ function stories(count: number, from = 1, isFavorite = false): StoryCardData[] {
     storytellerName: null,
     hasOpenSession: false,
     playerCount: 0,
+    waitingCount: 0,
+    presentCount: 0,
   }));
 }
 
@@ -182,7 +184,7 @@ describe("StoriesBoard", () => {
     await waitFor(() => expect(setFavorite.mock.calls[0].arguments).toEqual([2, true]));
     const favoriteTitles = within(section("Favorites"))
       .getAllByRole("article")
-      .map((a) => within(a).getByRole("link").textContent);
+      .map((a) => a.getAttribute("aria-label"));
     expect(favoriteTitles).toEqual(["Story 2", "Story 50"]);
     expect(
       within(section("My Stories")).getByRole("button", { name: "Remove from Favorites" }),
@@ -299,7 +301,7 @@ describe("StoriesBoard", () => {
     );
     const titles = within(section("Favorites"))
       .getAllByRole("article")
-      .map((a) => within(a).getByRole("link").textContent);
+      .map((a) => a.getAttribute("aria-label"));
     expect(titles[titles.length - 1]).toBe("Story 110");
   });
 

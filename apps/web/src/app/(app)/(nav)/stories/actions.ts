@@ -2,10 +2,12 @@
 
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, exists, ilike, inArray, not, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
+import { hasOpenSession } from "@/db/open-session";
+import { sessionNumber } from "@/db/session-number";
+import { presentCount, waitingCount } from "@/db/session-player-counts";
 import { requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
 import {
@@ -59,33 +61,6 @@ function favoritedBy(userId: string) {
   ).mapWith(Boolean);
 }
 
-// Whether the story's current session (stories.id_story_session) is being
-// played, which is status OPEN or RESUMED: a session that came back from a
-// pause is at the table just as much as one that never paused. A correlated
-// EXISTS like favoritedBy, and it reads the pointer rather than searching
-// story_sessions for such a row: the pointer is what the table runs on, so
-// the card and the table can never disagree.
-//
-// The workflow in s_statuses says what a session may be and what it may
-// become, but not which of its statuses mean play is under way, so that
-// judgement has nowhere else to live yet; a flag on s_statuses would be the
-// place for it. Until there is one, a workflow renamed in the database has to
-// be followed up in three places by hand: here, SESSION_STATUS_WORDING in
-// lib/stories.ts, which turns these same two keys into words, and the scene
-// order in sa_getStorySession below, which reads the active_at column that
-// the ACTIVE key gives its name to.
-const hasOpenSession = exists(
-  db
-    .select({ one: storySessions.idStorySession })
-    .from(storySessions)
-    .where(
-      and(
-        eq(storySessions.idStorySession, stories.idStorySession),
-        inArray(storySessions.status, ["OPEN", "RESUMED"]),
-      ),
-    ),
-).mapWith(Boolean);
-
 // How many story_players rows the story has. A correlated subquery rather than
 // a join with GROUP BY, so the paging LIMIT still counts stories, not players.
 // count() comes back as a bigint string from pg; the card wants a number.
@@ -121,6 +96,10 @@ function cardColumns(userId: string) {
     storytellerName: sql<string | null>`${playerName}`,
     hasOpenSession,
     playerCount,
+    // Everyone waiting but the viewer: the storyteller never waits, and a
+    // player waiting in another tab is not someone else waiting.
+    waitingCount: waitingCount(stories.idStory, userId),
+    presentCount: presentCount(),
   };
 }
 
@@ -384,22 +363,6 @@ export async function sa_addStoryPlayers(
  * sessions, it just has no length yet. created_at sets the order: a session
  * row is created as it opens, and unlike open_at it can never be null.
  */
-// The outer session's place in its story's opening order, counted the way
-// the list sorts so the oldest is 1 and the newest is the count. count(*)
-// is a bigint, which the driver hands over as a string.
-function sessionNumber() {
-  const earlier = alias(storySessions, "earlier");
-  return sql<number>`(${db
-    .select({ n: sql`count(*) + 1` })
-    .from(earlier)
-    .where(
-      and(
-        eq(earlier.idStory, storySessions.idStory),
-        sql`(${earlier.createdAt}, ${earlier.idStorySession}) < (${storySessions.createdAt}, ${storySessions.idStorySession})`,
-      ),
-    )})`.mapWith(Number);
-}
-
 export async function sa_listStorySessions(
   idStory: number,
   offset: number,

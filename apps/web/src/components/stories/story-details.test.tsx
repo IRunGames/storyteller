@@ -21,6 +21,8 @@ const story: StoryCardData = {
   storytellerName: "PalmDave",
   hasOpenSession: false,
   playerCount: 2,
+  waitingCount: 0,
+  presentCount: 0,
 };
 
 const players: StoryPlayer[] = [

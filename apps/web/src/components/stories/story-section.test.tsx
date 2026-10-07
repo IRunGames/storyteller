@@ -23,6 +23,8 @@ function stories(count: number, from = 1): StoryCardData[] {
     storytellerName: null,
     hasOpenSession: false,
     playerCount: 0,
+    waitingCount: 0,
+    presentCount: 0,
   }));
 }
 

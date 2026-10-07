@@ -5,7 +5,7 @@
 // user only plays in, one they own, one they own but retired, and a
 // stranger's. Fixture ids are positive and left to the database default, so
 // they never collide with the seed's negative ids.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
@@ -149,12 +149,141 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     expect(stories[0]).toEqual({
       idStory: expect.any(Number),
       title: expect.any(String),
+      isOwner: expect.any(Boolean),
     });
+    expect(stories.find((s) => s.idStory === owns)?.isOwner).toBe(true);
+    expect(stories.find((s) => s.idStory === playsIn)?.isOwner).toBe(false);
     // Relative order only: the stories suite runs alongside this one and
     // inserts fixtures of its own, so nothing here can claim the top slot.
     // Both fixtures were inserted in one statement and share updated_at, so
     // the later id leads; both come before every seed story, all negative.
     expect(ids.indexOf(owns)).toBeLessThan(ids.indexOf(playsIn));
     expect(ids.indexOf(playsIn)).toBeLessThan(ids.findIndex((id) => id < 0));
+  });
+
+  describe("sessions", () => {
+    // Each test numbers and points at sessions of its own, so none may be
+    // left from the one before. Deleting them clears stories' pointers too
+    // (ON DELETE SET NULL).
+    beforeEach(async () => {
+      await db
+        .delete(tables.storySessions)
+        .where(inArray(tables.storySessions.idStory, fixtureStoryIds));
+    });
+
+    async function addSession(idStory: number, status: string) {
+      const [row] = await db
+        .insert(tables.storySessions)
+        .values({ idStory, idCreatedByUser: SEED_USER })
+        .returning({ id: tables.storySessions.idStorySession });
+      // Each status is reached through the workflow, so walk it there.
+      if (status !== "OPEN") {
+        await db
+          .update(tables.storySessions)
+          .set({ status: status === "RESUMED" ? "SUSPENDED" : status })
+          .where(eq(tables.storySessions.idStorySession, row.id));
+      }
+      if (status === "RESUMED") {
+        await db
+          .update(tables.storySessions)
+          .set({ status: "RESUMED" })
+          .where(eq(tables.storySessions.idStorySession, row.id));
+      }
+      return row.id;
+    }
+
+    async function storyRow(idStory: number) {
+      const [row] = await db
+        .select({ idStorySession: tables.stories.idStorySession })
+        .from(tables.stories)
+        .where(eq(tables.stories.idStory, idStory));
+      return row;
+    }
+
+    async function sessionStatus(id: number) {
+      const [row] = await db
+        .select({ status: tables.storySessions.status })
+        .from(tables.storySessions)
+        .where(eq(tables.storySessions.idStorySession, id));
+      return row?.status;
+    }
+
+    // redirect() throws to navigate; its digest names where it was going.
+    async function expectRedirectTo(promise: Promise<unknown>, path: string) {
+      await expect(promise).rejects.toMatchObject({
+        digest: expect.stringContaining(`;${path};`),
+      });
+    }
+
+    it("lists the owner's sessions that are not DONE, numbered", async () => {
+      const done = await addSession(owns, "DONE");
+      const suspended = await addSession(owns, "SUSPENDED");
+      const open = await addSession(owns, "OPEN");
+
+      const listed = await actions.sa_listUnfinishedSessions(owns);
+      const ids = listed.map((s) => s.idStorySession);
+
+      expect(ids).toEqual(expect.arrayContaining([suspended, open]));
+      expect(ids).not.toContain(done);
+      // Numbered in opening order, the DONE one included: it was first.
+      expect(listed.find((s) => s.idStorySession === suspended)?.number).toBe(2);
+    });
+
+    it("lists nothing for a story the caller only plays in", async () => {
+      await db.insert(tables.storySessions).values({ idStory: playsIn, idCreatedByUser: otherUserId });
+      expect(await actions.sa_listUnfinishedSessions(playsIn)).toEqual([]);
+    });
+
+    async function sessionTitle(id: number) {
+      const [row] = await db
+        .select({ title: tables.storySessions.title })
+        .from(tables.storySessions)
+        .where(eq(tables.storySessions.idStorySession, id));
+      return row?.title;
+    }
+
+    it("creates a new OPEN session with the title given, makes it current and goes to the table", async () => {
+      await expectRedirectTo(
+        actions.sa_startPlaying(owns, null, "Oct 6, 2026 session"),
+        `/play/${owns}`,
+      );
+
+      const { idStorySession } = await storyRow(owns);
+      expect(idStorySession).not.toBeNull();
+      expect(await sessionStatus(idStorySession!)).toBe("OPEN");
+      expect(await sessionTitle(idStorySession!)).toBe("Oct 6, 2026 session");
+    });
+
+    it("titles a new session with the UTC day when given no title", async () => {
+      await expectRedirectTo(actions.sa_startPlaying(owns, null, "   "), `/play/${owns}`);
+
+      const { idStorySession } = await storyRow(owns);
+      const today = new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      }).format(new Date());
+      expect(await sessionTitle(idStorySession!)).toBe(`${today} session`);
+    });
+
+    it("resumes a SUSPENDED session and makes it current", async () => {
+      const suspended = await addSession(owns, "SUSPENDED");
+
+      await expectRedirectTo(actions.sa_startPlaying(owns, suspended), `/play/${owns}`);
+
+      expect((await storyRow(owns)).idStorySession).toBe(suspended);
+      expect(await sessionStatus(suspended)).toBe("RESUMED");
+    });
+
+    it("refuses a DONE session, another story's session, and a story not the caller's", async () => {
+      const done = await addSession(owns, "DONE");
+      expect((await actions.sa_startPlaying(owns, done)).ok).toBe(false);
+
+      const elsewhere = await addSession(fillerIds[0], "OPEN");
+      expect((await actions.sa_startPlaying(owns, elsewhere)).ok).toBe(false);
+
+      expect((await actions.sa_startPlaying(playsIn, null)).ok).toBe(false);
+    });
   });
 });

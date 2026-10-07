@@ -71,7 +71,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
 
     const [otherUser] = await db
       .insert(tables.user)
-      .values({ name: "Fixture Other", nickName: "Other", email: "fixture-other@example.test" })
+      .values({ name: "Fixture Other", nickName: "Other", email: "stories-fixture-other@example.test" })
       .returning({ id: tables.user.id });
     otherUserId = otherUser.id;
 
@@ -242,13 +242,27 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     expect(ids).not.toContain(storyC);
   });
 
+  it("counts who is waiting on a card, leaving out the viewer", async () => {
+    // Both waiting for story A: the viewer (the seed user) and one other.
+    // Rows cascade away with the fixture stories in after().
+    await db.insert(tables.sessionPlayers).values([
+      { idStory: storyA, idCreatedByUser: SEED_USER },
+      { idStory: storyA, idCreatedByUser: otherUserId },
+    ]);
+    try {
+      expect((await actions.sa_getStory(storyA))?.waitingCount).toBe(1);
+    } finally {
+      await db.delete(tables.sessionPlayers).where(eq(tables.sessionPlayers.idStory, storyA));
+    }
+  });
+
   it("joins the system onto each card", async () => {
-    // The Devil's Spine is inactive in the seed, so include inactive stories.
-    const all = [
-      ...(await actions.sa_listMyStories(0, true)),
-      ...(await actions.sa_listMyStories(10, true)),
-    ];
-    const numenera = all.find((s) => s.title === "The Devil's Spine");
+    // Read straight from sa_getStory, which builds the same card as the
+    // lists, rather than by paging My Stories for it: the suites that run
+    // alongside this one add and touch the seed user's stories, so which
+    // page a seed story sits on can change between one page and the next.
+    // -13 is The Devil's Spine in seeds/seed_stories.sql.
+    const numenera = await actions.sa_getStory(-13);
 
     expect(numenera).toMatchObject({
       systemName: "Cypher System",
@@ -323,7 +337,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       },
     ]);
 
-    const byEmail = await actions.sa_searchPlayers(storyD, "fixture-other@");
+    // Prefixed with the suite's name: the play and library suites run
+    // alongside this one with fixture users of their own, and a bare
+    // "fixture-other@" matched theirs too.
+    const byEmail = await actions.sa_searchPlayers(storyD, "stories-fixture-other@");
     expect(byEmail.map((m) => m.idUser)).toEqual([otherUserId]);
 
     // "e" is in nearly every seed address, so this is where the cap bites.

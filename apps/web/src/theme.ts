@@ -105,6 +105,34 @@ const config = defineConfig({
             },
           },
         },
+        // A story card's Play when there is something to go to: players
+        // waiting for the storyteller (with the outline round the card), or
+        // a session in progress for a player. The theme's highlight again,
+        // repeated rather than read from status.* for the reason status.*
+        // repeats nav.*: each belongs to its own component. The card's text
+        // is white over a darkened cover in every theme, so contrast here is
+        // only the button's label against the highlight, which is what
+        // status.contrast was chosen for too.
+        play: {
+          accent: {
+            value: {
+              base: "#c2410c",
+              _dark: "#f0955c",
+              _halloween: "#f97316",
+              _blackberry: "#c084fc",
+              _mint: "#5eead4",
+            },
+          },
+          contrast: {
+            value: {
+              base: "#ffffff",
+              _dark: "#16181e",
+              _halloween: "#000000",
+              _blackberry: "#14072a",
+              _mint: "#061d19",
+            },
+          },
+        },
         nav: {
           bg: {
             value: {

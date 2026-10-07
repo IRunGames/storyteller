@@ -242,7 +242,9 @@ needs_user_ids`), fails loudly if the registration did not take, and calls
   `await import(...)` after the mocks are registered
   ([`app-header.test.tsx`](../src/components/nav/app-header.test.tsx)).
 - **Action tests hit the real database** and are skipped when `DATABASE_URL`
-  is unset. They mock `getSession` from `@/lib/require-session`, import `@/db`
+  is unset. [`scripts/run-tests.mjs`](../scripts/run-tests.mjs) runs every
+  test file that mentions `DATABASE_URL` one at a time, after the rest have
+  run in parallel: side by side, one suite's fixtures land in another's lists. They mock `getSession` from `@/lib/require-session`, import `@/db`
   lazily inside `before` (the pool opens at import time), create their own
   fixtures, clean them up in both `before` and `after`, and close the pool
   ([`feedback/actions.test.ts`](../src/components/feedback/actions.test.ts)).

@@ -25,6 +25,8 @@ const story: StoryCardData = {
   storytellerName: null,
   hasOpenSession: false,
   playerCount: 3,
+  waitingCount: 0,
+  presentCount: 0,
 };
 
 const sessions: StorySession[] = [
