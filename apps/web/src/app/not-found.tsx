@@ -27,7 +27,7 @@ export default function NotFound() {
         inset="0"
         bgSize="cover"
         bgPos="center"
-        style={{ backgroundImage: 'url("/images/not-found.png")' }}
+        style={{ backgroundImage: 'url("/images/not-found.webp")' }}
       />
       <Box aria-hidden position="absolute" inset="0" bg="blackAlpha.500" />
       {/* The figure stands in the middle of the picture, so the panel sits

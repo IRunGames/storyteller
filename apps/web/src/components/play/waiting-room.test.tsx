@@ -95,7 +95,7 @@ describe("WaitingRoom", () => {
             story={{ idStory: 7, title: "Kildealg" }}
             initial={initial}
             sessions={sessions}
-            background="/images/f_waiting.png"
+            background="/images/f_waiting.webp"
           />
         </UserPreferencesProvider>
       </UserProvider>,
@@ -113,9 +113,9 @@ describe("WaitingRoom", () => {
   it("paints the picture the page picked behind the room", () => {
     const { container } = render();
     const painted = [...container.querySelectorAll<HTMLElement>("[aria-hidden]")].find((el) =>
-      el.style.backgroundImage.includes("_waiting.png"),
+      el.style.backgroundImage.includes("_waiting.webp"),
     );
-    expect(painted?.style.backgroundImage).toBe('url("/images/f_waiting.png")');
+    expect(painted?.style.backgroundImage).toBe('url("/images/f_waiting.webp")');
   });
 
   it("lists the sessions so far to look through", () => {

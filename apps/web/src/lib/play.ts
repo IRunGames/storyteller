@@ -93,9 +93,9 @@ export function newSessionTitle(day: string): string {
  * story; see pickWaitingBackground.
  */
 export const WAITING_BACKGROUNDS = [
-  "/images/c_waiting.png",
-  "/images/f_waiting.png",
-  "/images/o_waiting.png",
+  "/images/c_waiting.webp",
+  "/images/f_waiting.webp",
+  "/images/o_waiting.webp",
 ] as const;
 
 /**
