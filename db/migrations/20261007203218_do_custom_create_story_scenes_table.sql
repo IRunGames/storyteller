@@ -1,3 +1,4 @@
+-- migrate:up
 -- A scene of a story: a card in the Scenes column of the Prep Work board,
 -- written ahead of play and then run at the table. Its status runs through
 -- the story_scenes workflow seeded in seeds/seed_s_statuses.sql (pending,
@@ -119,3 +120,6 @@ $$;
 -- choose, so its next run finds them already in place.
 CREATE INDEX IF NOT EXISTS idx_fk_story_scenes_id_story ON story_scenes (id_story);
 CREATE INDEX IF NOT EXISTS idx_fk_story_scenes_id_story_session ON story_scenes (id_story_session);
+
+-- migrate:down
+

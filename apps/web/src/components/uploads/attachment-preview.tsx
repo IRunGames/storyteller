@@ -13,6 +13,7 @@ import {
   Wrap,
 } from "@chakra-ui/react";
 import { Star, Tag as TagIcon } from "lucide-react";
+import { AttachmentTagsPopover } from "./attachment-tags-popover";
 
 type Props = {
   url: string;
@@ -20,6 +21,18 @@ type Props = {
   label: string;
   tags: string[];
   isCover: boolean;
+  /**
+   * Given where the viewer may change the attachment, as its storyteller:
+   * the tag icon beside the tags becomes the card's tags button, so they are
+   * edited from here too. The field's own handlers, as the card's are, so
+   * the tags shown here and on the card change together. Without them the
+   * tags are only shown.
+   */
+  editTags?: {
+    canCover: boolean;
+    onTagsChange: (tags: string[]) => Promise<boolean>;
+    onCoverChange: (isCover: boolean) => Promise<boolean>;
+  };
 };
 
 /**
@@ -31,7 +44,7 @@ type Props = {
  * small and may sit anywhere on the page, and a popover attached to it has
  * nowhere to put a large picture without running off the screen.
  */
-export function AttachmentPreview({ url, label, tags, isCover }: Props) {
+export function AttachmentPreview({ url, label, tags, isCover, editTags }: Props) {
   return (
     <Dialog.Root placement="center">
       <Dialog.Trigger asChild>
@@ -59,9 +72,22 @@ export function AttachmentPreview({ url, label, tags, isCover }: Props) {
             </VisuallyHidden>
             <Image src={url} alt={label} maxW="90vw" maxH="80vh" objectFit="contain" mx="auto" />
             <HStack gap="2" px="4" py="3" borderTopWidth="1px" align="center">
-              <Box color="fg.muted" flexShrink={0}>
-                <TagIcon size={16} />
-              </Box>
+              {editTags ? (
+                <AttachmentTagsPopover
+                  label={label}
+                  tags={tags}
+                  isCover={isCover}
+                  canCover={editTags.canCover}
+                  onTagsChange={editTags.onTagsChange}
+                  onCoverChange={editTags.onCoverChange}
+                  // In the dialog, which makes the page behind it inert.
+                  portalled={false}
+                />
+              ) : (
+                <Box color="fg.muted" flexShrink={0}>
+                  <TagIcon size={16} />
+                </Box>
+              )}
               {isCover || tags.length > 0 ? (
                 <Wrap gap="2" role="list" aria-label="Tags">
                   {isCover && (

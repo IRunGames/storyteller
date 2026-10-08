@@ -21,3 +21,10 @@ export const sceneSchema = z.object({
 });
 
 export type SceneValues = z.infer<typeof sceneSchema>;
+
+// The storyteller's table makes a scene for the session it is running, so
+// its New scene form asks for the title and description only; the action
+// puts the scene in that session.
+export const runSceneSchema = sceneSchema.pick({ title: true, description: true });
+
+export type RunSceneValues = z.infer<typeof runSceneSchema>;

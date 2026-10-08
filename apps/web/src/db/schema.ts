@@ -145,6 +145,12 @@ export const systems = pgTable("systems", {
   systemName: varchar("system_name").notNull(),
   systemVersion: varchar("system_version"),
   variant: varchar("variant"),
+  // The tags a new scene of a story run in this system starts with, when the
+  // story has none of its own; see db/functions/standard_tags_for_story.sql.
+  standardTags: text("standard_tags")
+    .array()
+    .notNull()
+    .default(sql`'{}'`),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -165,6 +171,12 @@ export const stories = pgTable("stories", {
   // The session currently at the table, if any; null between sessions.
   // story_sessions keeps the history, this is only the one in progress.
   idStorySession: integer("id_story_session"),
+  // The tags each new scene of the story starts with, ahead of its system's;
+  // see db/functions/standard_tags_for_story.sql.
+  standardTags: text("standard_tags")
+    .array()
+    .notNull()
+    .default(sql`'{}'`),
   // A retired story is archived rather than deleted. The database stamps
   // archived_at as is_archived turns on and clears both it and
   // id_archived_by_user as it turns off (set_archived_at and
@@ -388,6 +400,13 @@ export const storyScenes = pgTable("story_scenes", {
   searchText: text("search_text").generatedAlwaysAs(
     sql`immutable_concat_ws(' ', status, scene_title, scene_description)`,
   ),
+  // The standard tags feature from _tables. A new scene starts with its
+  // story's standard tags, which the database fills in
+  // (tr_bi_story_scenes_standard_tags) when an insert leaves this empty.
+  tags: text("tags")
+    .array()
+    .notNull()
+    .default(sql`'{}'`),
   activityLog: jsonb("activity_log")
     .default(sql`'[]'::jsonb`)
     .notNull(),
@@ -511,6 +530,12 @@ export const sceneElements = pgTable("scene_elements", {
   status: varchar("status")
     .notNull()
     .default(sql`DEFAULT`),
+  // The standard tags feature from _tables: how the element is filed within
+  // this scene, apart from its own tags.
+  tags: text("tags")
+    .array()
+    .notNull()
+    .default(sql`'{}'`),
   activityLog: jsonb("activity_log")
     .default(sql`'[]'::jsonb`)
     .notNull(),

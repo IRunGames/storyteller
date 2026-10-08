@@ -677,8 +677,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     const favorites = await actions.sa_listFavoriteStories(0);
     expect(favorites.find((s) => s.idStory === storyB)?.hasOpenSession).toBe(false);
 
-    // No current session at all.
-    expect((await actions.sa_getStory(-1))?.hasOpenSession).toBe(false);
+    // No current session at all. A fixture rather than a seed story: the
+    // seed stories are the ones played in development, and any of them may
+    // have a session open while the tests run.
+    expect((await actions.sa_getStory(storyE))?.hasOpenSession).toBe(false);
 
     // Resumed after a pause counts as open: the table is in play again.
     expect((await actions.sa_getStory(storyD))?.hasOpenSession).toBe(true);

@@ -1,10 +1,9 @@
-import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
+import { before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
-import { Toaster, toaster } from "@/components/ui/toaster";
 import { UserProvider } from "@/components/auth/user-provider";
 import type { CurrentUser } from "@/lib/current-user";
 
@@ -39,7 +38,6 @@ function renderTable(
     <UserProvider user={user}>
       <UserPreferencesProvider preferences={preferences}>
         <PlayTable title="Psychoneira" session={session} />
-        <Toaster />
       </UserPreferencesProvider>
     </UserProvider>,
   );
@@ -72,10 +70,6 @@ describe("PlayTable", () => {
 
   beforeEach(() => {
     sa_setUserPreference.mock.resetCalls();
-  });
-
-  afterEach(() => {
-    toaster.remove();
   });
 
   it("links the Storyteller name in its header to the home page", () => {
@@ -159,19 +153,11 @@ describe("PlayTable", () => {
     expect(within(header).queryByText("None")).not.toBeInTheDocument();
   });
 
-  it("says None, and raises an error toast, when no session is being played", async () => {
+  it("says None when no session is being played", () => {
     renderTable({}, null);
     const header = screen.getByRole("banner");
 
     expect(within(header).getByText("None")).toHaveAttribute("title", "No active session");
-    expect(await screen.findByText("There is no active session.")).toBeInTheDocument();
-  });
-
-  it("raises no toast while a session is being played", async () => {
-    renderTable();
-    // Give an effect the chance to run before asserting nothing came of it.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screen.queryByText("There is no active session.")).not.toBeInTheDocument();
   });
 
   it("starts with both panels closed, leaving the play space", () => {

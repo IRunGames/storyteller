@@ -199,6 +199,7 @@ export async function sa_startPlaying(
   if (result) return result;
 
   // Outside the transaction: redirect() throws to navigate, which would
-  // otherwise roll it back.
-  redirect(`/play/${story.data}`);
+  // otherwise roll it back. Straight to the storyteller's own table rather
+  // than through /play/[id], which would only send them on.
+  redirect(`/run/${story.data}`);
 }

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Box, Button, HStack, Link, Portal, Spacer, Text, Tooltip } from "@chakra-ui/react";
-import { Link as LinkIcon, Star } from "lucide-react";
+import { Box, Button, HStack, Link, Spacer, Text } from "@chakra-ui/react";
+import { Link as LinkIcon } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
+import { AttachmentCoverButton } from "./attachment-cover-button";
 import { AttachmentPreview } from "./attachment-preview";
 import { AttachmentRemoveButton } from "./attachment-remove-button";
 import { AttachmentTagsPopover } from "./attachment-tags-popover";
@@ -70,7 +71,14 @@ export function AttachmentCard({
           // Shown whole at the largest size that fits (contain, not cover: a
           // map or a handout is no use with its edges cut off), and pressing
           // it opens the picture full size.
-          <AttachmentPreview url={row.url} label={label} tags={row.tags} isCover={row.isCover} />
+          <AttachmentPreview
+            url={row.url}
+            label={label}
+            tags={row.tags}
+            isCover={row.isCover}
+            // Editable where the card's own tags button is.
+            editTags={canTag ? { canCover, onTagsChange, onCoverChange } : undefined}
+          />
         ) : (
           <Box h="full" display="flex" alignItems="center" justifyContent="center">
             <Text fontSize="xs" color="fg.muted">
@@ -138,33 +146,11 @@ export function AttachmentCard({
           />
         )}
         {canCover && (
-          // A toggle, so its name stays put and aria-pressed carries the
-          // state; the filled star says the same thing to the eye. Only on a
-          // READY row of a saved object: anything else has no picture to
-          // show, or no object to be the cover of yet. The tooltip says what
-          // pressing it does, which on the cover is taking the cover away.
-          <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-            <Tooltip.Trigger asChild>
-              <Button
-                size="xs"
-                variant={row.isCover ? "solid" : "outline"}
-                type="button"
-                aria-label={`Cover ${label}`}
-                aria-pressed={row.isCover}
-                onClick={() => void toggleCover()}
-              >
-                <Star size={14} fill={row.isCover ? "currentColor" : "none"} />
-                Cover
-              </Button>
-            </Tooltip.Trigger>
-            <Portal>
-              <Tooltip.Positioner>
-                <Tooltip.Content>
-                  {row.isCover ? "Stop using this as the cover image" : "Make this the cover image"}
-                </Tooltip.Content>
-              </Tooltip.Positioner>
-            </Portal>
-          </Tooltip.Root>
+          <AttachmentCoverButton
+            label={label}
+            isCover={row.isCover}
+            onToggle={() => void toggleCover()}
+          />
         )}
         {row.status === "ERROR" && (
           <Button size="xs" type="button" aria-label={`Retry ${label}`} onClick={onRetry}>

@@ -41,7 +41,8 @@ one of them and is protected by being there.
 | Group | Source | What it holds |
 |---|---|---|
 | `(app)/(nav)` | [`(nav)/layout.tsx`](<../src/app/(app)/(nav)/layout.tsx>) | Every signed-in page that carries the menu bar: the landing page after login (`/home`) and the sections the bar links to |
-| `(app)/play` | [`play/page.tsx`](<../src/app/(app)/play/page.tsx>) | The chat UI, with its own full-screen layout and no menu bar |
+| `(app)/play` | [`play/[id]/page.tsx`](<../src/app/(app)/play/[id]/page.tsx>) | The players' table and waiting room, with their own full-screen layout and no menu bar. The story's owner is sent on to `/run/[id]` |
+| `(app)/run` | [`run/[id]/page.tsx`](<../src/app/(app)/run/[id]/page.tsx>) | The storyteller's table, with the story's library down the side. Only the story's owner gets in; anyone else gets the not-found page |
 
 ## The flow
 

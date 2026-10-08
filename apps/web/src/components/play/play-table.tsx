@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { Box, Flex, Heading, HStack } from "@chakra-ui/react";
 import { MessageSquare, UserRound } from "lucide-react";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
-import { toaster } from "@/components/ui/toaster";
 import { PlayCharacterSpace } from "./play-character-space";
 import { PlayChat } from "./play-chat";
 import { PlayHeader } from "./play-header";
@@ -18,9 +16,10 @@ const SHOW_CHARACTER = "play.showCharacter";
 const CHAT_ID = "play-panel-chat";
 const CHARACTER_ID = "play-panel-character";
 
-// The table: where a story is played. It draws its own chrome instead of the
-// menu bar (PlayHeader), so its page sits under (app)/play/[id] rather than
-// (app)/(nav).
+// The players' table: where a story is played. It draws its own chrome
+// instead of the menu bar (PlayHeader), so its page sits under
+// (app)/play/[id] rather than (app)/(nav). The storyteller has their own,
+// RunTable at /run/[id].
 //
 // Three parts. On the left, the play space on top, which is always there,
 // and the character space below it; on the right, the chat. The toggles in
@@ -37,16 +36,6 @@ type Props = {
 export function PlayTable({ title, session }: Props) {
   const preferences = useUserPreferences();
 
-  // Only the storyteller reaches the table with no session being played
-  // (a player is sent to the waiting room), and nothing here can be played
-  // until one is, so they are told as the table opens. The ref keeps React's
-  // development double mount from raising it twice.
-  const toldNoSession = useRef(false);
-  useEffect(() => {
-    if (session !== null || toldNoSession.current) return;
-    toldNoSession.current = true;
-    toaster.create({ title: "There is no active session.", type: "error" });
-  }, [session]);
   const showChat = preferences.get<boolean>(SHOW_CHAT, false);
   const showCharacter = preferences.get<boolean>(SHOW_CHARACTER, false);
 

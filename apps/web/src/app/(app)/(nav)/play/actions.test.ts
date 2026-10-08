@@ -245,7 +245,7 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     it("creates a new OPEN session with the title given, makes it current and goes to the table", async () => {
       await expectRedirectTo(
         actions.sa_startPlaying(owns, null, "Oct 6, 2026 session"),
-        `/play/${owns}`,
+        `/run/${owns}`,
       );
 
       const { idStorySession } = await storyRow(owns);
@@ -255,7 +255,7 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     });
 
     it("titles a new session with the UTC day when given no title", async () => {
-      await expectRedirectTo(actions.sa_startPlaying(owns, null, "   "), `/play/${owns}`);
+      await expectRedirectTo(actions.sa_startPlaying(owns, null, "   "), `/run/${owns}`);
 
       const { idStorySession } = await storyRow(owns);
       const today = new Intl.DateTimeFormat("en-US", {
@@ -270,7 +270,7 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     it("resumes a SUSPENDED session and makes it current", async () => {
       const suspended = await addSession(owns, "SUSPENDED");
 
-      await expectRedirectTo(actions.sa_startPlaying(owns, suspended), `/play/${owns}`);
+      await expectRedirectTo(actions.sa_startPlaying(owns, suspended), `/run/${owns}`);
 
       expect((await storyRow(owns)).idStorySession).toBe(suspended);
       expect(await sessionStatus(suspended)).toBe("RESUMED");

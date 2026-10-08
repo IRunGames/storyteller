@@ -42,6 +42,10 @@ globalThis.ResizeObserver ??= class {
   unobserve() {}
   disconnect() {}
 };
+// zag reads it off the element's own window (ownerDocument.defaultView),
+// which is jsdom's window object rather than Node's global; the segment
+// group's sliding indicator is the first thing to look there.
+window.ResizeObserver ??= globalThis.ResizeObserver;
 
 // next-themes renders a <script> for flash-free theming, which React warns
 // about on every client render. It is inert under jsdom and there is no prop

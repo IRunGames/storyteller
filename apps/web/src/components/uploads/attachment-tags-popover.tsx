@@ -34,6 +34,12 @@ type Props = {
    */
   onTagsChange: (tags: string[]) => Promise<boolean>;
   onCoverChange: (isCover: boolean) => Promise<boolean>;
+  /**
+   * False draws the popover where the button is rather than at the end of
+   * the page: inside a modal dialog, such as the full-size preview, which
+   * makes everything outside itself inert.
+   */
+  portalled?: boolean;
 };
 
 /**
@@ -53,6 +59,7 @@ export function AttachmentTagsPopover({
   canCover,
   onTagsChange,
   onCoverChange,
+  portalled = true,
 }: Props) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps
   // the popover from opening at the page corner (nav-theme-menu.tsx).
@@ -115,13 +122,13 @@ export function AttachmentTagsPopover({
             </IconButton>
           </Popover.Trigger>
         </Tooltip.Trigger>
-        <Portal>
+        <Portal disabled={!portalled}>
           <Tooltip.Positioner>
             <Tooltip.Content>Tags</Tooltip.Content>
           </Tooltip.Positioner>
         </Portal>
       </Tooltip.Root>
-      <Portal>
+      <Portal disabled={!portalled}>
         <Popover.Positioner>
           <Popover.Content w="xs">
             <Popover.Arrow />

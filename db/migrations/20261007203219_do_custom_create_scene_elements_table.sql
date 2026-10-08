@@ -1,3 +1,4 @@
+-- migrate:up
 -- An element brought into a scene: one row per element per scene, so a scene
 -- can call on the story's people, places and things, and an element can turn
 -- up in any number of scenes.
@@ -45,3 +46,6 @@ CALL _p_set_and_update_table_features('scene_elements',
     p_activity_log        := TRUE,
     p_tags                := TRUE,
     p_status_workflow_ids := ARRAY[-5]);
+
+-- migrate:down
+

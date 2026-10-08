@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
@@ -125,6 +125,26 @@ type Props = {
    * the Covers switch leaves drawn, as the Scenes count ignores its search.
    */
   onCountChange?: (count: number) => void;
+  /**
+   * Draws the rows in place of the cards, for a page that lists attachments
+   * its own way and keeps this field for everything else: loading, adding,
+   * uploading, the search and the Covers switch. Handed what would have been
+   * drawn (the search and the Covers switch already applied, newest first)
+   * and this field's own optimistic handlers, so a tag or cover changed there
+   * changes here too. The run page's library is the one that does.
+   */
+  renderRows?: (view: AttachmentRowsView) => ReactNode;
+};
+
+/** What a renderRows caller is given; see Props.renderRows. */
+export type AttachmentRowsView = {
+  rows: Attachment[];
+  /** Whether the first load is back, so an empty list can say none. */
+  hasLoaded: boolean;
+  /** As the card's tags popover calls it; resolves false on a refusal. */
+  setTags: (idAttachment: number, tags: string[]) => Promise<boolean>;
+  /** As the card's Cover button calls it; resolves false on a refusal. */
+  setCover: (idAttachment: number, isCover: boolean) => Promise<boolean>;
 };
 
 function rejectionMessage(rejection: { errors: string[] } | undefined): string {
@@ -167,6 +187,7 @@ export function AttachmentListField({
   hideCovers = false,
   showEmpty = false,
   onCountChange,
+  renderRows,
 }: Props) {
   const { id: userId } = useUser();
   const router = useRouter();
@@ -738,39 +759,50 @@ export function AttachmentListField({
         </HStack>
       )}
 
-      {showEmpty && hasLoaded && !loadError && visibleRows.length === 0 && (
-        <Text color="fg.muted">{rows.length === 0 ? "No attachments yet." : "No matches."}</Text>
-      )}
+      {renderRows ? (
+        renderRows({
+          rows: visibleRows,
+          hasLoaded,
+          setTags: handleTags,
+          setCover: handleCover,
+        })
+      ) : (
+        <>
+          {showEmpty && hasLoaded && !loadError && visibleRows.length === 0 && (
+            <Text color="fg.muted">{rows.length === 0 ? "No attachments yet." : "No matches."}</Text>
+          )}
 
-      {/* auto-fill, so the cards fill the row and wrap to as many columns
-          as the width holds, down to one on a phone. */}
-      <Grid
-        role="list"
-        aria-label="Current attachments"
-        w="full"
-        gap="3"
-        templateColumns="repeat(auto-fill, minmax(13rem, 1fr))"
-      >
-        {visibleRows.map((row) => (
-          <AttachmentCard
-            key={row.idAttachment}
-            row={row}
-            label={row.fileName ?? row.url ?? `Attachment ${row.idAttachment}`}
-            placeholder={
-              row.status === "ERROR"
-                ? "Failed"
-                : row.status === UNKNOWN_STATUS
-                  ? "Attachment"
-                  : "Uploading…"
-            }
-            canTag={idExternal !== null}
-            onRetry={() => void handleRetry(row.idAttachment)}
-            onRemove={() => void handleRemove(row.idAttachment)}
-            onCoverChange={(isCover) => handleCover(row.idAttachment, isCover)}
-            onTagsChange={(tags) => handleTags(row.idAttachment, tags)}
-          />
-        ))}
-      </Grid>
+          {/* auto-fill, so the cards fill the row and wrap to as many columns
+              as the width holds, down to one on a phone. */}
+          <Grid
+            role="list"
+            aria-label="Current attachments"
+            w="full"
+            gap="3"
+            templateColumns="repeat(auto-fill, minmax(13rem, 1fr))"
+          >
+            {visibleRows.map((row) => (
+              <AttachmentCard
+                key={row.idAttachment}
+                row={row}
+                label={row.fileName ?? row.url ?? `Attachment ${row.idAttachment}`}
+                placeholder={
+                  row.status === "ERROR"
+                    ? "Failed"
+                    : row.status === UNKNOWN_STATUS
+                      ? "Attachment"
+                      : "Uploading…"
+                }
+                canTag={idExternal !== null}
+                onRetry={() => void handleRetry(row.idAttachment)}
+                onRemove={() => void handleRemove(row.idAttachment)}
+                onCoverChange={(isCover) => handleCover(row.idAttachment, isCover)}
+                onTagsChange={(tags) => handleTags(row.idAttachment, tags)}
+              />
+            ))}
+          </Grid>
+        </>
+      )}
 
       <Field.ErrorText>{fieldError}</Field.ErrorText>
     </Field.Root>
