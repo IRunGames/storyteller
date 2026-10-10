@@ -22,6 +22,8 @@ const scenes: RunScene[] = [
 
 const spaceFor = (scene: RunScene): RunPlaySpace => ({
   scene: { ...scene, status: "ACTIVE" },
+  tags: [],
+  coverUrl: null,
   inPlay: [],
 });
 
@@ -117,6 +119,19 @@ describe("RunSceneSelect", () => {
       "The crossingComplete",
     ]);
     expect(sa_listRunScenes.mock.calls[0].arguments).toEqual([-4]);
+  });
+
+  it("marks the scene the table is on in the list", async () => {
+    const user = userEvent.setup();
+    render({ scene: scenes[1] });
+
+    await user.click(screen.getByRole("button", { name: "Scene: The abbey" }));
+
+    await waitFor(() => expect(screen.getAllByRole("menuitem")).toHaveLength(4));
+    const current = screen
+      .getAllByRole("menuitem")
+      .filter((item) => item.getAttribute("aria-current") === "true");
+    expect(current.map((item) => item.textContent)).toEqual(["The abbeyPending"]);
   });
 
   it("loads a pending scene straight away", async () => {

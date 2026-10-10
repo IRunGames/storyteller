@@ -29,3 +29,31 @@ export function formatDay(date: Date): string {
 export function formatDayUtc(date: Date): string {
   return utcDay.format(date);
 }
+
+// A day and the time of day on it, for a moment worth placing within its
+// session, such as when an element was brought into a scene.
+const dateTimeFormat: Intl.DateTimeFormatOptions = {
+  ...dayFormat,
+  hour: "numeric",
+  minute: "2-digit",
+};
+const localDateTime = new Intl.DateTimeFormat("en-US", dateTimeFormat);
+const utcDateTime = new Intl.DateTimeFormat("en-US", {
+  ...dateTimeFormat,
+  timeZone: "UTC",
+  timeZoneName: "short",
+});
+
+/** "Oct 9, 2026, 3:42 PM" in whatever zone this is running in. */
+export function formatDateTime(date: Date): string {
+  return localDateTime.format(date);
+}
+
+/**
+ * "Oct 9, 2026, 3:42 PM UTC", for markup that has to match between server
+ * and browser. Says UTC, since a time of day read in the wrong zone is
+ * wrong where a day mostly is not.
+ */
+export function formatDateTimeUtc(date: Date): string {
+  return utcDateTime.format(date);
+}

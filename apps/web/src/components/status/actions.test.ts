@@ -225,4 +225,30 @@ describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => 
       error: "That is not yours to change.",
     });
   });
+
+  it("moves a scene element through its workflow, and only on the caller's own story", async () => {
+    // A link in each story: the element brought into the scene beside it.
+    const [mine, theirs] = await db
+      .insert(tables.sceneElements)
+      .values([
+        { idStoryScene: myScene, idElement: myElement, idCreatedByUser: SEED_USER },
+        { idStoryScene: theirScene, idElement: theirElement, idCreatedByUser: otherUserId },
+      ])
+      .returning({
+        id: tables.sceneElements.idSceneElement,
+        status: tables.sceneElements.status,
+      });
+    const sceneWorkflow = await actions.sa_listStatusOptions("scene_elements");
+    const [move] = transitionsFrom(mine.status, sceneWorkflow);
+    expect(move).toBeDefined();
+
+    expect(await actions.sa_setRowStatus("scene_elements", mine.id, move.key)).toEqual({
+      ok: true,
+      status: move.key,
+    });
+    expect(await actions.sa_setRowStatus("scene_elements", theirs.id, move.key)).toEqual({
+      ok: false,
+      error: "That is not yours to change.",
+    });
+  });
 });

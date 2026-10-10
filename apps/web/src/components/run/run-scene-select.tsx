@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, chakra, HStack, Menu, Popover, Portal, Text } from "@chakra-ui/react";
-import { ChevronDown, Plus } from "lucide-react";
+import { Check, ChevronDown, Plus } from "lucide-react";
 import type { RunPlaySpace, RunScene } from "@/lib/run";
 import { SCENE_LOCKED_STATUS } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
@@ -139,16 +139,39 @@ export function RunSceneSelect({ idStory, scene, hasSession, statusOptions, onLo
                       No scenes yet.
                     </Text>
                   ) : (
-                    scenes.map((row) => (
-                      <Menu.Item key={row.idStoryScene} value={String(row.idStoryScene)}>
-                        <HStack justify="space-between" gap="4" w="full" minW="0">
-                          <Text truncate>{row.title}</Text>
-                          <Text textStyle="xs" color="fg.muted" flexShrink="0">
-                            {statusLabel(row.status)}
-                          </Text>
-                        </HStack>
-                      </Menu.Item>
-                    ))
+                    scenes.map((row) => {
+                      // The scene the table is on stands out in the list, with
+                      // a tick, the weight and a tint, and aria-current for a
+                      // screen reader. A space the tick's width keeps every
+                      // other title in line with it.
+                      const isCurrent = row.idStoryScene === scene?.idStoryScene;
+                      return (
+                        <Menu.Item
+                          key={row.idStoryScene}
+                          value={String(row.idStoryScene)}
+                          aria-current={isCurrent ? "true" : undefined}
+                          bg={isCurrent ? "bg.muted" : undefined}
+                          fontWeight={isCurrent ? "semibold" : undefined}
+                        >
+                          <HStack justify="space-between" gap="4" w="full" minW="0">
+                            <HStack gap="2" minW="0">
+                              <chakra.span boxSize="4" flexShrink="0" color="colorPalette.fg">
+                                {isCurrent && <Check size={16} />}
+                              </chakra.span>
+                              <Text truncate>{row.title}</Text>
+                            </HStack>
+                            <Text
+                              textStyle="xs"
+                              fontWeight="normal"
+                              color="fg.muted"
+                              flexShrink="0"
+                            >
+                              {statusLabel(row.status)}
+                            </Text>
+                          </HStack>
+                        </Menu.Item>
+                      );
+                    })
                   )}
                 </Menu.Content>
               </Menu.Positioner>

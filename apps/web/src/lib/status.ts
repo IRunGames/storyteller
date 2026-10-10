@@ -6,7 +6,12 @@
  */
 
 /** The tables whose status the pill may read and write. */
-export const STATUS_TABLES = ["story_scenes", "story_sessions", "elements"] as const;
+export const STATUS_TABLES = [
+  "story_scenes",
+  "story_sessions",
+  "elements",
+  "scene_elements",
+] as const;
 export type StatusTable = (typeof STATUS_TABLES)[number];
 
 /** One status of a workflow, in the order the workflow lists them. */

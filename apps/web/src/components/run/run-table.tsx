@@ -1,18 +1,27 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Box, Flex, Heading, HStack, Image, List, Stack, Text } from "@chakra-ui/react";
-import { BookOpen, MessageSquare, UserRound, X } from "lucide-react";
-import type { PlayItem, RunPlaySpace, RunScene } from "@/lib/run";
+import { Box, Flex, Heading, HStack, Stack, Switch } from "@chakra-ui/react";
+import { BookOpen, MessageSquare, UserRound } from "lucide-react";
+import {
+  elementIdOf,
+  playStacks,
+  RUN_ADD_INVISIBLE,
+  type PlayItem,
+  type RunPlaySpace,
+  type RunScene,
+} from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
+import { cssUrlValue } from "@/lib/stories";
+import { sa_linkSceneElement } from "@/app/(app)/run/[id]/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { toaster } from "@/components/ui/toaster";
 import { PlayCharacterSpace } from "@/components/play/play-character-space";
 import { PlayChat } from "@/components/play/play-chat";
 import { PlayHeader } from "@/components/play/play-header";
 import { PlayPanelToggle } from "@/components/play/play-panel-toggle";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { RunLibrary } from "./run-library";
+import { RunPlayStack } from "./run-play-stack";
 import { RunSceneSelect } from "./run-scene-select";
 
 // The storyteller's own preference keys, apart from a player's play.* ones:
@@ -46,16 +55,28 @@ type Props = {
 // story before drawing any of it.
 //
 // The play space opens with the scene the session is on and the elements
-// brought into it (sa_getRunPlaySpace), and the library's arrows add to it.
+// brought into it (sa_getRunPlaySpace), in one stack per scene tag with the
+// scene's cover behind them. A stack's + makes a new element filed under
+// its tag, and the library's arrow links an element to the scene under the
+// first stack's tag; both are saved, tag and all, so a reload puts each
+// back in its stack. An element added with no scene at the table is kept
+// in this page's state only, so it is the storyteller's alone; showing it
+// to the players is for when the table has somewhere shared to keep it.
 // The scene selector in the header moves the table to another scene, which
-// replaces the play space with that scene's. What is added is kept in this
-// page's state for now, so it is the storyteller's alone and a reload goes
-// back to the scene; showing it to the players is for when the table has
-// somewhere shared to keep it.
+// replaces the play space with that scene's.
 export function RunTable({ idStory, title, session, initialSpace, sceneStatusOptions }: Props) {
   const preferences = useUserPreferences();
   const [scene, setScene] = useState<RunScene | null>(initialSpace.scene);
+  const [tags, setTags] = useState<string[]>(initialSpace.tags);
+  const [coverUrl, setCoverUrl] = useState<string | null>(initialSpace.coverUrl);
   const [inPlay, setInPlay] = useState<PlayItem[]>(initialSpace.inPlay);
+
+  const loadSpace = (space: RunPlaySpace) => {
+    setScene(space.scene);
+    setTags(space.tags);
+    setCoverUrl(space.coverUrl);
+    setInPlay(space.inPlay);
+  };
 
   // Nothing can be played until a session is, so the storyteller is told as
   // the table opens. The ref keeps React's development double mount from
@@ -70,14 +91,57 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
   const showLibrary = preferences.get<boolean>(SHOW_LIBRARY, true);
   const showChat = preferences.get<boolean>(SHOW_CHAT, false);
   const showCharacter = preferences.get<boolean>(SHOW_CHARACTER, false);
+  // The library's Add as invisible switch; a stack's + reads it too, for
+  // where its new element starts.
+  const addInvisible = preferences.get<boolean>(RUN_ADD_INVISIBLE, false);
 
   // An item already in play stays where it is rather than going in twice.
-  const add = (item: PlayItem) =>
+  const put = (item: PlayItem) =>
     setInPlay((current) =>
       current.some((existing) => existing.key === item.key) ? current : [...current, item],
     );
+
+  // The library's arrow. An element is linked to the scene first, and goes
+  // in as the link came back, with whatever tags it already had there.
+  async function add(item: PlayItem) {
+    if (inPlay.some((existing) => existing.key === item.key)) return;
+    if (scene === null) {
+      put(item);
+      return;
+    }
+    const idElement = elementIdOf(item);
+    try {
+      const result = await sa_linkSceneElement(
+        idStory,
+        scene.idStoryScene,
+        idElement,
+        addInvisible,
+      );
+      if (result.ok) put(result.item);
+      else toaster.create({ title: result.error, type: "error" });
+    } catch {
+      toaster.create({ title: "The element could not be added. Try again.", type: "error" });
+    }
+  }
   const remove = (key: string) =>
     setInPlay((current) => current.filter((existing) => existing.key !== key));
+  // An item edited or moved from its info popover, in place. Matched by its
+  // element id rather than its key, which carries the kind: an edit that
+  // changes the kind comes back under a new key.
+  const replace = (item: PlayItem) =>
+    setInPlay((current) =>
+      current.map((existing) =>
+        existing.kind !== "ATTACHMENT" && elementIdOf(existing) === elementIdOf(item)
+          ? item
+          : existing,
+      ),
+    );
+  const setStatus = (key: string, status: string) =>
+    setInPlay((current) =>
+      current.map((existing) =>
+        existing.key === key ? { ...existing, sceneStatus: status } : existing,
+      ),
+    );
 
   const toggles = (
     <HStack gap="1">
@@ -120,10 +184,7 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
             scene={scene}
             hasSession={session !== null}
             statusOptions={sceneStatusOptions}
-            onLoaded={(space) => {
-              setScene(space.scene);
-              setInPlay(space.inPlay);
-            }}
+            onLoaded={loadSpace}
           />
         }
       />
@@ -146,79 +207,93 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
             borderRightWidth="1px"
             bg="bg.subtle"
           >
-            <Heading id="run-library-heading" size="sm">
-              Library
-            </Heading>
+            {/* The switch sits at the heading's far end: it decides how what
+                the library adds goes into the scene, hidden or not. */}
+            <HStack justify="space-between" gap="2">
+              <Heading id="run-library-heading" size="sm">
+                Library
+              </Heading>
+              <Switch.Root
+                checked={addInvisible}
+                onCheckedChange={(details) => preferences.set(RUN_ADD_INVISIBLE, details.checked)}
+                size="sm"
+              >
+                {/* Chakra renders a checkbox input; role="switch" is the
+                    ARIA pattern for an on/off toggle and what tests query. */}
+                <Switch.HiddenInput role="switch" />
+                <Switch.Control>
+                  <Switch.Thumb />
+                </Switch.Control>
+                <Switch.Label>Add as invisible</Switch.Label>
+              </Switch.Root>
+            </HStack>
             <Box flex="1" minH="0">
               <RunLibrary
                 idStory={idStory}
                 idStoryScene={scene?.idStoryScene ?? null}
-                onAdd={add}
+                onAdd={(item) => void add(item)}
+                onSceneCoverChange={setCoverUrl}
               />
             </Box>
           </Box>
         )}
 
         <Flex direction="column" flex="1" minW="0">
-          <Stack
+          {/* The cover sits behind the scrolling part, so it stays put while
+              the stacks scroll over it. */}
+          <Box
             as="section"
             aria-labelledby="play-space-heading"
+            position="relative"
             flex="1"
             minH="0"
-            overflowY="auto"
-            gap="3"
-            p="4"
           >
-            {/* With a scene loaded, the scene is what the space is about and
-                its heading would only repeat the obvious; it stays for a
-                screen reader, which names the region by it. */}
-            {scene === null ? (
-              <Heading id="play-space-heading" size="sm">
-                Play space
-              </Heading>
-            ) : (
-              <Heading id="play-space-heading" srOnly>
-                Play space
-              </Heading>
+            {coverUrl && (
+              <>
+                <Box
+                  aria-hidden
+                  data-testid="play-space-cover"
+                  position="absolute"
+                  inset="0"
+                  bgSize="cover"
+                  bgPos="center"
+                  style={{ backgroundImage: `url("${cssUrlValue(coverUrl)}")` }}
+                />
+                <Box aria-hidden position="absolute" inset="0" bg="blackAlpha.400" />
+              </>
             )}
-            {inPlay.length === 0 ? (
-              <Text color="fg.muted">Nothing in play yet.</Text>
-            ) : (
-              <List.Root listStyleType="none" gap="2" maxW="md">
-                {inPlay.map((item) => (
-                  <List.Item key={item.key}>
-                    <HStack gap="3" p="2" borderWidth="1px" rounded="md" bg="bg.panel">
-                      {item.imageUrl && (
-                        <Image
-                          src={item.imageUrl}
-                          alt=""
-                          boxSize="12"
-                          rounded="sm"
-                          objectFit="cover"
-                        />
-                      )}
-                      <Stack gap="0" flex="1" minW="0">
-                        <Text fontWeight="medium" truncate>
-                          {item.label}
-                        </Text>
-                        {item.detail && (
-                          <Text fontSize="sm" color="fg.muted" truncate>
-                            {item.detail}
-                          </Text>
-                        )}
-                      </Stack>
-                      <PrepIconButton
-                        label={`Remove ${item.label} from the play space`}
-                        onClick={() => remove(item.key)}
-                      >
-                        <X />
-                      </PrepIconButton>
-                    </HStack>
-                  </List.Item>
+            <Stack position="relative" h="full" overflowY="auto" gap="3" p="4">
+              {/* With a scene loaded, the scene is what the space is about and
+                  its heading would only repeat the selector; it stays for a
+                  screen reader, which names the region by it. */}
+              {scene === null ? (
+                <Heading id="play-space-heading" size="sm">
+                  Play space
+                </Heading>
+              ) : (
+                <Heading id="play-space-heading" srOnly>
+                  Play space
+                </Heading>
+              )}
+              {/* space-between: the first stack against the left edge and
+                  the rest spread across the width. */}
+              <Flex gap="3" wrap="wrap" align="flex-start" justify="space-between">
+                {playStacks(tags, inPlay).map((stack) => (
+                  <RunPlayStack
+                    key={stack.title}
+                    idStory={idStory}
+                    stack={stack}
+                    sceneTags={tags}
+                    idStoryScene={scene?.idStoryScene ?? null}
+                    onCreated={put}
+                    onRemove={remove}
+                    onStatusChange={setStatus}
+                    onItemChange={replace}
+                  />
                 ))}
-              </List.Root>
-            )}
-          </Stack>
+              </Flex>
+            </Stack>
+          </Box>
 
           {showCharacter && (
             <Box flexBasis="40%" flexShrink="0" minH="0" overflowY="auto" borderTopWidth="1px">

@@ -1,14 +1,17 @@
 "use client";
 
 import { ClientOnly } from "@chakra-ui/react";
-import { formatDay, formatDayUtc } from "@/lib/dates";
+import { formatDateTime, formatDateTimeUtc, formatDay, formatDayUtc } from "@/lib/dates";
 
 type Props = {
   value: Date;
+  /** The time of day as well as the day. */
+  withTime?: boolean;
 };
 
 /**
- * A day written in the reader's own time zone.
+ * A day, or a day and a time with `withTime`, written in the reader's own
+ * time zone.
  *
  * Which day a moment falls on depends on where the reader is, and the server
  * cannot know that, so this follows the same rule as the theme menu: what the
@@ -19,10 +22,11 @@ type Props = {
  * The machine-readable value goes in dateTime, which is always the instant
  * itself whichever way it is being shown.
  */
-export function LocalDate({ value }: Props) {
+export function LocalDate({ value, withTime = false }: Props) {
+  const [local, utc] = withTime ? [formatDateTime, formatDateTimeUtc] : [formatDay, formatDayUtc];
   return (
     <time dateTime={value.toISOString()}>
-      <ClientOnly fallback={formatDayUtc(value)}>{() => formatDay(value)}</ClientOnly>
+      <ClientOnly fallback={utc(value)}>{() => local(value)}</ClientOnly>
     </time>
   );
 }

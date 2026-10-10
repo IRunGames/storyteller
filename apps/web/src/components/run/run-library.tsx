@@ -13,7 +13,7 @@ import {
   Tabs,
   Text,
 } from "@chakra-ui/react";
-import { ArrowRight, Plus, Search } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, Search } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import { ELEMENT_SEARCH_DELAY_MS } from "@/lib/elements";
 import {
@@ -24,7 +24,13 @@ import {
   type RunLibrarySource,
 } from "@/lib/run";
 import { sa_listStoryElements } from "@/app/(app)/(nav)/libraries/actions";
-import { sa_searchAttachments } from "@/components/uploads/actions";
+import {
+  sa_moveSceneAttachmentsToStory,
+  sa_moveStoryAttachmentsToScene,
+  sa_moveStoryAttachmentToSceneCover,
+  sa_searchAttachments,
+} from "@/components/uploads/actions";
+import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
 import { AttachmentCoverButton } from "@/components/uploads/attachment-cover-button";
@@ -35,8 +41,10 @@ type Props = {
   idStory: number;
   /** The scene the table is on, whose attachments the Scene switch shows; null for none. */
   idStoryScene: number | null;
-  /** Called with an item when its arrow is pressed, to put it in the play space. */
+  /** Called with an element when its arrow is pressed, to put it in the play space. */
   onAdd: (item: PlayItem) => void;
+  /** The scene's cover has changed from here: its url, or null for none. */
+  onSceneCoverChange: (url: string | null) => void;
 };
 
 /** Whose attachments the Attachments tab lists: the story's own, or the scene's. */
@@ -59,7 +67,7 @@ type AttachmentsOf = "STORY" | "STORY_SCENE";
  * table there is only the story's. The + adds to whichever is showing. The
  * list itself is RunAttachments, below.
  */
-export function RunLibrary({ idStory, idStoryScene, onAdd }: Props) {
+export function RunLibrary({ idStory, idStoryScene, onAdd, onSceneCoverChange }: Props) {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<RunLibrarySource>("ATTACHMENT");
   // An element tab's matches; null while it is loading.
@@ -67,6 +75,9 @@ export function RunLibrary({ idStory, idStoryScene, onAdd }: Props) {
   const [attachmentsOf, setAttachmentsOf] = useState<AttachmentsOf>("STORY");
   // Whether the +'s link input and dropzone are showing.
   const [adding, setAdding] = useState(false);
+  // Bumped when an attachment moves between the story and the scene, so the
+  // list loads again without it.
+  const [moves, setMoves] = useState(0);
 
   // The latest request, so a slow reply for an earlier query or tab does not
   // land on top of what the panel shows now.
@@ -170,12 +181,14 @@ export function RunLibrary({ idStory, idStoryScene, onAdd }: Props) {
                 {/* Keyed by whose they are, so a switch starts from that
                     holder's own rows and search rather than the last one's. */}
                 <RunAttachments
-                  key={`${holder.kind}:${holder.idExternal}`}
+                  key={`${holder.kind}:${holder.idExternal}:${moves}`}
                   kind={holder.kind}
                   idExternal={holder.idExternal}
+                  idStoryScene={idStoryScene}
                   needle={needle}
                   showAdd={adding}
-                  onAdd={onAdd}
+                  onSceneCoverChange={onSceneCoverChange}
+                  onMoved={() => setMoves((count) => count + 1)}
                 />
               </Stack>
             ) : (
@@ -201,19 +214,38 @@ export function RunLibrary({ idStory, idStoryScene, onAdd }: Props) {
  *
  * The search narrows the rows by the ids it returns, as the column's does;
  * a story or scene holds at most MAX_ATTACHMENTS of them.
+ *
+ * The story's own cover is left out of the story's list: it is the
+ * picture on the story's card, not material for the table.
+ *
+ * An attachment's arrow moves it between the story and the scene the table
+ * is on: from the story's list to the scene (sa_moveStoryAttachmentsToScene)
+ * and from the scene's back to the story (sa_moveSceneAttachmentsToStory),
+ * so the storyteller files what a scene needs as it comes up. With no scene
+ * at the table a story attachment has nowhere to go and shows no arrow.
+ *
+ * At the table, a scene's cover is the picture behind the play space. So
+ * while the table is on a scene, Cover on one of the story's attachments
+ * does not make it the story's cover: it moves it to the scene and makes it
+ * the scene's (sa_moveStoryAttachmentToSceneCover). Cover on the scene's
+ * attachments is the plain toggle, and the play space follows it.
  */
 function RunAttachments({
   kind,
   idExternal,
+  idStoryScene,
   needle,
   showAdd,
-  onAdd,
+  onSceneCoverChange,
+  onMoved,
 }: {
   kind: AttachmentsOf;
   idExternal: number;
+  idStoryScene: number | null;
   needle: string;
   showAdd: boolean;
-  onAdd: (item: PlayItem) => void;
+  onSceneCoverChange: (url: string | null) => void;
+  onMoved: () => void;
 }) {
   // The ids the search matched, or null with nothing typed.
   const [matchedIds, setMatchedIds] = useState<ReadonlySet<number> | null>(null);
@@ -245,21 +277,102 @@ function RunAttachments({
       idExternal={idExternal}
       showAdd={showAdd}
       shownIds={matchedIds}
+      hideCovers={kind === "STORY"}
       renderRows={({ rows, hasLoaded, setTags, setCover }) => {
         const shown = rows.slice(0, RUN_LIST_SIZE);
         const byKey = new Map(shown.map((row) => [`ATTACHMENT:${row.idAttachment}`, row]));
+
+        const movesToScene = (row: Attachment) =>
+          kind === "STORY" && idStoryScene !== null && !row.isCover;
+
+        // Every way the cover is changed from here: the button, the tags
+        // popover and the full-size preview's.
+        async function changeCover(row: Attachment, isCover: boolean): Promise<boolean> {
+          if (isCover && movesToScene(row)) {
+            try {
+              const result = await sa_moveStoryAttachmentToSceneCover(
+                idStoryScene!,
+                row.idAttachment,
+              );
+              if (!result.ok) {
+                toaster.create({ title: result.error, type: "error" });
+                return false;
+              }
+              onSceneCoverChange(result.url);
+              onMoved();
+              toaster.create({ title: "Moved to the scene as its cover", type: "success" });
+              return true;
+            } catch {
+              toaster.create({
+                title: "The cover could not be changed. Try again.",
+                type: "error",
+              });
+              return false;
+            }
+          }
+          const ok = await setCover(row.idAttachment, isCover);
+          if (ok && kind === "STORY_SCENE") onSceneCoverChange(isCover ? row.url : null);
+          return ok;
+        }
+
+        // The arrow: to the scene from the story's list, back from the scene's.
+        async function move(row: Attachment) {
+          try {
+            const result =
+              kind === "STORY"
+                ? await sa_moveStoryAttachmentsToScene(idStoryScene!, [row.idAttachment])
+                : await sa_moveSceneAttachmentsToStory(idExternal, [row.idAttachment]);
+            if (!result.ok) {
+              toaster.create({ title: result.error, type: "error" });
+              return;
+            }
+            if (!result.moved.includes(row.idAttachment)) {
+              toaster.create({ title: "That attachment could not be moved.", type: "error" });
+              return;
+            }
+            // The scene's cover goes back to the story as a plain attachment.
+            if (kind === "STORY_SCENE" && row.isCover) onSceneCoverChange(null);
+            onMoved();
+          } catch {
+            toaster.create({
+              title: "The attachment could not be moved. Try again.",
+              type: "error",
+            });
+          }
+        }
+
         return (
           <LibraryList
             items={hasLoaded ? shown.map(attachmentItem) : null}
             filtered={needle !== ""}
-            onAdd={onAdd}
+            renderArrow={(item) => {
+              const row = byKey.get(item.key);
+              // Only a finished attachment moves, and a story's only to a scene.
+              if (!row || row.status !== "READY") return null;
+              if (kind === "STORY" && idStoryScene === null) return null;
+              return kind === "STORY" ? (
+                <PrepIconButton
+                  label={`Move ${item.label} to the scene`}
+                  onClick={() => void move(row)}
+                >
+                  <ArrowRight />
+                </PrepIconButton>
+              ) : (
+                <PrepIconButton
+                  label={`Move ${item.label} to the story`}
+                  onClick={() => void move(row)}
+                >
+                  <ArrowLeft />
+                </PrepIconButton>
+              );
+            }}
             editTagsFor={(item) => {
               const row = byKey.get(item.key);
               if (!row) return undefined;
               return {
                 canCover: row.status === "READY",
                 onTagsChange: (tags) => setTags(row.idAttachment, tags),
-                onCoverChange: (isCover) => setCover(row.idAttachment, isCover),
+                onCoverChange: (isCover) => changeCover(row, isCover),
               };
             }}
             renderActions={(item) => {
@@ -273,14 +386,19 @@ function RunAttachments({
                     isCover={row.isCover}
                     canCover={row.status === "READY"}
                     onTagsChange={(tags) => setTags(row.idAttachment, tags)}
-                    onCoverChange={(isCover) => setCover(row.idAttachment, isCover)}
+                    onCoverChange={(isCover) => changeCover(row, isCover)}
                   />
                   {row.status === "READY" && (
                     <AttachmentCoverButton
                       compact
                       label={item.label}
                       isCover={row.isCover}
-                      onToggle={() => void setCover(row.idAttachment, !row.isCover)}
+                      onToggle={() => void changeCover(row, !row.isCover)}
+                      hint={
+                        movesToScene(row)
+                          ? "Move to the scene and make it the scene's cover"
+                          : undefined
+                      }
                     />
                   )}
                 </>
@@ -297,12 +415,16 @@ function LibraryList({
   items,
   filtered,
   onAdd,
+  renderArrow,
   renderActions,
   editTagsFor,
 }: {
   items: PlayItem[] | null;
   filtered: boolean;
-  onAdd: (item: PlayItem) => void;
+  /** An element's arrow, which puts it in the play space. */
+  onAdd?: (item: PlayItem) => void;
+  /** In place of the element's arrow: an attachment's, which moves it. */
+  renderArrow?: (item: PlayItem) => ReactNode;
   /** Controls drawn before an item's arrow: the attachments' tags and Cover. */
   renderActions?: (item: PlayItem) => ReactNode;
   /** An attachment's tag handlers, so its full-size preview edits them too. */
@@ -349,15 +471,16 @@ function LibraryList({
               )}
             </Stack>
             {renderActions?.(item)}
-            {/* An attachment with no picture yet has nothing to put in play. */}
-            {(item.kind !== "ATTACHMENT" || item.imageUrl !== null) && (
-              <PrepIconButton
-                label={`Add ${item.label} to the play space`}
-                onClick={() => onAdd(item)}
-              >
-                <ArrowRight />
-              </PrepIconButton>
-            )}
+            {renderArrow
+              ? renderArrow(item)
+              : onAdd && (
+                  <PrepIconButton
+                    label={`Add ${item.label} to the play space`}
+                    onClick={() => onAdd(item)}
+                  >
+                    <ArrowRight />
+                  </PrepIconButton>
+                )}
           </HStack>
         </List.Item>
       ))}

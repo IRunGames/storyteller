@@ -12,7 +12,8 @@ import {
   type StatusTable,
 } from "@/lib/status";
 
-const { sStatuses, tablesMeta, stories, storyScenes, storySessions, elements } = schema;
+const { sStatuses, tablesMeta, stories, storyScenes, storySessions, elements, sceneElements } =
+  schema;
 
 // The status pill belongs to no one page — it sits on scenes, on sessions and
 // on whatever gets a workflow next — so its actions live beside it rather
@@ -74,8 +75,7 @@ export type SetStatusResult = { ok: true; status: string } | { ok: false; error:
 
 /**
  * Move one row to a new status, taking effect at once. Only the storyteller
- * who owns the story the row belongs to may do it: both tables hang off a
- * story, so both ownership checks are the same join.
+ * who owns the story the row belongs to may do it (currentStatus).
  *
  * The transition is checked against the workflow here and again by the
  * database's own trigger, which is the one that counts. A refusal comes back
@@ -102,29 +102,7 @@ export async function sa_setRowStatus(
   // is not there and a row on someone else's story answer the same way; the
   // pill is only ever shown to the owner in the first place, so an intruder
   // learns nothing from the difference.
-  const current =
-    name === "story_scenes"
-      ? await db
-          .select({ status: storyScenes.status, owner: stories.idCreatedByUser })
-          .from(storyScenes)
-          .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
-          .where(eq(storyScenes.idStoryScene, rowId))
-          .limit(1)
-      : name === "story_sessions"
-        ? await db
-            .select({ status: storySessions.status, owner: stories.idCreatedByUser })
-            .from(storySessions)
-            .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
-            .where(eq(storySessions.idStorySession, rowId))
-            .limit(1)
-        : await db
-            .select({ status: elements.status, owner: stories.idCreatedByUser })
-            .from(elements)
-            .innerJoin(stories, eq(stories.idStory, elements.idStory))
-            .where(eq(elements.idElement, rowId))
-            .limit(1);
-
-  const row = current[0];
+  const row = await currentStatus(name, rowId);
   if (!row || row.owner !== user.id) {
     return { ok: false, error: "That is not yours to change." };
   }
@@ -141,26 +119,7 @@ export async function sa_setRowStatus(
   // moving the same row at once cannot both win: the second update matches
   // nothing and says so rather than overwriting a move it never saw.
   try {
-    const updated =
-      name === "story_scenes"
-        ? await db
-            .update(storyScenes)
-            .set({ status: next, idUpdatedByUser: user.id })
-            .where(and(eq(storyScenes.idStoryScene, rowId), eq(storyScenes.status, row.status)))
-            .returning({ status: storyScenes.status })
-        : name === "story_sessions"
-          ? await db
-              .update(storySessions)
-              .set({ status: next, idUpdatedByUser: user.id })
-              .where(
-                and(eq(storySessions.idStorySession, rowId), eq(storySessions.status, row.status)),
-              )
-              .returning({ status: storySessions.status })
-          : await db
-              .update(elements)
-              .set({ status: next, idUpdatedByUser: user.id })
-              .where(and(eq(elements.idElement, rowId), eq(elements.status, row.status)))
-              .returning({ status: elements.status });
+    const updated = await moveRow(name, rowId, row.status, next, user.id);
 
     if (updated.length === 0) {
       return { ok: false, error: "That status changed while you were looking; try again." };
@@ -171,5 +130,95 @@ export async function sa_setRowStatus(
     // to, the row is as it was, and the message it raises names database
     // internals, so the pill says the plain thing instead.
     return { ok: false, error: "The database refused that change." };
+  }
+}
+
+/**
+ * A row's status and its story's creator, or undefined when there is no such
+ * row. Every table here hangs off a story, so every ownership check is a join
+ * to it; a scene element reaches it through its scene.
+ */
+async function currentStatus(
+  name: StatusTable,
+  rowId: number,
+): Promise<{ status: string; owner: string | null } | undefined> {
+  switch (name) {
+    case "story_scenes":
+      return (
+        await db
+          .select({ status: storyScenes.status, owner: stories.idCreatedByUser })
+          .from(storyScenes)
+          .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
+          .where(eq(storyScenes.idStoryScene, rowId))
+          .limit(1)
+      )[0];
+    case "story_sessions":
+      return (
+        await db
+          .select({ status: storySessions.status, owner: stories.idCreatedByUser })
+          .from(storySessions)
+          .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
+          .where(eq(storySessions.idStorySession, rowId))
+          .limit(1)
+      )[0];
+    case "elements":
+      return (
+        await db
+          .select({ status: elements.status, owner: stories.idCreatedByUser })
+          .from(elements)
+          .innerJoin(stories, eq(stories.idStory, elements.idStory))
+          .where(eq(elements.idElement, rowId))
+          .limit(1)
+      )[0];
+    case "scene_elements":
+      return (
+        await db
+          .select({ status: sceneElements.status, owner: stories.idCreatedByUser })
+          .from(sceneElements)
+          .innerJoin(storyScenes, eq(storyScenes.idStoryScene, sceneElements.idStoryScene))
+          .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
+          .where(eq(sceneElements.idSceneElement, rowId))
+          .limit(1)
+      )[0];
+  }
+}
+
+/**
+ * Moves a row from `from` to `next`. The WHERE repeats `from`, so a row
+ * someone else moved meanwhile matches nothing and the caller says so.
+ */
+async function moveRow(
+  name: StatusTable,
+  rowId: number,
+  from: string,
+  next: string,
+  userId: string,
+): Promise<{ status: string }[]> {
+  const set = { status: next, idUpdatedByUser: userId };
+  switch (name) {
+    case "story_scenes":
+      return db
+        .update(storyScenes)
+        .set(set)
+        .where(and(eq(storyScenes.idStoryScene, rowId), eq(storyScenes.status, from)))
+        .returning({ status: storyScenes.status });
+    case "story_sessions":
+      return db
+        .update(storySessions)
+        .set(set)
+        .where(and(eq(storySessions.idStorySession, rowId), eq(storySessions.status, from)))
+        .returning({ status: storySessions.status });
+    case "elements":
+      return db
+        .update(elements)
+        .set(set)
+        .where(and(eq(elements.idElement, rowId), eq(elements.status, from)))
+        .returning({ status: elements.status });
+    case "scene_elements":
+      return db
+        .update(sceneElements)
+        .set(set)
+        .where(and(eq(sceneElements.idSceneElement, rowId), eq(sceneElements.status, from)))
+        .returning({ status: sceneElements.status });
   }
 }

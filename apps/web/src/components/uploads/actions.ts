@@ -556,3 +556,162 @@ export async function sa_moveStoryAttachmentsToScene(
     return { ok: true as const, moved: moved.map((row) => row.idAttachment) };
   });
 }
+
+/**
+ * Moves some of a scene's attachments back onto its story: the arrow beside
+ * a scene attachment in the run page's library, the way back from
+ * sa_moveStoryAttachmentsToScene. A row that was the scene's cover leaves
+ * the cover tag behind, since the story may have a cover of its own and
+ * attachments_one_cover_idx allows one; the scene is then left with none.
+ *
+ * Only the scene's storyteller may, only READY rows still on the scene are
+ * moved, and the story is held to MAX_ATTACHMENTS, counted in the same
+ * transaction with the story row locked. What did move comes back.
+ */
+export async function sa_moveSceneAttachmentsToStory(
+  idStoryScene: number,
+  ids: number[],
+): Promise<MoveAttachmentsResult> {
+  const user = await requireUser();
+  const sceneId = idExternalSchema.parse(idStoryScene);
+  const parsedIds = attachmentIdsSchema.parse(ids);
+  if (parsedIds.length === 0) return { ok: true, moved: [] };
+
+  if (!(await ownsAttachmentParent(user.id, "STORY_SCENE", sceneId))) {
+    throw new Error("You do not have access to that story.");
+  }
+
+  return db.transaction(async (tx) => {
+    const [scene] = await tx
+      .select({ idStory: storyScenes.idStory })
+      .from(storyScenes)
+      .where(eq(storyScenes.idStoryScene, sceneId))
+      .limit(1);
+    if (!scene) throw new Error("Scene not found");
+    await tx
+      .select({ idStory: stories.idStory })
+      .from(stories)
+      .where(eq(stories.idStory, scene.idStory))
+      .for("update");
+
+    const [{ count }] = await tx
+      .select({ count: sql<number>`count(*)`.mapWith(Number) })
+      .from(attachments)
+      .where(and(eq(attachments.kind, "STORY"), eq(attachments.idExternal, scene.idStory)));
+    if (count + parsedIds.length > MAX_ATTACHMENTS) {
+      const room = Math.max(MAX_ATTACHMENTS - count, 0);
+      return {
+        ok: false as const,
+        error:
+          room === 0
+            ? `This story already has ${MAX_ATTACHMENTS} attachments. Remove one first.`
+            : `This story has room for ${room} more. Choose fewer.`,
+      };
+    }
+
+    const moved = await tx
+      .update(attachments)
+      .set({
+        kind: "STORY",
+        idExternal: scene.idStory,
+        tags: sql`array_remove(${attachments.tags}, ${COVER_TAG})`,
+        idUpdatedByUser: user.id,
+      })
+      .where(
+        and(
+          inArray(attachments.idAttachment, parsedIds),
+          eq(attachments.kind, "STORY_SCENE"),
+          eq(attachments.idExternal, sceneId),
+          eq(attachments.status, "READY"),
+        ),
+      )
+      .returning({ idAttachment: attachments.idAttachment });
+    return { ok: true as const, moved: moved.map((row) => row.idAttachment) };
+  });
+}
+
+export type MoveToSceneCoverResult = { ok: true; url: string } | { ok: false; error: string };
+
+/**
+ * Moves one of a story's own attachments onto one of its scenes and makes
+ * it the scene's cover: the Cover button beside a story attachment in the
+ * run page's library, while the table is on a scene. The url comes back for
+ * the play space, which shows the scene's cover behind its stacks.
+ *
+ * The move is sa_moveStoryAttachmentsToScene's, with its conditions: only
+ * the scene's storyteller, only a row still the story's own, READY and not
+ * the story's cover, and only while the scene has room. The cover is then
+ * sa_setAttachmentCover's, taking the tag off whichever scene attachment
+ * held it first. Both in one transaction with the scene row locked, so a
+ * refusal leaves the attachment on the story rather than moved but not the
+ * cover.
+ */
+export async function sa_moveStoryAttachmentToSceneCover(
+  idStoryScene: number,
+  id: number,
+): Promise<MoveToSceneCoverResult> {
+  const user = await requireUser();
+  const sceneId = idExternalSchema.parse(idStoryScene);
+  const attachmentId = idAttachmentSchema.parse(id);
+
+  if (!(await ownsAttachmentParent(user.id, "STORY_SCENE", sceneId))) {
+    throw new Error("You do not have access to that story.");
+  }
+
+  return db.transaction(async (tx) => {
+    const [scene] = await tx
+      .select({ idStory: storyScenes.idStory })
+      .from(storyScenes)
+      .where(eq(storyScenes.idStoryScene, sceneId))
+      .for("update")
+      .limit(1);
+    if (!scene) throw new Error("Scene not found");
+
+    const [{ count }] = await tx
+      .select({ count: sql<number>`count(*)`.mapWith(Number) })
+      .from(attachments)
+      .where(and(eq(attachments.kind, "STORY_SCENE"), eq(attachments.idExternal, sceneId)));
+    if (count >= MAX_ATTACHMENTS) {
+      return {
+        ok: false as const,
+        error: `This scene already has ${MAX_ATTACHMENTS} attachments. Remove one first.`,
+      };
+    }
+
+    const [moved] = await tx
+      .update(attachments)
+      .set({ kind: "STORY_SCENE", idExternal: sceneId, idUpdatedByUser: user.id })
+      .where(
+        and(
+          eq(attachments.idAttachment, attachmentId),
+          eq(attachments.kind, "STORY"),
+          eq(attachments.idExternal, scene.idStory),
+          eq(attachments.status, "READY"),
+          sql`not ${isCoverSql}`,
+        ),
+      )
+      .returning({ url: attachments.url });
+    if (!moved?.url) {
+      return { ok: false as const, error: "That attachment can no longer be moved to the scene." };
+    }
+
+    await tx
+      .update(attachments)
+      .set({
+        tags: sql`array_remove(${attachments.tags}, ${COVER_TAG})`,
+        idUpdatedByUser: user.id,
+      })
+      .where(
+        and(eq(attachments.kind, "STORY_SCENE"), eq(attachments.idExternal, sceneId), isCoverSql),
+      );
+    await tx
+      .update(attachments)
+      .set({
+        tags: sql`array_append(${attachments.tags}, ${COVER_TAG})`,
+        idUpdatedByUser: user.id,
+      })
+      .where(eq(attachments.idAttachment, attachmentId));
+
+    return { ok: true as const, url: moved.url };
+  });
+}

@@ -542,6 +542,99 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect(left.map((row) => row.idAttachment)).not.toContain(plain);
     });
 
+    it("moves one story attachment to the scene as the scene's only cover", async () => {
+      const { id: earlier } = await insertAttachment({
+        kind: "STORY_SCENE",
+        idExternal: idScene,
+        status: "READY",
+        url: "https://example.com/picker-old-scene-cover.jpg",
+        tags: ["cover"],
+        idCreatedByUser: SEED_USER,
+      });
+      const { id: plain } = await onStory("https://example.com/picker-new-scene-cover.jpg");
+
+      expect(await actions.sa_moveStoryAttachmentToSceneCover(idScene, plain)).toEqual({
+        ok: true,
+        url: "https://example.com/picker-new-scene-cover.jpg",
+      });
+      expect(await rowOf(plain)).toEqual({ kind: "STORY_SCENE", idExternal: idScene, idStory });
+      const covers = await actions.sa_listAttachments("STORY_SCENE", idScene);
+      expect(covers.filter((row) => row.isCover).map((row) => row.idAttachment)).toEqual([plain]);
+      expect(covers.find((row) => row.idAttachment === earlier)?.isCover).toBe(false);
+    });
+
+    it("leaves the story's cover, an unfinished row and another's scene alone", async () => {
+      // The story may hold its one cover from an earlier test already.
+      const storyCover = (await actions.sa_listAttachments("STORY", idStory)).find(
+        (row) => row.isCover,
+      );
+      const cover =
+        storyCover?.idAttachment ??
+        (await onStory("https://example.com/picker-story-cover.jpg", { tags: ["cover"] })).id;
+      const { id: uploading } = await insertAttachment({
+        kind: "STORY",
+        idExternal: idStory,
+        idCreatedByUser: SEED_USER,
+        isUploaded: true,
+      });
+      const refused = {
+        ok: false,
+        error: "That attachment can no longer be moved to the scene.",
+      };
+
+      expect(await actions.sa_moveStoryAttachmentToSceneCover(idScene, cover)).toEqual(refused);
+      expect(await actions.sa_moveStoryAttachmentToSceneCover(idScene, uploading)).toEqual(refused);
+      expect(await rowOf(cover)).toEqual({ kind: "STORY", idExternal: idStory, idStory });
+      await expect(actions.sa_moveStoryAttachmentToSceneCover(theirScene, cover)).rejects.toThrow(
+        "You do not have access to that story.",
+      );
+    });
+
+    it("moves a scene attachment back to the story, leaving its cover tag behind", async () => {
+      const onScene = (url: string, tags: string[] = []) =>
+        insertAttachment({
+          kind: "STORY_SCENE",
+          idExternal: idScene,
+          status: "READY",
+          url,
+          tags,
+          idCreatedByUser: SEED_USER,
+        });
+      // Whatever an earlier test left as the scene's cover gives way first.
+      const sceneCover = (await actions.sa_listAttachments("STORY_SCENE", idScene)).find(
+        (row) => row.isCover,
+      );
+      if (sceneCover) await actions.sa_setAttachmentCover(sceneCover.idAttachment, false);
+      const { id: cover } = await onScene("https://example.com/picker-back-cover.jpg", [
+        "cover",
+        "harbour",
+      ]);
+      const { id: uploading } = await insertAttachment({
+        kind: "STORY_SCENE",
+        idExternal: idScene,
+        idCreatedByUser: SEED_USER,
+        isUploaded: true,
+      });
+
+      expect(await actions.sa_moveSceneAttachmentsToStory(idScene, [cover, uploading])).toEqual({
+        ok: true,
+        moved: [cover],
+      });
+      expect(await rowOf(cover)).toEqual({ kind: "STORY", idExternal: idStory, idStory });
+      expect(await rowOf(uploading)).toEqual({
+        kind: "STORY_SCENE",
+        idExternal: idScene,
+        idStory,
+      });
+      const back = (await actions.sa_listAttachments("STORY", idStory)).find(
+        (row) => row.idAttachment === cover,
+      );
+      expect(back).toMatchObject({ isCover: false, tags: ["harbour"] });
+      await expect(actions.sa_moveSceneAttachmentsToStory(theirScene, [cover])).rejects.toThrow(
+        "You do not have access to that story.",
+      );
+    });
+
     it("holds the scene to the most attachments one object may have", async () => {
       const already = await db
         .select({ count: tables.attachments.idAttachment })

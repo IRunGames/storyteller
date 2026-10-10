@@ -1,4 +1,4 @@
-import { before, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -8,6 +8,7 @@ import type { Attachment } from "@/lib/attachments";
 import type { ElementKind, StoryElement } from "@/lib/elements";
 import type { PlayItem } from "@/lib/run";
 import { UserProvider } from "@/components/auth/user-provider";
+import { Toaster, toaster } from "@/components/ui/toaster";
 import type { CurrentUser } from "@/lib/current-user";
 
 const user: CurrentUser = {
@@ -30,7 +31,8 @@ const attachment = (
   url,
   isUploaded: true,
   fileName,
-  isCover: false,
+  // The fifth is the story's cover, which the library leaves out.
+  isCover: idAttachment === 5,
   // One tag on the second, for the preview's tag list.
   tags: idAttachment === 2 ? ["map"] : [],
 });
@@ -50,11 +52,29 @@ const people: StoryElement[] = [
 // The scene's own attachments, apart from the story's.
 const sceneAttachments: Attachment[] = [
   { ...attachment(70, "Docks map"), kind: "STORY_SCENE", idExternal: 15 },
+  { ...attachment(71, "Tide chart"), kind: "STORY_SCENE", idExternal: 15, isCover: true },
 ];
 
+// What has moved to the scene, which the story's list then leaves out.
+const movedToScene = new Set<number>();
 const sa_listAttachments = mock.fn(async (kind: string, _id: number) =>
-  kind === "STORY_SCENE" ? sceneAttachments : attachments,
+  kind === "STORY_SCENE"
+    ? sceneAttachments
+    : attachments.filter((row) => !movedToScene.has(row.idAttachment)),
 );
+const sa_moveStoryAttachmentToSceneCover = mock.fn(async (_scene: number, id: number) => {
+  movedToScene.add(id);
+  return { ok: true as const, url: `https://x.test/${id}.png` };
+});
+const onSceneCoverChange = mock.fn((_url: string | null) => {});
+const sa_moveStoryAttachmentsToScene = mock.fn(async (_scene: number, ids: number[]) => {
+  ids.forEach((id) => movedToScene.add(id));
+  return { ok: true as const, moved: ids };
+});
+const sa_moveSceneAttachmentsToStory = mock.fn(async (_scene: number, ids: number[]) => ({
+  ok: true as const,
+  moved: ids,
+}));
 const sa_searchAttachments = mock.fn(async (_kind: string, _id: number, _q: string) => [3, 7]);
 const sa_createAttachment = mock.fn(async (_input: unknown) => ({
   idAttachment: 50,
@@ -84,6 +104,9 @@ describe("RunLibrary", () => {
         sa_retryAttachment: mock.fn(),
         sa_setAttachmentCover,
         sa_setAttachmentTags,
+        sa_moveStoryAttachmentToSceneCover,
+        sa_moveStoryAttachmentsToScene,
+        sa_moveSceneAttachmentsToStory,
       },
     });
     mock.module("next/navigation", {
@@ -102,12 +125,27 @@ describe("RunLibrary", () => {
     sa_createAttachment.mock.resetCalls();
     sa_setAttachmentCover.mock.resetCalls();
     sa_setAttachmentTags.mock.resetCalls();
+    sa_moveStoryAttachmentToSceneCover.mock.resetCalls();
+    sa_moveStoryAttachmentsToScene.mock.resetCalls();
+    sa_moveSceneAttachmentsToStory.mock.resetCalls();
+    onSceneCoverChange.mock.resetCalls();
+    movedToScene.clear();
+  });
+
+  afterEach(() => {
+    toaster.remove();
   });
 
   const render = (onAdd: (item: PlayItem) => void = () => {}, idStoryScene: number | null = 15) =>
     renderWithProviders(
       <UserProvider user={user}>
-        <RunLibrary idStory={-4} idStoryScene={idStoryScene} onAdd={onAdd} />
+        <RunLibrary
+          idStory={-4}
+          idStoryScene={idStoryScene}
+          onAdd={onAdd}
+          onSceneCoverChange={onSceneCoverChange}
+        />
+        <Toaster />
       </UserProvider>,
     );
 
@@ -129,15 +167,17 @@ describe("RunLibrary", () => {
     );
   });
 
-  it("lists the story's first ten ready attachments, each with a way into play", async () => {
+  it("lists the story's first ten ready attachments but its cover, each with an arrow to the scene", async () => {
     render();
 
     const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
     await within(panel).findByText("Handout 1");
-    expect(
-      within(panel).getAllByRole("button", { name: /^Add .* to the play space$/ }),
-    ).toHaveLength(10);
-    expect(within(panel).queryByText("Handout 11")).not.toBeInTheDocument();
+    expect(within(panel).getAllByRole("button", { name: /^Move .* to the scene$/ })).toHaveLength(
+      10,
+    );
+    expect(within(panel).queryByText("Handout 5")).not.toBeInTheDocument();
+    expect(within(panel).getByText("Handout 11")).toBeInTheDocument();
+    expect(within(panel).queryByText("Handout 12")).not.toBeInTheDocument();
     expect(within(panel).queryByText("Half uploaded")).not.toBeInTheDocument();
     expect(sa_listAttachments.mock.calls[0].arguments).toEqual(["STORY", -4]);
   });
@@ -180,7 +220,7 @@ describe("RunLibrary", () => {
       url: "https://x.test/maps/harbour.png",
     });
     const added = await within(panel).findByRole("button", {
-      name: "Add harbour.png to the play space",
+      name: "Move harbour.png to the scene",
     });
     // Newest first, as the library page lists them.
     expect(within(panel).getAllByRole("listitem")[0]).toContainElement(added);
@@ -222,17 +262,12 @@ describe("RunLibrary", () => {
     expect(within(panel).getByRole("radio", { name: "Scene" })).toBeDisabled();
   });
 
-  it("tags an attachment and makes it the cover, with the controls its card has", async () => {
+  it("tags an attachment and makes it the story's cover, with the controls its card has", async () => {
     const u = userEvent.setup();
-    render();
+    // With no scene at the table, Cover is the card's own toggle.
+    render(() => {}, null);
     const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
     await within(panel).findByText("Handout 1");
-
-    const cover = within(panel).getByRole("button", { name: "Cover Handout 2" });
-    expect(cover).toHaveAttribute("aria-pressed", "false");
-    await u.click(cover);
-    await waitFor(() => expect(cover).toHaveAttribute("aria-pressed", "true"));
-    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([2, true]);
 
     await u.click(within(panel).getByRole("button", { name: "Tags for Handout 2" }));
     const popover = await screen.findByRole("dialog", { name: "Tags" });
@@ -244,6 +279,46 @@ describe("RunLibrary", () => {
     await waitFor(() => expect(sa_setAttachmentTags.mock.callCount()).toBe(1));
     expect(sa_setAttachmentTags.mock.calls[0].arguments).toEqual([2, ["map", "harbour"]]);
     expect(within(popover).getByRole("list", { name: "Tags" })).toHaveTextContent("harbour");
+    await u.keyboard("{Escape}");
+
+    const cover = within(panel).getByRole("button", { name: "Cover Handout 2" });
+    expect(cover).toHaveAttribute("aria-pressed", "false");
+    await u.click(cover);
+    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([2, true]);
+    // The story's cover is not listed, so it leaves the list.
+    await waitFor(() => expect(within(panel).queryByText("Handout 2")).not.toBeInTheDocument());
+  });
+
+  it("moves a story attachment to the scene as its cover while the table is on one", async () => {
+    const u = userEvent.setup();
+    render();
+    const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
+
+    await u.click(await within(panel).findByRole("button", { name: "Cover Handout 2" }));
+
+    await waitFor(() => expect(sa_moveStoryAttachmentToSceneCover.mock.callCount()).toBe(1));
+    expect(sa_moveStoryAttachmentToSceneCover.mock.calls[0].arguments).toEqual([15, 2]);
+    expect(sa_setAttachmentCover.mock.callCount()).toBe(0);
+    expect(onSceneCoverChange.mock.calls[0].arguments).toEqual(["https://x.test/2.png"]);
+    // It has left the story's list for the scene's.
+    await waitFor(() => expect(within(panel).queryByText("Handout 2")).not.toBeInTheDocument());
+    expect(within(panel).getByText("Handout 1")).toBeInTheDocument();
+    expect(await screen.findByText("Moved to the scene as its cover")).toBeInTheDocument();
+  });
+
+  it("makes one of the scene's own attachments its cover, and tells the play space", async () => {
+    const u = userEvent.setup();
+    render();
+    const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
+    await within(panel).findByText("Handout 1");
+    await u.click(within(panel).getByText("Scene"));
+
+    await u.click(await within(panel).findByRole("button", { name: "Cover Docks map" }));
+
+    await waitFor(() => expect(onSceneCoverChange.mock.callCount()).toBe(1));
+    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([70, true]);
+    expect(onSceneCoverChange.mock.calls[0].arguments).toEqual(["https://x.test/70.png"]);
+    expect(sa_moveStoryAttachmentToSceneCover.mock.callCount()).toBe(0);
   });
 
   it("edits the tags from the full-size preview too", async () => {
@@ -293,7 +368,50 @@ describe("RunLibrary", () => {
     );
   });
 
-  it("hands an item to the play space with its arrow", async () => {
+  it("moves a story attachment to the scene with its arrow", async () => {
+    const u = userEvent.setup();
+    render();
+    const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
+
+    await u.click(
+      await within(panel).findByRole("button", { name: "Move Handout 3 to the scene" }),
+    );
+
+    expect(sa_moveStoryAttachmentsToScene.mock.calls[0].arguments).toEqual([15, [3]]);
+    await waitFor(() => expect(within(panel).queryByText("Handout 3")).not.toBeInTheDocument());
+    expect(onSceneCoverChange.mock.callCount()).toBe(0);
+  });
+
+  it("moves a scene attachment back to the story, its cover leaving the play space", async () => {
+    const u = userEvent.setup();
+    render();
+    const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
+    await within(panel).findByText("Handout 1");
+    await u.click(within(panel).getByText("Scene"));
+
+    await u.click(
+      await within(panel).findByRole("button", { name: "Move Docks map to the story" }),
+    );
+    await waitFor(() => expect(sa_moveSceneAttachmentsToStory.mock.callCount()).toBe(1));
+    expect(sa_moveSceneAttachmentsToStory.mock.calls[0].arguments).toEqual([15, [70]]);
+    expect(onSceneCoverChange.mock.callCount()).toBe(0);
+
+    await u.click(
+      await within(panel).findByRole("button", { name: "Move Tide chart to the story" }),
+    );
+    await waitFor(() => expect(onSceneCoverChange.mock.callCount()).toBe(1));
+    expect(onSceneCoverChange.mock.calls[0].arguments).toEqual([null]);
+  });
+
+  it("gives a story attachment no arrow with no scene to move it to", async () => {
+    render(() => {}, null);
+    const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
+    await within(panel).findByText("Handout 1");
+
+    expect(within(panel).queryByRole("button", { name: /^Move / })).not.toBeInTheDocument();
+  });
+
+  it("hands an element to the play space with its arrow", async () => {
     const user = userEvent.setup();
     const onAdd = mock.fn<(item: PlayItem) => void>();
     render(onAdd);

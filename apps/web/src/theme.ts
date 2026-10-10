@@ -242,6 +242,36 @@ const config = defineConfig({
             },
           },
         },
+        // The border and glow round an element the storyteller has hidden
+        // from the players in the run page's play space. The theme's
+        // highlight, repeated for the reason play.* repeats it: each belongs
+        // to its own component.
+        run: {
+          // A pill's initial name, and its reveal icon: a second highlight
+          // beside the theme's own, a hue across the wheel from it, so the
+          // name the players know reads apart from the plain names around it
+          // and from the hidden pills' border.
+          initialName: {
+            value: {
+              base: "#0f766e",
+              _dark: "#5eead4",
+              _halloween: "#c084fc",
+              _blackberry: "#f9a8d4",
+              _mint: "#fcd34d",
+              _wave: "#fbbf24",
+            },
+          },
+          hidden: {
+            value: {
+              base: "#c2410c",
+              _dark: "#f0955c",
+              _halloween: "#f97316",
+              _blackberry: "#c084fc",
+              _mint: "#5eead4",
+              _wave: "#38bdf8",
+            },
+          },
+        },
         // A story card's Play when there is something to go to: players
         // waiting for the storyteller (with the outline round the card), or
         // a session in progress for a player. The theme's highlight again,

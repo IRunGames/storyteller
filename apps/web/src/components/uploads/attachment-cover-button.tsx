@@ -10,6 +10,8 @@ type Props = {
   onToggle: () => void;
   /** Just the star, for a narrow list such as the run page's library. */
   compact?: boolean;
+  /** The tooltip, where pressing does more than the usual toggle. */
+  hint?: string;
 };
 
 /**
@@ -22,7 +24,7 @@ type Props = {
  * Only for a READY row of a saved object, which the caller decides: anything
  * else has no picture to show, or no object to be the cover of yet.
  */
-export function AttachmentCoverButton({ label, isCover, onToggle, compact = false }: Props) {
+export function AttachmentCoverButton({ label, isCover, onToggle, compact = false, hint }: Props) {
   const star = <Star size={14} fill={isCover ? "currentColor" : "none"} />;
   const common = {
     size: "xs",
@@ -48,7 +50,7 @@ export function AttachmentCoverButton({ label, isCover, onToggle, compact = fals
       <Portal>
         <Tooltip.Positioner>
           <Tooltip.Content>
-            {isCover ? "Stop using this as the cover image" : "Make this the cover image"}
+            {hint ?? (isCover ? "Stop using this as the cover image" : "Make this the cover image")}
           </Tooltip.Content>
         </Tooltip.Positioner>
       </Portal>

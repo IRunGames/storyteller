@@ -1,3 +1,11 @@
+-- migrate:up
+DO $$
+BEGIN
+    RAISE NOTICE '[%] START DROP AND CREATE VIEW', clock_timestamp();
+
+    DROP VIEW IF EXISTS v_scene_elements;
+    
+    -- ------------------------------------------------------------
 -- The elements of a scene: each scene_elements row with the element it brings
 -- in, so a caller reads a scene's elements with one
 -- `WHERE id_story_scene = $1` instead of joining the two tables itself.
@@ -39,3 +47,11 @@ SELECT se.id_scene_element,
        e.updated_at   AS element_updated_at
 FROM scene_elements se
          JOIN elements e ON e.id_element = se.id_element;
+
+    -- ------------------------------------------------------------
+
+    RAISE NOTICE '[%] DONE CREATING VIEW', clock_timestamp();
+END $$;
+
+-- migrate:down
+

@@ -565,6 +565,9 @@ export const vSceneElements = pgView("v_scene_elements", {
   invisibleAt: timestamp("invisible_at", { withTimezone: true }),
   readyAt: timestamp("ready_at", { withTimezone: true }),
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  // How the storyteller files the element in this scene; the element's own
+  // tags are elementTags.
+  tags: text("tags").array(),
   createdAt: timestamp("created_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -577,7 +580,7 @@ export const vSceneElements = pgView("v_scene_elements", {
   title: text("title"),
   description: text("description"),
   notes: text("notes"),
-  tags: text("tags").array(),
+  elementTags: text("element_tags").array(),
   elementSearchText: text("element_search_text"),
   elementUpdatedAt: timestamp("element_updated_at", { withTimezone: true }),
 }).existing();

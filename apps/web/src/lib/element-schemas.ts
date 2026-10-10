@@ -18,3 +18,16 @@ export const elementSchema = z.object({
 });
 
 export type ElementValues = z.infer<typeof elementSchema>;
+
+// The run page's element form, for a new element from a stack's + and for
+// editing one from its info popover: every field the board's form has, and
+// both statuses besides, the element's own in the story and its link's in
+// the scene, since at the table both are set in the one place. The action
+// checks each against its workflow.
+const statusKeySchema = z.string().trim().min(1, "Choose a status.").max(64);
+export const runElementSchema = elementSchema.extend({
+  status: statusKeySchema,
+  sceneStatus: statusKeySchema,
+});
+
+export type RunElementValues = z.infer<typeof runElementSchema>;
