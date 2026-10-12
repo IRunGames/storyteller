@@ -14,6 +14,12 @@ type Props = {
    * that come before the table, where there is no session to speak of.
    */
   session?: string | null;
+  /**
+   * Drawn in the session's place when given: the storyteller's table puts
+   * its rename-in-place title here. The session string still decides
+   * whether there is one.
+   */
+  sessionContent?: ReactNode;
   /** What sits in the middle of the header; the table puts its panel toggles here. */
   center?: ReactNode;
   /** What follows the session on the left; the storyteller's table puts its scene selector here. */
@@ -30,7 +36,7 @@ type Props = {
 // content: on a narrow window a long title and session would otherwise hold
 // the left column wide and run under the toggles in the middle. At zero
 // minimum the left side gives way instead, its items truncating in turn.
-export function PlayHeader({ title, session, center, afterSession }: Props) {
+export function PlayHeader({ title, session, sessionContent, center, afterSession }: Props) {
   return (
     <Grid
       as="header"
@@ -74,17 +80,25 @@ export function PlayHeader({ title, session, center, afterSession }: Props) {
                 is running matters more at the table than the whole name.
                 The session still shrinks once the title is down to its
                 ellipsis, rather than holding the column open. */}
-            <Text
-              textStyle="lg"
-              color={session === null ? "fg.muted" : undefined}
-              flexShrink="1"
-              minW="0"
-              maxW="50%"
-              truncate
-              title={session ?? "No active session"}
-            >
-              {session ?? "None"}
-            </Text>
+            {session !== null && sessionContent ? (
+              // The same room as the plain text below, so the title still
+              // gives way first.
+              <Box display="flex" flexShrink="1" minW="0" maxW="50%">
+                {sessionContent}
+              </Box>
+            ) : (
+              <Text
+                textStyle="lg"
+                color={session === null ? "fg.muted" : undefined}
+                flexShrink="1"
+                minW="0"
+                maxW="50%"
+                truncate
+                title={session ?? "No active session"}
+              >
+                {session ?? "None"}
+              </Text>
+            )}
           </>
         )}
         {afterSession}

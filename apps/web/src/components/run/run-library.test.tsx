@@ -6,7 +6,8 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/render";
 import type { Attachment } from "@/lib/attachments";
 import type { ElementKind, StoryElement } from "@/lib/elements";
-import type { PlayItem } from "@/lib/run";
+import type { ElementDetail, PlayItem } from "@/lib/run";
+import type { StatusOption } from "@/lib/status";
 import { UserProvider } from "@/components/auth/user-provider";
 import { Toaster, toaster } from "@/components/ui/toaster";
 import type { CurrentUser } from "@/lib/current-user";
@@ -87,7 +88,60 @@ const sa_listStoryElements = mock.fn(
     kind === "PERSON" ? people : [],
 );
 
+const dafydd: ElementDetail = {
+  idElement: 5,
+  kind: "PERSON",
+  name: "Dafydd",
+  initialName: "A hooded figure",
+  title: "Shell seller",
+  description: "Sells shells.\nKnows the tides.",
+  notes: null,
+  imageUrl: null,
+  status: "ACTIVE",
+  tags: ["harbour"],
+};
+// Dafydd is in scene 15, the one the table is on by default.
+const sa_getElementDetail = mock.fn(
+  async (_story: number, idElement: number, idStoryScene: number | null) =>
+    idElement === 5
+      ? {
+          element: dafydd,
+          link:
+            idStoryScene === 15
+              ? { idSceneElement: 9, status: "INITIAL", tags: ["scene"], createdAt: null }
+              : null,
+        }
+      : null,
+);
+const sa_unlinkSceneElement = mock.fn(async (_story: number, _scene: number, _element: number) => ({
+  ok: true as const,
+}));
+const onRemovedFromScene = mock.fn((_idElement: number) => {});
+const onImageChange = mock.fn((_idElement: number, _imageUrl: string | null) => {});
+const onElementEdited = mock.fn((_element: ElementDetail) => {});
+const sa_updateStoryElement = mock.fn(
+  async (_story: number, _element: number, values: Record<string, string>) => ({
+    ok: true as const,
+    element: { ...dafydd, name: values.name, title: values.title || null },
+  }),
+);
+const sa_setElementImage = mock.fn(
+  async (_story: number, _element: number, idAttachment: number | null) => ({
+    ok: true as const,
+    imageUrl: idAttachment === null ? null : `https://x.test/${idAttachment}.png`,
+  }),
+);
+// Scene only: of the people, only Dafydd is in the scene.
+const sa_listSceneLibraryElements = mock.fn(
+  async (_story: number, _scene: number, kind: ElementKind, _q?: string) =>
+    kind === "PERSON" ? people.slice(0, 1) : [],
+);
+const sa_listStatusOptions = mock.fn(async (_table: string): Promise<StatusOption[]> =>
+  ["ACTIVE", "INACTIVE"].map((key) => ({ key, label: key, description: null, from: null })),
+);
+
 let RunLibrary: typeof import("./run-library").RunLibrary;
+let UserPreferencesProvider: typeof import("@/components/preferences/user-preferences-provider").UserPreferencesProvider;
 
 describe("RunLibrary", () => {
   before(async () => {
@@ -115,13 +169,43 @@ describe("RunLibrary", () => {
     mock.module("@/app/(app)/(nav)/libraries/actions", {
       namedExports: { sa_listStoryElements },
     });
+    // An element's info button asks for the element and its workflow.
+    mock.module("@/app/(app)/run/[id]/actions", {
+      namedExports: {
+        sa_getElementDetail,
+        sa_setElementImage,
+        sa_updateStoryElement,
+        sa_updateSceneElement: mock.fn(),
+        sa_moveSceneElement: mock.fn(),
+        sa_unlinkSceneElement,
+        sa_listSceneLibraryElements,
+        sa_createSceneElement: mock.fn(),
+      },
+    });
+    // An element tab's + reads the Add as invisible preference.
+    mock.module("@/components/preferences/actions", {
+      namedExports: { sa_setUserPreference: mock.fn() },
+    });
+    mock.module("@/components/status/actions", {
+      namedExports: { sa_listStatusOptions, sa_setRowStatus: mock.fn() },
+    });
     ({ RunLibrary } = await import("./run-library"));
+    ({ UserPreferencesProvider } =
+      await import("@/components/preferences/user-preferences-provider"));
   });
 
   beforeEach(() => {
     sa_listAttachments.mock.resetCalls();
     sa_searchAttachments.mock.resetCalls();
     sa_listStoryElements.mock.resetCalls();
+    sa_getElementDetail.mock.resetCalls();
+    sa_unlinkSceneElement.mock.resetCalls();
+    sa_setElementImage.mock.resetCalls();
+    sa_updateStoryElement.mock.resetCalls();
+    onElementEdited.mock.resetCalls();
+    onImageChange.mock.resetCalls();
+    sa_listSceneLibraryElements.mock.resetCalls();
+    onRemovedFromScene.mock.resetCalls();
     sa_createAttachment.mock.resetCalls();
     sa_setAttachmentCover.mock.resetCalls();
     sa_setAttachmentTags.mock.resetCalls();
@@ -136,18 +220,34 @@ describe("RunLibrary", () => {
     toaster.remove();
   });
 
-  const render = (onAdd: (item: PlayItem) => void = () => {}, idStoryScene: number | null = 15) =>
-    renderWithProviders(
-      <UserProvider user={user}>
+  const library = (
+    onAdd: (item: PlayItem) => void = () => {},
+    idStoryScene: number | null = 15,
+    sceneOnly = false,
+    locked = false,
+  ) => (
+    <UserProvider user={user}>
+      <UserPreferencesProvider preferences={{}}>
         <RunLibrary
           idStory={-4}
           idStoryScene={idStoryScene}
+          sceneOnly={sceneOnly}
           onAdd={onAdd}
+          onRemovedFromScene={onRemovedFromScene}
+          onImageChange={onImageChange}
+          onElementEdited={onElementEdited}
+          onItemChange={() => {}}
+          onSceneStatusChange={() => {}}
           onSceneCoverChange={onSceneCoverChange}
+          onCreated={() => {}}
+          stackTag={null}
+          locked={locked}
         />
-        <Toaster />
-      </UserProvider>,
-    );
+      </UserPreferencesProvider>
+      <Toaster />
+    </UserProvider>
+  );
+  const render = (...args: Parameters<typeof library>) => renderWithProviders(library(...args));
 
   it("offers a search and a tab for attachments and each kind of element", () => {
     render();
@@ -202,7 +302,8 @@ describe("RunLibrary", () => {
     render();
     const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
     await within(panel).findByText("Handout 1");
-    const plus = within(panel).getByRole("button", { name: "New attachment" });
+    // The + floats at the foot of the tab, outside the list that scrolls.
+    const plus = screen.getByRole("button", { name: "New attachment" });
     expect(plus).toHaveAttribute("aria-expanded", "false");
     expect(within(panel).queryByRole("textbox", { name: "Link" })).not.toBeInTheDocument();
 
@@ -226,18 +327,18 @@ describe("RunLibrary", () => {
     expect(within(panel).getAllByRole("listitem")[0]).toContainElement(added);
   });
 
-  it("lists the story's attachments, or switches to the scene's", async () => {
+  it("lists the story's attachments with All, and the scene's with Scene only", async () => {
     const u = userEvent.setup();
-    render();
+    const { rerender } = render();
     const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
     await within(panel).findByText("Handout 1");
-    expect(within(panel).getByRole("radio", { name: "Story" })).toBeChecked();
+    // The library's own switch decides; the tab has none of its own.
+    expect(within(panel).queryByRole("radio")).not.toBeInTheDocument();
 
-    await u.click(within(panel).getByText("Scene"));
+    rerender(library(() => {}, 15, true));
 
     expect(await within(panel).findByText("Docks map")).toBeInTheDocument();
     expect(within(panel).queryByText("Handout 1")).not.toBeInTheDocument();
-    expect(within(panel).getByRole("radio", { name: "Scene" })).toBeChecked();
     expect(sa_listAttachments.mock.calls.at(-1)?.arguments).toEqual(["STORY_SCENE", 15]);
 
     // The search and the + follow the switch.
@@ -245,7 +346,7 @@ describe("RunLibrary", () => {
     await waitFor(() =>
       expect(sa_searchAttachments.mock.calls.at(-1)?.arguments).toEqual(["STORY_SCENE", 15, "map"]),
     );
-    await u.click(within(panel).getByRole("button", { name: "New attachment" }));
+    await u.click(screen.getByRole("button", { name: "New attachment" }));
     await u.type(within(panel).getByRole("textbox", { name: "Link" }), "https://x.test/tide.png");
     await u.click(within(panel).getByRole("button", { name: "Add link" }));
     expect(sa_createAttachment.mock.calls[0].arguments[0]).toEqual({
@@ -255,11 +356,12 @@ describe("RunLibrary", () => {
     });
   });
 
-  it("offers no scene to switch to when the table is on none", async () => {
-    render(() => {}, null);
+  it("lists the story's attachments with Scene only but no scene at the table", async () => {
+    render(() => {}, null, true);
     const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
 
-    expect(within(panel).getByRole("radio", { name: "Scene" })).toBeDisabled();
+    expect(await within(panel).findByText("Handout 1")).toBeInTheDocument();
+    expect(sa_listAttachments.mock.calls.at(-1)?.arguments).toEqual(["STORY", -4]);
   });
 
   it("tags an attachment and makes it the story's cover, with the controls its card has", async () => {
@@ -308,10 +410,8 @@ describe("RunLibrary", () => {
 
   it("makes one of the scene's own attachments its cover, and tells the play space", async () => {
     const u = userEvent.setup();
-    render();
+    render(() => {}, 15, true);
     const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
-    await within(panel).findByText("Handout 1");
-    await u.click(within(panel).getByText("Scene"));
 
     await u.click(await within(panel).findByRole("button", { name: "Cover Docks map" }));
 
@@ -384,10 +484,8 @@ describe("RunLibrary", () => {
 
   it("moves a scene attachment back to the story, its cover leaving the play space", async () => {
     const u = userEvent.setup();
-    render();
+    render(() => {}, 15, true);
     const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
-    await within(panel).findByText("Handout 1");
-    await u.click(within(panel).getByText("Scene"));
 
     await u.click(
       await within(panel).findByRole("button", { name: "Move Docks map to the story" }),
@@ -429,6 +527,186 @@ describe("RunLibrary", () => {
       detail: "Shell seller",
       imageUrl: null,
     });
+  });
+
+  it("shows everything about an element from its info button", async () => {
+    const user = userEvent.setup();
+    render();
+
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    const panel = await screen.findByRole("tabpanel", { name: "People" });
+    await user.click(await within(panel).findByRole("button", { name: "About Dafydd" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+    expect(await within(dialog).findByText("A hooded figure")).toBeInTheDocument();
+    expect(within(dialog).getByText("Shell seller")).toBeInTheDocument();
+    expect(within(dialog).getByText("harbour")).toBeInTheDocument();
+    expect(sa_getElementDetail.mock.calls[0].arguments).toEqual([-4, 5, 15]);
+  });
+
+  it("edits a STORY element from its info popover, without anything about the scene", async () => {
+    const user = userEvent.setup();
+    // No scene at the table, so Dafydd is only the story's.
+    render(() => {}, null);
+
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    const panel = await screen.findByRole("tabpanel", { name: "People" });
+    await user.click(await within(panel).findByRole("button", { name: "About Dafydd" }));
+    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+    expect(await within(dialog).findByTestId("element-panel-where")).toHaveTextContent("STORY");
+    expect(within(dialog).queryByRole("heading", { name: "In this scene" })).toBeNull();
+    await user.click(await within(dialog).findByRole("button", { name: "Edit Dafydd" }));
+
+    const name = await within(dialog).findByRole("textbox", { name: /^Name/ });
+    expect(name).toHaveValue("Dafydd");
+    // The library edits the element itself, not its place in a scene.
+    expect(within(dialog).queryByText("In this scene")).toBeNull();
+    await user.clear(name);
+    await user.type(name, "Dafydd the Shell");
+    const listedBefore = sa_listStoryElements.mock.callCount();
+    await user.click(within(dialog).getByRole("button", { name: "Save element" }));
+
+    await waitFor(() => expect(sa_updateStoryElement.mock.callCount()).toBe(1));
+    const [story, element, values] = sa_updateStoryElement.mock.calls[0].arguments;
+    expect([story, element]).toEqual([-4, 5]);
+    expect(values).toMatchObject({ name: "Dafydd the Shell", status: "ACTIVE" });
+    // Back on the detail, as saved; the play space and the list hear of it.
+    expect(await within(dialog).findByText("Dafydd the Shell", { selector: "dd" })).toBeTruthy();
+    expect(onElementEdited.mock.calls[0].arguments[0]).toMatchObject({ name: "Dafydd the Shell" });
+    await waitFor(() =>
+      expect(sa_listStoryElements.mock.callCount()).toBeGreaterThan(listedBefore),
+    );
+  });
+
+  it("gives an element a picture from its info popover's Add picture", async () => {
+    const user = userEvent.setup();
+    render();
+
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    const panel = await screen.findByRole("tabpanel", { name: "People" });
+    await user.click(await within(panel).findByRole("button", { name: "About Dafydd" }));
+    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+    await user.click(await within(dialog).findByRole("button", { name: "Add picture" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Add Handout 1" }));
+
+    expect(sa_setElementImage.mock.calls[0].arguments).toEqual([-4, 5, 1]);
+    // The play space hears of it, and the popover shows it with its −.
+    await waitFor(() =>
+      expect(onImageChange.mock.calls[0]?.arguments).toEqual([5, "https://x.test/1.png"]),
+    );
+    expect(within(dialog).getByRole("button", { name: "Remove picture" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Add picture" })).toBeNull();
+  });
+
+  it("removes an element in the scene from it, from its info popover", async () => {
+    const user = userEvent.setup();
+    render();
+
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    const panel = await screen.findByRole("tabpanel", { name: "People" });
+    await user.click(await within(panel).findByRole("button", { name: "About Dafydd" }));
+    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+    await user.click(await within(dialog).findByRole("button", { name: "Remove from scene" }));
+
+    expect(await screen.findByText("Removed from the scene")).toBeInTheDocument();
+    expect(sa_unlinkSceneElement.mock.calls[0].arguments).toEqual([-4, 15, 5]);
+    expect(onRemovedFromScene.mock.calls[0].arguments).toEqual([5]);
+    // Out of the scene now, so the button goes; the element is still shown.
+    expect(within(dialog).queryByRole("button", { name: "Remove from scene" })).toBeNull();
+    expect(within(dialog).getByText("Shell seller")).toBeInTheDocument();
+  });
+
+  it("lists only the scene's elements with Scene only on", async () => {
+    const user = userEvent.setup();
+    render(() => {}, 15, true);
+
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    const panel = await screen.findByRole("tabpanel", { name: "People" });
+    expect(await within(panel).findByText("Dafydd")).toBeInTheDocument();
+    expect(within(panel).queryByText("Aldric")).not.toBeInTheDocument();
+    expect(sa_listSceneLibraryElements.mock.calls.at(-1)?.arguments).toEqual([
+      -4,
+      15,
+      "PERSON",
+      "",
+    ]);
+    expect(sa_listStoryElements.mock.callCount()).toBe(0);
+
+    // Removed from the scene, so gone from the scene's list.
+    await user.click(within(panel).getByRole("button", { name: "About Dafydd" }));
+    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+    await user.click(await within(dialog).findByRole("button", { name: "Remove from scene" }));
+    await waitFor(() => expect(within(panel).queryByText("Dafydd")).not.toBeInTheDocument());
+  });
+
+  it("lists the whole story with Scene only on but no scene at the table", async () => {
+    const user = userEvent.setup();
+    render(() => {}, null, true);
+
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    const panel = await screen.findByRole("tabpanel", { name: "People" });
+    expect(await within(panel).findByText("Aldric")).toBeInTheDocument();
+    expect(sa_listSceneLibraryElements.mock.callCount()).toBe(0);
+  });
+
+  it("offers no Remove from scene with no scene at the table", async () => {
+    const user = userEvent.setup();
+    render(() => {}, null);
+
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    const panel = await screen.findByRole("tabpanel", { name: "People" });
+    await user.click(await within(panel).findByRole("button", { name: "About Dafydd" }));
+    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+
+    expect(await within(dialog).findByText("Shell seller")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Remove from scene" })).toBeNull();
+  });
+
+  it("gives attachments no info button", async () => {
+    render();
+    const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
+    await within(panel).findByText("Handout 1");
+
+    expect(within(panel).queryByRole("button", { name: /^About / })).not.toBeInTheDocument();
+  });
+
+  it("adds nothing to a complete scene and takes nothing out of it", async () => {
+    const u = userEvent.setup();
+    render(() => {}, 15, false, true);
+
+    // The story's attachments cannot move into the scene.
+    const attachments = await screen.findByRole("tabpanel", { name: "Attachments" });
+    await within(attachments).findByText("Handout 1");
+    expect(within(attachments).queryByRole("button", { name: /^Move / })).not.toBeInTheDocument();
+
+    await u.click(screen.getByRole("tab", { name: "People" }));
+    const panel = await screen.findByRole("tabpanel", { name: "People" });
+    await within(panel).findByText("Dafydd");
+    expect(within(panel).queryByRole("button", { name: /^Add / })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "New element in the scene" }),
+    ).not.toBeInTheDocument();
+
+    // Its info still opens, without Remove from scene.
+    await u.click(within(panel).getByRole("button", { name: "About Dafydd" }));
+    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+    expect(await within(dialog).findByText("Shell seller")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Remove from scene" })).toBeNull();
+  });
+
+  it("gives an element tab a + for a new element in the scene, and none with no scene", async () => {
+    const u = userEvent.setup();
+    const { rerender } = render();
+
+    await u.click(screen.getByRole("tab", { name: "Places" }));
+    await screen.findByRole("tabpanel", { name: "Places" });
+    expect(screen.getByRole("button", { name: "New element in the scene" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New attachment" })).not.toBeInTheDocument();
+
+    rerender(library(() => {}, null));
+    expect(
+      screen.queryByRole("button", { name: "New element in the scene" }),
+    ).not.toBeInTheDocument();
   });
 
   it("says when a tab has nothing to show", async () => {

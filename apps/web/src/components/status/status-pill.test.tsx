@@ -183,4 +183,81 @@ describe("StatusPill", () => {
     });
     expect(screen.getByRole("button", { name: middle.label })).toBeInTheDocument();
   });
+
+  it("carries a tooltip saying what it does", async () => {
+    const u = userEvent.setup();
+    renderWithProviders(
+      <StatusPill
+        table="story_scenes"
+        id={7}
+        status={first.key}
+        options={options}
+        canEdit
+        tooltip="Set scene status"
+      />,
+    );
+
+    await u.hover(screen.getByRole("button", { name: "First" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Set scene status");
+  });
+
+  it("asks before a move it is told to confirm, and moves only on Confirm", async () => {
+    const u = userEvent.setup();
+    const onChanged = mock.fn((_status: string) => {});
+    renderWithProviders(
+      <>
+        <StatusPill
+          table="story_scenes"
+          id={7}
+          status={middle.key}
+          options={options}
+          canEdit
+          onChanged={onChanged}
+          confirm={(next) =>
+            next === last.key
+              ? { title: "Finish it?", body: "There is no way back.", confirmLabel: "Finish" }
+              : null
+          }
+        />
+        <Toaster />
+      </>,
+    );
+
+    // Cancel leaves it where it was.
+    await u.click(screen.getByRole("button", { name: "Middle" }));
+    await choose(u, await screen.findByRole("menuitem", { name: "Last" }));
+    const ask = await screen.findByRole("dialog", { name: "Finish it?" });
+    expect(ask).toHaveTextContent("There is no way back.");
+    await u.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(sa_setRowStatus.mock.callCount()).toBe(0);
+    expect(screen.getByRole("button", { name: "Middle" })).toBeInTheDocument();
+
+    await u.click(screen.getByRole("button", { name: "Middle" }));
+    await choose(u, await screen.findByRole("menuitem", { name: "Last" }));
+    await u.click(await screen.findByRole("button", { name: "Finish" }));
+    await waitFor(() => expect(onChanged.mock.callCount()).toBe(1));
+    expect(sa_setRowStatus.mock.calls[0].arguments).toEqual(["story_scenes", 7, "LAST"]);
+  });
+
+  it("moves straight away when the confirm hook has nothing to ask", async () => {
+    const u = userEvent.setup();
+    renderWithProviders(
+      <StatusPill
+        table="story_scenes"
+        id={7}
+        status={middle.key}
+        options={options}
+        canEdit
+        confirm={() => null}
+      />,
+    );
+
+    await u.click(screen.getByRole("button", { name: "Middle" }));
+    await choose(u, await screen.findByRole("menuitem", { name: "First" }));
+    await waitFor(() =>
+      expect(sa_setRowStatus.mock.calls[0]?.arguments).toEqual(["story_scenes", 7, "FIRST"]),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 });

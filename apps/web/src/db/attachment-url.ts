@@ -39,3 +39,24 @@ export function attachmentUrl(kind: AttachmentKind, idExternal: SQLWrapper) {
     limit 1
   )`;
 }
+
+/**
+ * The url of the attachment a row points at as its picture
+ * (elements.id_attachment, also in v_scene_elements), for a row that names
+ * its picture rather than tagging a cover among its own. Null when the
+ * pointer is null or the attachment is not READY, for the reason
+ * attachmentUrl gives.
+ *
+ * Takes the outer relation's name rather than its column: Drizzle writes a
+ * single-table select's columns unqualified, and an unqualified
+ * "id_attachment" inside this subquery would be the attachment's own, which
+ * matches every row.
+ */
+export function attachmentUrlById(source: "elements" | "v_scene_elements") {
+  return sql<string | null>`(
+    select ${attachments.url}
+    from ${attachments}
+    where ${attachments.idAttachment} = ${sql.identifier(source)}.${sql.identifier("id_attachment")}
+      and ${attachments.status} = 'READY'
+  )`;
+}

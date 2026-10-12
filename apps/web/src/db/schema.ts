@@ -493,6 +493,9 @@ export const elements = pgTable("elements", {
   title: text("title"),
   description: text("description"),
   notes: text("notes"),
+  // The element's picture: one of its story's attachments, pointed at rather
+  // than moved, so it stays in its own list. ON DELETE SET NULL.
+  idAttachment: integer("id_attachment"),
   // The standard tags feature from _tables.
   tags: text("tags")
     .array()
@@ -536,6 +539,9 @@ export const sceneElements = pgTable("scene_elements", {
     .array()
     .notNull()
     .default(sql`'{}'`),
+  // Which of the element's fields its pill shows in this scene: initial_name,
+  // name or title, held by a CHECK. The link's own, despite the prefix.
+  elementShowing: varchar("element_showing").notNull().default("initial_name"),
   activityLog: jsonb("activity_log")
     .default(sql`'[]'::jsonb`)
     .notNull(),
@@ -568,6 +574,7 @@ export const vSceneElements = pgView("v_scene_elements", {
   // How the storyteller files the element in this scene; the element's own
   // tags are elementTags.
   tags: text("tags").array(),
+  elementShowing: varchar("element_showing"),
   createdAt: timestamp("created_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -580,6 +587,7 @@ export const vSceneElements = pgView("v_scene_elements", {
   title: text("title"),
   description: text("description"),
   notes: text("notes"),
+  idAttachment: integer("id_attachment"),
   elementTags: text("element_tags").array(),
   elementSearchText: text("element_search_text"),
   elementUpdatedAt: timestamp("element_updated_at", { withTimezone: true }),

@@ -782,5 +782,88 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         actions.sa_updateElement(theirs.id, { ...blank, kind: "PERSON", name: NAME }),
       ).rejects.toThrow(/storyteller/);
     });
+
+    it("deletes an element, taking its scene links and leaving its picture", async () => {
+      const [picture] = await db
+        .insert(tables.attachments)
+        .values({
+          kind: "STORY",
+          idExternal: myStory,
+          status: "READY",
+          url: "https://x.test/p.png",
+        })
+        .returning({ id: tables.attachments.idAttachment });
+      const [doomed] = await db
+        .insert(tables.elements)
+        .values({
+          idStory: myStory,
+          kind: "THING",
+          name: NAME,
+          idAttachment: picture.id,
+          idCreatedByUser: SEED_USER,
+        })
+        .returning({ id: tables.elements.idElement });
+      const [scene] = await db
+        .insert(tables.storyScenes)
+        .values({ idStory: myStory, sceneTitle: "Fixture scene to delete from" })
+        .returning({ id: tables.storyScenes.idStoryScene });
+      await db
+        .insert(tables.sceneElements)
+        .values({ idStoryScene: scene.id, idElement: doomed.id, idCreatedByUser: SEED_USER });
+
+      try {
+        expect(await actions.sa_deleteElement(doomed.id)).toEqual({ ok: true, idStory: myStory });
+        const links = await db
+          .select({ id: tables.sceneElements.idSceneElement })
+          .from(tables.sceneElements)
+          .where(eq(tables.sceneElements.idElement, doomed.id));
+        expect(links).toEqual([]);
+        const pictures = await db
+          .select({ id: tables.attachments.idAttachment })
+          .from(tables.attachments)
+          .where(eq(tables.attachments.idAttachment, picture.id));
+        expect(pictures).toEqual([{ id: picture.id }]);
+        expect(await actions.sa_getElementForEdit(doomed.id)).toBeNull();
+        // Gone already.
+        expect(await actions.sa_deleteElement(doomed.id)).toEqual({
+          ok: false,
+          error: "That element is not one of your story's.",
+        });
+      } finally {
+        await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, scene.id));
+        await db.delete(tables.attachments).where(eq(tables.attachments.idAttachment, picture.id));
+      }
+    });
+
+    it("deletes nobody else's element", async () => {
+      const [theirs] = await db
+        .insert(tables.elements)
+        .values({ idStory: theirStory, kind: "PERSON", name: NAME, idCreatedByUser: otherUserId })
+        .returning({ id: tables.elements.idElement });
+
+      expect(await actions.sa_deleteElement(theirs.id)).toEqual({
+        ok: false,
+        error: "That element is not one of your story's.",
+      });
+      expect(await written()).toContainEqual(expect.objectContaining({ id: theirs.id }));
+    });
+
+    // What deleting leans on: an element's scene links go with it, and an
+    // attachment's elements only lose their picture. Nothing else points at
+    // either table; a new key that does should say here what it does.
+    it("cascades an element's scene links, and nulls an attachment's pictures", async () => {
+      const keys = await db.execute<{ from_table: string; col: string; on_delete: string }>(sql`
+        select c.conrelid::regclass::text as from_table, a.attname as col,
+               c.confdeltype as on_delete
+        from pg_constraint c
+        join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
+        where c.contype = 'f'
+          and c.confrelid in ('elements'::regclass, 'attachments'::regclass)
+        order by 1, 2`);
+      expect(keys.rows).toEqual([
+        { from_table: "elements", col: "id_attachment", on_delete: "n" },
+        { from_table: "scene_elements", col: "id_element", on_delete: "c" },
+      ]);
+    });
   });
 });

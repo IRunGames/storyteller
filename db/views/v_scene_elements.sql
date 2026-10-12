@@ -7,7 +7,9 @@
 -- element's are prefixed element_: `status` is how the element stands in this
 -- scene, `element_status` how it stands in the story, and `tags` how the
 -- storyteller files it in this scene (the stacks of the run page's play
--- space), `element_tags` the element's own.
+-- space), `element_tags` the element's own. `element_showing` is the link's
+-- too, despite its prefix: which of the element's fields the pill shows in
+-- this scene.
 --
 -- The columns are listed rather than taken as se.* and e.*, so a column added
 -- to either table does not change the view's shape until it is added here and
@@ -22,6 +24,7 @@ SELECT se.id_scene_element,
        se.ready_at,
        se.disabled_at,
        se.tags,
+       se.element_showing,
        se.created_at,
        se.updated_at,
        se.id_created_by_user,
@@ -34,6 +37,7 @@ SELECT se.id_scene_element,
        e.title,
        e.description,
        e.notes,
+       e.id_attachment,
        e.tags         AS element_tags,
        e.search_text  AS element_search_text,
        e.updated_at   AS element_updated_at

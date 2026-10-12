@@ -8,7 +8,14 @@ import { Toaster, toaster } from "@/components/ui/toaster";
 import { UserProvider } from "@/components/auth/user-provider";
 import type { CurrentUser } from "@/lib/current-user";
 import type { StoryElement } from "@/lib/elements";
-import { EMPTY_PLAY_SPACE, type PlayItem, type RunPlaySpace } from "@/lib/run";
+import type { Attachment } from "@/lib/attachments";
+import {
+  EMPTY_PLAY_SPACE,
+  type ElementDetail,
+  type PlayItem,
+  type RunPlaySpace,
+  type RunSession,
+} from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 
 const user: CurrentUser = {
@@ -26,7 +33,13 @@ const people: StoryElement[] = [
 const scene = { idStoryScene: -15, title: "Strangers in the morning", status: "ACTIVE" };
 
 const sa_linkSceneElement = mock.fn(
-  async (_story: number, _scene: number, idElement: number, _hidden?: boolean) => ({
+  async (
+    _story: number,
+    _scene: number,
+    idElement: number,
+    _hidden?: boolean,
+    tag?: string | null,
+  ) => ({
     ok: true as const,
     item: {
       key: `PERSON:${idElement}`,
@@ -34,8 +47,36 @@ const sa_linkSceneElement = mock.fn(
       label: "Dafydd",
       detail: "Shell seller",
       imageUrl: null,
-      sceneTags: [],
+      sceneTags: tag ? [tag] : [],
     },
+  }),
+);
+// Dafydd as the library's info popover reads him.
+const dafyddDetail: ElementDetail = {
+  idElement: 5,
+  kind: "PERSON",
+  name: "Dafydd",
+  initialName: null,
+  title: "Shell seller",
+  description: null,
+  notes: null,
+  imageUrl: null,
+  status: "READY",
+  tags: [],
+};
+
+// The story's attachments, for the library and the pickers. Empty but for
+// the test that picks a picture, which fills it and empties it again.
+let storyAttachments: Attachment[] = [];
+
+const sa_setRowStatus = mock.fn(async (_table: string, _id: number, status: string) => ({
+  ok: true as const,
+  status,
+}));
+const sa_setSceneStacks = mock.fn(
+  async (_story: number, _scene: number, input: { tags: string[]; saveForStory: boolean }) => ({
+    ok: true as const,
+    tags: input.tags,
   }),
 );
 const sa_createSceneElement = mock.fn(
@@ -66,21 +107,20 @@ const sa_listStatusOptions = mock.fn(async (table: string) =>
     : statusOptions(["PENDING", "READY", "INACTIVE"]),
 );
 
-// For the info popover's edit: Dafydd, a person, edited into a place.
-const sa_getSceneElementDetail = mock.fn(async () => ({
-  element: {
-    idElement: 5,
-    kind: "PERSON",
-    name: "Dafydd",
-    initialName: null,
-    title: "Shell seller",
-    description: null,
-    notes: null,
-    status: "READY",
-    tags: [],
-  },
-  link: { idSceneElement: 9, status: "INITIAL", tags: ["scene"], createdAt: null },
-}));
+// For the element panel, from a pill or the library: Dafydd, in the scene
+// whenever there is one. The panel's edit turns him from a person into a place.
+const sa_getElementDetail = mock.fn(
+  async (_story: number, idElement: number, idStoryScene: number | null) =>
+    idElement === 5
+      ? {
+          element: dafyddDetail,
+          link:
+            idStoryScene === null
+              ? null
+              : { idSceneElement: 9, status: "INITIAL", tags: ["scene"], createdAt: null },
+        }
+      : null,
+);
 const sa_updateSceneElement = mock.fn(async () => ({
   ok: true as const,
   item: {
@@ -102,9 +142,32 @@ let RunTable: typeof import("./run-table").RunTable;
 type PreferencesModule = typeof import("@/components/preferences/user-preferences-provider");
 let UserPreferencesProvider: PreferencesModule["UserPreferencesProvider"];
 
+// Zag only selects the highlighted item, and opens with its input modality
+// "virtual", so a lone synthetic hover is ignored: the nudge loop
+// status-pill.test.tsx uses, moving the pointer until the highlight shows.
+async function choose(user: ReturnType<typeof userEvent.setup>, item: HTMLElement) {
+  let step = 0;
+  await waitFor(async () => {
+    step += 1;
+    await user.pointer({ target: item, coords: { clientX: step, clientY: step } });
+    expect(item).toHaveAttribute("data-highlighted");
+  });
+  await user.click(item);
+}
+
+// The scene workflow's shape: each status may move to any other.
+const sceneStatusOptions: StatusOption[] = ["PENDING", "ACTIVE", "COMPLETE"].map((key) => ({
+  key,
+  label: key.charAt(0) + key.slice(1).toLowerCase(),
+  description: null,
+  from: null,
+}));
+
+const kildealg: RunSession = { idStorySession: -30, number: 3, title: "Kildealg" };
+
 function renderTable(
   preferences: Record<string, boolean> = {},
-  session: string | null = "3. Kildealg",
+  session: RunSession | null = kildealg,
   initialSpace: RunPlaySpace = EMPTY_PLAY_SPACE,
 ) {
   return renderWithProviders(
@@ -115,7 +178,7 @@ function renderTable(
           title="Psychoneira"
           session={session}
           initialSpace={initialSpace}
-          sceneStatusOptions={[]}
+          sceneStatusOptions={sceneStatusOptions}
         />
         <Toaster />
       </UserPreferencesProvider>
@@ -141,7 +204,7 @@ describe("RunTable", () => {
     });
     mock.module("@/components/uploads/actions", {
       namedExports: {
-        sa_listAttachments: async () => [],
+        sa_listAttachments: async (kind: string) => (kind === "STORY" ? storyAttachments : []),
         sa_searchAttachments: async () => [],
         sa_moveStoryAttachmentToSceneCover: mock.fn(),
         sa_moveStoryAttachmentsToScene: mock.fn(),
@@ -156,13 +219,28 @@ describe("RunTable", () => {
         sa_linkSceneElement,
         sa_createSceneElement,
         sa_setSceneElementShown: mock.fn(),
-        sa_getSceneElementDetail,
+        sa_setSceneElementShowing: mock.fn(),
+
+        sa_getElementDetail,
+        sa_updateStoryElement: mock.fn(
+          async (_story: number, _element: number, values: Record<string, string>) => ({
+            ok: true as const,
+            element: {
+              ...dafyddDetail,
+              name: values.name,
+              initialName: values.initialName || null,
+            },
+          }),
+        ),
+        sa_unlinkSceneElement: mock.fn(async () => ({ ok: true as const })),
+        sa_listSceneLibraryElements: mock.fn(async () => []),
+        sa_setSceneStacks,
         sa_updateSceneElement,
         sa_moveSceneElement: mock.fn(),
       },
     });
     mock.module("@/components/status/actions", {
-      namedExports: { sa_listStatusOptions, sa_setRowStatus: mock.fn() },
+      namedExports: { sa_listStatusOptions, sa_setRowStatus },
     });
     mock.module("@/app/(app)/(nav)/libraries/actions", {
       namedExports: {
@@ -179,6 +257,8 @@ describe("RunTable", () => {
   beforeEach(() => {
     sa_setUserPreference.mock.resetCalls();
     sa_linkSceneElement.mock.resetCalls();
+    sa_setSceneStacks.mock.resetCalls();
+    sa_setRowStatus.mock.resetCalls();
     sa_createSceneElement.mock.resetCalls();
   });
 
@@ -256,8 +336,9 @@ describe("RunTable", () => {
     // Only the page holds it, with no scene to link it to.
     expect(sa_linkSceneElement.mock.callCount()).toBe(0);
 
-    await u.click(within(space).getByRole("button", { name: "Remove Dafydd from the play space" }));
-    expect(within(space).queryByRole("listitem")).not.toBeInTheDocument();
+    // Pills have no ✕; taking an element out is the info popover's −,
+    // which needs a scene.
+    expect(within(space).queryByRole("button", { name: /^Remove / })).not.toBeInTheDocument();
   });
 
   it("stacks the scene's elements by its tags, the untagged in the first", () => {
@@ -279,7 +360,7 @@ describe("RunTable", () => {
         sceneTags: [],
       },
     ];
-    renderTable({}, "3. Kildealg", { scene, tags: ["elements", "scene"], coverUrl: null, inPlay });
+    renderTable({}, kildealg, { scene, tags: ["elements", "scene"], coverUrl: null, inPlay });
     expect(
       within(screen.getByRole("banner")).getByRole("button", {
         name: "Scene: Strangers in the morning",
@@ -308,7 +389,7 @@ describe("RunTable", () => {
   });
 
   it("shows one Default stack for a scene with no tags", () => {
-    renderTable({}, "3. Kildealg", { scene, tags: [], coverUrl: null, inPlay: [] });
+    renderTable({}, kildealg, { scene, tags: [], coverUrl: null, inPlay: [] });
     const space = screen.getByRole("region", { name: "Play space" });
 
     const stack = within(space).getByRole("region", { name: "Default" });
@@ -319,7 +400,7 @@ describe("RunTable", () => {
 
   it("links a library element to the scene, into the first stack", async () => {
     const u = userEvent.setup();
-    renderTable({}, "3. Kildealg", {
+    renderTable({}, kildealg, {
       scene,
       tags: ["elements", "scene"],
       coverUrl: null,
@@ -331,12 +412,368 @@ describe("RunTable", () => {
 
     const elements = screen.getByRole("region", { name: "elements" });
     expect(await within(elements).findByText("Dafydd")).toBeInTheDocument();
-    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 5, false]);
+    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 5, false, "elements"]);
+  });
+
+  it("adds from the library into the stack the In select names, the first by default", async () => {
+    const u = userEvent.setup();
+    renderTable({}, kildealg, { scene, tags: ["elements", "scene"], coverUrl: null, inPlay: [] });
+    const library = screen.getByRole("region", { name: "Library" });
+
+    const select = within(library).getByRole("button", { name: "Add to the elements stack" });
+    expect(select).toHaveTextContent("In:elements");
+    await u.click(select);
+    await choose(u, await screen.findByRole("menuitemradio", { name: "scene" }));
+    expect(
+      within(library).getByRole("button", { name: "Add to the scene stack" }),
+    ).toBeInTheDocument();
+
+    await u.click(screen.getByRole("tab", { name: "People" }));
+    await u.click(await screen.findByRole("button", { name: "Add Dafydd to the play space" }));
+    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 5, false, "scene"]);
+    const sceneStack = screen.getByRole("region", { name: "scene" });
+    expect(await within(sceneStack).findByText("Dafydd")).toBeInTheDocument();
+  });
+
+  it("makes a new stack from the In select and chooses it", async () => {
+    const u = userEvent.setup();
+    renderTable({}, kildealg, { scene, tags: ["elements", "scene"], coverUrl: null, inPlay: [] });
+    const library = screen.getByRole("region", { name: "Library" });
+
+    await u.click(within(library).getByRole("button", { name: "Add to the elements stack" }));
+    await choose(u, await screen.findByRole("menuitem", { name: "Create new stack" }));
+    const dialog = await screen.findByRole("dialog", { name: "New stack" });
+    await u.type(within(dialog).getByRole("textbox", { name: "Name" }), "Docks");
+    await u.click(within(dialog).getByRole("button", { name: "Add stack" }));
+
+    expect(sa_setSceneStacks.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      { tags: ["elements", "scene", "Docks"], saveForStory: false },
+    ]);
+    // The play space has the new stack, and the select has chosen it.
+    expect(await screen.findByRole("region", { name: "Docks" })).toBeInTheDocument();
+    expect(
+      within(library).getByRole("button", { name: "Add to the Docks stack" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renames a stack in Manage stacks, taking its pills and the In select with it", async () => {
+    const u = userEvent.setup();
+    const inPlay: PlayItem[] = [
+      {
+        key: "PERSON:5",
+        kind: "PERSON",
+        label: "Dafydd",
+        detail: null,
+        imageUrl: null,
+        sceneTags: ["scene"],
+        sceneStatus: "READY",
+      },
+    ];
+    renderTable({}, kildealg, { scene, tags: ["elements", "scene"], coverUrl: null, inPlay });
+    const library = screen.getByRole("region", { name: "Library" });
+    await u.click(within(library).getByRole("button", { name: "Add to the elements stack" }));
+    await choose(u, await screen.findByRole("menuitemradio", { name: "scene" }));
+
+    await u.click(screen.getByRole("button", { name: "Manage stacks" }));
+    const dialog = await screen.findByRole("dialog", { name: "Manage stacks" });
+    const field = within(dialog).getByRole("textbox", { name: "Name of scene" });
+    await u.clear(field);
+    await u.type(field, "Docks");
+    // The row's buttons keep the name it opened with while it is typed.
+    expect(within(dialog).getByRole("button", { name: "Remove scene" })).toBeInTheDocument();
+    await u.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(sa_setSceneStacks.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      {
+        tags: ["elements", "Docks"],
+        renames: [{ from: "scene", to: "Docks" }],
+        saveForStory: false,
+      },
+    ]);
+    const docks = await screen.findByRole("region", { name: "Docks" });
+    expect(within(docks).getByText("Dafydd")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "scene" })).not.toBeInTheDocument();
+    expect(
+      within(library).getByRole("button", { name: "Add to the Docks stack" }),
+    ).toBeInTheDocument();
+  });
+
+  it("says a renamed stack that clashes, before anything is saved", async () => {
+    const u = userEvent.setup();
+    renderTable({}, kildealg, { scene, tags: ["elements", "scene"], coverUrl: null, inPlay: [] });
+
+    await u.click(screen.getByRole("button", { name: "Manage stacks" }));
+    const dialog = await screen.findByRole("dialog", { name: "Manage stacks" });
+    const field = within(dialog).getByRole("textbox", { name: "Name of scene" });
+    await u.clear(field);
+    await u.type(field, "Elements");
+    await u.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await within(dialog).findByText("Each stack needs its own name.")).toBeInTheDocument();
+    expect(sa_setSceneStacks.mock.callCount()).toBe(0);
+  });
+
+  it("adds, removes and reorders stacks from Manage stacks, for the story too", async () => {
+    const u = userEvent.setup();
+    renderTable({}, kildealg, { scene, tags: ["elements", "scene"], coverUrl: null, inPlay: [] });
+
+    await u.click(screen.getByRole("button", { name: "Manage stacks" }));
+    const dialog = await screen.findByRole("dialog", { name: "Manage stacks" });
+    await u.click(within(dialog).getByRole("button", { name: "Move scene up" }));
+    await u.click(within(dialog).getByRole("button", { name: "Remove elements" }));
+    await u.type(within(dialog).getByRole("textbox", { name: "New stack" }), "Docks{Enter}");
+    // A name already in the list is said beside the field.
+    await u.type(within(dialog).getByRole("textbox", { name: "New stack" }), "docks{Enter}");
+    expect(within(dialog).getByText("Each stack needs its own name.")).toBeInTheDocument();
+    await u.clear(within(dialog).getByRole("textbox", { name: "New stack" }));
+    await u.click(
+      within(dialog).getByRole("checkbox", { name: "Also save as the story's default stacks" }),
+    );
+    await u.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(sa_setSceneStacks.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      { tags: ["scene", "Docks"], renames: [], saveForStory: true },
+    ]);
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "elements" })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("region", { name: "Docks" })).toBeInTheDocument();
+    // The In select falls back to the first stack, its own having gone.
+    expect(screen.getByRole("button", { name: "Add to the scene stack" })).toBeInTheDocument();
+  });
+
+  it("completes the scene from its status chip once asked, then locks the play space", async () => {
+    const u = userEvent.setup();
+    const inPlay: PlayItem[] = [
+      {
+        key: "PERSON:5",
+        kind: "PERSON",
+        label: "Dafydd",
+        detail: null,
+        imageUrl: null,
+        sceneTags: ["scene"],
+        sceneStatus: "READY",
+      },
+    ];
+    renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay });
+    const header = screen.getByRole("banner");
+    expect(screen.queryByTestId("scene-complete-overlay")).not.toBeInTheDocument();
+
+    const chip = within(header).getByRole("button", { name: "Active" });
+    await u.hover(chip);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Set scene status");
+    await u.click(chip);
+    await choose(u, await screen.findByRole("menuitem", { name: "Complete" }));
+
+    const ask = await screen.findByRole("dialog", { name: "Complete this scene?" });
+    expect(ask).toHaveTextContent("nothing can be added to it or taken out of it");
+    expect(ask).toHaveTextContent("start a new scene");
+    expect(sa_setRowStatus.mock.callCount()).toBe(0);
+    await u.click(within(ask).getByRole("button", { name: "Complete scene" }));
+
+    expect(await screen.findByTestId("scene-complete-overlay")).toHaveTextContent("COMPLETE");
+    expect(sa_setRowStatus.mock.calls[0].arguments).toEqual(["story_scenes", -15, "COMPLETE"]);
+    // The stack controls and the library's arrows are gone.
+    expect(screen.queryByRole("button", { name: "Manage stacks" })).not.toBeInTheDocument();
+    await u.click(screen.getByRole("tab", { name: "People" }));
+    const people = await screen.findByRole("tabpanel", { name: "People" });
+    await within(people).findByRole("button", { name: "About Dafydd" });
+    expect(
+      within(people).queryByRole("button", { name: "Add Dafydd to the play space" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("resumes a complete scene from its status chip once asked, lifting the overlay and locks", async () => {
+    const u = userEvent.setup();
+    renderTable({}, kildealg, {
+      scene: { ...scene, status: "COMPLETE" },
+      tags: ["scene"],
+      coverUrl: null,
+      inPlay: [],
+    });
+    expect(screen.getByTestId("scene-complete-overlay")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage stacks" })).not.toBeInTheDocument();
+
+    // Still a menu on a complete scene, but leaving complete asks first.
+    const chip = within(screen.getByRole("banner")).getByRole("button", { name: "Complete" });
+    await u.click(chip);
+    await choose(u, await screen.findByRole("menuitem", { name: "Active" }));
+    let ask = await screen.findByRole("dialog", { name: "Resume this scene?" });
+    expect(ask).toHaveTextContent("makes it active again");
+    await u.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Resume this scene?" })).not.toBeInTheDocument(),
+    );
+    expect(sa_setRowStatus.mock.callCount()).toBe(0);
+    expect(screen.getByTestId("scene-complete-overlay")).toBeInTheDocument();
+
+    await u.click(chip);
+    await choose(u, await screen.findByRole("menuitem", { name: "Active" }));
+    ask = await screen.findByRole("dialog", { name: "Resume this scene?" });
+    await u.click(within(ask).getByRole("button", { name: "Resume scene" }));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("scene-complete-overlay")).not.toBeInTheDocument(),
+    );
+    expect(sa_setRowStatus.mock.calls[0].arguments).toEqual(["story_scenes", -15, "ACTIVE"]);
+    expect(screen.getByRole("button", { name: "Manage stacks" })).toBeInTheDocument();
+  });
+
+  it("opens a complete scene under its overlay", () => {
+    renderTable({}, kildealg, {
+      scene: { ...scene, status: "COMPLETE" },
+      tags: ["scene"],
+      coverUrl: null,
+      inPlay: [],
+    });
+
+    expect(screen.getByTestId("scene-complete-overlay")).toHaveTextContent("COMPLETE");
+  });
+
+  it("opens the same panel from the library, with the scene's part for an element in it", async () => {
+    const u = userEvent.setup();
+    const inPlay: PlayItem[] = [
+      {
+        key: "PERSON:5",
+        kind: "PERSON",
+        label: "Dafydd",
+        detail: "Shell seller",
+        imageUrl: null,
+        sceneTags: ["scene"],
+        sceneStatus: "INITIAL",
+      },
+    ];
+    renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay });
+
+    await u.click(screen.getByRole("tab", { name: "People" }));
+    const people = await screen.findByRole("tabpanel", { name: "People" });
+    await u.click(await within(people).findByRole("button", { name: "About Dafydd" }));
+    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+    // In the scene at the table: SCENE, its status and its In this scene rows.
+    expect(await within(dialog).findByTestId("element-panel-where")).toHaveTextContent("SCENE");
+    expect(within(dialog).getByRole("heading", { name: "In this scene" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Remove from scene" })).toBeInTheDocument();
+    // Move to is a pill's, which knows its stack; the library has none.
+    expect(within(dialog).queryByText("Move to")).toBeNull();
+
+    // Edited in the scene, as from the pill: the pill in play takes the change.
+    await u.click(within(dialog).getByRole("button", { name: "Edit Dafydd" }));
+    await within(dialog).findByRole("button", { name: "In this scene: Initial" });
+    await u.click(within(dialog).getByRole("button", { name: "Save element" }));
+    const sceneStack = screen.getByRole("region", { name: "scene" });
+    expect(await within(sceneStack).findByText("Dafydd's stall")).toBeInTheDocument();
+  });
+
+  it("takes a pill out of the play space when its panel's − removes it from the scene", async () => {
+    const u = userEvent.setup();
+    const inPlay: PlayItem[] = [
+      {
+        key: "PERSON:5",
+        kind: "PERSON",
+        label: "Dafydd",
+        detail: null,
+        imageUrl: null,
+        sceneTags: ["scene"],
+        sceneStatus: "INITIAL",
+      },
+    ];
+    renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay });
+    const sceneStack = screen.getByRole("region", { name: "scene" });
+
+    await u.click(within(sceneStack).getByRole("button", { name: "About Dafydd" }));
+    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+    await u.click(await within(dialog).findByRole("button", { name: "Remove from scene" }));
+
+    await waitFor(() => expect(within(sceneStack).queryByText("Dafydd")).not.toBeInTheDocument());
+  });
+
+  it("takes the pill out when the library's panel removes it, even under another kind", async () => {
+    const u = userEvent.setup();
+    // In play as a place, though the library lists Dafydd among People: his
+    // kind changed after his pill went in.
+    const inPlay: PlayItem[] = [
+      {
+        key: "PLACE:5",
+        kind: "PLACE",
+        label: "Dafydd",
+        detail: null,
+        imageUrl: null,
+        sceneTags: ["scene"],
+        sceneStatus: "INITIAL",
+      },
+    ];
+    renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay });
+    const sceneStack = screen.getByRole("region", { name: "scene" });
+    expect(within(sceneStack).getByText("Dafydd")).toBeInTheDocument();
+
+    await u.click(screen.getByRole("tab", { name: "People" }));
+    const people = await screen.findByRole("tabpanel", { name: "People" });
+    await u.click(await within(people).findByRole("button", { name: "About Dafydd" }));
+    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+    await u.click(await within(dialog).findByRole("button", { name: "Remove from scene" }));
+
+    await waitFor(() => expect(within(sceneStack).queryByText("Dafydd")).not.toBeInTheDocument());
+  });
+
+  it("offers no stack controls with no scene at the table", () => {
+    renderTable();
+
+    expect(screen.queryByRole("button", { name: "Manage stacks" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Add to the / })).not.toBeInTheDocument();
+  });
+
+  it("gives a new element a picture chosen in its form", async () => {
+    storyAttachments = [
+      {
+        idAttachment: 30,
+        kind: "STORY",
+        idExternal: -4,
+        status: "READY",
+        url: "https://x.test/30.png",
+        isUploaded: true,
+        fileName: "Tide pool.png",
+        isCover: false,
+        tags: [],
+      },
+    ];
+    try {
+      const u = userEvent.setup();
+      renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay: [] });
+
+      const sceneStack = screen.getByRole("region", { name: "scene" });
+      await u.click(within(sceneStack).getByRole("button", { name: "New element in scene" }));
+      const popover = await screen.findByRole("dialog", { name: "New element in scene" });
+      await within(popover).findByRole("button", { name: "In this scene: Initial" });
+      await u.click(within(popover).getByRole("button", { name: "Add picture" }));
+      // Choosing only fills the form; nothing is saved until Add element.
+      await u.click(await within(popover).findByRole("button", { name: "Add Tide pool.png" }));
+      expect(within(popover).getByText("Tide pool.png")).toBeInTheDocument();
+      expect(within(popover).getByRole("button", { name: "Remove picture" })).toBeInTheDocument();
+      expect(sa_createSceneElement.mock.callCount()).toBe(0);
+
+      await u.type(within(popover).getByRole("textbox", { name: /^Name/ }), "The tide pool");
+      await u.selectOptions(within(popover).getByRole("combobox", { name: "Status" }), "READY");
+      await u.click(within(popover).getByRole("button", { name: "Add element" }));
+
+      await waitFor(() => expect(sa_createSceneElement.mock.callCount()).toBe(1));
+      expect(sa_createSceneElement.mock.calls[0].arguments[3]).toMatchObject({
+        name: "The tide pool",
+        idAttachment: 30,
+      });
+    } finally {
+      storyAttachments = [];
+    }
   });
 
   it("makes a new element from a stack's +, filed under its tag", async () => {
     const u = userEvent.setup();
-    renderTable({}, "3. Kildealg", {
+    renderTable({}, kildealg, {
       scene,
       tags: ["elements", "scene"],
       coverUrl: null,
@@ -370,6 +807,8 @@ describe("RunTable", () => {
         notes: "Cold.",
         status: "READY",
         sceneStatus: "INITIAL",
+        // No picture chosen.
+        idAttachment: null,
       },
     ]);
     await waitFor(() =>
@@ -379,9 +818,29 @@ describe("RunTable", () => {
     );
   });
 
+  it("makes an element of a library tab's kind, linked to the scene and put in play", async () => {
+    const u = userEvent.setup();
+    renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay: [] });
+
+    await u.click(screen.getByRole("tab", { name: "Places" }));
+    await u.click(await screen.findByRole("button", { name: "New element in the scene" }));
+    const popover = await screen.findByRole("dialog", { name: "New element in the scene" });
+    // The form starts on the tab's kind.
+    expect(within(popover).getByRole("combobox", { name: "Kind" })).toHaveValue("PLACE");
+    await within(popover).findByRole("button", { name: "In this scene: Initial" });
+    await u.type(within(popover).getByRole("textbox", { name: /^Name/ }), "The tide pool");
+    await u.selectOptions(within(popover).getByRole("combobox", { name: "Status" }), "READY");
+    await u.click(within(popover).getByRole("button", { name: "Add element" }));
+
+    // Filed under the In select's stack, the first by default.
+    expect(sa_createSceneElement.mock.calls[0].arguments.slice(0, 3)).toEqual([-4, -15, "scene"]);
+    const sceneStack = screen.getByRole("region", { name: "scene" });
+    expect(await within(sceneStack).findByText("The tide pool")).toBeInTheDocument();
+  });
+
   it("adds as invisible with the library's switch, from the arrow and the +", async () => {
     const u = userEvent.setup();
-    renderTable({ "run.addInvisible": true }, "3. Kildealg", {
+    renderTable({ "run.addInvisible": true }, kildealg, {
       scene,
       tags: ["scene"],
       coverUrl: null,
@@ -392,7 +851,7 @@ describe("RunTable", () => {
 
     await u.click(screen.getByRole("tab", { name: "People" }));
     await u.click(await screen.findByRole("button", { name: "Add Dafydd to the play space" }));
-    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 5, true]);
+    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 5, true, "scene"]);
 
     const sceneStack = screen.getByRole("region", { name: "scene" });
     await u.click(within(sceneStack).getByRole("button", { name: "New element in scene" }));
@@ -414,9 +873,34 @@ describe("RunTable", () => {
     });
   });
 
+  it("keeps the Add as invisible switch below the library, and remembers Scene only", async () => {
+    const u = userEvent.setup();
+    renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay: [] });
+    const library = screen.getByRole("region", { name: "Library" });
+
+    // The switch comes after the list, outside the part that scrolls.
+    const tabs = within(library).getByRole("tablist");
+    const toggle = within(library).getByRole("switch", { name: "Add as invisible" });
+    expect(tabs.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await u.click(within(library).getByRole("radio", { name: "Scene only" }));
+    expect(sa_setUserPreference.mock.calls[0].arguments[0]).toEqual({
+      key: "run.librarySceneOnly",
+      value: true,
+    });
+  });
+
+  it("offers only All with no scene at the table", () => {
+    renderTable();
+    const library = screen.getByRole("region", { name: "Library" });
+
+    expect(within(library).getByRole("radio", { name: "All" })).toBeChecked();
+    expect(within(library).getByRole("radio", { name: "Scene only" })).toBeDisabled();
+  });
+
   it("keeps one pill for an element whose kind is changed from its popover", async () => {
     const u = userEvent.setup();
-    renderTable({}, "3. Kildealg", {
+    renderTable({}, kildealg, {
       scene,
       tags: ["scene"],
       coverUrl: null,
@@ -445,7 +929,7 @@ describe("RunTable", () => {
   });
 
   it("shows the scene's cover behind the play space", () => {
-    renderTable({}, "3. Kildealg", {
+    renderTable({}, kildealg, {
       scene,
       tags: ["scene"],
       coverUrl: "https://x.test/docks.png",

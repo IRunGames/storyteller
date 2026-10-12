@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -15,25 +15,41 @@ import {
   Textarea,
 } from "@chakra-ui/react";
 import { runElementSchema, type RunElementValues } from "@/lib/element-schemas";
-import type { PlayItem } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
-import type { SceneElementFormResult } from "@/app/(app)/run/[id]/actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { StatusChoicePill } from "@/components/status/status-choice-pill";
 import { ElementKindSelect } from "@/components/prep/element-kind-select";
 
-type Props = {
+/** What a save hands back: its own success, or errors keyed by field. */
+type SaveResult<Saved> = Saved | { ok: false; errors: Record<string, string> };
+
+type Props<Saved extends { ok: true }> = {
   /**
    * What the fields start with. A status left empty takes the workflow's
    * first, as a new row would.
    */
   initial: RunElementValues;
-  /** Saves the values: sa_createSceneElement or sa_updateSceneElement, bound. */
-  save: (values: RunElementValues) => Promise<SceneElementFormResult>;
-  /** The element as the play space now shows it. */
-  onSaved: (item: PlayItem) => void;
+  /**
+   * Saves the values: sa_createSceneElement or sa_updateSceneElement, bound,
+   * or for the library sa_updateStoryElement.
+   */
+  save: (values: RunElementValues) => Promise<SaveResult<Saved>>;
+  /** What the save handed back: the pill as it now is, or the element. */
+  onSaved: (saved: Saved) => void;
+  /**
+   * False for an element the form edits apart from any scene, from the
+   * library: the In this scene pill is left out. The field still holds the
+   * workflow's first status, so the schema is satisfied, and the action
+   * that saves it does not read it.
+   */
+  inScene?: boolean;
   onCancel: () => void;
   submitLabel: string;
+  /**
+   * Drawn after the fields, before the buttons: the new-element form's
+   * picture, which is not one of the fields the schema checks.
+   */
+  extra?: ReactNode;
 };
 
 const FIELDS = [
@@ -57,7 +73,15 @@ const FIELDS = [
  * Both workflows are read as the form opens, so the pill and the dropdown
  * offer exactly what the database will accept.
  */
-export function RunElementForm({ initial, save, onSaved, onCancel, submitLabel }: Props) {
+export function RunElementForm<Saved extends { ok: true }>({
+  initial,
+  save,
+  onSaved,
+  onCancel,
+  submitLabel,
+  extra,
+  inScene = true,
+}: Props<Saved>) {
   const [options, setOptions] = useState<{
     element: StatusOption[];
     scene: StatusOption[];
@@ -97,7 +121,7 @@ export function RunElementForm({ initial, save, onSaved, onCancel, submitLabel }
   }, [getValues, setValue]);
 
   async function onSubmit(values: RunElementValues) {
-    let result: SceneElementFormResult;
+    let result: SaveResult<Saved>;
     try {
       result = await save(values);
     } catch {
@@ -105,7 +129,7 @@ export function RunElementForm({ initial, save, onSaved, onCancel, submitLabel }
       return;
     }
     if (result.ok) {
-      onSaved(result.item);
+      onSaved(result);
       return;
     }
     for (const [field, message] of Object.entries(result.errors)) {
@@ -130,24 +154,26 @@ export function RunElementForm({ initial, save, onSaved, onCancel, submitLabel }
             </Alert.Content>
           </Alert.Root>
         )}
-        <Field.Root invalid={!!errors.sceneStatus}>
-          <HStack gap="3">
-            <Field.Label m="0">In this scene</Field.Label>
-            <Controller
-              control={control}
-              name="sceneStatus"
-              render={({ field }) => (
-                <StatusChoicePill
-                  label="In this scene"
-                  value={field.value}
-                  options={options.scene}
-                  onChange={field.onChange}
-                />
-              )}
-            />
-          </HStack>
-          <Field.ErrorText>{errors.sceneStatus?.message}</Field.ErrorText>
-        </Field.Root>
+        {inScene && (
+          <Field.Root invalid={!!errors.sceneStatus}>
+            <HStack gap="3">
+              <Field.Label m="0">In this scene</Field.Label>
+              <Controller
+                control={control}
+                name="sceneStatus"
+                render={({ field }) => (
+                  <StatusChoicePill
+                    label="In this scene"
+                    value={field.value}
+                    options={options.scene}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+            </HStack>
+            <Field.ErrorText>{errors.sceneStatus?.message}</Field.ErrorText>
+          </Field.Root>
+        )}
         <Field.Root invalid={!!errors.kind}>
           <Field.Label>Kind</Field.Label>
           <ElementKindSelect {...register("kind")} />
@@ -193,6 +219,7 @@ export function RunElementForm({ initial, save, onSaved, onCancel, submitLabel }
           </NativeSelect.Root>
           <Field.ErrorText>{errors.status?.message}</Field.ErrorText>
         </Field.Root>
+        {extra}
         {/* Cancel at the start and the action at the end, as a dialog's
             footer lays them out. */}
         <HStack justify="space-between" w="full" pt="1">

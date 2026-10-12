@@ -33,6 +33,12 @@ type Props = {
     onTagsChange: (tags: string[]) => Promise<boolean>;
     onCoverChange: (isCover: boolean) => Promise<boolean>;
   };
+  /**
+   * False for a picture shown as something else's, as an element's pill
+   * shows the attachment it points at: the attachment's tags are not that
+   * thing's, so the bar along the bottom is left out.
+   */
+  showTags?: boolean;
 };
 
 /**
@@ -44,7 +50,7 @@ type Props = {
  * small and may sit anywhere on the page, and a popover attached to it has
  * nowhere to put a large picture without running off the screen.
  */
-export function AttachmentPreview({ url, label, tags, isCover, editTags }: Props) {
+export function AttachmentPreview({ url, label, tags, isCover, editTags, showTags = true }: Props) {
   return (
     <Dialog.Root placement="center">
       <Dialog.Trigger asChild>
@@ -71,45 +77,47 @@ export function AttachmentPreview({ url, label, tags, isCover, editTags }: Props
               <Dialog.Title>{label}</Dialog.Title>
             </VisuallyHidden>
             <Image src={url} alt={label} maxW="90vw" maxH="80vh" objectFit="contain" mx="auto" />
-            <HStack gap="2" px="4" py="3" borderTopWidth="1px" align="center">
-              {editTags ? (
-                <AttachmentTagsPopover
-                  label={label}
-                  tags={tags}
-                  isCover={isCover}
-                  canCover={editTags.canCover}
-                  onTagsChange={editTags.onTagsChange}
-                  onCoverChange={editTags.onCoverChange}
-                  // In the dialog, which makes the page behind it inert.
-                  portalled={false}
-                />
-              ) : (
-                <Box color="fg.muted" flexShrink={0}>
-                  <TagIcon size={16} />
-                </Box>
-              )}
-              {isCover || tags.length > 0 ? (
-                <Wrap gap="2" role="list" aria-label="Tags">
-                  {isCover && (
-                    <Tag.Root role="listitem" colorPalette="yellow" variant="solid">
-                      <Tag.StartElement>
-                        <Star fill="currentColor" />
-                      </Tag.StartElement>
-                      <Tag.Label>Cover</Tag.Label>
-                    </Tag.Root>
-                  )}
-                  {tags.map((tag) => (
-                    <Tag.Root role="listitem" key={tag}>
-                      <Tag.Label>{tag}</Tag.Label>
-                    </Tag.Root>
-                  ))}
-                </Wrap>
-              ) : (
-                <Text fontSize="sm" color="fg.muted">
-                  No tags
-                </Text>
-              )}
-            </HStack>
+            {showTags && (
+              <HStack gap="2" px="4" py="3" borderTopWidth="1px" align="center">
+                {editTags ? (
+                  <AttachmentTagsPopover
+                    label={label}
+                    tags={tags}
+                    isCover={isCover}
+                    canCover={editTags.canCover}
+                    onTagsChange={editTags.onTagsChange}
+                    onCoverChange={editTags.onCoverChange}
+                    // In the dialog, which makes the page behind it inert.
+                    portalled={false}
+                  />
+                ) : (
+                  <Box color="fg.muted" flexShrink={0}>
+                    <TagIcon size={16} />
+                  </Box>
+                )}
+                {isCover || tags.length > 0 ? (
+                  <Wrap gap="2" role="list" aria-label="Tags">
+                    {isCover && (
+                      <Tag.Root role="listitem" colorPalette="yellow" variant="solid">
+                        <Tag.StartElement>
+                          <Star fill="currentColor" />
+                        </Tag.StartElement>
+                        <Tag.Label>Cover</Tag.Label>
+                      </Tag.Root>
+                    )}
+                    {tags.map((tag) => (
+                      <Tag.Root role="listitem" key={tag}>
+                        <Tag.Label>{tag}</Tag.Label>
+                      </Tag.Root>
+                    ))}
+                  </Wrap>
+                ) : (
+                  <Text fontSize="sm" color="fg.muted">
+                    No tags
+                  </Text>
+                )}
+              </HStack>
+            )}
             <Dialog.CloseTrigger asChild>
               {/* Over the picture, so it carries the cards' dark band rather
                   than a theme colour that might vanish into the image. */}

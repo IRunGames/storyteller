@@ -3,10 +3,21 @@
 import NextLink from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Alert, Button, Field, Heading, HStack, Input, Stack, Textarea } from "@chakra-ui/react";
+import {
+  Alert,
+  Box,
+  Button,
+  Field,
+  Heading,
+  HStack,
+  Input,
+  Stack,
+  Textarea,
+} from "@chakra-ui/react";
 import { elementSchema, type ElementValues } from "@/lib/element-schemas";
 import type { ElementKind } from "@/lib/elements";
 import { sa_createElement, sa_updateElement } from "@/app/(app)/(nav)/libraries/actions";
+import { DeleteElementButton } from "./delete-element-button";
 import { ElementKindSelect } from "./element-kind-select";
 
 type Props = {
@@ -142,6 +153,13 @@ export function ElementForm({ idStory, kind = "PERSON", element, onCreated, onCa
               <Button type="button" variant="ghost" onClick={onCancel}>
                 Cancel
               </Button>
+            )}
+            {/* At the far end, apart from Save: an edit's way out of the
+                story altogether, which asks first. */}
+            {element && (
+              <Box ms="auto">
+                <DeleteElementButton idElement={element.idElement} name={element.values.name} />
+              </Box>
             )}
           </HStack>
         </Stack>

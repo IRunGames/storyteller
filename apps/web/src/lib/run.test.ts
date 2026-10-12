@@ -1,6 +1,14 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
-import { attachmentLabel, elementIdOf, playStacks, RUN_LIBRARY_TABS, type PlayItem } from "./run";
+import {
+  attachmentLabel,
+  elementIdOf,
+  pillText,
+  playStacks,
+  RUN_LIBRARY_TABS,
+  withShowing,
+  type PlayItem,
+} from "./run";
 
 describe("RUN_LIBRARY_TABS", () => {
   it("puts Attachments first, then every kind of element in the board's order", () => {
@@ -96,5 +104,53 @@ describe("elementIdOf", () => {
     });
     expect(elementIdOf(item("PERSON:5"))).toBe(5);
     expect(elementIdOf(item("EPHEMERA:-12"))).toBe(-12);
+  });
+});
+
+describe("pillText", () => {
+  const fields = { initial_name: "A hooded figure", name: "Dafydd", title: "Shell seller" };
+
+  it("labels the pill with the chosen field, highlighted unless it is the name", () => {
+    expect(pillText(fields, "initial_name")).toEqual({
+      label: "A hooded figure",
+      detail: "Shell seller",
+      highlighted: true,
+    });
+    expect(pillText(fields, "name")).toEqual({
+      label: "Dafydd",
+      detail: "Shell seller",
+      highlighted: false,
+    });
+    // The title is not repeated underneath itself.
+    expect(pillText(fields, "title")).toEqual({
+      label: "Shell seller",
+      detail: null,
+      highlighted: true,
+    });
+  });
+
+  it("falls back to the name, unhighlighted, for a field left empty", () => {
+    expect(pillText({ initial_name: null, name: "Dafydd", title: null }, "initial_name")).toEqual({
+      label: "Dafydd",
+      detail: null,
+      highlighted: false,
+    });
+  });
+});
+
+describe("withShowing", () => {
+  it("relabels a linked element's item, and leaves anything else alone", () => {
+    const item: PlayItem = {
+      key: "PERSON:5",
+      kind: "PERSON",
+      label: "A hooded figure",
+      detail: "Shell seller",
+      imageUrl: null,
+      fields: { initial_name: "A hooded figure", name: "Dafydd", title: "Shell seller" },
+      showing: "initial_name",
+    };
+    expect(withShowing(item, "name")).toMatchObject({ label: "Dafydd", showing: "name" });
+    const loose = { ...item, fields: undefined, showing: undefined };
+    expect(withShowing(loose, "name")).toBe(loose);
   });
 });

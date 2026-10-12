@@ -147,7 +147,7 @@ describe("RunSceneSelect", () => {
     expect(onLoaded.mock.calls[0].arguments[0].scene?.title).toBe("The abbey");
   });
 
-  it("asks before making a complete scene active again", async () => {
+  it("loads a complete scene straight away, without asking", async () => {
     const user = userEvent.setup();
     const onLoaded = mock.fn<(space: RunPlaySpace) => void>();
     render({}, onLoaded);
@@ -155,23 +155,9 @@ describe("RunSceneSelect", () => {
     await user.click(screen.getByRole("button", { name: "Scene: The docks" }));
     await choose(user, /^The crossing/);
 
-    const confirm = await screen.findByRole("dialog", { name: "Play The crossing again?" });
-    expect(sa_loadRunScene.mock.callCount()).toBe(0);
-    await user.click(within(confirm).getByRole("button", { name: "Cancel" }));
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("dialog", { name: "Play The crossing again?" }),
-      ).not.toBeInTheDocument(),
-    );
-    expect(sa_loadRunScene.mock.callCount()).toBe(0);
-
-    await user.click(screen.getByRole("button", { name: "Scene: The docks" }));
-    await choose(user, /^The crossing/);
-    const again = await screen.findByRole("dialog", { name: "Play The crossing again?" });
-    await user.click(within(again).getByRole("button", { name: "Make active" }));
-
     await waitFor(() => expect(onLoaded.mock.callCount()).toBe(1));
     expect(sa_loadRunScene.mock.calls[0].arguments).toEqual([-4, 3]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("creates a new scene from a dialog and loads it", async () => {

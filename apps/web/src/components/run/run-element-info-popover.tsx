@@ -2,9 +2,8 @@
 
 import { useId, useState, type ReactNode } from "react";
 import {
-  DataList,
+  Badge,
   Field,
-  Heading,
   HStack,
   IconButton,
   NativeSelect,
@@ -15,88 +14,143 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { Info, Pencil } from "lucide-react";
-import { ELEMENT_KIND_LABELS, isElementKind } from "@/lib/elements";
-import type { PlayItem, SceneElementDetail } from "@/lib/run";
+import { Info, Minus, Pencil } from "lucide-react";
+import { isElementKind } from "@/lib/elements";
+import type { ElementDetail, ElementPanelDetail, PlayItem, SceneLink } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import {
-  sa_getSceneElementDetail,
+  sa_getElementDetail,
   sa_moveSceneElement,
+  sa_unlinkSceneElement,
   sa_updateSceneElement,
+  sa_updateStoryElement,
 } from "@/app/(app)/run/[id]/actions";
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { RunElementForm } from "./run-element-form";
+import { DetailSection, ElementDetailRows, tagList } from "./run-element-detail";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { LocalDate } from "@/components/dates/local-date";
 
 type Props = {
   idStory: number;
-  idStoryScene: number;
+  /** The scene the table is on, whose link to the element the panel shows; null for none. */
+  idStoryScene: number | null;
   idElement: number;
-  /** What the pill calls the element, to name the button. */
+  /** What the pill or the library calls the element, to name the button. */
   label: string;
-  /** The scene element's status has been moved from here, for the play space's pill. */
+  /** Where the panel opens: below a pill, beside the library's list. */
+  placement: "bottom-end" | "right-start";
+  /**
+   * The scene is complete: nothing goes into it or comes out of it, so the
+   * scene's status is only shown, Remove from scene and Move to are left
+   * out, and the pencil edits the element alone.
+   */
+  locked?: boolean;
+  /** The element's status in the scene has been moved from here. */
   onSceneStatusChange: (status: string) => void;
-  /** The element has been edited or moved from here, as the play space's pill now shows it. */
+  /** The element has been edited in the scene or moved from here, as its pill now is. */
   onItemChange: (item: PlayItem) => void;
-  /** The tag of the stack the pill is in, which Move to takes it out of; null for Default. */
-  stackTag: string | null;
-  /** The scene's other stacks, which Move to offers. */
-  otherStacks: string[];
+  /** The element has been edited from here, as the story now holds it. */
+  onEdited?: (element: ElementDetail) => void;
+  /** The element's picture has been changed from here: its address, or null for none. */
+  onImageChange: (imageUrl: string | null) => void;
+  /** The element has been taken out of the scene from here. */
+  onRemovedFromScene: () => void;
+  /**
+   * From a pill: the tag of the stack it is in, which Move to takes it out
+   * of (null for Default), and the scene's other stacks, which Move to
+   * offers. The library leaves both out, and the panel has no Move to.
+   */
+  stackTag?: string | null;
+  otherStacks?: string[];
 };
 
-/** What the popover shows once it has loaded: the detail and both workflows. */
-type Loaded = {
-  detail: SceneElementDetail;
+/** What the panel shows once it has loaded: the detail and both workflows. */
+type Loaded = ElementPanelDetail & {
   elementOptions: StatusOption[];
   sceneOptions: StatusOption[];
 };
 
 /**
- * A pill's info button: a popover with everything about the element, as the
- * story holds it, and about its link to this scene. Fetched each time it
- * opens (sa_getSceneElementDetail), so it shows what is stored now, the eye's
- * last press included, rather than what the page loaded with.
+ * The element panel, one for a pill's info button and the library's: a
+ * popover with everything about the element as the story holds it, and,
+ * when it is in the scene the table is on, about its link to that scene.
+ * Fetched each time it opens (sa_getElementDetail), so it shows what is
+ * stored now, the eye's last press included, rather than what the page
+ * loaded with.
  *
- * Both statuses are the storyteller's to move here, as StatusPills: how the
- * element stands in this scene beside its name in the heading, since that is
- * what the table is about and what the eye and the pill's styling show; then
- * how it stands in the story, among the element's own rows. Moving the first
- * tells the play space, so the pill's eye and styling keep up.
+ * A badge beside the name says which it is: SCENE for an element in the
+ * scene, STORY for one that is only the story's. Only a SCENE element has
+ * the scene's part: its status as a pill beside the name, the In this scene
+ * rows with the − that takes it out, and, from a pill, Move to. Moving its
+ * status tells the play space, so the pill's eye and styling keep up. The
+ * element's own status is among its own rows either way.
  *
- * The pencil at the heading's far end swaps the detail for RunElementForm,
- * the form a stack's + makes elements with, filled in; saving it
- * (sa_updateSceneElement) hands the play space the pill as it now is and
- * goes back to the detail, loaded again.
- *
- * Below a rule at the bottom, Move to lists the scene's other stacks and
- * moves the element to the one chosen (sa_moveSceneElement).
+ * The pencil swaps the detail for RunElementForm, filled in. A SCENE
+ * element is edited with its scene status (sa_updateSceneElement), which
+ * hands the play space the pill as it now is; a STORY element, or one in a
+ * complete scene, is edited alone (sa_updateStoryElement). Either way the
+ * panel goes back to the detail, loaded again.
  */
 export function RunElementInfoPopover({
   idStory,
   idStoryScene,
   idElement,
   label,
+  placement,
+  locked = false,
   onSceneStatusChange,
   onItemChange,
-  stackTag,
-  otherStacks,
+  onEdited,
+  onImageChange,
+  onRemovedFromScene,
+  stackTag = null,
+  otherStacks = [],
 }: Props) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps
   // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   // undefined while loading, null when there is nothing to show.
   const [loaded, setLoaded] = useState<Loaded | null | undefined>(undefined);
-  const detail = loaded?.detail;
   const [editing, setEditing] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  // The scene's part of the panel: only for an element in the scene, and
+  // only while there is a scene to speak of.
+  const inScene = Boolean(loaded?.link) && idStoryScene !== null;
+
+  async function load() {
+    setLoaded(undefined);
+    try {
+      const [found, elementOptions, sceneOptions] = await Promise.all([
+        sa_getElementDetail(idStory, idElement, idStoryScene),
+        sa_listStatusOptions("elements"),
+        sa_listStatusOptions("scene_elements"),
+      ]);
+      setLoaded(found ? { ...found, elementOptions, sceneOptions } : null);
+    } catch {
+      setLoaded(null);
+    }
+  }
+
+  // Changes kept in the loaded detail, so the pencil's form starts from what
+  // was just set here rather than what the panel opened with.
+  const patchElement = (patch: Partial<ElementDetail>) =>
+    setLoaded((current) =>
+      current ? { ...current, element: { ...current.element, ...patch } } : current,
+    );
+  const patchLink = (patch: Partial<SceneLink>) =>
+    setLoaded((current) =>
+      current?.link ? { ...current, link: { ...current.link, ...patch } } : current,
+    );
 
   // Move to: the pill leaves this stack for the one chosen, which redraws it
   // there and so closes this popover with it.
   async function moveTo(tag: string) {
-    if (!tag) return;
+    if (!tag || idStoryScene === null) return;
     setMoving(true);
     try {
       const result = await sa_moveSceneElement(idStory, idStoryScene, idElement, stackTag, tag);
@@ -109,26 +163,37 @@ export function RunElementInfoPopover({
     }
   }
 
-  async function load() {
-    setLoaded(undefined);
+  // The − beside In this scene: the link is deleted (sa_unlinkSceneElement)
+  // and the element stays in the story. From a pill, the pill leaves the
+  // play space, taking this popover with it; from the library, the panel
+  // stays open on the element, now STORY.
+  async function removeFromScene() {
+    if (idStoryScene === null) return;
+    setRemoving(true);
     try {
-      const [found, elementOptions, sceneOptions] = await Promise.all([
-        sa_getSceneElementDetail(idStory, idStoryScene, idElement),
-        sa_listStatusOptions("elements"),
-        sa_listStatusOptions("scene_elements"),
-      ]);
-      setLoaded(found ? { detail: found, elementOptions, sceneOptions } : null);
+      const result = await sa_unlinkSceneElement(idStory, idStoryScene, idElement);
+      if (result.ok) {
+        setLoaded((current) => (current ? { ...current, link: null } : current));
+        toaster.create({ title: "Removed from the scene", type: "success" });
+        onRemovedFromScene();
+      } else {
+        toaster.create({ title: result.error, type: "error" });
+      }
     } catch {
-      setLoaded(null);
+      toaster.create({ title: "The element could not be removed. Try again.", type: "error" });
+    } finally {
+      setRemoving(false);
     }
   }
+
+  const name = loaded?.element.name ?? label;
 
   return (
     // Not lazyMount: zag only links the dialog to its Popover.Title when the
     // title is in the page as the machine starts (attachment-tags-popover.tsx).
     <Popover.Root
       ids={{ trigger: triggerId }}
-      positioning={{ placement: "bottom-end" }}
+      positioning={{ placement }}
       onOpenChange={(details) => {
         // Each opening starts on the detail, not a form left half done.
         setEditing(false);
@@ -155,98 +220,101 @@ export function RunElementInfoPopover({
             <Popover.Arrow />
             <Popover.Header>
               <HStack justify="space-between" gap="2">
-                {/* The scene status beside the name: how the element stands
-                    in this scene is what the table is about. The form has a
-                    pill of its own, so this one stands aside while editing. */}
                 <HStack gap="2" minW="0" wrap="wrap">
                   <Popover.Title fontWeight="semibold">
-                    {editing
-                      ? `Edit ${detail?.element.name ?? label}`
-                      : (detail?.element.name ?? label)}
+                    {editing ? `Edit ${name}` : name}
                   </Popover.Title>
-                  {loaded && !editing && (
+                  {/* SCENE or STORY: whether this is the element in the
+                      scene at the table, or only the story's. */}
+                  {loaded && (
+                    <Badge size="xs" variant="outline" data-testid="element-panel-where">
+                      {inScene ? "SCENE" : "STORY"}
+                    </Badge>
+                  )}
+                  {/* The scene status beside the name: how the element stands
+                      in this scene is what the table is about. The scene's
+                      form has a pill of its own, so this one stands aside
+                      while editing. */}
+                  {loaded?.link && inScene && !editing && (
                     <StatusPill
                       table="scene_elements"
-                      id={loaded.detail.link.idSceneElement}
-                      status={loaded.detail.link.status}
+                      id={loaded.link.idSceneElement}
+                      status={loaded.link.status}
                       options={loaded.sceneOptions}
-                      canEdit
+                      canEdit={!locked}
                       onChanged={(status) => {
-                        setLoaded((current) =>
-                          current
-                            ? {
-                                ...current,
-                                detail: {
-                                  ...current.detail,
-                                  link: { ...current.detail.link, status },
-                                },
-                              }
-                            : current,
-                        );
+                        patchLink({ status });
                         onSceneStatusChange(status);
                       }}
                     />
                   )}
                 </HStack>
-                {detail && !editing && (
-                  <PrepIconButton
-                    label={`Edit ${detail.element.name}`}
-                    onClick={() => setEditing(true)}
-                  >
+                {loaded && !editing && (
+                  <PrepIconButton label={`Edit ${name}`} onClick={() => setEditing(true)} outlined>
                     <Pencil />
                   </PrepIconButton>
                 )}
               </HStack>
             </Popover.Header>
             <Popover.Body>
-              {detail && editing ? (
-                <RunElementForm
-                  initial={{
-                    kind: isElementKind(detail.element.kind) ? detail.element.kind : "OTHER",
-                    name: detail.element.name,
-                    initialName: detail.element.initialName ?? "",
-                    title: detail.element.title ?? "",
-                    description: detail.element.description ?? "",
-                    notes: detail.element.notes ?? "",
-                    status: detail.element.status,
-                    sceneStatus: detail.link.status,
-                  }}
-                  save={(values) => sa_updateSceneElement(idStory, idStoryScene, idElement, values)}
-                  onSaved={(item) => {
+              {loaded && editing ? (
+                <EditForm
+                  idStory={idStory}
+                  idStoryScene={idStoryScene}
+                  idElement={idElement}
+                  element={loaded.element}
+                  // A complete scene takes no change, so its element is
+                  // edited as the story's.
+                  link={inScene && !locked ? loaded.link : null}
+                  onSavedInScene={(item) => {
                     onItemChange(item);
                     setEditing(false);
                     void load();
                   }}
+                  onSavedInStory={(element) => {
+                    patchElement(element);
+                    setEditing(false);
+                    onEdited?.(element);
+                  }}
                   onCancel={() => setEditing(false)}
-                  submitLabel="Save element"
                 />
               ) : loaded === undefined ? (
                 <Text color="fg.muted">Loading…</Text>
               ) : loaded === null ? (
-                <Text color="fg.muted">This element is no longer in the scene.</Text>
+                <Text color="fg.muted">This element is no longer in the story.</Text>
               ) : (
                 <Stack gap="4">
-                  <ElementDetail
-                    loaded={loaded}
-                    // Kept in the loaded detail, so the pencil's form starts
-                    // from the status the pill has just moved to rather than
-                    // the one the popover opened with, and saving does not
-                    // put the old one back.
-                    onElementStatusChange={(status) =>
-                      setLoaded((current) =>
-                        current
-                          ? {
-                              ...current,
-                              detail: {
-                                ...current.detail,
-                                element: { ...current.detail.element, status },
-                              },
-                            }
-                          : current,
-                      )
-                    }
+                  <ElementDetailRows
+                    element={loaded.element}
+                    statusOptions={loaded.elementOptions}
+                    onStatusChange={(status) => patchElement({ status })}
+                    idStory={idStory}
+                    idStoryScene={idStoryScene}
+                    onImageChange={(imageUrl) => {
+                      patchElement({ imageUrl });
+                      onImageChange(imageUrl);
+                    }}
                   />
-                  {otherStacks.length > 0 && (
+                  {loaded.link && inScene && (
+                    <SceneRows
+                      link={loaded.link}
+                      action={
+                        // Hidden while the action is out, so a second press
+                        // cannot send it twice.
+                        !locked &&
+                        !removing && (
+                          <PrepIconButton
+                            label="Remove from scene"
+                            onClick={() => void removeFromScene()}
+                            outlined
+                          >
+                            <Minus />
+                          </PrepIconButton>
+                        )
+                      }
+                    />
+                  )}
+                  {inScene && !locked && otherStacks.length > 0 && (
                     <>
                       <Separator />
                       <Field.Root>
@@ -280,87 +348,69 @@ export function RunElementInfoPopover({
   );
 }
 
-function ElementDetail({
-  loaded: {
-    detail: { element, link },
-    elementOptions,
-  },
-  onElementStatusChange,
-}: {
-  loaded: Loaded;
-  onElementStatusChange: (status: string) => void;
-}) {
-  const tags = (list: string[]) => (list.length > 0 ? list.join(", ") : null);
-  // Name, title, description and notes are always listed, a dash for an
-  // empty one, so the storyteller sees what is still to write; the rest
-  // only when there is something to say.
-  const always = (value: string | null): ReactNode =>
-    value ? (
-      value
-    ) : (
-      <Text as="span" color="fg.subtle">
-        —
-      </Text>
-    );
-  const elementRows: [string, ReactNode][] = [
-    // The initial name leads: it is what the players know the element as,
-    // and what its pill in the play space shows.
-    ["Initial name", element.initialName],
-    ["Name", always(element.name)],
-    ["Kind", isElementKind(element.kind) ? ELEMENT_KIND_LABELS[element.kind] : element.kind],
-    ["Title", always(element.title)],
-    [
-      "Status",
-      <StatusPill
-        key="status"
-        table="elements"
-        id={element.idElement}
-        status={element.status}
-        options={elementOptions}
-        canEdit
-        onChanged={onElementStatusChange}
-      />,
-    ],
-    ["Tags", tags(element.tags)],
-    ["Description", always(element.description)],
-    ["Notes", always(element.notes)],
-  ];
-  const linkRows: [string, ReactNode][] = [
-    ["Tags", tags(link.tags)],
+/** The In this scene rows: the link's stack tags and when it was made, with the − beside the heading. */
+function SceneRows({ link, action }: { link: SceneLink; action: ReactNode }) {
+  const rows: [string, ReactNode][] = [
+    ["Tags", tagList(link.tags)],
     ["Added", link.createdAt ? <LocalDate value={new Date(link.createdAt)} withTime /> : null],
   ];
-
-  return (
-    <Stack gap="4">
-      {/* The element's own rows need no heading: the popover is about it. */}
-      <DetailSection rows={elementRows} />
-      <DetailSection title="In this scene" rows={linkRows} />
-    </Stack>
-  );
+  return <DetailSection title="In this scene" action={action} rows={rows} />;
 }
 
-/** Label / value rows under an optional heading; a row with nothing to say is left out. */
-function DetailSection({ title, rows }: { title?: string; rows: [string, ReactNode][] }) {
+/**
+ * The pencil's form: with the scene's status for an element in an open
+ * scene, saved with its link (sa_updateSceneElement); without it for a
+ * STORY element, saved alone (sa_updateStoryElement).
+ */
+function EditForm({
+  idStory,
+  idStoryScene,
+  idElement,
+  element,
+  link,
+  onSavedInScene,
+  onSavedInStory,
+  onCancel,
+}: {
+  idStory: number;
+  idStoryScene: number | null;
+  idElement: number;
+  element: ElementDetail;
+  link: SceneLink | null;
+  onSavedInScene: (item: PlayItem) => void;
+  onSavedInStory: (element: ElementDetail) => void;
+  onCancel: () => void;
+}) {
+  const initial = {
+    kind: isElementKind(element.kind) ? element.kind : "OTHER",
+    name: element.name,
+    initialName: element.initialName ?? "",
+    title: element.title ?? "",
+    description: element.description ?? "",
+    notes: element.notes ?? "",
+    status: element.status,
+    sceneStatus: link?.status ?? "",
+  } as const;
+
+  if (link && idStoryScene !== null) {
+    return (
+      <RunElementForm
+        initial={initial}
+        save={(values) => sa_updateSceneElement(idStory, idStoryScene, idElement, values)}
+        onSaved={({ item }) => onSavedInScene(item)}
+        onCancel={onCancel}
+        submitLabel="Save element"
+      />
+    );
+  }
   return (
-    <Stack gap="2">
-      {title && (
-        <Heading as="h3" size="xs" color="fg.muted">
-          {title}
-        </Heading>
-      )}
-      <DataList.Root orientation="horizontal" size="sm" gap="2">
-        {rows
-          .filter(([, value]) => value !== null && value !== "")
-          .map(([name, value]) => (
-            <DataList.Item key={name} alignItems="flex-start">
-              <DataList.ItemLabel minW="24">{name}</DataList.ItemLabel>
-              {/* pre-wrap, so a description's or notes' own line breaks show. */}
-              <DataList.ItemValue whiteSpace="pre-wrap" alignItems="center">
-                {value}
-              </DataList.ItemValue>
-            </DataList.Item>
-          ))}
-      </DataList.Root>
-    </Stack>
+    <RunElementForm
+      inScene={false}
+      initial={initial}
+      save={(values) => sa_updateStoryElement(idStory, idElement, values)}
+      onSaved={({ element: saved }) => onSavedInStory(saved)}
+      onCancel={onCancel}
+      submitLabel="Save element"
+    />
   );
 }

@@ -1,27 +1,23 @@
 "use client";
 
+import { Box, chakra, HStack, Menu, Portal, Stack, Text } from "@chakra-ui/react";
+import { ChevronDown, Eye, EyeOff, Lock } from "lucide-react";
 import {
-  Box,
-  chakra,
-  HStack,
-  Image,
-  Portal,
-  Stack,
-  Text,
-  Tooltip,
-  VisuallyHidden,
-} from "@chakra-ui/react";
-import { Eye, EyeOff, Lock, RefreshCw, X } from "lucide-react";
-import {
+  ELEMENT_SHOWING,
   elementIdOf,
+  isElementShowing,
+  pillText,
   SCENE_ELEMENT_DISABLED,
   SCENE_ELEMENT_HIDDEN,
   SCENE_ELEMENT_SHOWN,
+  withShowing,
   type PlayItem,
 } from "@/lib/run";
-import { sa_setSceneElementShown } from "@/app/(app)/run/[id]/actions";
+import { sa_setSceneElementShowing, sa_setSceneElementShown } from "@/app/(app)/run/[id]/actions";
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { AttachmentPreview } from "@/components/uploads/attachment-preview";
+import { RunElementImagePopover } from "./run-element-image-popover";
 import { RunElementInfoPopover } from "./run-element-info-popover";
 
 type Props = {
@@ -33,6 +29,7 @@ type Props = {
   stackTag: string | null;
   /** The scene's other stacks, which the info popover's Move to offers. */
   otherStacks: string[];
+  /** The element has been taken out of the scene from its info popover's −. */
   onRemove: (key: string) => void;
   /** The item's scene_elements status has changed, or is being changed. */
   onStatusChange: (key: string, status: string) => void;
@@ -42,10 +39,12 @@ type Props = {
 
 /**
  * One item in a stack of the play space. An element linked to the scene
- * also carries its eye and its info button, and shows its scene status:
+ * also carries its eye and its info button, its name is a dropdown of the
+ * fields it can show, and it shows its scene status:
  * hidden from the players (INVISIBLE) with the theme's highlight round it
- * as a border and a glow, switched off (DISABLED) in grey italics. Anything
- * the page alone holds is just its name and the ✕.
+ * as a border and a glow, switched off (DISABLED) in grey italics. It has no
+ * ✕: taking an element out of the scene is the info popover's − beside In
+ * this scene. Anything the page alone holds is just its name.
  */
 export function RunPlayPill({
   idStory,
@@ -84,6 +83,30 @@ export function RunPlayPill({
     }
   }
 
+  // The name's dropdown: the pill shows the chosen field at once and goes
+  // back if the action refuses, as the eye does.
+  async function chooseShowing(next: string) {
+    if (!linked || !isElementShowing(next) || next === item.showing) return;
+    onItemChange(withShowing(item, next));
+    try {
+      const result = await sa_setSceneElementShowing(
+        idStory,
+        idStoryScene,
+        elementIdOf(item),
+        next,
+      );
+      if (result.ok) return;
+      onItemChange(item);
+      toaster.create({ title: result.error, type: "error" });
+    } catch {
+      onItemChange(item);
+      toaster.create({ title: "That could not be changed. Try again.", type: "error" });
+    }
+  }
+
+  const fields = item.fields;
+  const highlighted = fields && item.showing ? pillText(fields, item.showing).highlighted : false;
+
   return (
     <HStack
       gap="2"
@@ -119,8 +142,33 @@ export function RunPlayPill({
           </PrepIconButton>
         </Box>
       )}
-      {item.imageUrl && (
-        <Image src={item.imageUrl} alt="" boxSize="12" rounded="sm" objectFit="cover" />
+      {item.imageUrl ? (
+        // Pressed, the picture opens full size, as an attachment's does in
+        // the library; its tags are the attachment's, not the element's, so
+        // the preview leaves them out.
+        <Box boxSize="12" flexShrink="0" rounded="sm" overflow="hidden">
+          <AttachmentPreview
+            url={item.imageUrl}
+            label={item.label}
+            tags={[]}
+            isCover={false}
+            showTags={false}
+          />
+        </Box>
+      ) : (
+        // In the picture's place, beside the eye: a + to give the element
+        // one from the story's or the scene's attachments.
+        linked && (
+          <Box flexShrink="0" me="-1.5">
+            <RunElementImagePopover
+              idStory={idStory}
+              idStoryScene={idStoryScene}
+              idElement={elementIdOf(item)}
+              label={item.label}
+              onPicked={(imageUrl) => onItemChange({ ...item, imageUrl })}
+            />
+          </Box>
+        )
       )}
       <Stack
         gap="0"
@@ -131,45 +179,67 @@ export function RunPlayPill({
         // glow round the pill saying why.
         color={isDisabled ? "fg.subtle" : isHidden ? "fg.muted" : undefined}
       >
-        {item.realName === undefined ? (
+        {!linked || !fields ? (
           <Text fontWeight="medium" truncate>
             {item.label}
           </Text>
         ) : (
-          // An initial name: bold, in the second highlight, so the
-          // storyteller sees at a glance this is what the players know it as.
-          // The whole name and its reveal icon are the tooltip's trigger, so
-          // pointing anywhere at it gives the name proper. Only as wide as the
-          // name, so the empty end of the pill does not raise it. It takes
-          // focus, so a keyboard reaches it too, and a screen reader hears
-          // the real name after the initial one.
-          <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-            <Tooltip.Trigger asChild>
-              <HStack
+          // The name is the dropdown's trigger: it lists each of the
+          // element's fields as field:value, and the one chosen is what the
+          // pill shows in this scene. Anything but the name proper is bold
+          // in the second highlight, so the storyteller sees at a glance the
+          // players know it by something else. Only as wide as the name, so
+          // the empty end of the pill does not open it.
+          <Menu.Root positioning={{ placement: "bottom-start" }}>
+            <Menu.Trigger asChild>
+              <chakra.button
+                type="button"
+                display="flex"
+                alignItems="center"
                 gap="1"
                 minW="0"
                 maxW="full"
                 alignSelf="flex-start"
-                tabIndex={0}
-                color={isDisabled ? undefined : "run.initialName"}
+                textAlign="start"
+                cursor="pointer"
+                color={highlighted && !isDisabled ? "run.initialName" : undefined}
+                fontWeight={highlighted ? "bold" : "medium"}
                 rounded="sm"
+                aria-label={`${item.label}, choose what the pill shows`}
                 _focusVisible={{ outline: "2px solid", outlineColor: "colorPalette.focusRing" }}
               >
-                <Text fontWeight="bold" truncate>
+                <Text as="span" truncate>
                   {item.label}
                 </Text>
+                {/* The caret says the name is a select. It never shrinks, so
+                    a long name truncates before the caret is pushed off. */}
                 <chakra.span display="inline-flex" flexShrink="0" aria-hidden>
-                  <RefreshCw size={14} />
+                  <ChevronDown size={14} />
                 </chakra.span>
-                <VisuallyHidden>, real name {item.realName}</VisuallyHidden>
-              </HStack>
-            </Tooltip.Trigger>
+              </chakra.button>
+            </Menu.Trigger>
             <Portal>
-              <Tooltip.Positioner>
-                <Tooltip.Content>{item.realName}</Tooltip.Content>
-              </Tooltip.Positioner>
+              <Menu.Positioner>
+                <Menu.Content>
+                  <Menu.RadioItemGroup
+                    value={item.showing}
+                    onValueChange={(e) => void chooseShowing(e.value)}
+                  >
+                    {ELEMENT_SHOWING.map((field) => (
+                      // A field the element has left empty cannot be shown,
+                      // so it is listed but not offered.
+                      <Menu.RadioItem key={field} value={field} disabled={!fields[field]}>
+                        <Menu.ItemIndicator />
+                        <Menu.ItemText>
+                          {field}:{fields[field] || "—"}
+                        </Menu.ItemText>
+                      </Menu.RadioItem>
+                    ))}
+                  </Menu.RadioItemGroup>
+                </Menu.Content>
+              </Menu.Positioner>
             </Portal>
-          </Tooltip.Root>
+          </Menu.Root>
         )}
         {item.detail && (
           <Text fontSize="sm" color={isDisabled || isHidden ? "fg.subtle" : "fg.muted"} truncate>
@@ -183,18 +253,15 @@ export function RunPlayPill({
           idStoryScene={idStoryScene}
           idElement={elementIdOf(item)}
           label={item.label}
+          placement="bottom-end"
           onSceneStatusChange={(next) => onStatusChange(item.key, next)}
           onItemChange={onItemChange}
+          onImageChange={(imageUrl) => onItemChange({ ...item, imageUrl })}
+          onRemovedFromScene={() => onRemove(item.key)}
           stackTag={stackTag}
           otherStacks={otherStacks}
         />
       )}
-      <PrepIconButton
-        label={`Remove ${item.label} from the play space`}
-        onClick={() => onRemove(item.key)}
-      >
-        <X />
-      </PrepIconButton>
     </HStack>
   );
 }

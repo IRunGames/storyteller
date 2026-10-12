@@ -2,7 +2,6 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { requireSession } from "@/lib/require-session";
 import { isUnplayable } from "@/lib/play";
-import { sessionHeading } from "@/lib/stories";
 import { PlayCover } from "@/components/play/play-cover";
 import { StoryUnavailableDialog } from "@/components/play/story-unavailable-dialog";
 import { RunTable } from "@/components/run/run-table";
@@ -55,7 +54,11 @@ export default async function RunTablePage({ params }: { params: Promise<{ id: s
     <RunTable
       idStory={story.idStory}
       title={story.title}
-      session={session ? sessionHeading(session) : null}
+      session={
+        session
+          ? { idStorySession: session.idStorySession, number: session.number, title: session.title }
+          : null
+      }
       initialSpace={initialSpace}
       sceneStatusOptions={sceneStatusOptions}
     />

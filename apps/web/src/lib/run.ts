@@ -10,6 +10,14 @@ export const RUN_LIST_SIZE = 10;
 /** How many of the story's scenes the header's scene selector lists. */
 export const RUN_SCENES_LIST_SIZE = 10;
 
+/** The session being played, as the header shows it and renames it. */
+export type RunSession = {
+  idStorySession: number;
+  /** 1 for the story's first session, counted in the order they opened. */
+  number: number;
+  title: string | null;
+};
+
 /** One scene as the header's scene selector lists it. */
 export type RunScene = {
   idStoryScene: number;
@@ -83,18 +91,70 @@ export type PlayItem = {
   /** An element linked to the scene: its scene_elements status, which the eye shows. */
   sceneStatus?: string;
   /**
-   * The element's name, when the label is its initial name instead: the pill
-   * shows the initial name in bold with a reveal icon whose tooltip gives
-   * this. Absent when the label is the name itself.
+   * An element linked to the scene: its fields the pill can show, which the
+   * pill's name lists as a dropdown, and the one it shows in this scene
+   * (scene_elements.element_showing). The label and detail are worked out
+   * from them by pillText. Absent for anything only in the page's state.
    */
-  realName?: string;
+  fields?: ElementFields;
+  showing?: ElementShowing;
 };
+
+/**
+ * The element fields a pill can show, as scene_elements.element_showing
+ * names them (its CHECK holds the same three), in the dropdown's order.
+ */
+export const ELEMENT_SHOWING = ["initial_name", "name", "title"] as const;
+export type ElementShowing = (typeof ELEMENT_SHOWING)[number];
+
+/** What a new link shows, the column's default: a first appearance. */
+export const DEFAULT_ELEMENT_SHOWING: ElementShowing = "initial_name";
+
+export function isElementShowing(value: unknown): value is ElementShowing {
+  return ELEMENT_SHOWING.includes(value as ElementShowing);
+}
+
+/** An element's showable fields by their column names; only the name is never empty. */
+export type ElementFields = { initial_name: string | null; name: string; title: string | null };
+
+/**
+ * A linked element's pill text for the field it shows. A field the element
+ * has left empty falls back to the name, so a pill is never blank, and
+ * `highlighted` is then false: the highlight says the players know the
+ * element by something other than its name. The title goes on the second
+ * line unless it is already the first.
+ */
+export function pillText(
+  fields: ElementFields,
+  showing: ElementShowing,
+): { label: string; detail: string | null; highlighted: boolean } {
+  const label = fields[showing] || fields.name;
+  return {
+    label,
+    detail: fields.title && fields.title !== label ? fields.title : null,
+    highlighted: label !== fields.name,
+  };
+}
+
+/** A linked element's item showing another of its fields, label and detail with it. */
+export function withShowing(item: PlayItem, showing: ElementShowing): PlayItem {
+  if (!item.fields) return item;
+  const { label, detail } = pillText(item.fields, showing);
+  return { ...item, showing, label, detail };
+}
 
 /**
  * The preference behind the library's Add as invisible switch: elements the
  * storyteller adds to the scene start hidden from the players.
  */
 export const RUN_ADD_INVISIBLE = "run.addInvisible";
+
+/**
+ * The preference behind the library's All / Scene only switch: whether its
+ * element tabs list every element in the story or only the ones linked to
+ * the scene the table is on.
+ */
+export const RUN_LIBRARY_SCENE_ONLY = "run.librarySceneOnly";
 
 /** The scene_elements status of an element hidden from the players. */
 export const SCENE_ELEMENT_HIDDEN = "INVISIBLE";
@@ -108,22 +168,35 @@ export function elementIdOf(item: PlayItem): number {
   return Number(item.key.slice(item.key.indexOf(":") + 1));
 }
 
-/** An element linked to a scene, everything about it, for the pill's info popover. */
-export type SceneElementDetail = {
-  element: {
-    idElement: number;
-    kind: string;
-    name: string;
-    initialName: string | null;
-    title: string | null;
-    description: string | null;
-    notes: string | null;
-    status: string;
-    tags: string[];
-  };
-  /** The scene_elements row: how the element stands in this scene. */
-  link: { idSceneElement: number; status: string; tags: string[]; createdAt: Date | null };
+/** Everything about one of the story's elements, for the info popovers. */
+export type ElementDetail = {
+  idElement: number;
+  kind: string;
+  name: string;
+  initialName: string | null;
+  title: string | null;
+  description: string | null;
+  notes: string | null;
+  /** Its picture's address (elements.id_attachment), or null for none. */
+  imageUrl: string | null;
+  status: string;
+  tags: string[];
 };
+
+/** An element's link to a scene (scene_elements): how it stands there. */
+export type SceneLink = {
+  idSceneElement: number;
+  status: string;
+  tags: string[];
+  createdAt: Date | null;
+};
+
+/**
+ * Everything the element panel shows, from a pill or from the library: the
+ * element as the story holds it, and its link to the scene the table is on,
+ * or null when it is not in that scene (or there is none).
+ */
+export type ElementPanelDetail = { element: ElementDetail; link: SceneLink | null };
 
 /**
  * One stack of the play space: a scene tag and the items filed under it.

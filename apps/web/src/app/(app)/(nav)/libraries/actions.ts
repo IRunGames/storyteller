@@ -627,6 +627,37 @@ export async function sa_getElementForEdit(idElement: number): Promise<{
   };
 }
 
+export type DeleteElementResult = { ok: true; idStory: number } | { ok: false; error: string };
+
+/**
+ * The edit page's Delete: removes an element from its story entirely. The
+ * database takes its links to scenes with it (scene_elements.id_element is
+ * ON DELETE CASCADE), so it leaves every scene's play space too. Its
+ * picture is only pointed at (elements.id_attachment), so the attachment
+ * stays in its story's or scene's list. The story comes back for the page
+ * to go to its board.
+ *
+ * Refused for an element that is not there or is on someone else's story,
+ * alike, as sa_getElementForEdit answers both with null.
+ */
+export async function sa_deleteElement(idElement: number): Promise<DeleteElementResult> {
+  const user = await requireUser();
+  const id = idStorySchema.safeParse(idElement);
+  const gone = "That element is not one of your story's.";
+  if (!id.success) return { ok: false, error: gone };
+
+  const [row] = await db
+    .select({ idStory: elements.idStory, owner: stories.idCreatedByUser })
+    .from(elements)
+    .innerJoin(stories, eq(stories.idStory, elements.idStory))
+    .where(eq(elements.idElement, id.data))
+    .limit(1);
+  if (!row || row.owner !== user.id) return { ok: false, error: gone };
+
+  await db.delete(elements).where(eq(elements.idElement, id.data));
+  return { ok: true, idStory: row.idStory };
+}
+
 /**
  * Validates and saves the edit form over an element on a story the caller
  * created, then goes back to the story's Prep Work board. The kind may

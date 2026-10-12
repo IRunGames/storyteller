@@ -56,7 +56,9 @@ export function RunPlayStack({
       as="section"
       aria-labelledby={headingId}
       gap="2"
-      w={{ base: "full", md: "xs" }}
+      // 22rem, between Chakra's xs (20rem) and sm (24rem): a pill's eye, +,
+      // name, info and ✕ need a little more than xs gave them.
+      w={{ base: "full", md: "22rem" }}
       flexShrink="0"
     >
       {/* The tag and its + stand out from the cover by a halo in the page's

@@ -4,26 +4,31 @@ import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from
 import {
   Box,
   HStack,
+  IconButton,
   Image,
   Input,
   InputGroup,
   List,
-  SegmentGroup,
+  Portal,
   Stack,
   Tabs,
   Text,
+  Tooltip,
 } from "@chakra-ui/react";
 import { ArrowLeft, ArrowRight, Plus, Search } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import { ELEMENT_SEARCH_DELAY_MS } from "@/lib/elements";
 import {
   attachmentLabel,
+  elementIdOf,
   RUN_LIBRARY_TABS,
   RUN_LIST_SIZE,
+  type ElementDetail,
   type PlayItem,
   type RunLibrarySource,
 } from "@/lib/run";
 import { sa_listStoryElements } from "@/app/(app)/(nav)/libraries/actions";
+import { sa_listSceneLibraryElements } from "@/app/(app)/run/[id]/actions";
 import {
   sa_moveSceneAttachmentsToStory,
   sa_moveStoryAttachmentsToScene,
@@ -36,13 +41,39 @@ import { AttachmentListField } from "@/components/uploads/attachment-list-field"
 import { AttachmentCoverButton } from "@/components/uploads/attachment-cover-button";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { AttachmentTagsPopover } from "@/components/uploads/attachment-tags-popover";
+import { RunElementInfoPopover } from "./run-element-info-popover";
+import { RunNewElementPopover } from "./run-new-element-popover";
 
 type Props = {
   idStory: number;
   /** The scene the table is on, whose attachments the Scene switch shows; null for none. */
   idStoryScene: number | null;
+  /**
+   * The All / Scene only switch: the element tabs list only the elements
+   * linked to the scene. Ignored with no scene at the table.
+   */
+  sceneOnly: boolean;
   /** Called with an element when its arrow is pressed, to put it in the play space. */
   onAdd: (item: PlayItem) => void;
+  /** An element has been taken out of the scene from its info popover; its id. */
+  onRemovedFromScene: (idElement: number) => void;
+  /** An element made from a tab's +, already linked to the scene, for the play space. */
+  onCreated: (item: PlayItem) => void;
+  /** An element's picture changed from its info popover, for its pill if it is in play. */
+  onImageChange: (idElement: number, imageUrl: string | null) => void;
+  /** An element edited from its info popover, as it now is, for its pill if it is in play. */
+  onElementEdited: (element: ElementDetail) => void;
+  /** An element in the scene edited from its info popover, as its pill now is. */
+  onItemChange: (item: PlayItem) => void;
+  /** An element's status in the scene moved from its info popover; its item's key. */
+  onSceneStatusChange: (key: string, status: string) => void;
+  /** The footer's In select: the stack a tab's + files the new element under. */
+  stackTag: string | null;
+  /**
+   * The scene is complete: nothing may go into it or come out of it, so the
+   * arrows, the element tabs' + and Remove from scene are left out.
+   */
+  locked: boolean;
   /** The scene's cover has changed from here: its url, or null for none. */
   onSceneCoverChange: (url: string | null) => void;
 };
@@ -54,7 +85,11 @@ type AttachmentsOf = "STORY" | "STORY_SCENE";
  * The storyteller's library at the table: one search box over a tab for the
  * story's attachments and one for each kind of element, each listing the
  * first RUN_LIST_SIZE matches with an arrow that puts the item in the play
- * space.
+ * space. An element also has an info button, whose popover shows everything
+ * about it: the same panel a pill's opens (RunElementInfoPopover), with the
+ * scene's part only for an element in the scene. With Scene only on, the element tabs
+ * list only the scene's elements (sa_listSceneLibraryElements) and the
+ * Attachments tab the scene's own attachments; with All, the story's.
  *
  * The search is the Prep Work board's: it goes to the database, against each
  * table's search_text, after the same pause, rather than matching what the
@@ -62,22 +97,37 @@ type AttachmentsOf = "STORY" | "STORY_SCENE";
  * typed still holds when they look under another one. Only the tab in view
  * asks for anything.
  *
- * The Attachments tab switches between the story's own attachments and the
- * scene's, Story on the left and Scene on the right; with no scene at the
- * table there is only the story's. The + adds to whichever is showing. The
- * list itself is RunAttachments, below.
+ * The Attachments tab lists the story's own attachments, or with Scene only
+ * the scene's; with no scene at the table there is only the story's. The +
+ * adds to whichever is showing. The list itself is RunAttachments, below.
  */
-export function RunLibrary({ idStory, idStoryScene, onAdd, onSceneCoverChange }: Props) {
+export function RunLibrary({
+  idStory,
+  idStoryScene,
+  sceneOnly,
+  onAdd,
+  onRemovedFromScene,
+  onCreated,
+  onImageChange,
+  onElementEdited,
+  onItemChange,
+  onSceneStatusChange,
+  stackTag,
+  locked,
+  onSceneCoverChange,
+}: Props) {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<RunLibrarySource>("ATTACHMENT");
   // An element tab's matches; null while it is loading.
   const [items, setItems] = useState<PlayItem[] | null>(null);
-  const [attachmentsOf, setAttachmentsOf] = useState<AttachmentsOf>("STORY");
   // Whether the +'s link input and dropzone are showing.
   const [adding, setAdding] = useState(false);
   // Bumped when an attachment moves between the story and the scene, so the
   // list loads again without it.
   const [moves, setMoves] = useState(0);
+  // Bumped when an element is made from a tab's + or edited from its info
+  // popover, so the tab lists it as it now is.
+  const [created, setCreated] = useState(0);
 
   // The latest request, so a slow reply for an earlier query or tab does not
   // land on top of what the panel shows now.
@@ -87,12 +137,16 @@ export function RunLibrary({ idStory, idStoryScene, onAdd, onSceneCoverChange }:
   const lastNeedle = useRef("");
 
   const needle = query.trim();
+  // The scene the element tabs are narrowed to, or null for the whole story.
+  const onlyScene = sceneOnly ? idStoryScene : null;
 
-  // The scene's, only while there is a scene to show; the story's otherwise,
-  // so the table moving off a scene falls back rather than showing nothing.
+  // The Attachments tab follows the same switch: the scene's own attachments
+  // with Scene only, the story's otherwise. onlyScene is null with no scene
+  // at the table, so the table moving off a scene falls back to the story's
+  // rather than showing nothing.
   const holder =
-    attachmentsOf === "STORY_SCENE" && idStoryScene !== null
-      ? { kind: "STORY_SCENE" as const, idExternal: idStoryScene }
+    onlyScene !== null
+      ? { kind: "STORY_SCENE" as const, idExternal: onlyScene }
       : { kind: "STORY" as const, idExternal: idStory };
 
   useEffect(() => {
@@ -104,7 +158,7 @@ export function RunLibrary({ idStory, idStoryScene, onAdd, onSceneCoverChange }:
 
     const timer = setTimeout(async () => {
       try {
-        const found = await loadElements(idStory, tab, needle);
+        const found = await loadElements(idStory, onlyScene, tab, needle);
         if (mine === seq.current) setItems(found);
       } catch {
         // Leave the last results in place; the next keystroke tries again.
@@ -112,10 +166,13 @@ export function RunLibrary({ idStory, idStoryScene, onAdd, onSceneCoverChange }:
       }
     }, delay);
     return () => clearTimeout(timer);
-  }, [idStory, tab, needle]);
+  }, [idStory, onlyScene, tab, needle, created]);
 
   return (
-    <Stack gap="3" h="full" minH="0">
+    // flex 1 and minH 0 down to the tab panel, which is what scrolls: each
+    // level must be allowed to be shorter than its content, or the list
+    // grows the panel instead of scrolling inside it.
+    <Stack gap="3" flex="1" minH="0">
       <InputGroup startElement={<Search size={14} />}>
         <Input
           type="search"
@@ -141,6 +198,8 @@ export function RunLibrary({ idStory, idStoryScene, onAdd, onSceneCoverChange }:
         flexDirection="column"
         flex="1"
         minH="0"
+        // The tab's + floats at its bottom right corner, over the list.
+        position="relative"
       >
         {/* Six tabs do not fit a narrow panel, so the row scrolls sideways
             rather than wrapping onto a second line. */}
@@ -152,32 +211,11 @@ export function RunLibrary({ idStory, idStoryScene, onAdd, onSceneCoverChange }:
           ))}
         </Tabs.List>
         {RUN_LIBRARY_TABS.map(({ source }) => (
-          <Tabs.Content key={source} value={source} flex="1" minH="0" overflowY="auto">
+          // Room at the foot of the list, so the floating + never covers
+          // its last row once it has scrolled to the end.
+          <Tabs.Content key={source} value={source} flex="1" minH="0" overflowY="auto" pb="14">
             {source === "ATTACHMENT" ? (
               <Stack gap="3">
-                <HStack justify="space-between">
-                  <SegmentGroup.Root
-                    size="xs"
-                    aria-label="Whose attachments"
-                    value={holder.kind}
-                    onValueChange={(details) => setAttachmentsOf(details.value as AttachmentsOf)}
-                  >
-                    <SegmentGroup.Indicator />
-                    <SegmentGroup.Items
-                      items={[
-                        { value: "STORY", label: "Story" },
-                        { value: "STORY_SCENE", label: "Scene", disabled: idStoryScene === null },
-                      ]}
-                    />
-                  </SegmentGroup.Root>
-                  <PrepIconButton
-                    label="New attachment"
-                    onClick={() => setAdding((open) => !open)}
-                    expanded={adding}
-                  >
-                    <Plus />
-                  </PrepIconButton>
-                </HStack>
                 {/* Keyed by whose they are, so a switch starts from that
                     holder's own rows and search rather than the last one's. */}
                 <RunAttachments
@@ -185,6 +223,7 @@ export function RunLibrary({ idStory, idStoryScene, onAdd, onSceneCoverChange }:
                   kind={holder.kind}
                   idExternal={holder.idExternal}
                   idStoryScene={idStoryScene}
+                  locked={locked}
                   needle={needle}
                   showAdd={adding}
                   onSceneCoverChange={onSceneCoverChange}
@@ -192,10 +231,95 @@ export function RunLibrary({ idStory, idStoryScene, onAdd, onSceneCoverChange }:
                 />
               </Stack>
             ) : (
-              <LibraryList items={items} filtered={needle !== ""} onAdd={onAdd} />
+              <LibraryList
+                items={items}
+                filtered={needle !== ""}
+                onAdd={locked ? undefined : onAdd}
+                renderActions={(item) => (
+                  <RunElementInfoPopover
+                    idStory={idStory}
+                    idElement={elementIdOf(item)}
+                    label={item.label}
+                    idStoryScene={idStoryScene}
+                    placement="right-start"
+                    locked={locked}
+                    onSceneStatusChange={(status) => onSceneStatusChange(item.key, status)}
+                    onItemChange={(changed) => {
+                      onItemChange(changed);
+                      // Edited in the scene: the tab lists afresh, as below.
+                      setCreated((count) => count + 1);
+                    }}
+                    onImageChange={(imageUrl) => onImageChange(elementIdOf(item), imageUrl)}
+                    onEdited={(element) => {
+                      onElementEdited(element);
+                      // Its name, title or kind may have changed, so the
+                      // tab lists afresh: it may now be elsewhere in it, or
+                      // under another tab.
+                      setCreated((count) => count + 1);
+                    }}
+                    onRemovedFromScene={() => {
+                      onRemovedFromScene(elementIdOf(item));
+                      // Out of the scene, so out of a list of the scene's.
+                      if (onlyScene !== null) {
+                        setItems((current) =>
+                          current ? current.filter((each) => each.key !== item.key) : current,
+                        );
+                      }
+                    }}
+                  />
+                )}
+              />
             )}
           </Tabs.Content>
         ))}
+        {/* One + for the tab in view, round and solid at the bottom right,
+            each making what its tab lists the way it is made elsewhere:
+            the Attachments tab opens the attachments field's link input
+            and dropzone above the list, as the board's column does; an
+            element tab opens the stack's form in a popover, starting on
+            the tab's kind, and the element is linked to the scene and put
+            in the play space. With no scene there is nothing to link to,
+            so the element tabs have no +. */}
+        <Box position="absolute" bottom="2" right="2">
+          {tab === "ATTACHMENT" ? (
+            <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+              <Tooltip.Trigger asChild>
+                <IconButton
+                  aria-label="New attachment"
+                  aria-expanded={adding}
+                  size="md"
+                  rounded="full"
+                  boxShadow="md"
+                  onClick={() => setAdding((open) => !open)}
+                >
+                  <Plus />
+                </IconButton>
+              </Tooltip.Trigger>
+              <Portal>
+                <Tooltip.Positioner>
+                  <Tooltip.Content>New attachment</Tooltip.Content>
+                </Tooltip.Positioner>
+              </Portal>
+            </Tooltip.Root>
+          ) : (
+            idStoryScene !== null &&
+            !locked && (
+              <RunNewElementPopover
+                key={tab}
+                idStory={idStory}
+                idStoryScene={idStoryScene}
+                tag={stackTag}
+                title="the scene"
+                kind={tab}
+                floating
+                onCreated={(item) => {
+                  onCreated(item);
+                  setCreated((count) => count + 1);
+                }}
+              />
+            )
+          )}
+        </Box>
       </Tabs.Root>
     </Stack>
   );
@@ -234,6 +358,7 @@ function RunAttachments({
   kind,
   idExternal,
   idStoryScene,
+  locked,
   needle,
   showAdd,
   onSceneCoverChange,
@@ -242,6 +367,8 @@ function RunAttachments({
   kind: AttachmentsOf;
   idExternal: number;
   idStoryScene: number | null;
+  /** The scene is complete: no attachment moves into it or out of it. */
+  locked: boolean;
   needle: string;
   showAdd: boolean;
   onSceneCoverChange: (url: string | null) => void;
@@ -283,7 +410,7 @@ function RunAttachments({
         const byKey = new Map(shown.map((row) => [`ATTACHMENT:${row.idAttachment}`, row]));
 
         const movesToScene = (row: Attachment) =>
-          kind === "STORY" && idStoryScene !== null && !row.isCover;
+          kind === "STORY" && idStoryScene !== null && !locked && !row.isCover;
 
         // Every way the cover is changed from here: the button, the tags
         // popover and the full-size preview's.
@@ -348,7 +475,7 @@ function RunAttachments({
             renderArrow={(item) => {
               const row = byKey.get(item.key);
               // Only a finished attachment moves, and a story's only to a scene.
-              if (!row || row.status !== "READY") return null;
+              if (!row || row.status !== "READY" || locked) return null;
               if (kind === "STORY" && idStoryScene === null) return null;
               return kind === "STORY" ? (
                 <PrepIconButton
@@ -425,7 +552,10 @@ function LibraryList({
   onAdd?: (item: PlayItem) => void;
   /** In place of the element's arrow: an attachment's, which moves it. */
   renderArrow?: (item: PlayItem) => ReactNode;
-  /** Controls drawn before an item's arrow: the attachments' tags and Cover. */
+  /**
+   * Controls drawn before an item's arrow: an element's info button, an
+   * attachment's tags and Cover.
+   */
   renderActions?: (item: PlayItem) => ReactNode;
   /** An attachment's tag handlers, so its full-size preview edits them too. */
   editTagsFor?: (item: PlayItem) => ComponentProps<typeof AttachmentPreview>["editTags"];
@@ -488,15 +618,22 @@ function LibraryList({
   );
 }
 
-/** The first RUN_LIST_SIZE of a kind's elements that match, as play items. */
+/**
+ * The first RUN_LIST_SIZE of a kind's elements that match, as play items:
+ * the story's, or with `idStoryScene` only those linked to that scene.
+ */
 async function loadElements(
   idStory: number,
+  idStoryScene: number | null,
   kind: Exclude<RunLibrarySource, "ATTACHMENT">,
   needle: string,
 ): Promise<PlayItem[]> {
-  // The action pages by ELEMENTS_PAGE_SIZE, which is RUN_LIST_SIZE, so the
-  // first page is the list.
-  const elements = await sa_listStoryElements(idStory, kind, 0, needle);
+  // sa_listStoryElements pages by ELEMENTS_PAGE_SIZE, which is RUN_LIST_SIZE,
+  // so its first page is the list.
+  const elements =
+    idStoryScene === null
+      ? await sa_listStoryElements(idStory, kind, 0, needle)
+      : await sa_listSceneLibraryElements(idStory, idStoryScene, kind, needle);
   return elements.slice(0, RUN_LIST_SIZE).map((element) => ({
     key: `${kind}:${element.idElement}`,
     kind,

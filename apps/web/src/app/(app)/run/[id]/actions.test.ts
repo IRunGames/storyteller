@@ -210,14 +210,15 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(await currentSceneOf(session)).toBe(active);
   });
 
-  it("makes a complete scene active again", async () => {
+  it("puts the table on a complete scene, leaving it complete and unplayed", async () => {
     const session = await openSession(mine, null);
     const complete = await sceneIn("COMPLETE");
 
     const result = await actions.sa_loadRunScene(mine, complete);
 
-    expect(result.ok && result.space.scene?.status).toBe("ACTIVE");
-    expect((await sceneRow(complete)).status).toBe("ACTIVE");
+    expect(result.ok && result.space.scene?.status).toBe("COMPLETE");
+    // Still complete, and not recorded as played in this sitting.
+    expect(await sceneRow(complete)).toEqual({ status: "COMPLETE", idStorySession: null });
     expect(await currentSceneOf(session)).toBe(complete);
   });
 
@@ -293,7 +294,12 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         imageUrl: null,
         sceneTags: ["scene"],
         sceneStatus: "INITIAL",
-        realName: "Fixture Zed",
+        fields: {
+          initial_name: "Fixture hooded figure",
+          name: "Fixture Zed",
+          title: "Harbourmaster",
+        },
+        showing: "initial_name",
       },
       {
         key: `PLACE:${abbey}`,
@@ -303,6 +309,9 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         imageUrl: null,
         sceneTags: [],
         sceneStatus: "INITIAL",
+        // No initial name, so the default shows the name.
+        fields: { initial_name: null, name: "Fixture Abbey", title: null },
+        showing: "initial_name",
       },
     ]);
   });
@@ -384,7 +393,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(result.item).toMatchObject({
       kind: "PLACE",
       label: "Fixture pool",
-      realName: "Fixture tide pool",
+      showing: "initial_name",
       detail: null,
       sceneTags: ["scene"],
       sceneStatus: "INVISIBLE",
@@ -407,15 +416,30 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     });
     expect(await linksOf(target)).toEqual([{ idElement, tags: ["scene"] }]);
 
-    // The Default stack links with no tag.
-    const plain = await actions.sa_createSceneElement(
+    // No tag, as the library's + sends: the scene's first tag, the first
+    // stack's, as the library's arrow gives.
+    const fromLibrary = await actions.sa_createSceneElement(
       mine,
       target,
       null,
       form({ kind: "THING", name: "Fixture net", title: "Torn" }),
     );
+    expect(fromLibrary.ok && fromLibrary.item.sceneTags).toEqual([DEFAULT_TAGS[0]]);
+    expect(fromLibrary.ok && fromLibrary.item.sceneStatus).toBe("INITIAL");
+
+    // The Default stack of a scene with no tags links with none.
+    const untagged = await sceneIn("ACTIVE", "Fixture scene with no tags to create in");
+    await db
+      .update(tables.storyScenes)
+      .set({ tags: [] })
+      .where(eq(tables.storyScenes.idStoryScene, untagged));
+    const plain = await actions.sa_createSceneElement(
+      mine,
+      untagged,
+      null,
+      form({ kind: "THING", name: "Fixture rope" }),
+    );
     expect(plain.ok && plain.item.sceneTags).toEqual([]);
-    expect(plain.ok && plain.item.sceneStatus).toBe("INITIAL");
   });
 
   it("refuses a new element with no name, a status off its workflow, a tag the scene lacks, or another's scene", async () => {
@@ -478,14 +502,15 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         key: `PLACE:${idElement}`,
         kind: "PLACE",
         label: "Fixture light",
-        realName: "Fixture lighthouse",
         detail: "Unlit",
         imageUrl: null,
         sceneTags: ["scene"],
         sceneStatus: "DISABLED",
+        fields: { initial_name: "Fixture light", name: "Fixture lighthouse", title: "Unlit" },
+        showing: "initial_name",
       },
     });
-    const detail = await actions.sa_getSceneElementDetail(mine, target, idElement);
+    const detail = await actions.sa_getElementDetail(mine, idElement, target);
     expect(detail).toMatchObject({
       element: { description: "Tall.", status: "INACTIVE", initialName: "Fixture light" },
       link: { status: "DISABLED", tags: ["scene"] },
@@ -523,6 +548,8 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         // The first of the scene's tags, the first stack's.
         sceneTags: [DEFAULT_TAGS[0]],
         sceneStatus: "INITIAL",
+        fields: { initial_name: null, name: "Fixture Abbey", title: null },
+        showing: "initial_name",
       },
     });
     expect(await linksOf(target)).toEqual([{ idElement: abbey, tags: [DEFAULT_TAGS[0]] }]);
@@ -628,8 +655,402 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     });
   });
 
+  it("sets which field a pill shows in one scene, and the play space shows it", async () => {
+    const showingOf = async (idStoryScene: number) =>
+      (
+        await db
+          .select({ showing: tables.sceneElements.elementShowing })
+          .from(tables.sceneElements)
+          .where(
+            and(
+              eq(tables.sceneElements.idStoryScene, idStoryScene),
+              eq(tables.sceneElements.idElement, zed),
+            ),
+          )
+      )[0].showing;
+
+    expect(await actions.sa_setSceneElementShowing(mine, scene, zed, "title")).toEqual({
+      ok: true,
+      showing: "title",
+    });
+    expect(await showingOf(scene)).toBe("title");
+    await openSession(mine, scene);
+    const titled = (await actions.sa_getRunPlaySpace(mine)).inPlay.find(
+      (item) => item.key === `PERSON:${zed}`,
+    );
+    // The title is the label, so it is not repeated underneath.
+    expect(titled).toMatchObject({ label: "Harbourmaster", detail: null, showing: "title" });
+
+    expect(await actions.sa_setSceneElementShowing(mine, scene, zed, "name")).toEqual({
+      ok: true,
+      showing: "name",
+    });
+    const named = (await actions.sa_getRunPlaySpace(mine)).inPlay.find(
+      (item) => item.key === `PERSON:${zed}`,
+    );
+    expect(named).toMatchObject({ label: "Fixture Zed", detail: "Harbourmaster" });
+
+    await actions.sa_setSceneElementShowing(mine, scene, zed, "initial_name");
+    expect(await showingOf(scene)).toBe("initial_name");
+  });
+
+  it("refuses a field it does not know, an unlinked element and another's scene", async () => {
+    expect(await actions.sa_setSceneElementShowing(mine, scene, zed, "notes")).toEqual({
+      ok: false,
+      error: "Choose the initial name, the name or the title.",
+    });
+    const empty = await sceneIn("ACTIVE", "Fixture scene without a showing");
+    expect(await actions.sa_setSceneElementShowing(mine, empty, zed, "name")).toEqual({
+      ok: false,
+      error: "That element is not in this scene.",
+    });
+    expect(await actions.sa_setSceneElementShowing(theirs, theirScene, zed, "name")).toEqual({
+      ok: false,
+      error: "That scene is not part of this story.",
+    });
+  });
+
+  it("gives one of the story's elements for the library's info popover", async () => {
+    expect(await actions.sa_getElementDetail(mine, zed)).toMatchObject({
+      element: {
+        idElement: zed,
+        kind: "PERSON",
+        name: "Fixture Zed",
+        initialName: "Fixture hooded figure",
+        title: "Harbourmaster",
+        tags: [],
+      },
+      // No scene asked about, so in none.
+      link: null,
+    });
+    expect((await actions.sa_getElementDetail(mine, zed, scene))?.link).toMatchObject({
+      tags: ["scene"],
+    });
+    const empty = await sceneIn("ACTIVE", "Fixture scene Zed is not in");
+    expect((await actions.sa_getElementDetail(mine, zed, empty))?.link).toBeNull();
+    // Not the caller's story, so nothing, even for an element that exists.
+    expect(await actions.sa_getElementDetail(theirs, zed)).toBeNull();
+    expect(await actions.sa_getElementDetail(mine, 2147483647)).toBeNull();
+  });
+
+  it("renames a session of the story, clearing an empty title", async () => {
+    const session = await openSession(mine, null);
+    const titleOf = async () =>
+      (
+        await db
+          .select({ title: tables.storySessions.title })
+          .from(tables.storySessions)
+          .where(eq(tables.storySessions.idStorySession, session))
+      )[0].title;
+
+    expect(await actions.sa_setSessionTitle(mine, session, "  The drowned bell ")).toEqual({
+      ok: true,
+      title: "The drowned bell",
+    });
+    expect(await titleOf()).toBe("The drowned bell");
+    expect(await actions.sa_setSessionTitle(mine, session, "   ")).toEqual({
+      ok: true,
+      title: null,
+    });
+    expect(await titleOf()).toBeNull();
+
+    expect(await actions.sa_setSessionTitle(mine, session, "x".repeat(201))).toEqual({
+      ok: false,
+      error: "Keep the title under 200 characters.",
+    });
+    // Another's story, or a session of a story other than the one named.
+    expect(await actions.sa_setSessionTitle(theirs, session, "Mine now")).toEqual({
+      ok: false,
+      error: "That session is not part of this story.",
+    });
+    expect(await titleOf()).toBeNull();
+  });
+
+  it("sets a scene's stacks, and the story's default stacks only when asked", async () => {
+    const target = await sceneIn("ACTIVE", "Fixture scene for stacks");
+    const sceneTags = async () =>
+      (
+        await db
+          .select({ tags: tables.storyScenes.tags })
+          .from(tables.storyScenes)
+          .where(eq(tables.storyScenes.idStoryScene, target))
+      )[0].tags;
+    const storyTags = async () =>
+      (
+        await db
+          .select({ tags: tables.stories.standardTags })
+          .from(tables.stories)
+          .where(eq(tables.stories.idStory, mine))
+      )[0].tags;
+    const before = await storyTags();
+
+    try {
+      expect(
+        await actions.sa_setSceneStacks(mine, target, {
+          tags: ["scene", " Docks "],
+          saveForStory: false,
+        }),
+      ).toEqual({ ok: true, tags: ["scene", "Docks"] });
+      expect(await sceneTags()).toEqual(["scene", "Docks"]);
+      expect(await storyTags()).toEqual(before);
+
+      await actions.sa_setSceneStacks(mine, target, { tags: ["Docks"], saveForStory: true });
+      expect(await storyTags()).toEqual(["Docks"]);
+      // A scene made afterwards starts with the story's stacks.
+      const later = await sceneIn("PENDING", "Fixture scene after the story's stacks");
+      expect(
+        (
+          await db
+            .select({ tags: tables.storyScenes.tags })
+            .from(tables.storyScenes)
+            .where(eq(tables.storyScenes.idStoryScene, later))
+        )[0].tags,
+      ).toEqual(["Docks"]);
+
+      expect(
+        await actions.sa_setSceneStacks(mine, target, {
+          tags: ["Docks", "docks"],
+          saveForStory: false,
+        }),
+      ).toEqual({ ok: false, errors: { tags: "Each stack needs its own name." } });
+      await expect(
+        actions.sa_setSceneStacks(theirs, theirScene, { tags: [], saveForStory: false }),
+      ).rejects.toThrow("That scene is not part of this story.");
+    } finally {
+      // Later scenes in this file take the story's stacks, so put them back.
+      await db
+        .update(tables.stories)
+        .set({ standardTags: before })
+        .where(eq(tables.stories.idStory, mine));
+    }
+  });
+
+  it("renames a scene's stacks, taking the links filed under them along, even in a swap", async () => {
+    const target = await sceneIn("ACTIVE", "Fixture scene for renamed stacks");
+    // Each element's stack tags; the rows' order is the database's to choose.
+    const filed = async () =>
+      Object.fromEntries((await linksOf(target)).map((link) => [link.idElement, link.tags]));
+    await actions.sa_linkSceneElement(mine, target, zed, false, DEFAULT_TAGS[0]);
+    await actions.sa_linkSceneElement(mine, target, abbey, false, DEFAULT_TAGS[1]);
+
+    // elements and scene swap names, so each link must end under the other.
+    expect(
+      await actions.sa_setSceneStacks(mine, target, {
+        tags: ["scene", "elements"],
+        renames: [
+          { from: "elements", to: "scene" },
+          { from: "scene", to: "elements" },
+        ],
+        saveForStory: false,
+      }),
+    ).toEqual({ ok: true, tags: ["scene", "elements"] });
+    expect(await filed()).toEqual({ [zed]: ["scene"], [abbey]: ["elements"] });
+
+    await actions.sa_setSceneStacks(mine, target, {
+      tags: ["Docks", "elements"],
+      renames: [{ from: "scene", to: "Docks" }],
+      saveForStory: false,
+    });
+    expect(await filed()).toEqual({ [zed]: ["Docks"], [abbey]: ["elements"] });
+
+    // A rename of a stack the scene does not have: the list is out of date.
+    expect(
+      await actions.sa_setSceneStacks(mine, target, {
+        tags: ["Harbour", "elements"],
+        renames: [{ from: "weather", to: "Harbour" }],
+        saveForStory: false,
+      }),
+    ).toEqual({ ok: false, errors: { tags: "That stack is no longer one of the scene's tags." } });
+  });
+
+  it("links into the stack it is asked for, and refuses one the scene lacks", async () => {
+    const target = await sceneIn("ACTIVE", "Fixture scene to link into a stack");
+
+    const result = await actions.sa_linkSceneElement(mine, target, abbey, false, DEFAULT_TAGS[1]);
+    expect(result.ok && result.item.sceneTags).toEqual([DEFAULT_TAGS[1]]);
+    expect(await actions.sa_linkSceneElement(mine, target, zed, false, "weather")).toEqual({
+      ok: false,
+      error: "That stack is no longer one of the scene's tags.",
+    });
+  });
+
+  it("changes nothing in a complete scene", async () => {
+    const target = await sceneIn("ACTIVE", "Fixture scene to complete");
+    await actions.sa_linkSceneElement(mine, target, zed);
+    await db
+      .update(tables.storyScenes)
+      .set({ status: "COMPLETE" })
+      .where(eq(tables.storyScenes.idStoryScene, target));
+    const refused = { ok: false, error: "That scene is complete, so nothing in it can change." };
+
+    expect(await actions.sa_linkSceneElement(mine, target, abbey)).toEqual(refused);
+    expect(await actions.sa_unlinkSceneElement(mine, target, zed)).toEqual(refused);
+    expect(await actions.sa_setSceneElementShown(mine, target, zed, false)).toEqual(refused);
+    expect(await actions.sa_setSceneElementShowing(mine, target, zed, "name")).toEqual(refused);
+    expect(
+      await actions.sa_moveSceneElement(mine, target, zed, DEFAULT_TAGS[0], DEFAULT_TAGS[1]),
+    ).toEqual(refused);
+    expect(
+      await actions.sa_createSceneElement(mine, target, null, form({ name: "Fixture late" })),
+    ).toEqual({ ok: false, errors: { root: refused.error } });
+    expect(
+      await actions.sa_setSceneStacks(mine, target, { tags: [], saveForStory: false }),
+    ).toEqual({ ok: false, errors: { tags: refused.error } });
+    // Still linked, as it was; reading it still works.
+    expect(await linksOf(target)).toEqual([{ idElement: zed, tags: [DEFAULT_TAGS[0]] }]);
+    expect((await actions.sa_getElementDetail(mine, zed, target))?.link).not.toBeNull();
+  });
+
+  it("gives an element one of its story's attachments as its picture", async () => {
+    const [mineAttachment, theirAttachment, unfinished] = await db
+      .insert(tables.attachments)
+      .values([
+        { kind: "STORY", idExternal: mine, status: "READY", url: "https://x.test/zed.png" },
+        { kind: "STORY", idExternal: theirs, status: "READY", url: "https://x.test/other.png" },
+        { kind: "STORY", idExternal: mine, status: "UPLOADING" },
+      ])
+      .returning({ id: tables.attachments.idAttachment });
+
+    try {
+      expect(await actions.sa_setElementImage(mine, zed, mineAttachment.id)).toEqual({
+        ok: true,
+        imageUrl: "https://x.test/zed.png",
+      });
+      // The play space shows it, and the attachment is still the story's.
+      await openSession(mine, scene);
+      const item = (await actions.sa_getRunPlaySpace(mine)).inPlay.find(
+        (each) => each.key === `PERSON:${zed}`,
+      );
+      expect(item?.imageUrl).toBe("https://x.test/zed.png");
+
+      // A new element can start with one, chosen in its form.
+      const target = await sceneIn("ACTIVE", "Fixture scene for a pictured element");
+      const pictured = await actions.sa_createSceneElement(mine, target, null, {
+        ...form({ name: "Fixture pictured" }),
+        idAttachment: mineAttachment.id,
+      });
+      expect(pictured.ok && pictured.item.imageUrl).toBe("https://x.test/zed.png");
+      expect(
+        await actions.sa_createSceneElement(mine, target, null, {
+          ...form({ name: "Fixture stolen picture" }),
+          idAttachment: theirAttachment.id,
+        }),
+      ).toEqual({ ok: false, errors: { root: "That attachment is not a picture in this story." } });
+      if (pictured.ok) {
+        await db
+          .delete(tables.elements)
+          .where(eq(tables.elements.idElement, Number(pictured.item.key.split(":")[1])));
+      }
+
+      // The info popover shows it too, and its − takes it away again.
+      expect((await actions.sa_getElementDetail(mine, zed))?.element.imageUrl).toBe(
+        "https://x.test/zed.png",
+      );
+      expect(await actions.sa_setElementImage(mine, zed, null)).toEqual({
+        ok: true,
+        imageUrl: null,
+      });
+      expect((await actions.sa_getElementDetail(mine, zed, scene))?.element.imageUrl).toBeNull();
+
+      const refused = { ok: false, error: "That attachment is not a picture in this story." };
+      expect(await actions.sa_setElementImage(mine, zed, theirAttachment.id)).toEqual(refused);
+      expect(await actions.sa_setElementImage(mine, zed, unfinished.id)).toEqual(refused);
+      expect(await actions.sa_setElementImage(theirs, zed, mineAttachment.id)).toEqual({
+        ok: false,
+        error: "That scene is not part of this story.",
+      });
+    } finally {
+      await db
+        .update(tables.elements)
+        .set({ idAttachment: null })
+        .where(eq(tables.elements.idElement, zed));
+      await db
+        .delete(tables.attachments)
+        .where(
+          inArray(tables.attachments.idAttachment, [
+            mineAttachment.id,
+            theirAttachment.id,
+            unfinished.id,
+          ]),
+        );
+    }
+  });
+
+  it("edits a story's element from the library, apart from any scene", async () => {
+    const [made] = await db
+      .insert(tables.elements)
+      .values({ idStory: mine, kind: "THING", name: "Fixture lantern", idCreatedByUser: SEED_USER })
+      .returning({ id: tables.elements.idElement });
+    const values = {
+      kind: "THING",
+      name: "  Fixture storm lantern ",
+      initialName: "",
+      title: "Brass",
+      description: "",
+      notes: "Smells of oil.",
+      status: "READY",
+    };
+
+    const result = await actions.sa_updateStoryElement(mine, made.id, values);
+    expect(result).toMatchObject({
+      ok: true,
+      element: {
+        idElement: made.id,
+        name: "Fixture storm lantern",
+        title: "Brass",
+        notes: "Smells of oil.",
+        status: "READY",
+        initialName: null,
+      },
+    });
+
+    expect(
+      await actions.sa_updateStoryElement(mine, made.id, { ...values, status: "NOT_A_STATUS" }),
+    ).toEqual({ ok: false, errors: { status: "Choose one of the element's statuses." } });
+    expect(
+      await actions.sa_updateStoryElement(mine, made.id, { ...values, name: " " }),
+    ).toMatchObject({ ok: false, errors: { name: expect.any(String) } });
+    await expect(actions.sa_updateStoryElement(theirs, made.id, values)).rejects.toThrow(
+      "That scene is not part of this story.",
+    );
+  });
+
+  it("lists the scene's elements of one kind for the library's Scene only", async () => {
+    const list = await actions.sa_listSceneLibraryElements(mine, scene, "PERSON");
+    expect(list.map((element) => element.name)).toEqual(["Fixture Zed"]);
+    expect(list[0]).toMatchObject({ idElement: zed, title: "Harbourmaster" });
+    // Searched the way All is, by the element's search text.
+    expect(
+      await actions.sa_listSceneLibraryElements(mine, scene, "PERSON", "harbour"),
+    ).toHaveLength(1);
+    expect(await actions.sa_listSceneLibraryElements(mine, scene, "PERSON", "nowhere")).toEqual([]);
+    expect(await actions.sa_listSceneLibraryElements(mine, scene, "THING")).toEqual([]);
+    expect(await actions.sa_listSceneLibraryElements(theirs, theirScene, "PERSON")).toEqual([]);
+  });
+
+  it("removes an element from a scene, leaving it in the story", async () => {
+    const target = await sceneIn("ACTIVE", "Fixture scene to remove from");
+    await actions.sa_linkSceneElement(mine, target, abbey);
+
+    expect(await actions.sa_unlinkSceneElement(mine, target, abbey)).toEqual({ ok: true });
+    expect(await linksOf(target)).toEqual([]);
+    expect(await actions.sa_getElementDetail(mine, abbey, target)).toMatchObject({
+      element: { name: "Fixture Abbey" },
+      link: null,
+    });
+    // Gone already, and never in another's scene.
+    expect(await actions.sa_unlinkSceneElement(mine, target, abbey)).toEqual({
+      ok: false,
+      error: "That element is not in this scene.",
+    });
+    expect(await actions.sa_unlinkSceneElement(theirs, theirScene, abbey)).toEqual({
+      ok: false,
+      error: "That scene is not part of this story.",
+    });
+  });
+
   it("gives the element and its link to the scene for the info popover", async () => {
-    const detail = await actions.sa_getSceneElementDetail(mine, scene, zed);
+    const detail = await actions.sa_getElementDetail(mine, zed, scene);
 
     expect(detail).toMatchObject({
       element: {
@@ -643,11 +1064,12 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       },
       link: { status: "INITIAL", tags: ["scene"] },
     });
-    expect(detail?.link.createdAt).toBeInstanceOf(Date);
+    expect(detail?.link?.createdAt).toBeInstanceOf(Date);
 
     const empty = await sceneIn("ACTIVE", "Fixture scene without Zed");
-    expect(await actions.sa_getSceneElementDetail(mine, empty, zed)).toBeNull();
-    expect(await actions.sa_getSceneElementDetail(theirs, theirScene, zed)).toBeNull();
+    // Not in that scene: the element alone, with no link.
+    expect(await actions.sa_getElementDetail(mine, zed, empty)).toMatchObject({ link: null });
+    expect(await actions.sa_getElementDetail(theirs, zed, theirScene)).toBeNull();
   });
 
   it("moves an element between stacks by swapping one tag for another", async () => {

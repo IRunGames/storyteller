@@ -31,3 +31,7 @@ export const runElementSchema = elementSchema.extend({
 });
 
 export type RunElementValues = z.infer<typeof runElementSchema>;
+
+// The library's info popover edits an element of the story whether or not
+// it is in the scene, so only the element's own status comes with its fields.
+export const runStoryElementSchema = elementSchema.extend({ status: statusKeySchema });
