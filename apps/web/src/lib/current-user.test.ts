@@ -28,6 +28,7 @@ describe("toCurrentUser", () => {
       email: "storyteller@irun.games",
       image: null,
       nickName: "Gandalf",
+      idUserType: -1,
     });
   });
 });

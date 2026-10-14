@@ -11,8 +11,10 @@ const SCENE = 7;
 
 const attachment = (id: number, values: Partial<Attachment> = {}): Attachment => ({
   idAttachment: id,
+  idStory: STORY,
   kind: "STORY",
   idExternal: STORY,
+  idAttachmentUse: null,
   status: "READY",
   url: `https://example.com/${id}.jpg`,
   isUploaded: false,
@@ -22,8 +24,8 @@ const attachment = (id: number, values: Partial<Attachment> = {}): Attachment =>
   ...values,
 });
 
-// The story's attachments: two that can be moved, its cover, and one still
-// uploading, which have no business being offered.
+// The story's attachments: three that can be attached, its cover among
+// them, and one still uploading, which has no business being offered.
 const storyRows = [
   attachment(1, { fileName: "map-of-the-dun.jpg" }),
   attachment(2, { fileName: "the-wizard.jpg" }),
@@ -36,13 +38,13 @@ const sa_listAttachments = mock.fn(async () => storyRows);
 const sa_searchAttachments = mock.fn(async (_kind: string, _id: number, query: string) =>
   storyRows.filter((row) => row.fileName?.includes(query)).map((row) => row.idAttachment),
 );
-const sa_moveStoryAttachmentsToScene = mock.fn(
+const sa_attachToScene = mock.fn(
   async (
     _scene: number,
     ids: number[],
-  ): Promise<{ ok: true; moved: number[] } | { ok: false; error: string }> => ({
+  ): Promise<{ ok: true; attached: number[] } | { ok: false; error: string }> => ({
     ok: true,
-    moved: ids,
+    attached: ids,
   }),
 );
 
@@ -58,7 +60,7 @@ describe("StoryAttachmentPicker", () => {
       namedExports: {
         sa_listAttachments,
         sa_searchAttachments,
-        sa_moveStoryAttachmentsToScene,
+        sa_attachToScene,
       },
     });
     ({ StoryAttachmentPicker } = await import("./story-attachment-picker"));
@@ -67,10 +69,10 @@ describe("StoryAttachmentPicker", () => {
   beforeEach(() => {
     sa_listAttachments.mock.resetCalls();
     sa_searchAttachments.mock.resetCalls();
-    sa_moveStoryAttachmentsToScene.mock.resetCalls();
-    sa_moveStoryAttachmentsToScene.mock.mockImplementation(async (_scene, ids) => ({
+    sa_attachToScene.mock.resetCalls();
+    sa_attachToScene.mock.mockImplementation(async (_scene, ids) => ({
       ok: true,
-      moved: ids,
+      attached: ids,
     }));
   });
 
@@ -84,14 +86,14 @@ describe("StoryAttachmentPicker", () => {
     expect(sa_listAttachments.mock.calls[0].arguments).toEqual(["STORY", STORY]);
   });
 
-  it("offers the story's finished attachments, leaving out its cover", async () => {
+  it("offers the story's finished attachments, its cover among them", async () => {
     const user = userEvent.setup();
     renderWithProviders(<StoryAttachmentPicker idStory={STORY} idStoryScene={SCENE} />);
     await openFold(user);
 
     expect(await screen.findByRole("checkbox", { name: "map-of-the-dun.jpg" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "the-wizard.jpg" })).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: "cover.jpg" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "cover.jpg" })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "half-sent.jpg" })).not.toBeInTheDocument();
   });
 
@@ -114,7 +116,7 @@ describe("StoryAttachmentPicker", () => {
     expect(sa_searchAttachments.mock.calls.at(-1)?.arguments).toEqual(["STORY", STORY, "wiz"]);
   });
 
-  it("moves every ticked attachment onto the scene, then drops them from the list", async () => {
+  it("attaches every ticked attachment to the scene, then drops them from the list", async () => {
     const user = userEvent.setup();
     const attached: number[][] = [];
     renderWithProviders(
@@ -132,15 +134,16 @@ describe("StoryAttachmentPicker", () => {
     await user.click(screen.getByRole("checkbox", { name: "the-wizard.jpg" }));
     await user.click(screen.getByRole("button", { name: "Add 2 to this scene" }));
 
-    await waitFor(() => expect(sa_moveStoryAttachmentsToScene.mock.callCount()).toBe(1));
-    expect(sa_moveStoryAttachmentsToScene.mock.calls[0].arguments).toEqual([SCENE, [1, 2]]);
+    await waitFor(() => expect(sa_attachToScene.mock.callCount()).toBe(1));
+    expect(sa_attachToScene.mock.calls[0].arguments).toEqual([SCENE, [1, 2]]);
     expect(await screen.findByRole("status")).toHaveTextContent("Added 2 to this scene.");
     expect(attached).toEqual([[1, 2]]);
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    // The cover is still on offer.
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
   });
 
-  it("says why when the scene has no room, and moves nothing", async () => {
-    sa_moveStoryAttachmentsToScene.mock.mockImplementation(async () => ({
+  it("says why when the scene has no room, and attaches nothing", async () => {
+    sa_attachToScene.mock.mockImplementation(async () => ({
       ok: false,
       error: "This scene has room for 1 more. Choose fewer.",
     }));
@@ -154,6 +157,6 @@ describe("StoryAttachmentPicker", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("room for 1 more");
     const list = screen.getByRole("list");
-    expect(within(list).getAllByRole("checkbox")).toHaveLength(2);
+    expect(within(list).getAllByRole("checkbox")).toHaveLength(3);
   });
 });

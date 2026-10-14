@@ -57,15 +57,15 @@
             (-4, 'INACTIVE', 'The element is set aside and not in use.',         ARRAY['PENDING', 'READY']),
 
             -- Scene elements: `scene_elements`. Every status leads to every
-            -- other: an element in a scene starts out initial, and can be
-            -- hidden from the players, shown, or switched off, and back
-            -- again, initial included. INITIAL is the default a link is
-            -- created with, so its list is the three it can return from
-            -- rather than empty.
-            (-5, 'INITIAL',   'The element has just been brought into the scene.',       ARRAY['INVISIBLE', 'READY', 'DISABLED']),
-            (-5, 'INVISIBLE', 'The element is in the scene but hidden from the players.', ARRAY['INITIAL', 'READY', 'DISABLED']),
-            (-5, 'READY',     'The element is in the scene and can be used.',            ARRAY['INITIAL', 'INVISIBLE', 'DISABLED']),
-            (-5, 'DISABLED',  'The element is in the scene but switched off.',           ARRAY['INITIAL', 'INVISIBLE', 'READY']),
+            -- other: an element in a scene is in play, hidden from the
+            -- players, tapped (used up for now, until the storyteller readies
+            -- it again) or switched off, and back again. READY is the default
+            -- a link is created with, so its list is the three it can return
+            -- from rather than empty.
+            (-5, 'READY',     'The element is in the scene and can be used.',                              ARRAY['INVISIBLE', 'TAPPED', 'DISABLED']),
+            (-5, 'INVISIBLE', 'The element is in the scene but hidden from the players.',                  ARRAY['READY', 'TAPPED', 'DISABLED']),
+            (-5, 'TAPPED',    'The element has been used and is tapped until the storyteller readies it.', ARRAY['READY', 'INVISIBLE', 'DISABLED']),
+            (-5, 'DISABLED',  'The element is in the scene but switched off.',                             ARRAY['READY', 'INVISIBLE', 'TAPPED']),
 
             -- Session players: `session_players`. Read as transitions FROM
             -- each status: waiting -> present, away or left; present -> away

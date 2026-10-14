@@ -427,18 +427,15 @@ export const storyScenes = pgTable("story_scenes", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
-// Files attached to a story, session or scene. `kind` says which, and
-// `external_id` which row -- not a foreign key, because Postgres cannot point
-// one column at three tables; tr_biu_attachments_external_exists stands in for
-// the constraint. status runs through the attachments workflow in s_statuses,
-// so it is a plain varchar here for the same reason story_scenes.status is.
+// A file a story owns. Which of the story's parts show it (the story's own
+// cover, a session, a scene, an element) is attachmentUses, one row per
+// holder. status runs through the attachments workflow in s_statuses, so it
+// is a plain varchar here for the same reason story_scenes.status is.
 export const attachments = pgTable("attachments", {
   idAttachment: integer("id_attachment").primaryKey().generatedByDefaultAsIdentity(),
-  kind: varchar("kind").notNull(),
-  idExternal: integer("external_id"),
-  // The story the attachment belongs to, whichever part of it the kind and
-  // external_id name. Kept by a trigger (tr_attachments_set_id_story), never
-  // written by the app, and read by no list: it is for cleaning up a story.
+  // The story that owns the file: the pool a story's lists read. Written on
+  // create, or by tr_attachment_uses_same_story on a first use when a create
+  // form uploaded before its story existed. Null until then.
   idStory: integer("id_story"),
   status: varchar("status")
     .notNull()
@@ -448,10 +445,9 @@ export const attachments = pgTable("attachments", {
   fileName: text("file_name"),
   contentType: varchar("content_type"),
   byteSize: bigint("byte_size", { mode: "number" }),
-  sortOrder: integer("sort_order"),
-  // The standard tags feature from _tables. 'cover' is the one the app reads:
-  // it marks the picture a card, page, popover or panel shows, and a partial
-  // unique index allows at most one per object (COVER_TAG in lib/attachments).
+  // The standard tags feature from _tables: the file's own tags, searched
+  // through search_text. Which holder shows the file as its cover is the
+  // use's tags, not these.
   tags: text("tags")
     .array()
     .notNull()
@@ -475,6 +471,79 @@ export const attachments = pgTable("attachments", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
+// Where an attachment is used: by the story itself (its cover), a session, a
+// scene or an element, one row per holder, so one file can serve several.
+// `kind` says which table and `external_id` which row -- not a foreign key,
+// because Postgres cannot point one column at four tables;
+// tr_biu_attachment_uses_external_exists stands in for the constraint. `kind`
+// is the attachment_uses_kind enum, a plain varchar here as elements.kind is.
+export const attachmentUses = pgTable("attachment_uses", {
+  idAttachmentUse: integer("id_attachment_use").primaryKey().generatedByDefaultAsIdentity(),
+  idAttachment: integer("id_attachment").notNull(),
+  // The attachment's story, copied and checked by tr_attachment_uses_same_story,
+  // never written by the app. Declared with a DEFAULT so an insert leaves it
+  // out: the column has no default of its own, the trigger fills it before
+  // NOT NULL is checked.
+  idStory: integer("id_story")
+    .notNull()
+    .default(sql`DEFAULT`),
+  kind: varchar("kind").notNull(),
+  idExternal: integer("external_id").notNull(),
+  // The holder's order for its pictures; left out of an insert the same way,
+  // and tr_attachment_uses_sort_order gives it 1000 + the row's id.
+  sortOrder: integer("sort_order")
+    .notNull()
+    .default(sql`DEFAULT`),
+  // The standard tags feature from _tables. 'cover' is the one the app reads:
+  // it marks the picture the holder shows, and a partial unique index allows
+  // at most one per holder (COVER_TAG in lib/attachments).
+  tags: text("tags")
+    .array()
+    .notNull()
+    .default(sql`'{}'`),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// db/views/v_attachment_uses.sql: each attachment_uses row with the
+// attachment it shows, for reading a holder's pictures by kind and
+// external_id. The use's columns keep their names; the attachment's that
+// clash are prefixed attachment_, so tags is the use's and attachmentTags
+// the file's. The view orders by sort_order, then updated_at newest first,
+// but a query repeats that, since a view's order is not promised to the
+// query around it.
+//
+// .existing() because dbmate builds it; Drizzle only selects from it.
+export const vAttachmentUses = pgView("v_attachment_uses", {
+  idAttachmentUse: integer("id_attachment_use"),
+  idAttachment: integer("id_attachment"),
+  idStory: integer("id_story"),
+  kind: varchar("kind"),
+  idExternal: integer("external_id"),
+  sortOrder: integer("sort_order"),
+  tags: text("tags").array(),
+  isCover: boolean("is_cover"),
+  createdAt: timestamp("created_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+  status: varchar("status"),
+  url: text("url"),
+  isUploaded: boolean("is_uploaded"),
+  fileName: text("file_name"),
+  contentType: varchar("content_type"),
+  byteSize: bigint("byte_size", { mode: "number" }),
+  attachmentTags: text("attachment_tags").array(),
+  searchText: text("search_text"),
+  uploadingAt: timestamp("uploading_at", { withTimezone: true }),
+  readyAt: timestamp("ready_at", { withTimezone: true }),
+  errorAt: timestamp("error_at", { withTimezone: true }),
+  attachmentCreatedAt: timestamp("attachment_created_at", { withTimezone: true }),
+  attachmentUpdatedAt: timestamp("attachment_updated_at", { withTimezone: true }),
+}).existing();
+
 // Something a story keeps track of: a person, a place, a thing, a piece of
 // ephemera, or anything else. `kind` is the elements_kind enum the database
 // builds from kind_values on the elements row of _tables, a plain varchar
@@ -493,9 +562,6 @@ export const elements = pgTable("elements", {
   title: text("title"),
   description: text("description"),
   notes: text("notes"),
-  // The element's picture: one of its story's attachments, pointed at rather
-  // than moved, so it stays in its own list. ON DELETE SET NULL.
-  idAttachment: integer("id_attachment"),
   // The standard tags feature from _tables.
   tags: text("tags")
     .array()
@@ -542,12 +608,15 @@ export const sceneElements = pgTable("scene_elements", {
   // Which of the element's fields its pill shows in this scene: initial_name,
   // name or title, held by a CHECK. The link's own, despite the prefix.
   elementShowing: varchar("element_showing").notNull().default("initial_name"),
+  // Whether the players' table shows the element's description in this
+  // scene: true unless the storyteller keeps it back.
+  showInfo: boolean("show_info").notNull().default(true),
   activityLog: jsonb("activity_log")
     .default(sql`'[]'::jsonb`)
     .notNull(),
-  initialAt: timestamp("initial_at", { withTimezone: true }),
-  invisibleAt: timestamp("invisible_at", { withTimezone: true }),
   readyAt: timestamp("ready_at", { withTimezone: true }),
+  invisibleAt: timestamp("invisible_at", { withTimezone: true }),
+  tappedAt: timestamp("tapped_at", { withTimezone: true }),
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -567,14 +636,15 @@ export const vSceneElements = pgView("v_scene_elements", {
   idStoryScene: integer("id_story_scene"),
   idElement: integer("id_element"),
   status: varchar("status"),
-  initialAt: timestamp("initial_at", { withTimezone: true }),
-  invisibleAt: timestamp("invisible_at", { withTimezone: true }),
   readyAt: timestamp("ready_at", { withTimezone: true }),
+  invisibleAt: timestamp("invisible_at", { withTimezone: true }),
+  tappedAt: timestamp("tapped_at", { withTimezone: true }),
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
   // How the storyteller files the element in this scene; the element's own
   // tags are elementTags.
   tags: text("tags").array(),
   elementShowing: varchar("element_showing"),
+  showInfo: boolean("show_info"),
   createdAt: timestamp("created_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -587,7 +657,6 @@ export const vSceneElements = pgView("v_scene_elements", {
   title: text("title"),
   description: text("description"),
   notes: text("notes"),
-  idAttachment: integer("id_attachment"),
   elementTags: text("element_tags").array(),
   elementSearchText: text("element_search_text"),
   elementUpdatedAt: timestamp("element_updated_at", { withTimezone: true }),
@@ -756,10 +825,10 @@ export const userPreferencesRelations = relations(userPreferences, ({ one }) => 
   user: one(user, { fields: [userPreferences.idUser], references: [user.id] }),
 }));
 
-// attachments deliberately has no relations() block of its own. A relation
-// needs one fixed pair of columns to join on, and an attachment's parent is
+// attachmentUses deliberately has no relations() block to its holders. A
+// relation needs one fixed pair of columns to join on, and a use's holder is
 // named by two columns together -- `kind` chooses the table, `external_id`
 // the row -- so there is no single `references` Drizzle could be given. Any
-// block written here would have to hard-code one of the three tables and
-// would then silently match rows of the other two. The joins live in the
+// block written here would have to hard-code one of the four tables and
+// would then silently match rows of the other three. The joins live in the
 // actions instead, where the kind is already known.

@@ -59,7 +59,7 @@ describe("staleBlobs", () => {
 
 describe("unclaimedAttachmentIds", () => {
   it("returns a detached row past the grace period", () => {
-    const rows = [{ idAttachment: 1, idExternal: null, createdAt: OLD }];
+    const rows = [{ idAttachment: 1, idStory: null, createdAt: OLD }];
 
     expect(unclaimedAttachmentIds(rows, NOW)).toEqual([1]);
   });
@@ -68,20 +68,20 @@ describe("unclaimedAttachmentIds", () => {
   // detached and unreferenced, and sweeping it would take the picture out from
   // under them mid-edit. This is the case the grace period exists for.
   it("keeps a detached row uploaded minutes ago", () => {
-    const rows = [{ idAttachment: 1, idExternal: null, createdAt: RECENT }];
+    const rows = [{ idAttachment: 1, idStory: null, createdAt: RECENT }];
 
     expect(unclaimedAttachmentIds(rows, NOW)).toEqual([]);
   });
 
   it("keeps an attached row however old", () => {
-    const rows = [{ idAttachment: 1, idExternal: 42, createdAt: OLD }];
+    const rows = [{ idAttachment: 1, idStory: 42, createdAt: OLD }];
 
     expect(unclaimedAttachmentIds(rows, NOW)).toEqual([]);
   });
 
   it("treats a row exactly on the boundary as still within its grace", () => {
     const rows = [
-      { idAttachment: 1, idExternal: null, createdAt: new Date(NOW.getTime() - GRACE_MS) },
+      { idAttachment: 1, idStory: null, createdAt: new Date(NOW.getTime() - GRACE_MS) },
     ];
 
     expect(unclaimedAttachmentIds(rows, NOW)).toEqual([]);

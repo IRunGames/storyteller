@@ -10,7 +10,7 @@
 // column default and any move is found in the workflow (src/test/workflow.ts).
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 
 import { SCENE_LOCKED_STATUS, SCENES_PAGE_SIZE } from "@/lib/scenes";
@@ -786,23 +786,20 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     it("deletes an element, taking its scene links and leaving its picture", async () => {
       const [picture] = await db
         .insert(tables.attachments)
-        .values({
-          kind: "STORY",
-          idExternal: myStory,
-          status: "READY",
-          url: "https://x.test/p.png",
-        })
+        .values({ idStory: myStory, status: "READY", url: "https://x.test/p.png" })
         .returning({ id: tables.attachments.idAttachment });
       const [doomed] = await db
         .insert(tables.elements)
-        .values({
-          idStory: myStory,
-          kind: "THING",
-          name: NAME,
-          idAttachment: picture.id,
-          idCreatedByUser: SEED_USER,
-        })
+        .values({ idStory: myStory, kind: "THING", name: NAME, idCreatedByUser: SEED_USER })
         .returning({ id: tables.elements.idElement });
+      // Its picture: the element's use of the attachment, tagged cover.
+      await db.insert(tables.attachmentUses).values({
+        idAttachment: picture.id,
+        kind: "ELEMENT",
+        idExternal: doomed.id,
+        tags: ["cover"],
+        idCreatedByUser: SEED_USER,
+      });
       const [scene] = await db
         .insert(tables.storyScenes)
         .values({ idStory: myStory, sceneTitle: "Fixture scene to delete from" })
@@ -823,6 +820,17 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
           .from(tables.attachments)
           .where(eq(tables.attachments.idAttachment, picture.id));
         expect(pictures).toEqual([{ id: picture.id }]);
+        // The file stays the story's; only the element's use of it went.
+        const uses = await db
+          .select({ id: tables.attachmentUses.idAttachmentUse })
+          .from(tables.attachmentUses)
+          .where(
+            and(
+              eq(tables.attachmentUses.kind, "ELEMENT"),
+              eq(tables.attachmentUses.idExternal, doomed.id),
+            ),
+          );
+        expect(uses).toEqual([]);
         expect(await actions.sa_getElementForEdit(doomed.id)).toBeNull();
         // Gone already.
         expect(await actions.sa_deleteElement(doomed.id)).toEqual({
@@ -849,9 +857,10 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     });
 
     // What deleting leans on: an element's scene links go with it, and an
-    // attachment's elements only lose their picture. Nothing else points at
-    // either table; a new key that does should say here what it does.
-    it("cascades an element's scene links, and nulls an attachment's pictures", async () => {
+    // attachment's uses go with the attachment (an element's uses go by
+    // trigger, not by key). Nothing else points at either table; a new key
+    // that does should say here what it does.
+    it("cascades an element's scene links, and an attachment's uses", async () => {
       const keys = await db.execute<{ from_table: string; col: string; on_delete: string }>(sql`
         select c.conrelid::regclass::text as from_table, a.attname as col,
                c.confdeltype as on_delete
@@ -861,7 +870,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
           and c.confrelid in ('elements'::regclass, 'attachments'::regclass)
         order by 1, 2`);
       expect(keys.rows).toEqual([
-        { from_table: "elements", col: "id_attachment", on_delete: "n" },
+        { from_table: "attachment_uses", col: "id_attachment", on_delete: "c" },
         { from_table: "scene_elements", col: "id_element", on_delete: "c" },
       ]);
     });

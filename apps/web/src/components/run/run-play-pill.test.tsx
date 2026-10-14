@@ -10,19 +10,26 @@ import type { ElementPanelDetail, PlayItem } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import type {
   SetSceneElementShowingResult,
-  SetSceneElementShownResult,
+  SetSceneElementShowInfoResult,
+  SetSceneElementStatusResult,
 } from "@/app/(app)/run/[id]/actions";
 
-const sa_setSceneElementShown = mock.fn(
+const sa_setSceneElementStatus = mock.fn(
   async (
     _story: number,
     _scene: number,
     _element: number,
-    shown: boolean,
-  ): Promise<SetSceneElementShownResult> => ({
-    ok: true,
-    status: shown ? "READY" : "INVISIBLE",
-  }),
+    status: string,
+  ): Promise<SetSceneElementStatusResult> => ({ ok: true, status }),
+);
+
+const sa_setSceneElementShowInfo = mock.fn(
+  async (
+    _story: number,
+    _scene: number,
+    _element: number,
+    showInfo: boolean,
+  ): Promise<SetSceneElementShowInfoResult> => ({ ok: true, showInfo }),
 );
 
 const sa_setSceneElementShowing = mock.fn(
@@ -47,13 +54,15 @@ const detail: ElementPanelDetail = {
     description: "Sells shells.\nKnows the tides.",
     notes: null,
     imageUrl: null,
-    status: "READY",
+    // Pending, so its pill reads apart from the link's Ready.
+    status: "PENDING",
     tags: ["harbour"],
   },
   link: {
     idSceneElement: 9,
-    status: "INITIAL",
+    status: "READY",
     tags: ["scene"],
+    showInfo: true,
     createdAt: new Date("2026-10-08T12:00:00Z"),
   },
 };
@@ -69,6 +78,7 @@ const linked = (sceneStatus: string): PlayItem => ({
   imageUrl: null,
   sceneTags: ["scene"],
   sceneStatus,
+  showInfo: true,
   fields: { initial_name: "A hooded figure", name: "Dafydd", title: "Shell seller" },
   showing: "initial_name",
 });
@@ -83,7 +93,7 @@ const options = (keys: string[]): StatusOption[] =>
   }));
 const sa_listStatusOptions = mock.fn(async (table: string) =>
   table === "scene_elements"
-    ? options(["INITIAL", "INVISIBLE", "READY", "DISABLED"])
+    ? options(["READY", "INVISIBLE", "TAPPED", "DISABLED"])
     : options(["PENDING", "READY", "INACTIVE"]),
 );
 const sa_setRowStatus = mock.fn(async (_table: string, _id: number, status: string) => ({
@@ -123,14 +133,16 @@ const sa_updateSceneElement = mock.fn(
 const sa_moveSceneElement = mock.fn(
   async (_story: number, _scene: number, _element: number, _from: string | null, to: string) => ({
     ok: true as const,
-    item: { ...linked("INITIAL"), sceneTags: [to] },
+    item: { ...linked("READY"), sceneTags: [to] },
   }),
 );
 
 const picture = (idAttachment: number, fileName: string, kind: "STORY" | "STORY_SCENE") => ({
   idAttachment,
+  idStory: -4,
   kind,
   idExternal: kind === "STORY" ? -4 : -15,
+  idAttachmentUse: kind === "STORY" ? null : idAttachment,
   status: "READY",
   url: `https://x.test/${idAttachment}.png`,
   isUploaded: true,
@@ -161,7 +173,8 @@ describe("RunPlayPill", () => {
   before(async () => {
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
-        sa_setSceneElementShown,
+        sa_setSceneElementStatus,
+        sa_setSceneElementShowInfo,
         sa_setSceneElementShowing,
         sa_getElementDetail,
         sa_updateStoryElement: mock.fn(),
@@ -182,7 +195,8 @@ describe("RunPlayPill", () => {
   });
 
   beforeEach(() => {
-    sa_setSceneElementShown.mock.resetCalls();
+    sa_setSceneElementStatus.mock.resetCalls();
+    sa_setSceneElementShowInfo.mock.resetCalls();
     sa_setSceneElementShowing.mock.resetCalls();
     sa_getElementDetail.mock.resetCalls();
     sa_setRowStatus.mock.resetCalls();
@@ -196,8 +210,8 @@ describe("RunPlayPill", () => {
     toaster.remove();
   });
 
-  // The pill as the table holds it: its status in state, so the eye's
-  // change shows.
+  // The pill as the table holds it: its status in state, so the status
+  // menu's change shows.
   function Holder({
     start,
     idStoryScene,
@@ -234,65 +248,83 @@ describe("RunPlayPill", () => {
       </>,
     );
 
-  it("hides a shown element from the players with its eye, and shows it again", async () => {
+  it("moves the status from the menu, whose button names and shows the status held", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("INITIAL"));
+    const { container } = render(linked("READY"));
 
-    await u.click(screen.getByRole("button", { name: "Hide A hooded figure from the players" }));
+    const button = within(container).getByRole("button", {
+      name: "Ready: change A hooded figure's status",
+    });
+    await u.hover(button);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Ready");
+    await u.click(button);
+    const items = await screen.findAllByRole("menuitemradio");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Ready",
+      "Invisible",
+      "Tapped",
+      "Disabled",
+    ]);
+    expect(items[0]).toHaveAttribute("aria-checked", "true");
+
+    await choose(u, items[2]);
     await waitFor(() =>
       expect(container.querySelector("[data-scene-status]")).toHaveAttribute(
         "data-scene-status",
-        "INVISIBLE",
+        "TAPPED",
       ),
     );
-    expect(sa_setSceneElementShown.mock.calls[0].arguments).toEqual([-4, -15, 5, false]);
-
-    await u.click(screen.getByRole("button", { name: "Show A hooded figure to the players" }));
-    await waitFor(() =>
-      expect(container.querySelector("[data-scene-status]")).toHaveAttribute(
-        "data-scene-status",
-        "READY",
-      ),
-    );
-    expect(sa_setSceneElementShown.mock.calls[1].arguments).toEqual([-4, -15, 5, true]);
-  });
-
-  it("puts a lock in the eye's place on a disabled element, which unlocks it to READY", async () => {
-    const u = userEvent.setup();
-    const { container } = render(linked("DISABLED"));
+    expect(sa_setSceneElementStatus.mock.calls[0].arguments).toEqual([-4, -15, 5, "TAPPED"]);
     expect(
-      within(container).queryByRole("button", { name: /from the players$/ }),
-    ).not.toBeInTheDocument();
-
-    await u.click(within(container).getByRole("button", { name: "Unlock A hooded figure" }));
-
-    await waitFor(() =>
-      expect(container.querySelector("[data-scene-status]")).toHaveAttribute(
-        "data-scene-status",
-        "READY",
-      ),
-    );
-    expect(sa_setSceneElementShown.mock.calls[0].arguments).toEqual([-4, -15, 5, true]);
-    expect(
-      within(container).getByRole("button", { name: "Hide A hooded figure from the players" }),
+      within(container).getByRole("button", { name: "Tapped: change A hooded figure's status" }),
     ).toBeInTheDocument();
   });
 
-  it("puts the status back and says so when the eye is refused", async () => {
+  it("puts the status back and says so when the menu is refused", async () => {
     const u = userEvent.setup();
-    sa_setSceneElementShown.mock.mockImplementationOnce(async () => ({
+    sa_setSceneElementStatus.mock.mockImplementationOnce(async () => ({
       ok: false,
       error: "That element is not in this scene.",
     }));
     const { container } = render(linked("READY"));
 
-    await u.click(screen.getByRole("button", { name: "Hide A hooded figure from the players" }));
+    await u.click(
+      within(container).getByRole("button", { name: "Ready: change A hooded figure's status" }),
+    );
+    await choose(u, await screen.findByRole("menuitemradio", { name: "Disabled" }));
 
     expect(await screen.findByText("That element is not in this scene.")).toBeInTheDocument();
     expect(container.querySelector("[data-scene-status]")).toHaveAttribute(
       "data-scene-status",
       "READY",
     );
+  });
+
+  it("toggles whether the players see the element's info, and puts it back when refused", async () => {
+    const u = userEvent.setup();
+    const { container } = render(linked("READY"));
+
+    const toggle = within(container).getByRole("button", { name: "Showing info to users" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(toggle.querySelectorAll("svg")).toHaveLength(1);
+    await u.click(toggle);
+    const off = await within(container).findByRole("button", {
+      name: "Info not showing – click to show",
+    });
+    expect(off).toHaveAttribute("aria-pressed", "false");
+    // The struck-through info: a second icon laid over the first.
+    expect(off.querySelectorAll("svg")).toHaveLength(2);
+    expect(sa_setSceneElementShowInfo.mock.calls[0].arguments).toEqual([-4, -15, 5, false]);
+
+    sa_setSceneElementShowInfo.mock.mockImplementationOnce(async () => ({
+      ok: false,
+      error: "That element is not in this scene.",
+    }));
+    await u.click(off);
+    expect(await screen.findByText("That element is not in this scene.")).toBeInTheDocument();
+    expect(
+      within(container).getByRole("button", { name: "Info not showing – click to show" }),
+    ).toHaveAttribute("aria-pressed", "false");
   });
 
   it("draws a hidden element with a border and glow, and a disabled one in grey italics", () => {
@@ -309,16 +341,37 @@ describe("RunPlayPill", () => {
     expect(disabled.container.querySelector("[data-scene-status]")).not.toHaveStyle({
       borderWidth: "2px",
     });
+    disabled.unmount();
+
+    // Tapped: no border, and the menu's button says so.
+    const tapped = render(linked("TAPPED"));
+    expect(
+      within(tapped.container).getByRole("button", {
+        name: "Tapped: change A hooded figure's status",
+      }),
+    ).toBeInTheDocument();
+    expect(tapped.container.querySelector("[data-scene-status]")).not.toHaveStyle({
+      borderWidth: "2px",
+    });
   });
 
-  it("shows the element and its place in the scene from the info button", async () => {
+  it("opens the element and its place in the scene in place, from the chevron", async () => {
     const u = userEvent.setup();
-    render(linked("INITIAL"));
+    const { container } = render(linked("READY"));
 
-    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
+    const chevron = screen.getByRole("button", { name: "About A hooded figure" });
+    expect(chevron).toHaveAttribute("aria-expanded", "false");
+    await u.click(chevron);
 
-    const popover = await screen.findByRole("dialog", { name: "Dafydd" });
+    // Under the pill, not in a dialog over it.
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    expect(container.contains(popover)).toBe(true);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(chevron).toHaveAttribute("aria-expanded", "true");
+    expect(within(popover).getByRole("heading", { name: "Dafydd" })).toBeInTheDocument();
     expect(await within(popover).findByText("Person")).toBeInTheDocument();
+    expect(within(popover).getByText("Shows info")).toBeInTheDocument();
+    expect(within(popover).getByText("Yes")).toBeInTheDocument();
     expect(within(popover).getByText("A hooded figure")).toBeInTheDocument();
     expect(within(popover).getByText(/Knows the tides/)).toBeInTheDocument();
     expect(within(popover).getByText("harbour")).toBeInTheDocument();
@@ -337,16 +390,20 @@ describe("RunPlayPill", () => {
     const pills = within(popover)
       .getAllByRole("button")
       .filter((button) => button.hasAttribute("data-status"));
-    expect(pills.map((pill) => pill.textContent)).toEqual(["Initial", "Ready"]);
+    expect(pills.map((pill) => pill.textContent)).toEqual(["Ready", "Pending"]);
+
+    // The chevron closes it again.
+    await u.click(chevron);
+    expect(screen.queryByRole("region", { name: "About A hooded figure" })).not.toBeInTheDocument();
   });
 
   it("moves the scene element's status from the popover, and the pill follows", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("INITIAL"));
+    const { container } = render(linked("READY"));
 
     await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("dialog", { name: "Dafydd" });
-    await u.click(await within(popover).findByRole("button", { name: "Initial" }));
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    await u.click(await within(popover).findByRole("button", { name: "Ready" }));
     await choose(u, await screen.findByRole("menuitem", { name: /Disabled/ }));
 
     await waitFor(() => expect(sa_setRowStatus.mock.callCount()).toBe(1));
@@ -361,11 +418,11 @@ describe("RunPlayPill", () => {
 
   it("moves the element's own status from the popover", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("INITIAL"));
+    const { container } = render(linked("READY"));
 
     await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("dialog", { name: "Dafydd" });
-    await u.click(await within(popover).findByRole("button", { name: "Ready" }));
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    await u.click(await within(popover).findByRole("button", { name: "Pending" }));
     await choose(u, await screen.findByRole("menuitem", { name: /Inactive/ }));
 
     await waitFor(() => expect(sa_setRowStatus.mock.callCount()).toBe(1));
@@ -373,7 +430,7 @@ describe("RunPlayPill", () => {
     // The scene element's pill is left as it was.
     expect(container.querySelector("[data-scene-status]")).toHaveAttribute(
       "data-scene-status",
-      "INITIAL",
+      "READY",
     );
 
     // The pencil's form starts from the status just chosen, so saving it
@@ -386,10 +443,10 @@ describe("RunPlayPill", () => {
 
   it("moves the element to another stack from the bottom of its popover", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("INITIAL"), -15, ["assets", "weather"]);
+    const { container } = render(linked("READY"), -15, ["assets", "weather"]);
 
     await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("dialog", { name: "Dafydd" });
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
     const moveTo = await within(popover).findByRole("combobox", { name: "Move to" });
     expect(
       within(moveTo)
@@ -406,20 +463,20 @@ describe("RunPlayPill", () => {
 
   it("offers no Move to when the scene has no other stack", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("INITIAL"), -15, []);
+    const { container } = render(linked("READY"), -15, []);
 
     await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("dialog", { name: "Dafydd" });
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
     await within(popover).findByText("Person");
     expect(within(popover).queryByRole("combobox", { name: "Move to" })).not.toBeInTheDocument();
   });
 
   it("edits the element from the popover's pencil, and the pill follows", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("INITIAL"));
+    const { container } = render(linked("READY"));
 
     await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("dialog", { name: "Dafydd" });
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
     await u.click(await within(popover).findByRole("button", { name: "Edit Dafydd" }));
 
     // The create form, filled in with the element as it is.
@@ -429,7 +486,7 @@ describe("RunPlayPill", () => {
       "A hooded figure",
     );
     expect(
-      within(popover).getByRole("button", { name: "In this scene: Initial" }),
+      within(popover).getByRole("button", { name: "In this scene: Ready" }),
     ).toBeInTheDocument();
     await u.clear(within(popover).getByRole("textbox", { name: /^Initial name/ }));
     await u.click(within(popover).getByRole("button", { name: "Save element" }));
@@ -446,16 +503,18 @@ describe("RunPlayPill", () => {
         title: "Shell seller",
         description: "Sells shells.\nKnows the tides.",
         notes: "",
-        status: "READY",
-        sceneStatus: "INITIAL",
+        status: "PENDING",
+        sceneStatus: "READY",
       },
     ]);
     // With no initial name the pill goes by the name.
-    expect(await within(container).findByText("Dafydd")).toBeInTheDocument();
+    expect(
+      await within(container).findByRole("button", { name: "Dafydd, choose what the pill shows" }),
+    ).toBeInTheDocument();
   });
 
   it("bolds a field other than the name in the second highlight", () => {
-    const { container } = render(linked("INITIAL"));
+    const { container } = render(linked("READY"));
 
     const trigger = within(container).getByRole("button", {
       name: "A hooded figure, choose what the pill shows",
@@ -466,7 +525,7 @@ describe("RunPlayPill", () => {
   });
 
   it("shows the name plainly", () => {
-    const { container } = render({ ...linked("INITIAL"), label: "Dafydd", showing: "name" });
+    const { container } = render({ ...linked("READY"), label: "Dafydd", showing: "name" });
 
     const trigger = within(container).getByRole("button", {
       name: "Dafydd, choose what the pill shows",
@@ -477,7 +536,7 @@ describe("RunPlayPill", () => {
 
   it("lists each field as field:value from the name, and shows the one chosen", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("INITIAL"));
+    const { container } = render(linked("READY"));
 
     await u.click(
       within(container).getByRole("button", {
@@ -507,7 +566,7 @@ describe("RunPlayPill", () => {
       error: "That element is not in this scene.",
     }));
     const u = userEvent.setup();
-    const { container } = render(linked("INITIAL"));
+    const { container } = render(linked("READY"));
 
     await u.click(
       within(container).getByRole("button", {
@@ -527,7 +586,7 @@ describe("RunPlayPill", () => {
   it("lists a field the element has left empty without offering it", async () => {
     const u = userEvent.setup();
     const { container } = render({
-      ...linked("INITIAL"),
+      ...linked("READY"),
       fields: { initial_name: "A hooded figure", name: "Dafydd", title: null },
     });
 
@@ -544,7 +603,7 @@ describe("RunPlayPill", () => {
 
   it("gives an element without a picture a + to pick one from the attachments", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("INITIAL"));
+    const { container } = render(linked("READY"));
 
     const plus = within(container).getByRole("button", { name: "Add an image to A hooded figure" });
     await u.hover(plus);
@@ -585,7 +644,7 @@ describe("RunPlayPill", () => {
 
   it("opens an element's picture full size when it is pressed", async () => {
     const u = userEvent.setup();
-    const { container } = render({ ...linked("INITIAL"), imageUrl: "https://x.test/9.png" });
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
 
     await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
     const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
@@ -603,10 +662,10 @@ describe("RunPlayPill", () => {
       element: { ...detail.element, imageUrl: "https://x.test/9.png" },
     }));
     const u = userEvent.setup();
-    const { container } = render({ ...linked("INITIAL"), imageUrl: "https://x.test/9.png" });
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
 
     await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("dialog", { name: "Dafydd" });
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
     await u.click(await within(popover).findByRole("button", { name: "Remove picture" }));
 
     expect(sa_setElementImage.mock.calls[0].arguments).toEqual([-4, 5, null]);
@@ -618,7 +677,7 @@ describe("RunPlayPill", () => {
 
   it("previews an attachment from its picture in the picker, without picking it", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("INITIAL"));
+    const { container } = render(linked("READY"));
 
     await u.click(
       within(container).getByRole("button", { name: "Add an image to A hooded figure" }),
@@ -647,10 +706,10 @@ describe("RunPlayPill", () => {
       element: { ...detail.element, imageUrl: "https://x.test/9.png" },
     }));
     const u = userEvent.setup();
-    const { container } = render({ ...linked("INITIAL"), imageUrl: "https://x.test/9.png" });
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
 
     await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("dialog", { name: "Dafydd" });
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
     await u.click(await within(popover).findByRole("button", { name: "Preview Dafydd" }));
 
     // The preview is its own dialog, with its own Close, over the panel.
@@ -664,17 +723,18 @@ describe("RunPlayPill", () => {
   });
 
   it("gives an element with a picture no +", () => {
-    const { container } = render({ ...linked("INITIAL"), imageUrl: "https://x.test/9.png" });
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
 
     expect(
       within(container).queryByRole("button", { name: /^Add an image to / }),
     ).not.toBeInTheDocument();
   });
 
-  it("gives something the page alone holds no eye, no info and no ✕", () => {
+  it("gives something the page alone holds no status, no info toggle, no chevron and no ✕", () => {
     render({ key: "PERSON:5", kind: "PERSON", label: "Dafydd", detail: null, imageUrl: null });
 
-    expect(screen.queryByRole("button", { name: /players$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /status$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /info$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^About / })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Remove / })).not.toBeInTheDocument();
   });
@@ -687,7 +747,7 @@ describe("RunPlayPill", () => {
         <RunPlayPill
           idStory={-4}
           idStoryScene={-15}
-          item={linked("INITIAL")}
+          item={linked("READY")}
           stackTag="scene"
           otherStacks={[]}
           onRemove={onRemove}
@@ -699,7 +759,7 @@ describe("RunPlayPill", () => {
     );
 
     await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("dialog", { name: "Dafydd" });
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
     await within(popover).findByRole("heading", { name: "In this scene" });
     const minus = within(popover).getByRole("button", { name: "Remove from scene" });
     await u.hover(minus);

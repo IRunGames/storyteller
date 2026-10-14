@@ -88,8 +88,15 @@ export type PlayItem = {
    * the stacks it shows in. Absent for anything only in the page's state.
    */
   sceneTags?: string[];
-  /** An element linked to the scene: its scene_elements status, which the eye shows. */
+  /** An element linked to the scene: its scene_elements status, which the pill's status menu shows. */
   sceneStatus?: string;
+  /**
+   * An element linked to the scene: whether the players' table shows its
+   * description (scene_elements.show_info), which the pill's info toggle sets.
+   */
+  showInfo?: boolean;
+  /** The players' table: the element's description, when show_info lets them see it. */
+  info?: string | null;
   /**
    * An element linked to the scene: its fields the pill can show, which the
    * pill's name lists as a dropdown, and the one it shows in this scene
@@ -150,18 +157,40 @@ export function withShowing(item: PlayItem, showing: ElementShowing): PlayItem {
 export const RUN_ADD_INVISIBLE = "run.addInvisible";
 
 /**
+ * The preference behind the library's Add showing info switch: elements the
+ * storyteller adds to the scene start with their description shown to the
+ * players (scene_elements.show_info). Off unless chosen: what the players
+ * are to know of an element is the storyteller's to give out.
+ */
+export const RUN_ADD_SHOW_INFO = "run.addShowInfo";
+
+/**
  * The preference behind the library's All / Scene only switch: whether its
  * element tabs list every element in the story or only the ones linked to
  * the scene the table is on.
  */
 export const RUN_LIBRARY_SCENE_ONLY = "run.librarySceneOnly";
 
+/**
+ * The scene elements workflow's statuses, in the order the pill's status
+ * menu lists them (the seed holds the same four, each reachable from the
+ * others): in play, hidden from the players, used up for now, switched off.
+ */
+export const SCENE_ELEMENT_STATUSES = ["READY", "INVISIBLE", "TAPPED", "DISABLED"] as const;
+export type SceneElementStatus = (typeof SCENE_ELEMENT_STATUSES)[number];
+
+export function isSceneElementStatus(value: unknown): value is SceneElementStatus {
+  return SCENE_ELEMENT_STATUSES.includes(value as SceneElementStatus);
+}
+
+/** The scene_elements status of an element in play, the workflow's default. */
+export const SCENE_ELEMENT_SHOWN = "READY";
 /** The scene_elements status of an element hidden from the players. */
 export const SCENE_ELEMENT_HIDDEN = "INVISIBLE";
-/** The scene_elements status of an element switched off in the scene; the pill shows a lock. */
+/** The scene_elements status of an element used up for now, until the storyteller readies it. */
+export const SCENE_ELEMENT_TAPPED = "TAPPED";
+/** The scene_elements status of an element switched off in the scene. */
 export const SCENE_ELEMENT_DISABLED = "DISABLED";
-/** The status the eye shows a hidden element at again, and the lock unlocks to. */
-export const SCENE_ELEMENT_SHOWN = "READY";
 
 /** The element id in an element item's key, `KIND:id`. */
 export function elementIdOf(item: PlayItem): number {
@@ -188,6 +217,8 @@ export type SceneLink = {
   idSceneElement: number;
   status: string;
   tags: string[];
+  /** Whether the players' table shows the element's description. */
+  showInfo: boolean;
   createdAt: Date | null;
 };
 

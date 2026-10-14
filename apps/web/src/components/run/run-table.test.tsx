@@ -1,6 +1,7 @@
+import { EventEmitter } from "node:events";
 import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
@@ -24,6 +25,7 @@ const user: CurrentUser = {
   email: "storyteller@irun.games",
   image: null,
   nickName: null,
+  idUserType: -1,
 };
 
 const people: StoryElement[] = [
@@ -37,8 +39,7 @@ const sa_linkSceneElement = mock.fn(
     _story: number,
     _scene: number,
     idElement: number,
-    _hidden?: boolean,
-    tag?: string | null,
+    options?: { hidden?: boolean; tag?: string | null; showInfo?: boolean },
   ) => ({
     ok: true as const,
     item: {
@@ -47,7 +48,7 @@ const sa_linkSceneElement = mock.fn(
       label: "Dafydd",
       detail: "Shell seller",
       imageUrl: null,
-      sceneTags: tag ? [tag] : [],
+      sceneTags: options?.tag ? [options.tag] : [],
     },
   }),
 );
@@ -68,6 +69,22 @@ const dafyddDetail: ElementDetail = {
 // The story's attachments, for the library and the pickers. Empty but for
 // the test that picks a picture, which fills it and empties it again.
 let storyAttachments: Attachment[] = [];
+
+// A stand-in for mqtt.js's client with the two methods the channel calls.
+class FakeClient extends EventEmitter {
+  subscribe = mock.fn((_topic: string, _opts: unknown, cb?: (err: Error | null) => void) =>
+    cb?.(null),
+  );
+  end = mock.fn();
+}
+let client: FakeClient;
+const connect = mock.fn((_url: string, _options: unknown) => (client = new FakeClient()));
+const sa_getStoryChannel = mock.fn(async (_idStory: number) => ({
+  url: "wss://broker.example.test:8084/mqtt",
+  username: "player",
+  password: "pw",
+  topic: "story/-4/state",
+}));
 
 const sa_setRowStatus = mock.fn(async (_table: string, _id: number, status: string) => ({
   ok: true as const,
@@ -103,7 +120,7 @@ const statusOptions = (keys: string[]): StatusOption[] =>
   }));
 const sa_listStatusOptions = mock.fn(async (table: string) =>
   table === "scene_elements"
-    ? statusOptions(["INITIAL", "INVISIBLE", "READY", "DISABLED"])
+    ? statusOptions(["READY", "INVISIBLE", "TAPPED", "DISABLED"])
     : statusOptions(["PENDING", "READY", "INACTIVE"]),
 );
 
@@ -117,7 +134,13 @@ const sa_getElementDetail = mock.fn(
           link:
             idStoryScene === null
               ? null
-              : { idSceneElement: 9, status: "INITIAL", tags: ["scene"], createdAt: null },
+              : {
+                  idSceneElement: 9,
+                  status: "READY",
+                  tags: ["scene"],
+                  showInfo: true,
+                  createdAt: null,
+                },
         }
       : null,
 );
@@ -130,7 +153,7 @@ const sa_updateSceneElement = mock.fn(async () => ({
     detail: null,
     imageUrl: null,
     sceneTags: ["scene"],
-    sceneStatus: "INITIAL",
+    sceneStatus: "READY",
   },
 }));
 
@@ -169,9 +192,10 @@ function renderTable(
   preferences: Record<string, boolean> = {},
   session: RunSession | null = kildealg,
   initialSpace: RunPlaySpace = EMPTY_PLAY_SPACE,
+  who: CurrentUser = user,
 ) {
   return renderWithProviders(
-    <UserProvider user={user}>
+    <UserProvider user={who}>
       <UserPreferencesProvider preferences={preferences}>
         <RunTable
           idStory={-4}
@@ -242,6 +266,11 @@ describe("RunTable", () => {
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions, sa_setRowStatus },
     });
+    // The diagnostics panel's channel: the broker is never reached from here.
+    mock.module("@/app/(app)/play/[id]/actions", {
+      namedExports: { sa_getStoryChannel, sa_getPlayScene: mock.fn() },
+    });
+    mock.module("mqtt", { defaultExport: { connect } });
     mock.module("@/app/(app)/(nav)/libraries/actions", {
       namedExports: {
         sa_listStoryElements: async (_id: number, kind: string) =>
@@ -260,6 +289,8 @@ describe("RunTable", () => {
     sa_setSceneStacks.mock.resetCalls();
     sa_setRowStatus.mock.resetCalls();
     sa_createSceneElement.mock.resetCalls();
+    sa_getStoryChannel.mock.resetCalls();
+    connect.mock.resetCalls();
   });
 
   afterEach(() => {
@@ -297,6 +328,50 @@ describe("RunTable", () => {
       key: "run.showLibrary",
       value: false,
     });
+  });
+
+  it("offers Diagnostics to a storyteller in the chat's place, listening to the story's topic", async () => {
+    const u = userEvent.setup();
+    renderTable({ "run.showChat": true }, kildealg, EMPTY_PLAY_SPACE, { ...user, idUserType: -2 });
+    await waitFor(() => expect(connect.mock.calls).toHaveLength(1));
+    await act(async () => {
+      client.emit("connect");
+    });
+    expect(client.subscribe.mock.calls[0].arguments[0]).toBe("story/-4/state");
+    const header = screen.getByRole("banner");
+    expect(screen.getByRole("region", { name: "Table Chat" })).toBeInTheDocument();
+
+    await u.click(within(header).getByRole("button", { name: "Diagnostics" }));
+
+    expect(screen.queryByRole("region", { name: "Table Chat" })).not.toBeInTheDocument();
+    const panel = screen.getByRole("region", { name: "Diagnostics" });
+    expect(within(panel).getByText("connected")).toBeInTheDocument();
+    expect(sa_setUserPreference.mock.calls[0].arguments[0]).toEqual({
+      key: "run.showDiagnostics",
+      value: true,
+    });
+
+    await act(async () => {
+      client.emit(
+        "message",
+        "story/-4/state",
+        new TextEncoder().encode(
+          JSON.stringify({ v: 1, at: "", idStory: -4, type: "scene.changed", idStoryScene: 9 }),
+        ),
+      );
+    });
+    expect(
+      within(panel).getByRole("button", { name: /scene\.changed · scene 9/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("neither offers Diagnostics to a player's account nor listens for one", () => {
+    renderTable({ "run.showDiagnostics": true });
+    expect(
+      within(screen.getByRole("banner")).queryByRole("button", { name: "Diagnostics" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Diagnostics" })).not.toBeInTheDocument();
+    expect(sa_getStoryChannel.mock.calls).toHaveLength(0);
   });
 
   it("keeps its panels apart from a player's table", async () => {
@@ -412,7 +487,12 @@ describe("RunTable", () => {
 
     const elements = screen.getByRole("region", { name: "elements" });
     expect(await within(elements).findByText("Dafydd")).toBeInTheDocument();
-    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 5, false, "elements"]);
+    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      5,
+      { hidden: false, tag: "elements", showInfo: false },
+    ]);
   });
 
   it("adds from the library into the stack the In select names, the first by default", async () => {
@@ -430,7 +510,12 @@ describe("RunTable", () => {
 
     await u.click(screen.getByRole("tab", { name: "People" }));
     await u.click(await screen.findByRole("button", { name: "Add Dafydd to the play space" }));
-    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 5, false, "scene"]);
+    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      5,
+      { hidden: false, tag: "scene", showInfo: false },
+    ]);
     const sceneStack = screen.getByRole("region", { name: "scene" });
     expect(await within(sceneStack).findByText("Dafydd")).toBeInTheDocument();
   });
@@ -646,7 +731,7 @@ describe("RunTable", () => {
         detail: "Shell seller",
         imageUrl: null,
         sceneTags: ["scene"],
-        sceneStatus: "INITIAL",
+        sceneStatus: "READY",
       },
     ];
     renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay });
@@ -664,7 +749,7 @@ describe("RunTable", () => {
 
     // Edited in the scene, as from the pill: the pill in play takes the change.
     await u.click(within(dialog).getByRole("button", { name: "Edit Dafydd" }));
-    await within(dialog).findByRole("button", { name: "In this scene: Initial" });
+    await within(dialog).findByRole("button", { name: "In this scene: Ready" });
     await u.click(within(dialog).getByRole("button", { name: "Save element" }));
     const sceneStack = screen.getByRole("region", { name: "scene" });
     expect(await within(sceneStack).findByText("Dafydd's stall")).toBeInTheDocument();
@@ -680,14 +765,14 @@ describe("RunTable", () => {
         detail: null,
         imageUrl: null,
         sceneTags: ["scene"],
-        sceneStatus: "INITIAL",
+        sceneStatus: "READY",
       },
     ];
     renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay });
     const sceneStack = screen.getByRole("region", { name: "scene" });
 
     await u.click(within(sceneStack).getByRole("button", { name: "About Dafydd" }));
-    const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
+    const dialog = await screen.findByRole("region", { name: "About Dafydd" });
     await u.click(await within(dialog).findByRole("button", { name: "Remove from scene" }));
 
     await waitFor(() => expect(within(sceneStack).queryByText("Dafydd")).not.toBeInTheDocument());
@@ -705,7 +790,7 @@ describe("RunTable", () => {
         detail: null,
         imageUrl: null,
         sceneTags: ["scene"],
-        sceneStatus: "INITIAL",
+        sceneStatus: "READY",
       },
     ];
     renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay });
@@ -732,8 +817,10 @@ describe("RunTable", () => {
     storyAttachments = [
       {
         idAttachment: 30,
+        idStory: -4,
         kind: "STORY",
         idExternal: -4,
+        idAttachmentUse: null,
         status: "READY",
         url: "https://x.test/30.png",
         isUploaded: true,
@@ -749,7 +836,7 @@ describe("RunTable", () => {
       const sceneStack = screen.getByRole("region", { name: "scene" });
       await u.click(within(sceneStack).getByRole("button", { name: "New element in scene" }));
       const popover = await screen.findByRole("dialog", { name: "New element in scene" });
-      await within(popover).findByRole("button", { name: "In this scene: Initial" });
+      await within(popover).findByRole("button", { name: "In this scene: Ready" });
       await u.click(within(popover).getByRole("button", { name: "Add picture" }));
       // Choosing only fills the form; nothing is saved until Add element.
       await u.click(await within(popover).findByRole("button", { name: "Add Tide pool.png" }));
@@ -786,7 +873,7 @@ describe("RunTable", () => {
     await u.selectOptions(within(popover).getByRole("combobox", { name: "Kind" }), "PLACE");
     // The scene element's status leads the form, at the workflow's first.
     expect(
-      await within(popover).findByRole("button", { name: "In this scene: Initial" }),
+      await within(popover).findByRole("button", { name: "In this scene: Ready" }),
     ).toBeInTheDocument();
     await u.type(within(popover).getByRole("textbox", { name: /^Name/ }), "The tide pool");
     await u.type(within(popover).getByRole("textbox", { name: /^Notes/ }), "Cold.");
@@ -806,9 +893,10 @@ describe("RunTable", () => {
         description: "",
         notes: "Cold.",
         status: "READY",
-        sceneStatus: "INITIAL",
-        // No picture chosen.
+        sceneStatus: "READY",
+        // No picture chosen, and the Add showing info switch off.
         idAttachment: null,
+        showInfo: false,
       },
     ]);
     await waitFor(() =>
@@ -827,7 +915,7 @@ describe("RunTable", () => {
     const popover = await screen.findByRole("dialog", { name: "New element in the scene" });
     // The form starts on the tab's kind.
     expect(within(popover).getByRole("combobox", { name: "Kind" })).toHaveValue("PLACE");
-    await within(popover).findByRole("button", { name: "In this scene: Initial" });
+    await within(popover).findByRole("button", { name: "In this scene: Ready" });
     await u.type(within(popover).getByRole("textbox", { name: /^Name/ }), "The tide pool");
     await u.selectOptions(within(popover).getByRole("combobox", { name: "Status" }), "READY");
     await u.click(within(popover).getByRole("button", { name: "Add element" }));
@@ -851,7 +939,12 @@ describe("RunTable", () => {
 
     await u.click(screen.getByRole("tab", { name: "People" }));
     await u.click(await screen.findByRole("button", { name: "Add Dafydd to the play space" }));
-    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 5, true, "scene"]);
+    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      5,
+      { hidden: true, tag: "scene", showInfo: false },
+    ]);
 
     const sceneStack = screen.getByRole("region", { name: "scene" });
     await u.click(within(sceneStack).getByRole("button", { name: "New element in scene" }));
@@ -859,6 +952,47 @@ describe("RunTable", () => {
     expect(
       await within(popover).findByRole("button", { name: "In this scene: Invisible" }),
     ).toBeInTheDocument();
+  });
+
+  it("adds showing info with the library's other switch, from the arrow and the +", async () => {
+    const u = userEvent.setup();
+    renderTable({ "run.addShowInfo": true }, kildealg, {
+      scene,
+      tags: ["scene"],
+      coverUrl: null,
+      inPlay: [],
+    });
+    const library = screen.getByRole("region", { name: "Library" });
+    expect(within(library).getByRole("switch", { name: "Add showing info" })).toBeChecked();
+
+    await u.click(screen.getByRole("tab", { name: "People" }));
+    await u.click(await screen.findByRole("button", { name: "Add Dafydd to the play space" }));
+    expect(sa_linkSceneElement.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      5,
+      { hidden: false, tag: "scene", showInfo: true },
+    ]);
+
+    const sceneStack = screen.getByRole("region", { name: "scene" });
+    await u.click(within(sceneStack).getByRole("button", { name: "New element in scene" }));
+    const popover = await screen.findByRole("dialog", { name: "New element in scene" });
+    await u.type(await within(popover).findByRole("textbox", { name: /^Name/ }), "The tide pool");
+    await u.click(within(popover).getByRole("button", { name: "Add element" }));
+    await waitFor(() => expect(sa_createSceneElement.mock.callCount()).toBe(1));
+    expect(sa_createSceneElement.mock.calls[0].arguments[3]).toMatchObject({ showInfo: true });
+  });
+
+  it("remembers the Add showing info switch", async () => {
+    const u = userEvent.setup();
+    renderTable();
+
+    await u.click(screen.getByRole("switch", { name: "Add showing info" }));
+
+    expect(sa_setUserPreference.mock.calls[0].arguments[0]).toEqual({
+      key: "run.addShowInfo",
+      value: true,
+    });
   });
 
   it("remembers the Add as invisible switch", async () => {
@@ -912,14 +1046,14 @@ describe("RunTable", () => {
           detail: "Shell seller",
           imageUrl: null,
           sceneTags: ["scene"],
-          sceneStatus: "INITIAL",
+          sceneStatus: "READY",
         },
       ],
     });
     const sceneStack = screen.getByRole("region", { name: "scene" });
 
     await u.click(within(sceneStack).getByRole("button", { name: "About Dafydd" }));
-    const popover = await screen.findByRole("dialog", { name: "Dafydd" });
+    const popover = await screen.findByRole("region", { name: "About Dafydd" });
     await u.click(await within(popover).findByRole("button", { name: "Edit Dafydd" }));
     await u.selectOptions(await within(popover).findByRole("combobox", { name: "Kind" }), "PLACE");
     await u.click(within(popover).getByRole("button", { name: "Save element" }));

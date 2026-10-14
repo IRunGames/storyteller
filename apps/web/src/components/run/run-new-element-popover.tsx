@@ -17,7 +17,13 @@ import {
 import { ImagePlus, Minus, Plus } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import type { ElementKind } from "@/lib/elements";
-import { attachmentLabel, RUN_ADD_INVISIBLE, SCENE_ELEMENT_HIDDEN, type PlayItem } from "@/lib/run";
+import {
+  attachmentLabel,
+  RUN_ADD_INVISIBLE,
+  RUN_ADD_SHOW_INFO,
+  SCENE_ELEMENT_HIDDEN,
+  type PlayItem,
+} from "@/lib/run";
 import { sa_createSceneElement } from "@/app/(app)/run/[id]/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
@@ -69,7 +75,11 @@ export function RunNewElementPopover({
   // The picture Add picture chose, sent with the form; cleared each opening.
   const [picture, setPicture] = useState<Attachment | null>(null);
   const label = `New element in ${title}`;
-  const addInvisible = useUserPreferences().get<boolean>(RUN_ADD_INVISIBLE, false);
+  // The library's switches: where a new element starts in the scene, and
+  // whether the players see its description.
+  const preferences = useUserPreferences();
+  const addInvisible = preferences.get<boolean>(RUN_ADD_INVISIBLE, false);
+  const addShowInfo = preferences.get<boolean>(RUN_ADD_SHOW_INFO, false);
 
   return (
     // Not lazyMount: zag only links the dialog to its Popover.Title when the
@@ -130,6 +140,7 @@ export function RunNewElementPopover({
                     sa_createSceneElement(idStory, idStoryScene, tag, {
                       ...values,
                       idAttachment: picture?.idAttachment ?? null,
+                      showInfo: addShowInfo,
                     })
                   }
                   extra={

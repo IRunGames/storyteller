@@ -47,16 +47,17 @@ const upload = mock.fn<(path: string, file: File, options: unknown) => Promise<{
 );
 let originalUpload: unknown;
 
-const sa_createAttachment = mock.fn<
-  (input: {
-    kind: string;
-    idExternal: number | null;
-    url?: string;
-    fileName?: string;
-    contentType?: string;
-    byteSize?: number;
-  }) => Promise<{ idAttachment: number; status: string }>
->();
+const sa_createAttachment =
+  mock.fn<
+    (input: {
+      kind: string;
+      idExternal: number | null;
+      url?: string;
+      fileName?: string;
+      contentType?: string;
+      byteSize?: number;
+    }) => Promise<{ idAttachment: number; status: string }>
+  >();
 const sa_markAttachmentReady = mock.fn<(id: number, url: string) => Promise<void>>(async () => {});
 const sa_markAttachmentError = mock.fn<(id: number) => Promise<void>>(async () => {});
 const sa_retryAttachment = mock.fn<(id: number) => Promise<void>>(async () => {});
@@ -79,9 +80,9 @@ const sa_listAttachments = mock.fn<
     }>
   >
 >(async () => []);
-const sa_setAttachmentCover = mock.fn<(id: number, isCover: boolean) => Promise<void>>(
-  async () => {},
-);
+const sa_setAttachmentCover = mock.fn<
+  (kind: string, idExternal: number, id: number, isCover: boolean) => Promise<void>
+>(async () => {});
 const sa_setAttachmentTags = mock.fn<(id: number, tags: string[]) => Promise<void>>(async () => {});
 // The field re-renders the page around it after a cover change, since the
 // cover that page draws is server-rendered.
@@ -185,7 +186,12 @@ describe("AttachmentListField", () => {
     const dialog = await openTags(user, "https://example.com/new.jpg");
     await user.type(within(dialog).getByRole("textbox", { name: "New tag" }), "Cover{Enter}");
 
-    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([8, true]);
+    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([
+      "STORY_SCENE",
+      SCENE_ID,
+      8,
+      true,
+    ]);
     expect(sa_setAttachmentTags.mock.callCount()).toBe(0);
     // The starred chip, with its own way off, and nothing called "cover" among
     // the plain tags.
@@ -256,7 +262,12 @@ describe("AttachmentListField", () => {
 
     expect(newCover).toHaveAttribute("aria-pressed", "true");
     expect(oldCover).toHaveAttribute("aria-pressed", "false");
-    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([8, true]);
+    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([
+      "STORY_SCENE",
+      SCENE_ID,
+      8,
+      true,
+    ]);
     await waitFor(() => expect(router.refresh.mock.callCount()).toBe(1));
   });
 
@@ -287,7 +298,12 @@ describe("AttachmentListField", () => {
     await user.click(cover);
 
     expect(cover).toHaveAttribute("aria-pressed", "false");
-    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([7, false]);
+    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual([
+      "STORY_SCENE",
+      SCENE_ID,
+      7,
+      false,
+    ]);
   });
 
   it("puts the cover back and says so when the change is refused", async () => {
@@ -479,7 +495,12 @@ describe("AttachmentListField", () => {
     const onChange = mock.fn<(ids: number[]) => void>();
 
     renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={onChange} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={onChange}
+      />,
     );
     await user.type(screen.getByRole("textbox", { name: /link/i }), "https://example.com/a.jpg");
     await user.click(screen.getByRole("button", { name: /add link/i }));
@@ -501,7 +522,12 @@ describe("AttachmentListField", () => {
     upload.mock.mockImplementation(() => pending.promise);
 
     const { container } = renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={onChange} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={onChange}
+      />,
     );
     await user.upload(fileInput(container), imageFile("cat.jpg"));
 
@@ -528,7 +554,12 @@ describe("AttachmentListField", () => {
     upload.mock.mockImplementation(async () => ({ url: URL_A }));
 
     const { container } = renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={onChange} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={onChange}
+      />,
     );
     await user.upload(fileInput(container), imageFile("good.jpg"));
     await waitFor(() => expect(sa_markAttachmentReady.mock.callCount()).toBe(1));
@@ -556,7 +587,12 @@ describe("AttachmentListField", () => {
     });
 
     const { container } = renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={onChange} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={onChange}
+      />,
     );
     await user.upload(fileInput(container), imageFile("cat.jpg"));
     const retryButton = await screen.findByRole("button", { name: /retry/i });
@@ -577,7 +613,12 @@ describe("AttachmentListField", () => {
     const onChange = mock.fn<(ids: number[]) => void>();
 
     renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={onChange} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={onChange}
+      />,
     );
     await user.type(screen.getByRole("textbox", { name: /link/i }), "https://example.com/a.jpg");
     await user.click(screen.getByRole("button", { name: /add link/i }));
@@ -596,10 +637,18 @@ describe("AttachmentListField", () => {
     const onChange = mock.fn<(ids: number[]) => void>();
 
     const { container } = renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={onChange} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={onChange}
+      />,
     );
 
-    await user.type(screen.getByRole("textbox", { name: /link/i }), "https://example.com/first.jpg");
+    await user.type(
+      screen.getByRole("textbox", { name: /link/i }),
+      "https://example.com/first.jpg",
+    );
     await user.click(screen.getByRole("button", { name: /add link/i }));
     await waitFor(() => expect(sa_createAttachment.mock.callCount()).toBe(1));
 
@@ -651,7 +700,12 @@ describe("AttachmentListField", () => {
     const onChange = mock.fn<(ids: number[]) => void>();
 
     renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[7]} onChange={onChange} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[7]}
+        onChange={onChange}
+      />,
     );
 
     await waitFor(() => expect(sa_listAttachments.mock.callCount()).toBe(1));
@@ -698,7 +752,12 @@ describe("AttachmentListField", () => {
     });
 
     renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={() => {}} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={() => {}}
+      />,
     );
 
     expect(await screen.findByText(/could not load/i)).toBeInTheDocument();
@@ -734,10 +793,18 @@ describe("AttachmentListField", () => {
     const onChange = mock.fn<(ids: number[]) => void>();
 
     renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={onChange} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={onChange}
+      />,
     );
 
-    await user.type(screen.getByRole("textbox", { name: /link/i }), "https://example.com/added.jpg");
+    await user.type(
+      screen.getByRole("textbox", { name: /link/i }),
+      "https://example.com/added.jpg",
+    );
     await user.click(screen.getByRole("button", { name: /add link/i }));
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
 
@@ -787,7 +854,12 @@ describe("AttachmentListField", () => {
     const onChange = mock.fn<(ids: number[]) => void>();
 
     renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={onChange} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={onChange}
+      />,
     );
 
     await user.type(screen.getByRole("textbox", { name: /link/i }), "https://example.com/gone.jpg");
@@ -833,7 +905,12 @@ describe("AttachmentListField", () => {
     });
 
     renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={() => {}} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={() => {}}
+      />,
     );
     await screen.findByText(/could not load/i);
 
@@ -901,7 +978,12 @@ describe("AttachmentListField", () => {
     const onChange = mock.fn<(ids: number[]) => void>();
 
     renderWithProviders(
-      <AttachmentListField kind="STORY" idExternal={null} value={existingIds} onChange={onChange} />,
+      <AttachmentListField
+        kind="STORY"
+        idExternal={null}
+        value={existingIds}
+        onChange={onChange}
+      />,
     );
     expect(screen.getAllByRole("listitem")).toHaveLength(20);
 
@@ -927,7 +1009,12 @@ describe("AttachmentListField", () => {
     const user = userEvent.setup();
 
     renderWithProviders(
-      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} onChange={() => {}} />,
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        value={[]}
+        onChange={() => {}}
+      />,
     );
 
     await user.type(screen.getByRole("textbox", { name: /link/i }), "javascript:alert(1)");

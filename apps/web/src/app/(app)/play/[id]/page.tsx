@@ -7,7 +7,8 @@ import { PlayCover } from "@/components/play/play-cover";
 import { PlayTable } from "@/components/play/play-table";
 import { StoryUnavailableDialog } from "@/components/play/story-unavailable-dialog";
 import { sa_getStorySession } from "@/app/(app)/(nav)/stories/actions";
-import { sa_getPlayStory, sa_joinSession } from "./actions";
+import { EMPTY_PLAY_SCENE } from "@/lib/play-scene";
+import { sa_getPlayScene, sa_getPlayStory, sa_joinSession } from "./actions";
 
 // stories.id_story is int4, and a seed story has a negative id, so anything that
 // parses to an int in that range is a candidate; the rest is a 404 rather
@@ -54,10 +55,21 @@ export default async function PlayTablePage({ params }: { params: Promise<{ id: 
 
   // The header names the session being played, numbered and titled as the
   // story page lists it; with none, it says so.
-  const session =
+  // The scene is loaded here so the table shows it on first paint, and kept
+  // up to date by the table itself from the story's MQTT topic.
+  const [session, scene] = await Promise.all([
     story.hasOpenSession && story.idStorySession !== null
-      ? await sa_getStorySession(story.idStorySession)
-      : null;
+      ? sa_getStorySession(story.idStorySession)
+      : null,
+    sa_getPlayScene(story.idStory),
+  ]);
 
-  return <PlayTable title={story.title} session={session ? sessionHeading(session) : null} />;
+  return (
+    <PlayTable
+      idStory={story.idStory}
+      title={story.title}
+      session={session ? sessionHeading(session) : null}
+      initialScene={scene ?? EMPTY_PLAY_SCENE}
+    />
+  );
 }

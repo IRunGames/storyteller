@@ -82,7 +82,7 @@ function cardColumns(userId: string) {
     summary: stories.summary,
     // The story's picture is an attachments row now, not a column; the key
     // keeps its name because it still holds the url a card paints on.
-    imageUrl: attachmentUrl("STORY", stories.idStory),
+    imageUrl: attachmentUrl("STORY", "stories", "id_story"),
     lastPlayed: stories.lastPlayed,
     systemName: systems.systemName,
     systemVersion: systems.systemVersion,
@@ -445,7 +445,7 @@ export async function sa_getStorySession(
       title: storySessions.title,
       status: storySessions.status,
       length: storySessions.length,
-      imageLink: attachmentUrl("STORY_SESSION", storySessions.idStorySession),
+      imageLink: attachmentUrl("STORY_SESSION", "story_sessions", "id_story_session"),
       summary: storySessions.summary,
       notes: storySessions.notes,
       lingeringQuestions: storySessions.lingeringQuestions,

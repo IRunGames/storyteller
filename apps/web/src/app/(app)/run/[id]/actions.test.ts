@@ -8,6 +8,7 @@ import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { and, eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
+import { elementIdOf } from "@/lib/run";
 
 loadEnvConfig(process.cwd());
 
@@ -15,6 +16,17 @@ const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
 const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+
+// What each write tells the players' table, mocked so the tests see which
+// helper an action reached for; what the helpers send is their own test's
+// business (lib/realtime/publish-scene.test.ts).
+const published = {
+  publishSceneElement: mock.fn(async (..._args: unknown[]) => {}),
+  publishElementChanged: mock.fn(async (..._args: unknown[]) => {}),
+  publishSceneElementRemoved: mock.fn(async (..._args: unknown[]) => {}),
+  publishSceneChanged: mock.fn(async (..._args: unknown[]) => {}),
+  publishSessionUpdated: mock.fn(async (..._args: unknown[]) => {}),
+};
 
 let actions: typeof import("./actions");
 
@@ -38,6 +50,7 @@ const DEFAULT_TAGS = ["elements", "scene"];
 describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
+    mock.module("@/lib/realtime/publish-scene", { namedExports: published });
     ({ db, schema: tables } = await import("@/db"));
     actions = await import("./actions");
 
@@ -293,7 +306,8 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         detail: "Harbourmaster",
         imageUrl: null,
         sceneTags: ["scene"],
-        sceneStatus: "INITIAL",
+        sceneStatus: "READY",
+        showInfo: true,
         fields: {
           initial_name: "Fixture hooded figure",
           name: "Fixture Zed",
@@ -308,7 +322,8 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         detail: null,
         imageUrl: null,
         sceneTags: [],
-        sceneStatus: "INITIAL",
+        sceneStatus: "READY",
+        showInfo: true,
         // No initial name, so the default shows the name.
         fields: { initial_name: null, name: "Fixture Abbey", title: null },
         showing: "initial_name",
@@ -316,9 +331,37 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     ]);
   });
 
-  it("starts empty when the session is on no scene", async () => {
+  it("starts empty when the session is on no scene and none is active", async () => {
+    // The selector's tests above leave active scenes behind them.
+    await db
+      .delete(tables.storyScenes)
+      .where(and(eq(tables.storyScenes.idStory, mine), eq(tables.storyScenes.status, "ACTIVE")));
     await openSession(mine, null);
     expect(await actions.sa_getRunPlaySpace(mine)).toEqual(EMPTY);
+  });
+
+  it("puts a session on no scene onto the story's active scene, the most recently touched", async () => {
+    const session = await openSession(mine, null);
+    const older = await sceneIn("ACTIVE", "Fixture older active scene");
+    const newer = await sceneIn("ACTIVE", "Fixture newer active scene");
+    // A touch after the newer one was made, so updated_at and not the id
+    // decides, as it does in the header's selector.
+    await db
+      .update(tables.storyScenes)
+      .set({ sceneTitle: "Fixture older active scene, touched" })
+      .where(eq(tables.storyScenes.idStoryScene, older));
+
+    const space = await actions.sa_getRunPlaySpace(mine);
+
+    expect(space.scene).toEqual({
+      idStoryScene: older,
+      title: "Fixture older active scene, touched",
+      status: "ACTIVE",
+    });
+    expect(await currentSceneOf(session)).toBe(older);
+    // Chosen at the table, so played in this sitting, as the header would do.
+    expect(await sceneRow(older)).toEqual({ status: "ACTIVE", idStorySession: session });
+    expect(await sceneRow(newer)).toEqual({ status: "ACTIVE", idStorySession: null });
   });
 
   it("starts empty when no session is being played", async () => {
@@ -338,14 +381,20 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     const [cover] = await db
       .insert(tables.attachments)
       .values({
-        kind: "STORY_SCENE",
-        idExternal: scene,
+        idStory: mine,
         status: "READY",
         url: "https://x.test/fixture-docks.png",
-        tags: ["cover"],
         idCreatedByUser: SEED_USER,
       })
       .returning({ id: tables.attachments.idAttachment });
+    // The scene's cover is its use of the picture, tagged cover.
+    await db.insert(tables.attachmentUses).values({
+      idAttachment: cover.id,
+      kind: "STORY_SCENE",
+      idExternal: scene,
+      tags: ["cover"],
+      idCreatedByUser: SEED_USER,
+    });
 
     expect((await actions.sa_getRunPlaySpace(mine)).coverUrl).toBe(
       "https://x.test/fixture-docks.png",
@@ -360,6 +409,21 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       .where(eq(tables.sceneElements.idStoryScene, idStoryScene));
   }
 
+  // Whether one link shows the players its element's description, or
+  // undefined for no link.
+  async function showInfoOf(idStoryScene: number, idElement: number) {
+    const [row] = await db
+      .select({ showInfo: tables.sceneElements.showInfo })
+      .from(tables.sceneElements)
+      .where(
+        and(
+          eq(tables.sceneElements.idStoryScene, idStoryScene),
+          eq(tables.sceneElements.idElement, idElement),
+        ),
+      );
+    return row?.showInfo;
+  }
+
   // The element form's fields, blank but for what a test sets.
   const form = (values: Record<string, string>) => ({
     kind: "PLACE",
@@ -369,7 +433,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     description: "",
     notes: "",
     status: "PENDING",
-    sceneStatus: "INITIAL",
+    sceneStatus: "READY",
     ...values,
   });
 
@@ -425,7 +489,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       form({ kind: "THING", name: "Fixture net", title: "Torn" }),
     );
     expect(fromLibrary.ok && fromLibrary.item.sceneTags).toEqual([DEFAULT_TAGS[0]]);
-    expect(fromLibrary.ok && fromLibrary.item.sceneStatus).toBe("INITIAL");
+    expect(fromLibrary.ok && fromLibrary.item.sceneStatus).toBe("READY");
 
     // The Default stack of a scene with no tags links with none.
     const untagged = await sceneIn("ACTIVE", "Fixture scene with no tags to create in");
@@ -506,6 +570,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         imageUrl: null,
         sceneTags: ["scene"],
         sceneStatus: "DISABLED",
+        showInfo: true,
         fields: { initial_name: "Fixture light", name: "Fixture lighthouse", title: "Unlit" },
         showing: "initial_name",
       },
@@ -529,8 +594,45 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
   it("links a library element as invisible with the Add as invisible switch", async () => {
     const target = await sceneIn("ACTIVE", "Fixture scene for hidden links");
 
-    const result = await actions.sa_linkSceneElement(mine, target, abbey, true);
+    const result = await actions.sa_linkSceneElement(mine, target, abbey, { hidden: true });
     expect(result.ok && result.item.sceneStatus).toBe("INVISIBLE");
+  });
+
+  it("links a library element with its info kept back from the Add showing info switch", async () => {
+    const target = await sceneIn("ACTIVE", "Fixture scene for links without info");
+
+    const result = await actions.sa_linkSceneElement(mine, target, abbey, { showInfo: false });
+    expect(result.ok && result.item.showInfo).toBe(false);
+    expect(await showInfoOf(target, abbey)).toBe(false);
+
+    // Already linked, the link keeps what it has.
+    const again = await actions.sa_linkSceneElement(mine, target, abbey, { showInfo: true });
+    expect(again.ok && again.item.showInfo).toBe(false);
+  });
+
+  it("makes a new element with its info kept back, and sets whether the players see it", async () => {
+    const target = await sceneIn("ACTIVE", "Fixture scene for new elements without info");
+    const made = await actions.sa_createSceneElement(mine, target, null, {
+      ...form({ kind: "THING", name: "Fixture lantern" }),
+      showInfo: false,
+    });
+    expect(made.ok && made.item.showInfo).toBe(false);
+    const idElement = made.ok ? elementIdOf(made.item) : 0;
+    expect(await showInfoOf(target, idElement)).toBe(false);
+
+    expect(await actions.sa_setSceneElementShowInfo(mine, target, idElement, true)).toEqual({
+      ok: true,
+      showInfo: true,
+    });
+    expect(await showInfoOf(target, idElement)).toBe(true);
+    expect(await actions.sa_setSceneElementShowInfo(mine, target, abbey, false)).toEqual({
+      ok: false,
+      error: "That element is not in this scene.",
+    });
+    expect(await actions.sa_setSceneElementShowInfo(theirs, theirScene, abbey, false)).toEqual({
+      ok: false,
+      error: "That scene is not part of this story.",
+    });
   });
 
   it("links a library element under the scene's first tag, and leaves an existing link as it is", async () => {
@@ -547,7 +649,8 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         imageUrl: null,
         // The first of the scene's tags, the first stack's.
         sceneTags: [DEFAULT_TAGS[0]],
-        sceneStatus: "INITIAL",
+        sceneStatus: "READY",
+        showInfo: true,
         fields: { initial_name: null, name: "Fixture Abbey", title: null },
         showing: "initial_name",
       },
@@ -591,8 +694,8 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(await linksOf(target)).toEqual([]);
   });
 
-  it("hides an element from whatever status it is in, and shows it again as READY", async () => {
-    const target = await sceneIn("ACTIVE", "Fixture scene for the eye");
+  it("moves an element's link to any of the workflow's statuses from the status menu", async () => {
+    const target = await sceneIn("ACTIVE", "Fixture scene for the status menu");
     await actions.sa_linkSceneElement(mine, target, abbey);
     const statusOf = async () =>
       (
@@ -607,49 +710,32 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
           )
       )[0].status;
 
-    expect(await actions.sa_setSceneElementShown(mine, target, abbey, false)).toEqual({
-      ok: true,
-      status: "INVISIBLE",
-    });
-    expect(await statusOf()).toBe("INVISIBLE");
-    expect(await actions.sa_setSceneElementShown(mine, target, abbey, true)).toEqual({
+    for (const status of ["TAPPED", "INVISIBLE", "DISABLED", "READY"]) {
+      expect(await actions.sa_setSceneElementStatus(mine, target, abbey, status)).toEqual({
+        ok: true,
+        status,
+      });
+      expect(await statusOf()).toBe(status);
+    }
+    // Already there, it stays as it is.
+    expect(await actions.sa_setSceneElementStatus(mine, target, abbey, "READY")).toEqual({
       ok: true,
       status: "READY",
+    });
+    expect(await actions.sa_setSceneElementStatus(mine, target, abbey, "INITIAL")).toEqual({
+      ok: false,
+      error: "Choose one of READY, INVISIBLE, TAPPED, DISABLED.",
     });
     expect(await statusOf()).toBe("READY");
-
-    // Disabled, the pill's lock: showing unlocks it to READY.
-    await db
-      .update(tables.sceneElements)
-      .set({ status: "DISABLED" })
-      .where(
-        and(
-          eq(tables.sceneElements.idStoryScene, target),
-          eq(tables.sceneElements.idElement, abbey),
-        ),
-      );
-    expect(await actions.sa_setSceneElementShown(mine, target, abbey, true)).toEqual({
-      ok: true,
-      status: "READY",
-    });
-    // Shown already, it stays as it is.
-    expect(await actions.sa_setSceneElementShown(mine, target, abbey, true)).toEqual({
-      ok: true,
-      status: "READY",
-    });
-    expect(await actions.sa_setSceneElementShown(mine, target, abbey, false)).toEqual({
-      ok: true,
-      status: "INVISIBLE",
-    });
   });
 
-  it("hides nothing that is not linked to the scene, nor in another's scene", async () => {
+  it("moves nothing that is not linked to the scene, nor in another's scene", async () => {
     const target = await sceneIn("ACTIVE", "Fixture scene with nothing in it");
-    expect(await actions.sa_setSceneElementShown(mine, target, abbey, false)).toEqual({
+    expect(await actions.sa_setSceneElementStatus(mine, target, abbey, "INVISIBLE")).toEqual({
       ok: false,
       error: "That element is not in this scene.",
     });
-    expect(await actions.sa_setSceneElementShown(theirs, theirScene, abbey, false)).toEqual({
+    expect(await actions.sa_setSceneElementStatus(theirs, theirScene, abbey, "INVISIBLE")).toEqual({
       ok: false,
       error: "That scene is not part of this story.",
     });
@@ -830,8 +916,8 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     // Each element's stack tags; the rows' order is the database's to choose.
     const filed = async () =>
       Object.fromEntries((await linksOf(target)).map((link) => [link.idElement, link.tags]));
-    await actions.sa_linkSceneElement(mine, target, zed, false, DEFAULT_TAGS[0]);
-    await actions.sa_linkSceneElement(mine, target, abbey, false, DEFAULT_TAGS[1]);
+    await actions.sa_linkSceneElement(mine, target, zed, { tag: DEFAULT_TAGS[0] });
+    await actions.sa_linkSceneElement(mine, target, abbey, { tag: DEFAULT_TAGS[1] });
 
     // elements and scene swap names, so each link must end under the other.
     expect(
@@ -866,9 +952,9 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
   it("links into the stack it is asked for, and refuses one the scene lacks", async () => {
     const target = await sceneIn("ACTIVE", "Fixture scene to link into a stack");
 
-    const result = await actions.sa_linkSceneElement(mine, target, abbey, false, DEFAULT_TAGS[1]);
+    const result = await actions.sa_linkSceneElement(mine, target, abbey, { tag: DEFAULT_TAGS[1] });
     expect(result.ok && result.item.sceneTags).toEqual([DEFAULT_TAGS[1]]);
-    expect(await actions.sa_linkSceneElement(mine, target, zed, false, "weather")).toEqual({
+    expect(await actions.sa_linkSceneElement(mine, target, zed, { tag: "weather" })).toEqual({
       ok: false,
       error: "That stack is no longer one of the scene's tags.",
     });
@@ -885,7 +971,8 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
 
     expect(await actions.sa_linkSceneElement(mine, target, abbey)).toEqual(refused);
     expect(await actions.sa_unlinkSceneElement(mine, target, zed)).toEqual(refused);
-    expect(await actions.sa_setSceneElementShown(mine, target, zed, false)).toEqual(refused);
+    expect(await actions.sa_setSceneElementStatus(mine, target, zed, "INVISIBLE")).toEqual(refused);
+    expect(await actions.sa_setSceneElementShowInfo(mine, target, zed, false)).toEqual(refused);
     expect(await actions.sa_setSceneElementShowing(mine, target, zed, "name")).toEqual(refused);
     expect(
       await actions.sa_moveSceneElement(mine, target, zed, DEFAULT_TAGS[0], DEFAULT_TAGS[1]),
@@ -905,9 +992,9 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     const [mineAttachment, theirAttachment, unfinished] = await db
       .insert(tables.attachments)
       .values([
-        { kind: "STORY", idExternal: mine, status: "READY", url: "https://x.test/zed.png" },
-        { kind: "STORY", idExternal: theirs, status: "READY", url: "https://x.test/other.png" },
-        { kind: "STORY", idExternal: mine, status: "UPLOADING" },
+        { idStory: mine, status: "READY", url: "https://x.test/zed.png" },
+        { idStory: theirs, status: "READY", url: "https://x.test/other.png" },
+        { idStory: mine, status: "UPLOADING" },
       ])
       .returning({ id: tables.attachments.idAttachment });
 
@@ -960,10 +1047,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         error: "That scene is not part of this story.",
       });
     } finally {
-      await db
-        .update(tables.elements)
-        .set({ idAttachment: null })
-        .where(eq(tables.elements.idElement, zed));
+      // The attachments take their uses with them, the element's picture included.
       await db
         .delete(tables.attachments)
         .where(
@@ -1062,7 +1146,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         notes: null,
         tags: [],
       },
-      link: { status: "INITIAL", tags: ["scene"] },
+      link: { status: "READY", tags: ["scene"], showInfo: true },
     });
     expect(detail?.link?.createdAt).toBeInstanceOf(Date);
 
@@ -1101,5 +1185,64 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         error: "That scene is not part of this story.",
       },
     );
+  });
+
+  describe("telling the players' table", () => {
+    beforeEach(() => {
+      for (const fn of Object.values(published)) fn.mock.resetCalls();
+    });
+
+    const calls = (name: keyof typeof published) =>
+      published[name].mock.calls.map((call) => call.arguments);
+
+    it("sends the link after the status menu, the info toggle, the name dropdown and a move", async () => {
+      await openSession(mine, scene);
+      await actions.sa_setSceneElementStatus(mine, scene, abbey, "INVISIBLE");
+      await actions.sa_setSceneElementShowInfo(mine, scene, abbey, false);
+      await actions.sa_setSceneElementShowing(mine, scene, abbey, "name");
+      await actions.sa_moveSceneElement(mine, scene, abbey, null, "scene");
+      expect(calls("publishSceneElement")).toEqual([
+        [mine, scene, abbey],
+        [mine, scene, abbey],
+        [mine, scene, abbey],
+        [mine, scene, abbey],
+      ]);
+      await db
+        .update(tables.sceneElements)
+        .set({ status: "READY", tags: [], elementShowing: "initial_name", showInfo: true })
+        .where(eq(tables.sceneElements.idElement, abbey));
+    });
+
+    it("sends a removal after Remove from scene, and links the element back", async () => {
+      await openSession(mine, scene);
+      await actions.sa_unlinkSceneElement(mine, scene, abbey);
+      expect(calls("publishSceneElementRemoved")).toEqual([
+        [mine, scene, abbey, expect.any(Number)],
+      ]);
+
+      await actions.sa_linkSceneElement(mine, scene, abbey);
+      expect(calls("publishSceneElement")).toEqual([[mine, scene, abbey]]);
+    });
+
+    it("says the scene changed after choosing one, and the session after renaming it", async () => {
+      const session = await openSession(mine, null);
+      await actions.sa_loadRunScene(mine, scene);
+      expect(calls("publishSceneChanged")).toEqual([[mine]]);
+
+      await actions.sa_setSessionTitle(mine, session, "Kildealg");
+      expect(calls("publishSessionUpdated")).toEqual([[mine, session, "Kildealg"]]);
+    });
+
+    it("sends the element after a library edit or a new picture", async () => {
+      await openSession(mine, scene);
+      await actions.sa_setElementImage(mine, zed, null);
+      expect(calls("publishElementChanged")).toEqual([[mine, zed]]);
+    });
+
+    it("says nothing when a write is refused", async () => {
+      await actions.sa_setSceneElementStatus(theirs, theirScene, abbey, "INVISIBLE");
+      await actions.sa_unlinkSceneElement(mine, scene, 2 ** 20);
+      for (const fn of Object.values(published)) expect(fn.mock.calls).toHaveLength(0);
+    });
   });
 });

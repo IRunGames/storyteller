@@ -11,6 +11,7 @@ const user = {
   email: "storyteller@irun.games",
   image: null,
   nickName: "Gandalf",
+  idUserType: -1,
 };
 
 function WhoAmI() {

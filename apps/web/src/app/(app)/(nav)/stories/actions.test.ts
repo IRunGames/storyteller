@@ -71,7 +71,11 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
 
     const [otherUser] = await db
       .insert(tables.user)
-      .values({ name: "Fixture Other", nickName: "Other", email: "stories-fixture-other@example.test" })
+      .values({
+        name: "Fixture Other",
+        nickName: "Other",
+        email: "stories-fixture-other@example.test",
+      })
       .returning({ id: tables.user.id });
     otherUserId = otherUser.id;
 
@@ -487,15 +491,22 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     const [picture] = await db
       .insert(tables.attachments)
       .values({
-        kind: "STORY_SESSION",
-        idExternal: openSessionId,
         status: "READY",
         url: "https://x.test/hero.jpg",
-        tags: ["cover"],
         idCreatedByUser: otherUserId,
         idUpdatedByUser: otherUserId,
       })
       .returning({ id: tables.attachments.idAttachment });
+    // The sitting's cover is its use of the picture; the use's trigger gives
+    // the picture the sitting's story.
+    await db.insert(tables.attachmentUses).values({
+      idAttachment: picture.id,
+      kind: "STORY_SESSION",
+      idExternal: openSessionId,
+      tags: ["cover"],
+      idCreatedByUser: otherUserId,
+      idUpdatedByUser: otherUserId,
+    });
 
     // finally, because the row is READY and every later case in this file
     // reads through the same projections: an assertion failing below must not
@@ -974,11 +985,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .values(
         [
           // First by every order the old rule used, and still not the cover.
-          { url: "https://x.test/first.jpg", sortOrder: 0, tags: ["map"] },
-          { url: "https://x.test/cover.jpg", sortOrder: 1, tags: ["map", "cover"] },
+          { url: "https://x.test/first.jpg", tags: ["map"] },
+          { url: "https://x.test/cover.jpg", tags: ["map"] },
         ].map((values) => ({
-          kind: "STORY",
-          idExternal: storyD,
+          idStory: storyD,
           status: "READY",
           idCreatedByUser: SEED_USER,
           idUpdatedByUser: SEED_USER,
@@ -988,6 +998,17 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .returning({ id: tables.attachments.idAttachment, url: tables.attachments.url });
     const ids = rows.map((row) => row.id);
     const coverId = rows.find((row) => row.url === "https://x.test/cover.jpg")!.id;
+    // The cover is the story's use of the second, tagged; the first has none.
+    const useOf = (idAttachment: number) =>
+      db.insert(tables.attachmentUses).values({
+        idAttachment,
+        kind: "STORY",
+        idExternal: storyD,
+        tags: ["cover"],
+        idCreatedByUser: SEED_USER,
+        idUpdatedByUser: SEED_USER,
+      });
+    await useOf(coverId);
 
     try {
       expect(await coverOf()).toBe("https://x.test/cover.jpg");
@@ -1002,16 +1023,15 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       const [failed] = await db
         .insert(tables.attachments)
         .values({
-          kind: "STORY",
-          idExternal: storyD,
+          idStory: storyD,
           status: "ERROR",
           url: "https://x.test/failed.jpg",
-          tags: ["cover"],
           idCreatedByUser: SEED_USER,
           idUpdatedByUser: SEED_USER,
         })
         .returning({ id: tables.attachments.idAttachment });
       ids.push(failed.id);
+      await useOf(failed.id);
       expect(await coverOf()).toBeNull();
     } finally {
       await db.delete(tables.attachments).where(inArray(tables.attachments.idAttachment, ids));

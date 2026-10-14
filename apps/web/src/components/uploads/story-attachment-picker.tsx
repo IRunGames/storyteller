@@ -17,40 +17,35 @@ import {
 } from "@chakra-ui/react";
 import { Search } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
-import {
-  sa_listAttachments,
-  sa_moveStoryAttachmentsToScene,
-  sa_searchAttachments,
-} from "./actions";
+import { sa_attachToScene, sa_listAttachments, sa_searchAttachments } from "./actions";
 
 type Props = {
   /** The story whose own attachments are offered. */
   idStory: number;
   /** The scene they are added to. */
   idStoryScene: number;
-  /** The ids that moved, once they have, so a list of the scene's can reload. */
+  /** The ids now attached, once they are, so a list of the scene's can reload. */
   onAttached?: (ids: number[]) => void;
 };
 
 // The same pause the board's search boxes take, so a word asks once.
 const SEARCH_DELAY_MS = 250;
 
-// What can be moved: the story's own attachments that have a picture to show
-// and are not its cover, which stays where it is. The action applies the
-// same rule again.
+// What can be attached: the story's pictures that have something to show.
+// The action applies the same rule again.
 const pickable = (rows: Attachment[]) =>
-  rows.filter((row) => row.status === "READY" && !row.isCover && row.url !== null);
+  rows.filter((row) => row.status === "READY" && row.url !== null);
 
 /**
  * A fold that offers a story's own attachments to one of its scenes. Closed
  * to begin with, and nothing is fetched until it is first opened: most visits
  * to a scene never want it.
  *
- * Opened, it lists the story's attachments that are not its cover, narrowed
- * by a search box that goes to the database (attachments.search_text, as the
- * board's Attachments column does). Any number can be ticked, and the button
- * under them moves the ticked ones onto the scene: they leave the story's
- * list and join the scene's.
+ * Opened, it lists the story's pictures, narrowed by a search box that goes
+ * to the database (attachments.search_text, as the board's Attachments
+ * column does). Any number can be ticked, and the button under them attaches
+ * the ticked ones to the scene: the scene gets a use of each, and they stay
+ * the story's.
  */
 export function StoryAttachmentPicker({ idStory, idStoryScene, onAttached }: Props) {
   const [opened, setOpened] = useState(false);
@@ -118,21 +113,22 @@ export function StoryAttachmentPicker({ idStory, idStoryScene, onAttached }: Pro
     setMoveError(null);
     setNotice(null);
     try {
-      const result = await sa_moveStoryAttachmentsToScene(idStoryScene, ids);
+      const result = await sa_attachToScene(idStoryScene, ids);
       if (!result.ok) {
         setMoveError(result.error);
         return;
       }
-      const moved = new Set(result.moved);
-      setRows((current) => current?.filter((row) => !moved.has(row.idAttachment)) ?? current);
+      const attached = new Set(result.attached);
+      setRows((current) => current?.filter((row) => !attached.has(row.idAttachment)) ?? current);
       setSelected(new Set());
-      // A row that changed since the list loaded stays put; say how many did go.
+      // A row that changed since the list loaded, or that the scene had
+      // already, is left alone; say how many did go.
       setNotice(
-        result.moved.length === ids.length
+        result.attached.length === ids.length
           ? `Added ${ids.length} to this scene.`
-          : `Added ${result.moved.length} of ${ids.length}; the rest had changed and stayed with the story.`,
+          : `Added ${result.attached.length} of ${ids.length}; the rest had changed or were in the scene already.`,
       );
-      if (result.moved.length > 0) onAttached?.(result.moved);
+      if (result.attached.length > 0) onAttached?.(result.attached);
     } catch {
       setMoveError("Could not add them to the scene.");
     } finally {

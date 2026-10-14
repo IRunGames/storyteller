@@ -15,6 +15,7 @@ const user: CurrentUser = {
   email: "storyteller@irun.games",
   image: null,
   nickName: null,
+  idUserType: -1,
 };
 
 const initial: WaitingRoomState = {

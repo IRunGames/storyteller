@@ -16,6 +16,7 @@ const signedIn: CurrentUser = {
   email: "storyteller@irun.games",
   image: null,
   nickName: null,
+  idUserType: -1,
 };
 
 // Static imports hoist above mock.module, so the page is imported in `before`.

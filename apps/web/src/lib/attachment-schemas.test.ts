@@ -31,6 +31,7 @@ describe("attachmentKindSchema", () => {
     expect(attachmentKindSchema.safeParse("STORY").success).toBe(true);
     expect(attachmentKindSchema.safeParse("STORY_SESSION").success).toBe(true);
     expect(attachmentKindSchema.safeParse("STORY_SCENE").success).toBe(true);
+    expect(attachmentKindSchema.safeParse("ELEMENT").success).toBe(true);
   });
 
   it("refuses anything else", () => {

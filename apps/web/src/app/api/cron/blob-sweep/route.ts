@@ -53,13 +53,13 @@ export async function GET(request: Request): Promise<Response> {
   const unclaimedRows = await db
     .select({
       idAttachment: attachments.idAttachment,
-      idExternal: attachments.idExternal,
+      idStory: attachments.idStory,
       createdAt: attachments.createdAt,
       url: attachments.url,
       isUploaded: attachments.isUploaded,
     })
     .from(attachments)
-    .where(isNull(attachments.idExternal));
+    .where(isNull(attachments.idStory));
   // createdAt is nullable in the schema to allow a manual override; every row
   // this query can see was actually inserted through the default, so this
   // only ever drops rows that could not be swept either way.

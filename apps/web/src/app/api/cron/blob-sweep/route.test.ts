@@ -65,15 +65,27 @@ function request(authorization?: string): Request {
 // Every attachment id this file created, so `after` takes away exactly these.
 const created: number[] = [];
 
-/** Inserts a fixture row and records its id for the cleanup in `after`. */
+/**
+ * Inserts a fixture row and records its id for the cleanup in `after`. With
+ * a scene, the scene uses it, which is what claims it for the scene's story.
+ */
 async function insertAttachment(
   values: DbModule["schema"]["attachments"]["$inferInsert"],
+  idStoryScene: number | null = null,
 ): Promise<{ id: number }> {
   const [row] = await db
     .insert(tables.attachments)
     .values(values)
     .returning({ id: tables.attachments.idAttachment });
   created.push(row.id);
+  if (idStoryScene !== null) {
+    await db.insert(tables.attachmentUses).values({
+      idAttachment: row.id,
+      kind: "STORY_SCENE",
+      idExternal: idStoryScene,
+      idCreatedByUser: values.idCreatedByUser,
+    });
+  }
   return row;
 }
 
@@ -110,9 +122,7 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
     blobModule.del = originalDel;
     if (!db) return;
     if (created.length > 0) {
-      await db
-        .delete(tables.attachments)
-        .where(inArray(tables.attachments.idAttachment, created));
+      await db.delete(tables.attachments).where(inArray(tables.attachments.idAttachment, created));
     }
     // Otherwise the process lingers until the pool's idle timeout.
     await db.$client.end();
@@ -155,20 +165,14 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
     const old = new Date(Date.now() - GRACE_MS - 60 * 60 * 1000);
 
     // Claimed and referenced: must survive both passes.
-    const claimed = await insertAttachment({
-      kind: "STORY_SCENE",
-      idExternal: SCENE_ID,
-      status: "READY",
-      url: referencedUrl,
-      isUploaded: true,
-      idCreatedByUser: FIXTURE_USER,
-    });
+    const claimed = await insertAttachment(
+      { status: "READY", url: referencedUrl, isUploaded: true, idCreatedByUser: FIXTURE_USER },
+      SCENE_ID,
+    );
 
     // Unclaimed, past the grace period, still holding an uploaded blob: the
     // row and its blob are both deleted.
     const oldUnclaimed = await insertAttachment({
-      kind: "STORY_SCENE",
-      idExternal: null,
       status: "UPLOADING",
       url: oldUnclaimedUrl,
       isUploaded: true,
@@ -182,8 +186,6 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
     // Unclaimed, past the grace period, no blob ever attached: the row is
     // deleted, but del() is never asked to remove a url that does not exist.
     const oldUnclaimedNoBlob = await insertAttachment({
-      kind: "STORY_SCENE",
-      idExternal: null,
       status: "UPLOADING",
       idCreatedByUser: FIXTURE_USER,
     });
@@ -194,8 +196,6 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
 
     // Unclaimed, but uploaded minutes ago: the grace period keeps it.
     const recentUnclaimed = await insertAttachment({
-      kind: "STORY_SCENE",
-      idExternal: null,
       status: "UPLOADING",
       idCreatedByUser: FIXTURE_USER,
     });
@@ -227,8 +227,6 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
           recentUnclaimed.id,
         ]),
       );
-    expect(survivors.map((row) => row.id).sort()).toEqual(
-      [claimed.id, recentUnclaimed.id].sort(),
-    );
+    expect(survivors.map((row) => row.id).sort()).toEqual([claimed.id, recentUnclaimed.id].sort());
   });
 });

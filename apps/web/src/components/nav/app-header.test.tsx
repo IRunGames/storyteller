@@ -26,6 +26,7 @@ const user: CurrentUser = {
   email: "storyteller@irun.games",
   image: null,
   nickName: null,
+  idUserType: -1,
 };
 
 // The popover imports its server action itself, so the whole actions module

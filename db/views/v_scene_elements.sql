@@ -9,7 +9,8 @@
 -- storyteller files it in this scene (the stacks of the run page's play
 -- space), `element_tags` the element's own. `element_showing` is the link's
 -- too, despite its prefix: which of the element's fields the pill shows in
--- this scene.
+-- this scene, as `show_info` is whether the players' table shows the
+-- element's description there.
 --
 -- The columns are listed rather than taken as se.* and e.*, so a column added
 -- to either table does not change the view's shape until it is added here and
@@ -19,12 +20,13 @@ SELECT se.id_scene_element,
        se.id_story_scene,
        se.id_element,
        se.status,
-       se.initial_at,
-       se.invisible_at,
        se.ready_at,
+       se.invisible_at,
+       se.tapped_at,
        se.disabled_at,
        se.tags,
        se.element_showing,
+       se.show_info,
        se.created_at,
        se.updated_at,
        se.id_created_by_user,
@@ -37,7 +39,6 @@ SELECT se.id_scene_element,
        e.title,
        e.description,
        e.notes,
-       e.id_attachment,
        e.tags         AS element_tags,
        e.search_text  AS element_search_text,
        e.updated_at   AS element_updated_at

@@ -343,4 +343,142 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect(rows).toHaveLength(0);
     });
   });
+
+  describe("sa_getPlayScene and sa_getStoryChannel", () => {
+    let docks = 0;
+    let zed = 0;
+    let ghost = 0;
+    const env = { ...process.env };
+
+    before(async () => {
+      [{ id: docks }] = await db
+        .insert(tables.storyScenes)
+        .values({
+          idStory: playsIn,
+          sceneTitle: "Play fixture docks",
+          tags: ["scene", "elements"],
+          idCreatedByUser: otherUserId,
+        })
+        .returning({ id: tables.storyScenes.idStoryScene });
+      [{ id: zed }, { id: ghost }] = await db
+        .insert(tables.elements)
+        .values([
+          {
+            idStory: playsIn,
+            kind: "PERSON",
+            name: "Play fixture Zed",
+            notes: "The villain",
+            idCreatedByUser: otherUserId,
+          },
+          {
+            idStory: playsIn,
+            kind: "PERSON",
+            name: "Play fixture ghost",
+            idCreatedByUser: otherUserId,
+          },
+        ])
+        .returning({ id: tables.elements.idElement });
+      await db.insert(tables.sceneElements).values([
+        { idStoryScene: docks, idElement: zed, tags: ["scene"], idCreatedByUser: otherUserId },
+        {
+          idStoryScene: docks,
+          idElement: ghost,
+          status: "INVISIBLE",
+          idCreatedByUser: otherUserId,
+        },
+      ]);
+    });
+
+    beforeEach(() => {
+      process.env.MQTT_ADDRESS = "broker.example.test";
+      process.env.MQTT_PLAYER_USERNAME = "player";
+      process.env.MQTT_PLAYER_PASSWORD = "pw";
+      delete process.env.MQTT_WS_TLS_PORT;
+    });
+
+    after(() => {
+      process.env = { ...env };
+    });
+
+    async function onScene(idStoryScene: number | null) {
+      const id = await openSession(playsIn, "OPEN");
+      await db
+        .update(tables.storySessions)
+        .set({ idStoryScene })
+        .where(eq(tables.storySessions.idStorySession, id));
+      return id;
+    }
+
+    it("gives a player the scene with the elements they may see, whole but for the notes", async () => {
+      const session = await onScene(docks);
+      const scene = await actions.sa_getPlayScene(playsIn);
+      expect(scene).toMatchObject({
+        idStorySession: session,
+        scene: { idStoryScene: docks, title: "Play fixture docks" },
+        tags: ["scene", "elements"],
+      });
+      expect(scene!.items.map((item) => item.element.name)).toEqual(["Play fixture Zed"]);
+      expect(scene!.items[0].element).not.toHaveProperty("notes");
+      expect(scene!.items[0].sceneElement).toMatchObject({ idStoryScene: docks, tags: ["scene"] });
+    });
+
+    it("keeps an element's description back while its link does not show its info", async () => {
+      await onScene(docks);
+      const zed = (await actions.sa_getPlayScene(playsIn))!.items[0].element.idElement;
+      await db
+        .update(tables.elements)
+        .set({ description: "Keeps the docks." })
+        .where(eq(tables.elements.idElement, zed));
+      await db
+        .update(tables.sceneElements)
+        .set({ showInfo: false })
+        .where(eq(tables.sceneElements.idElement, zed));
+      try {
+        const [item] = (await actions.sa_getPlayScene(playsIn))!.items;
+        expect(item.element.description).toBeNull();
+        expect(item.sceneElement.showInfo).toBe(false);
+      } finally {
+        await db
+          .update(tables.sceneElements)
+          .set({ showInfo: true })
+          .where(eq(tables.sceneElements.idElement, zed));
+      }
+      expect((await actions.sa_getPlayScene(playsIn))!.items[0].element.description).toBe(
+        "Keeps the docks.",
+      );
+    });
+
+    it("is empty with no scene chosen, or nothing being played", async () => {
+      const session = await onScene(null);
+      expect(await actions.sa_getPlayScene(playsIn)).toEqual({
+        idStorySession: session,
+        scene: null,
+        tags: [],
+        coverUrl: null,
+        items: [],
+      });
+      await db.delete(tables.storySessions).where(eq(tables.storySessions.idStory, playsIn));
+      expect((await actions.sa_getPlayScene(playsIn))?.idStorySession).toBeNull();
+    });
+
+    it("gives a stranger nothing", async () => {
+      await onScene(docks);
+      expect(await actions.sa_getPlayScene(stranger)).toBeNull();
+      expect(await actions.sa_getStoryChannel(stranger)).toBeNull();
+    });
+
+    it("hands a player the broker's address and the player login", async () => {
+      expect(await actions.sa_getStoryChannel(playsIn)).toEqual({
+        url: "wss://broker.example.test:8084/mqtt",
+        username: "player",
+        password: "pw",
+        topic: `story/${playsIn}/state`,
+      });
+    });
+
+    it("says there is no channel when the broker is not configured", async () => {
+      delete process.env.MQTT_PLAYER_PASSWORD;
+      expect(await actions.sa_getStoryChannel(playsIn)).toBeNull();
+    });
+  });
 });

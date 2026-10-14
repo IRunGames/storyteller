@@ -195,8 +195,10 @@ export function AttachmentListField({
     idExternal === null
       ? value.map((id) => ({
           idAttachment: id,
+          idStory: null,
           kind,
           idExternal,
+          idAttachmentUse: null,
           status: UNKNOWN_STATUS,
           url: null,
           isUploaded: false,
@@ -392,9 +394,7 @@ export function AttachmentListField({
   }
 
   function updateRow(id: number, patch: Partial<Attachment>) {
-    commit(
-      rowsRef.current.map((row) => (row.idAttachment === id ? { ...row, ...patch } : row)),
-    );
+    commit(rowsRef.current.map((row) => (row.idAttachment === id ? { ...row, ...patch } : row)));
   }
 
   function beginAttempt(id: number): number {
@@ -465,8 +465,10 @@ export function AttachmentListField({
     filesByAttachment.current.set(created.idAttachment, file);
     addRow({
       idAttachment: created.idAttachment,
+      idStory: null,
       kind,
       idExternal,
+      idAttachmentUse: null,
       status: created.status,
       url: null,
       isUploaded: true,
@@ -526,8 +528,10 @@ export function AttachmentListField({
       const created = await sa_createAttachment({ kind, idExternal, url: parsed.data });
       addRow({
         idAttachment: created.idAttachment,
+        idStory: null,
         kind,
         idExternal,
+        idAttachmentUse: null,
         status: created.status,
         url: parsed.data,
         isUploaded: false,
@@ -584,7 +588,8 @@ export function AttachmentListField({
       })),
     );
     try {
-      await sa_setAttachmentCover(id, isCover);
+      // Only reachable with rows loaded for a holder, so idExternal is set.
+      await sa_setAttachmentCover(kind, idExternal as number, id, isCover);
       router.refresh();
       return true;
     } catch {
@@ -769,7 +774,9 @@ export function AttachmentListField({
       ) : (
         <>
           {showEmpty && hasLoaded && !loadError && visibleRows.length === 0 && (
-            <Text color="fg.muted">{rows.length === 0 ? "No attachments yet." : "No matches."}</Text>
+            <Text color="fg.muted">
+              {rows.length === 0 ? "No attachments yet." : "No matches."}
+            </Text>
           )}
 
           {/* auto-fill, so the cards fill the row and wrap to as many columns

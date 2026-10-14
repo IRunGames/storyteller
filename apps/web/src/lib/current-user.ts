@@ -11,6 +11,8 @@ export type CurrentUser = {
   email: string;
   image: string | null;
   nickName: string | null;
+  /** The s_user_types row the account is on, which decides what the table offers; see lib/diagnostics.ts. */
+  idUserType: number;
 };
 
 // Picks the fields explicitly rather than spreading the row, so a column
@@ -22,5 +24,6 @@ export function toCurrentUser(row: DbUser): CurrentUser {
     email: row.email,
     image: row.image,
     nickName: row.nickName,
+    idUserType: row.idUserType,
   };
 }

@@ -26,8 +26,10 @@ describe("RUN_LIBRARY_TABS", () => {
 describe("attachmentLabel", () => {
   const base = {
     idAttachment: 1,
+    idStory: -4,
     kind: "STORY" as const,
     idExternal: 4,
+    idAttachmentUse: null,
     status: "READY",
     isUploaded: false,
     isCover: false,

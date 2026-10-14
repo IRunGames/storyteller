@@ -19,7 +19,7 @@ export function staleBlobs(blobs: SweepableBlob[], referenced: Set<string>, now:
     .map((blob) => blob.url);
 }
 
-type SweepableAttachmentRow = { idAttachment: number; idExternal: number | null; createdAt: Date };
+type SweepableAttachmentRow = { idAttachment: number; idStory: number | null; createdAt: Date };
 
 /**
  * Which attachment rows the sweep should delete: rows still `UPLOADING`
@@ -33,6 +33,6 @@ type SweepableAttachmentRow = { idAttachment: number; idExternal: number | null;
 export function unclaimedAttachmentIds(rows: SweepableAttachmentRow[], now: Date): number[] {
   const cutoff = now.getTime() - GRACE_MS;
   return rows
-    .filter((row) => row.idExternal === null && row.createdAt.getTime() < cutoff)
+    .filter((row) => row.idStory === null && row.createdAt.getTime() < cutoff)
     .map((row) => row.idAttachment);
 }

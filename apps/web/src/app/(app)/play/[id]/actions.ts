@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { hasOpenSession } from "@/db/open-session";
 import { waitingCount } from "@/db/session-player-counts";
+import { currentScene, sceneItems } from "@/db/scene-items";
 import { requireUser } from "@/lib/authorize";
 import {
   isUnplayable,
@@ -13,8 +14,12 @@ import {
   type PlayStory,
   type WaitingRoomState,
 } from "@/lib/play";
+import { EMPTY_PLAY_SCENE, type PlayScene } from "@/lib/play-scene";
+import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
+import { storyStateTopic } from "@/lib/realtime/topics";
+import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
 
-const { stories, storyPlayers, sessionPlayers } = schema;
+const { stories, storyPlayers, sessionPlayers, storyScenes } = schema;
 
 // stories.id_story is int4; an id outside that range is a query error to
 // Postgres rather than a missing row, so it is turned away before the query.
@@ -43,7 +48,7 @@ async function loadPlayStory(userId: string, idStory: number): Promise<PlayStory
     .select({
       idStory: stories.idStory,
       title: stories.title,
-      imageUrl: attachmentUrl("STORY", stories.idStory),
+      imageUrl: attachmentUrl("STORY", "stories", "id_story"),
       // NULL = userId is NULL in SQL, and Boolean(null) is false, so a story
       // with no recorded creator has no owner rather than an error.
       isOwner: eq(stories.idCreatedByUser, userId).mapWith(Boolean),
@@ -258,4 +263,101 @@ export async function sa_joinSession(idStory: number): Promise<void> {
       })
       .onConflictDoNothing();
   });
+}
+
+/**
+ * The scene being played as the players' table shows it: the scene the
+ * story's current session is on, its tags and cover, and the elements in it
+ * the players may see, each whole with its link, as the state topic
+ * publishes them. INVISIBLE links are left out here as they are there.
+ * Empty, with the session, when the session is on no scene, and empty
+ * altogether when nothing is being played. Null for a story the caller
+ * neither tells nor plays in, as sa_getPlayStory answers.
+ *
+ * The owner gets it too, so the storyteller can open /play/[id] in another
+ * window and see what the players see; the page sends them to /run/[id]
+ * itself.
+ */
+export async function sa_getPlayScene(idStory: number): Promise<PlayScene | null> {
+  const user = await requireUser();
+  const story = await loadPlayStory(user.id, idStory);
+  if (!story) return null;
+
+  const current = await currentScene(story.idStory);
+  if (current === null) return EMPTY_PLAY_SCENE;
+  if (current.idStoryScene === null) {
+    return { ...EMPTY_PLAY_SCENE, idStorySession: current.idStorySession };
+  }
+
+  const [scene] = await db
+    .select({
+      idStoryScene: storyScenes.idStoryScene,
+      title: storyScenes.sceneTitle,
+      status: storyScenes.status,
+      tags: storyScenes.tags,
+      coverUrl: attachmentUrl("STORY_SCENE", "story_scenes", "id_story_scene"),
+    })
+    .from(storyScenes)
+    .where(
+      and(
+        eq(storyScenes.idStoryScene, current.idStoryScene),
+        eq(storyScenes.idStory, story.idStory),
+      ),
+    )
+    .limit(1);
+  if (!scene) return { ...EMPTY_PLAY_SCENE, idStorySession: current.idStorySession };
+
+  const rows = await sceneItems(story.idStory, scene.idStoryScene, [SCENE_ELEMENT_HIDDEN]);
+  return {
+    idStorySession: current.idStorySession,
+    scene: { idStoryScene: scene.idStoryScene, title: scene.title, status: scene.status },
+    tags: scene.tags,
+    coverUrl: scene.coverUrl,
+    items: rows.map((row) => ({
+      element: toPublicElement(row.element, row.imageUrl, row.link.showInfo),
+      sceneElement: toPublicSceneElement(row.link),
+    })),
+  };
+}
+
+/** How the browser reaches the broker and what it listens to there. */
+export type StoryChannel = {
+  /** The broker's WebSocket address, wss://host:port/mqtt. */
+  url: string;
+  username: string;
+  password: string;
+  /** The story's state topic. */
+  topic: string;
+};
+
+/**
+ * What the players' table needs to subscribe to the story's state topic:
+ * the broker's WebSocket address and the subscribe-only login the
+ * environment holds for players. Handed only to the story's storyteller and
+ * its players, as the scene is, since the login can read any story's
+ * topic (the broker's authorization rule is for story/#, not for one
+ * story); null for anyone else, and null when the broker is not configured,
+ * which the table takes as "no live updates".
+ *
+ * The login is a shared one because EMQX Serverless has no API for making
+ * logins, so there is one per deployment rather than one per player; see the
+ * plan for the per-story JWT that a Dedicated deployment would allow.
+ */
+export async function sa_getStoryChannel(idStory: number): Promise<StoryChannel | null> {
+  const user = await requireUser();
+  const story = await loadPlayStory(user.id, idStory);
+  if (!story) return null;
+
+  const address = process.env.MQTT_ADDRESS;
+  const username = process.env.MQTT_PLAYER_USERNAME;
+  const password = process.env.MQTT_PLAYER_PASSWORD;
+  if (!address || !username || !password) return null;
+  const port = process.env.MQTT_WS_TLS_PORT || "8084";
+
+  return {
+    url: `wss://${address}:${port}/mqtt`,
+    username,
+    password,
+    topic: storyStateTopic(story.idStory),
+  };
 }

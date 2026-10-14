@@ -30,9 +30,9 @@ import {
 import { sa_listStoryElements } from "@/app/(app)/(nav)/libraries/actions";
 import { sa_listSceneLibraryElements } from "@/app/(app)/run/[id]/actions";
 import {
-  sa_moveSceneAttachmentsToStory,
-  sa_moveStoryAttachmentsToScene,
-  sa_moveStoryAttachmentToSceneCover,
+  sa_attachToScene,
+  sa_attachToSceneAsCover,
+  sa_detachFromScene,
   sa_searchAttachments,
 } from "@/components/uploads/actions";
 import { toaster } from "@/components/ui/toaster";
@@ -97,9 +97,10 @@ type AttachmentsOf = "STORY" | "STORY_SCENE";
  * typed still holds when they look under another one. Only the tab in view
  * asks for anything.
  *
- * The Attachments tab lists the story's own attachments, or with Scene only
- * the scene's; with no scene at the table there is only the story's. The +
- * adds to whichever is showing. The list itself is RunAttachments, below.
+ * The Attachments tab lists the story's pictures, or with Scene only the
+ * ones the scene uses; with no scene at the table there is only the story's.
+ * The + adds to whichever is showing. The list itself is RunAttachments,
+ * below.
  */
 export function RunLibrary({
   idStory,
@@ -342,17 +343,19 @@ export function RunLibrary({
  * The story's own cover is left out of the story's list: it is the
  * picture on the story's card, not material for the table.
  *
- * An attachment's arrow moves it between the story and the scene the table
- * is on: from the story's list to the scene (sa_moveStoryAttachmentsToScene)
- * and from the scene's back to the story (sa_moveSceneAttachmentsToStory),
- * so the storyteller files what a scene needs as it comes up. With no scene
- * at the table a story attachment has nowhere to go and shows no arrow.
+ * An attachment's arrow attaches it to the scene the table is on, or takes
+ * it off again: from the story's list the scene gets a use of it
+ * (sa_attachToScene), and from the scene's list the use goes
+ * (sa_detachFromScene), so the storyteller gives a scene what it needs as it
+ * comes up. A file is the story's either way and stays in the story's list.
+ * With no scene at the table a story attachment has nowhere to go and shows
+ * no arrow.
  *
  * At the table, a scene's cover is the picture behind the play space. So
  * while the table is on a scene, Cover on one of the story's attachments
- * does not make it the story's cover: it moves it to the scene and makes it
- * the scene's (sa_moveStoryAttachmentToSceneCover). Cover on the scene's
- * attachments is the plain toggle, and the play space follows it.
+ * does not make it the story's cover: it attaches it to the scene as the
+ * scene's cover (sa_attachToSceneAsCover). Cover on the scene's attachments
+ * is the plain toggle, and the play space follows it.
  */
 function RunAttachments({
   kind,
@@ -409,6 +412,9 @@ function RunAttachments({
         const shown = rows.slice(0, RUN_LIST_SIZE);
         const byKey = new Map(shown.map((row) => [`ATTACHMENT:${row.idAttachment}`, row]));
 
+        // Cover on a story picture while the table is on a scene makes it
+        // the scene's cover, not the story's; on the story's own cover the
+        // button only takes the cover away.
         const movesToScene = (row: Attachment) =>
           kind === "STORY" && idStoryScene !== null && !locked && !row.isCover;
 
@@ -417,17 +423,14 @@ function RunAttachments({
         async function changeCover(row: Attachment, isCover: boolean): Promise<boolean> {
           if (isCover && movesToScene(row)) {
             try {
-              const result = await sa_moveStoryAttachmentToSceneCover(
-                idStoryScene!,
-                row.idAttachment,
-              );
+              const result = await sa_attachToSceneAsCover(idStoryScene!, row.idAttachment);
               if (!result.ok) {
                 toaster.create({ title: result.error, type: "error" });
                 return false;
               }
               onSceneCoverChange(result.url);
               onMoved();
-              toaster.create({ title: "Moved to the scene as its cover", type: "success" });
+              toaster.create({ title: "Attached to the scene as its cover", type: "success" });
               return true;
             } catch {
               toaster.create({
@@ -442,27 +445,37 @@ function RunAttachments({
           return ok;
         }
 
-        // The arrow: to the scene from the story's list, back from the scene's.
+        // The arrow: onto the scene from the story's list, off it from the
+        // scene's. The story's list keeps the row either way.
         async function move(row: Attachment) {
           try {
-            const result =
-              kind === "STORY"
-                ? await sa_moveStoryAttachmentsToScene(idStoryScene!, [row.idAttachment])
-                : await sa_moveSceneAttachmentsToStory(idExternal, [row.idAttachment]);
-            if (!result.ok) {
-              toaster.create({ title: result.error, type: "error" });
-              return;
+            if (kind === "STORY") {
+              const result = await sa_attachToScene(idStoryScene!, [row.idAttachment]);
+              if (!result.ok) {
+                toaster.create({ title: result.error, type: "error" });
+                return;
+              }
+              if (!result.attached.includes(row.idAttachment)) {
+                toaster.create({ title: "That attachment is in the scene already.", type: "info" });
+                return;
+              }
+            } else {
+              const result = await sa_detachFromScene(idExternal, [row.idAttachment]);
+              if (!result.ok) {
+                toaster.create({ title: result.error, type: "error" });
+                return;
+              }
+              if (!result.detached.includes(row.idAttachment)) {
+                toaster.create({ title: "That attachment is not in the scene.", type: "info" });
+                return;
+              }
+              // The scene's cover went with its use.
+              if (row.isCover) onSceneCoverChange(null);
             }
-            if (!result.moved.includes(row.idAttachment)) {
-              toaster.create({ title: "That attachment could not be moved.", type: "error" });
-              return;
-            }
-            // The scene's cover goes back to the story as a plain attachment.
-            if (kind === "STORY_SCENE" && row.isCover) onSceneCoverChange(null);
             onMoved();
           } catch {
             toaster.create({
-              title: "The attachment could not be moved. Try again.",
+              title: "The attachment could not be changed. Try again.",
               type: "error",
             });
           }
@@ -479,14 +492,14 @@ function RunAttachments({
               if (kind === "STORY" && idStoryScene === null) return null;
               return kind === "STORY" ? (
                 <PrepIconButton
-                  label={`Move ${item.label} to the scene`}
+                  label={`Attach ${item.label} to the scene`}
                   onClick={() => void move(row)}
                 >
                   <ArrowRight />
                 </PrepIconButton>
               ) : (
                 <PrepIconButton
-                  label={`Move ${item.label} to the story`}
+                  label={`Detach ${item.label} from the scene`}
                   onClick={() => void move(row)}
                 >
                   <ArrowLeft />
@@ -522,9 +535,7 @@ function RunAttachments({
                       isCover={row.isCover}
                       onToggle={() => void changeCover(row, !row.isCover)}
                       hint={
-                        movesToScene(row)
-                          ? "Move to the scene and make it the scene's cover"
-                          : undefined
+                        movesToScene(row) ? "Attach to the scene as the scene's cover" : undefined
                       }
                     />
                   )}

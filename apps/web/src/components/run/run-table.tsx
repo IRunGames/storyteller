@@ -12,11 +12,12 @@ import {
   Switch,
   Text,
 } from "@chakra-ui/react";
-import { BookOpen, MessageSquare, Settings, UserRound } from "lucide-react";
+import { Activity, BookOpen, MessageSquare, Settings, UserRound } from "lucide-react";
 import {
   elementIdOf,
   playStacks,
   RUN_ADD_INVISIBLE,
+  RUN_ADD_SHOW_INFO,
   RUN_LIBRARY_SCENE_ONLY,
   DEFAULT_ELEMENT_SHOWING,
   withShowing,
@@ -32,11 +33,15 @@ import type { StackRename } from "@/lib/stack-schemas";
 import { cssUrlValue, sessionHeading } from "@/lib/stories";
 import { sa_linkSceneElement } from "@/app/(app)/run/[id]/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
+import { useUser } from "@/components/auth/user-provider";
 import { toaster } from "@/components/ui/toaster";
+import { canSeeDiagnostics } from "@/lib/diagnostics";
 import { PlayCharacterSpace } from "@/components/play/play-character-space";
 import { PlayChat } from "@/components/play/play-chat";
+import { PlayDiagnostics } from "@/components/play/play-diagnostics";
 import { PlayHeader } from "@/components/play/play-header";
 import { PlayPanelToggle } from "@/components/play/play-panel-toggle";
+import { useStoryChannel } from "@/components/play/use-story-channel";
 import { RunLibrary } from "./run-library";
 import { RunPlayStack } from "./run-play-stack";
 import { RunSceneSelect } from "./run-scene-select";
@@ -53,10 +58,16 @@ import { StatusPill } from "@/components/status/status-pill";
 const SHOW_LIBRARY = "run.showLibrary";
 const SHOW_CHAT = "run.showChat";
 const SHOW_CHARACTER = "run.showCharacter";
+const SHOW_DIAGNOSTICS = "run.showDiagnostics";
 
 const LIBRARY_ID = "run-panel-library";
 const CHAT_ID = "run-panel-chat";
 const CHARACTER_ID = "run-panel-character";
+const DIAGNOSTICS_ID = "run-panel-diagnostics";
+
+// This table publishes and does not listen; nothing here changes on a
+// message. The channel is opened for the diagnostics panel alone.
+const ignoreEvent = () => {};
 
 type Props = {
   idStory: number;
@@ -86,8 +97,16 @@ type Props = {
 // to the players is for when the table has somewhere shared to keep it.
 // The scene selector in the header moves the table to another scene, which
 // replaces the play space with that scene's.
+//
+// Every change made here is published on the story's MQTT topic for the
+// players' table (lib/realtime/publish-scene.ts). The diagnostics panel, in
+// the chat's place as on the players' table, listens to that same topic so
+// the storyteller can see each change go out.
 export function RunTable({ idStory, title, session, initialSpace, sceneStatusOptions }: Props) {
+  const user = useUser();
   const preferences = useUserPreferences();
+  const diagnosticsOffered = canSeeDiagnostics(user.idUserType);
+  const channel = useStoryChannel(idStory, ignoreEvent, ignoreEvent, diagnosticsOffered);
   const [scene, setScene] = useState<RunScene | null>(initialSpace.scene);
   const [tags, setTags] = useState<string[]>(initialSpace.tags);
   const [coverUrl, setCoverUrl] = useState<string | null>(initialSpace.coverUrl);
@@ -124,9 +143,13 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
   const showLibrary = preferences.get<boolean>(SHOW_LIBRARY, true);
   const showChat = preferences.get<boolean>(SHOW_CHAT, false);
   const showCharacter = preferences.get<boolean>(SHOW_CHARACTER, false);
+  const showDiagnostics = diagnosticsOffered && preferences.get<boolean>(SHOW_DIAGNOSTICS, false);
   // The library's Add as invisible switch; a stack's + reads it too, for
   // where its new element starts.
   const addInvisible = preferences.get<boolean>(RUN_ADD_INVISIBLE, false);
+  // The library's Add showing info switch, read the same two ways: whether
+  // the players see a new element's description.
+  const addShowInfo = preferences.get<boolean>(RUN_ADD_SHOW_INFO, false);
   // The library's All / Scene only switch, kept as a preference like the
   // one above. Only on while there is a scene to narrow to.
   const sceneOnly = preferences.get<boolean>(RUN_LIBRARY_SCENE_ONLY, false) && scene !== null;
@@ -148,13 +171,11 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
     }
     const idElement = elementIdOf(item);
     try {
-      const result = await sa_linkSceneElement(
-        idStory,
-        scene.idStoryScene,
-        idElement,
-        addInvisible,
-        inStack,
-      );
+      const result = await sa_linkSceneElement(idStory, scene.idStoryScene, idElement, {
+        hidden: addInvisible,
+        tag: inStack,
+        showInfo: addShowInfo,
+      });
       if (result.ok) put(result.item);
       else toaster.create({ title: result.error, type: "error" });
     } catch {
@@ -275,8 +296,26 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
       >
         <MessageSquare />
       </PlayPanelToggle>
+      {diagnosticsOffered && (
+        <PlayPanelToggle
+          label="Diagnostics"
+          controls={DIAGNOSTICS_ID}
+          isOpen={showDiagnostics}
+          onToggle={() => preferences.set(SHOW_DIAGNOSTICS, !showDiagnostics)}
+        >
+          <Activity />
+        </PlayPanelToggle>
+      )}
     </HStack>
   );
+
+  // Diagnostics stands in for the chat rather than beside it, as on the
+  // players' table: the chat's preference is left as it is.
+  const rightPanel = showDiagnostics ? (
+    <PlayDiagnostics id={DIAGNOSTICS_ID} channel={channel} />
+  ) : showChat ? (
+    <PlayChat id={CHAT_ID} />
+  ) : null;
 
   return (
     <Flex direction="column" h="100vh">
@@ -405,24 +444,41 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
                 list has scrolled. */}
             <Stack gap="3" flexShrink="0">
               <Separator />
-              {/* How and where the library adds: hidden or not on the left,
-                  and on the right which stack, with the gear beside it for
-                  the stacks themselves. The stack controls need a scene. */}
+              {/* How and where the library adds: on the left hidden or not
+                  and with or without its info, and on the right which stack,
+                  with the gear beside it for the stacks themselves. The
+                  stack controls need a scene. */}
               <HStack justify="space-between" gap="2" minW="0">
-                <Switch.Root
-                  checked={addInvisible}
-                  onCheckedChange={(details) => preferences.set(RUN_ADD_INVISIBLE, details.checked)}
-                  size="sm"
-                  flexShrink="0"
-                >
-                  {/* Chakra renders a checkbox input; role="switch" is the
-                      ARIA pattern for an on/off toggle and what tests query. */}
-                  <Switch.HiddenInput role="switch" />
-                  <Switch.Control>
-                    <Switch.Thumb />
-                  </Switch.Control>
-                  <Switch.Label>Add as invisible</Switch.Label>
-                </Switch.Root>
+                <HStack gap="3" wrap="wrap" flexShrink="0">
+                  <Switch.Root
+                    checked={addInvisible}
+                    onCheckedChange={(details) =>
+                      preferences.set(RUN_ADD_INVISIBLE, details.checked)
+                    }
+                    size="sm"
+                  >
+                    {/* Chakra renders a checkbox input; role="switch" is the
+                        ARIA pattern for an on/off toggle and what tests query. */}
+                    <Switch.HiddenInput role="switch" />
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                    <Switch.Label>Add as invisible</Switch.Label>
+                  </Switch.Root>
+                  <Switch.Root
+                    checked={addShowInfo}
+                    onCheckedChange={(details) =>
+                      preferences.set(RUN_ADD_SHOW_INFO, details.checked)
+                    }
+                    size="sm"
+                  >
+                    <Switch.HiddenInput role="switch" />
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                    <Switch.Label>Add showing info</Switch.Label>
+                  </Switch.Root>
+                </HStack>
                 {scene !== null && !isComplete && (
                   <HStack gap="0" minW="0">
                     <RunStackSelect
@@ -531,7 +587,7 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
           )}
         </Flex>
 
-        {showChat && (
+        {rightPanel && (
           <Box
             w={{ base: "72", md: "sm" }}
             flexShrink="0"
@@ -539,7 +595,7 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
             borderLeftWidth="1px"
             bg="bg.subtle"
           >
-            <PlayChat id={CHAT_ID} />
+            {rightPanel}
           </Box>
         )}
       </Flex>

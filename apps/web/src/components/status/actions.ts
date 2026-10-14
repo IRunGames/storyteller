@@ -4,6 +4,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/authorize";
+import { publishLater } from "@/lib/realtime/publish";
+import {
+  publishElementChanged,
+  publishSceneChanged,
+  publishSceneElement,
+} from "@/lib/realtime/publish-scene";
 import {
   STATUS_TABLES,
   statusLabel,
@@ -124,6 +130,7 @@ export async function sa_setRowStatus(
     if (updated.length === 0) {
       return { ok: false, error: "That status changed while you were looking; try again." };
     }
+    publishLater(() => publishStatusChange(name, rowId, row));
     return { ok: true, status: updated[0].status };
   } catch {
     // The transition trigger raises rather than returns. Whatever it objected
@@ -133,20 +140,31 @@ export async function sa_setRowStatus(
   }
 }
 
+/** A row as sa_setRowStatus reads it before the move, with where it hangs off its story. */
+type StatusRow = {
+  status: string;
+  owner: string | null;
+  idStory: number;
+  /** A scene element's link: the scene and the element, for telling the players. */
+  idStoryScene?: number;
+  idElement?: number;
+};
+
 /**
  * A row's status and its story's creator, or undefined when there is no such
  * row. Every table here hangs off a story, so every ownership check is a join
  * to it; a scene element reaches it through its scene.
  */
-async function currentStatus(
-  name: StatusTable,
-  rowId: number,
-): Promise<{ status: string; owner: string | null } | undefined> {
+async function currentStatus(name: StatusTable, rowId: number): Promise<StatusRow | undefined> {
   switch (name) {
     case "story_scenes":
       return (
         await db
-          .select({ status: storyScenes.status, owner: stories.idCreatedByUser })
+          .select({
+            status: storyScenes.status,
+            owner: stories.idCreatedByUser,
+            idStory: stories.idStory,
+          })
           .from(storyScenes)
           .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
           .where(eq(storyScenes.idStoryScene, rowId))
@@ -155,7 +173,11 @@ async function currentStatus(
     case "story_sessions":
       return (
         await db
-          .select({ status: storySessions.status, owner: stories.idCreatedByUser })
+          .select({
+            status: storySessions.status,
+            owner: stories.idCreatedByUser,
+            idStory: stories.idStory,
+          })
           .from(storySessions)
           .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
           .where(eq(storySessions.idStorySession, rowId))
@@ -164,7 +186,11 @@ async function currentStatus(
     case "elements":
       return (
         await db
-          .select({ status: elements.status, owner: stories.idCreatedByUser })
+          .select({
+            status: elements.status,
+            owner: stories.idCreatedByUser,
+            idStory: stories.idStory,
+          })
           .from(elements)
           .innerJoin(stories, eq(stories.idStory, elements.idStory))
           .where(eq(elements.idElement, rowId))
@@ -173,13 +199,38 @@ async function currentStatus(
     case "scene_elements":
       return (
         await db
-          .select({ status: sceneElements.status, owner: stories.idCreatedByUser })
+          .select({
+            status: sceneElements.status,
+            owner: stories.idCreatedByUser,
+            idStory: stories.idStory,
+            idStoryScene: sceneElements.idStoryScene,
+            idElement: sceneElements.idElement,
+          })
           .from(sceneElements)
           .innerJoin(storyScenes, eq(storyScenes.idStoryScene, sceneElements.idStoryScene))
           .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
           .where(eq(sceneElements.idSceneElement, rowId))
           .limit(1)
       )[0];
+  }
+}
+
+/**
+ * Tells the players' table about a move, by what moved: a scene or a
+ * session changing status changes what the table shows whole (a scene
+ * finished, a session ended), while an element or a link is sent as it now
+ * is. See lib/realtime/publish-scene.ts for what each sends.
+ */
+async function publishStatusChange(name: StatusTable, rowId: number, row: StatusRow) {
+  switch (name) {
+    case "story_scenes":
+    case "story_sessions":
+      return publishSceneChanged(row.idStory);
+    case "elements":
+      return publishElementChanged(row.idStory, rowId);
+    case "scene_elements":
+      if (row.idStoryScene === undefined || row.idElement === undefined) return;
+      return publishSceneElement(row.idStory, row.idStoryScene, row.idElement);
   }
 }
 

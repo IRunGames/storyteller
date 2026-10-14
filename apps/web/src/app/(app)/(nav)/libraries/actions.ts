@@ -22,6 +22,8 @@ import {
   type StoryScene,
   type StorySceneDetail,
 } from "@/lib/scenes";
+import { publishLater } from "@/lib/realtime/publish";
+import { publishElementChanged } from "@/lib/realtime/publish-scene";
 import { sessionHeading } from "@/lib/stories";
 
 const { elements, stories, storyPlayers, storyScenes, storySessions, vStoryScenes } = schema;
@@ -297,7 +299,7 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
       idStory: vStoryScenes.idStory,
       // The scene's picture is an attachments row now, not a column of the
       // view; the key keeps its name because it still holds a url to show.
-      imageLink: attachmentUrl("STORY_SCENE", vStoryScenes.idStoryScene),
+      imageLink: attachmentUrl("STORY_SCENE", "v_story_scenes", "id_story_scene"),
       sessionNumber: vStoryScenes.sessionNumber,
       sessionTitle: vStoryScenes.sessionTitle,
       owner: stories.idCreatedByUser,
@@ -655,6 +657,10 @@ export async function sa_deleteElement(idElement: number): Promise<DeleteElement
   if (!row || row.owner !== user.id) return { ok: false, error: gone };
 
   await db.delete(elements).where(eq(elements.idElement, id.data));
+  // With the row gone, the players' table is told it is not in the current
+  // scene, which is what publishElementChanged says of an element it cannot
+  // find there.
+  publishLater(() => publishElementChanged(row.idStory, id.data));
   return { ok: true, idStory: row.idStory };
 }
 
