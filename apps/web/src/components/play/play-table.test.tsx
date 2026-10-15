@@ -44,6 +44,12 @@ const channel = {
 };
 const sa_getStoryChannel = mock.fn(async (_idStory: number) => channel as typeof channel | null);
 const sa_getPlayScene = mock.fn(async (_idStory: number) => null as PlayScene | null);
+const sa_setPlaySceneText = mock.fn(
+  async (_story: number, _scene: number, values: { description: string; notes: string }) => ({
+    ok: true as const,
+    text: { description: values.description || null, notes: values.notes || null },
+  }),
+);
 
 const zed = {
   element: {
@@ -56,6 +62,8 @@ const zed = {
     title: "Harbourmaster",
     description: null,
     imageUrl: null,
+    url: null,
+    urlText: null,
     tags: [],
     pendingAt: null,
     readyAt: null,
@@ -71,6 +79,8 @@ const zed = {
     tags: ["scene"],
     elementShowing: "initial_name",
     showInfo: true,
+    url: null,
+    urlText: null,
     readyAt: null,
     invisibleAt: null,
     tappedAt: null,
@@ -82,7 +92,12 @@ const zed = {
 
 const scene: PlayScene = {
   idStorySession: 2,
-  scene: { idStoryScene: 3, title: "The docks", status: "ACTIVE" },
+  scene: {
+    idStoryScene: 3,
+    title: "The docks",
+    status: "ACTIVE",
+    text: { description: "Fog on the water.", notes: null },
+  },
   tags: ["scene", "elements"],
   coverUrl: null,
   items: [zed],
@@ -147,7 +162,7 @@ describe("PlayTable", () => {
       namedExports: { sa_setUserPreference },
     });
     mock.module("@/app/(app)/play/[id]/actions", {
-      namedExports: { sa_getStoryChannel, sa_getPlayScene },
+      namedExports: { sa_getStoryChannel, sa_getPlayScene, sa_setPlaySceneText },
     });
     mock.module("mqtt", { defaultExport: { connect } });
 
@@ -201,6 +216,50 @@ describe("PlayTable", () => {
     expect(within(stack).getByText("Harbourmaster")).toBeInTheDocument();
     const elements = within(space).getByRole("region", { name: "elements" });
     expect(within(elements).getByText("Nothing here yet.")).toBeInTheDocument();
+  });
+
+  it("offers an element's link from its pill, the scene's own first, before the info button", async () => {
+    const u = userEvent.setup();
+    renderTable({}, "3. Kildealg", user, {
+      ...scene,
+      items: [
+        {
+          element: { ...zed.element, url: "https://example.com/zed", urlText: "Zed's ledger" },
+          sceneElement: {
+            ...zed.sceneElement,
+            showInfo: true,
+            url: "https://example.com/docks",
+            urlText: null,
+          },
+        },
+        {
+          element: {
+            ...zed.element,
+            idElement: 6,
+            name: "Abbot",
+            initialName: null,
+            url: "not a web address",
+            urlText: "Nowhere",
+          },
+          sceneElement: { ...zed.sceneElement, idSceneElement: 12, idElement: 6, url: null },
+        },
+      ],
+    });
+
+    // The scene's own address, with the address itself as the tooltip since
+    // it has no words; before the info button.
+    const link = screen.getByRole("link", {
+      name: "Link for A hooded figure: https://example.com/docks",
+    });
+    expect(link).toHaveAttribute("href", "https://example.com/docks");
+    expect(link).toHaveAttribute("target", "_blank");
+    const info = screen.getByRole("button", { name: "About A hooded figure" });
+    expect(link.compareDocumentPosition(info) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await u.hover(link);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("https://example.com/docks");
+
+    // An element whose address is not a web address offers no link.
+    expect(screen.queryByRole("link", { name: /^Link for Abbot/ })).not.toBeInTheDocument();
   });
 
   it("says when nothing is being played", () => {
@@ -334,10 +393,45 @@ describe("PlayTable", () => {
     expect(within(pill).queryByText("Harbourmaster")).not.toBeInTheDocument();
   });
 
+  it("lets a player write up the scene from the chevron beside its title", async () => {
+    const u = userEvent.setup();
+    sa_setPlaySceneText.mock.resetCalls();
+    renderTable();
+
+    await u.click(screen.getByRole("button", { name: "Describe The docks" }));
+    const panel = await screen.findByRole("dialog", { name: "The docks" });
+    const description = within(panel).getByRole("textbox", { name: "Description" });
+    expect(description).toHaveValue("Fog on the water.");
+    await u.clear(description);
+    await u.type(description, "Fog, and a drowned man on the ferry.");
+    await u.type(within(panel).getByRole("textbox", { name: "Notes" }), "Ask about the mist.");
+    await u.click(within(panel).getByRole("button", { name: "Save scene" }));
+
+    await waitFor(() => expect(sa_setPlaySceneText.mock.callCount()).toBe(1));
+    expect(sa_setPlaySceneText.mock.calls[0].arguments).toEqual([
+      7,
+      3,
+      { description: "Fog, and a drowned man on the ferry.", notes: "Ask about the mist." },
+    ]);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "The docks" })).toBeNull());
+    // The table keeps what was saved, without waiting on the topic.
+    await u.click(screen.getByRole("button", { name: "Describe The docks" }));
+    expect(
+      within(await screen.findByRole("dialog", { name: "The docks" })).getByRole("textbox", {
+        name: "Notes",
+      }),
+    ).toHaveValue("Ask about the mist.");
+  });
+
   it("reloads the scene when the table moves to another", async () => {
     sa_getPlayScene.mock.mockImplementation(async () => ({
       ...scene,
-      scene: { idStoryScene: 4, title: "The abbey", status: "ACTIVE" },
+      scene: {
+        idStoryScene: 4,
+        title: "The abbey",
+        status: "ACTIVE",
+        text: { description: null, notes: null },
+      },
       items: [],
     }));
     renderTable();

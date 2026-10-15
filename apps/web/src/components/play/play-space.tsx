@@ -3,14 +3,20 @@
 import { Badge, Box, Flex, Heading, HStack, List, Stack, Text } from "@chakra-ui/react";
 import { toPlayItem, type PlayScene } from "@/lib/play-scene";
 import { playStacks } from "@/lib/run";
+import type { SceneText } from "@/lib/scenes";
 import { cssUrlValue } from "@/lib/stories";
+import { sa_setPlaySceneText } from "@/app/(app)/play/[id]/actions";
 import { PlayPill } from "./play-pill";
+import { SceneTextPopover } from "./scene-text-popover";
 import type { ChannelStatus } from "./use-story-channel";
 
 type Props = {
+  idStory: number;
   scene: PlayScene;
   /** Where the live connection stands; the space says so only when it is not connected. */
   status: ChannelStatus;
+  /** The scene's description and notes have been saved from the title's panel. */
+  onTextChange: (text: SceneText) => void;
 };
 
 // The same halo the storyteller's stack headings carry, so a tag reads over
@@ -30,9 +36,11 @@ const STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
 /**
  * The players' play space: the scene being played, its cover behind, and
  * its elements in the storyteller's stacks (playStacks), as read-only pills.
- * With no session, or a session on no scene yet, it says which.
+ * The chevron beside the title opens the scene's description and notes for
+ * the players to write up (SceneTextPopover). With no session, or a session
+ * on no scene yet, it says which.
  */
-export function PlaySpace({ scene, status }: Props) {
+export function PlaySpace({ idStory, scene, status, onTextChange }: Props) {
   const note = STATUS_NOTES[status];
   const items = scene.items.map(toPlayItem);
 
@@ -66,18 +74,25 @@ export function PlaySpace({ scene, status }: Props) {
               <Heading id="play-space-heading" srOnly>
                 Play space
               </Heading>
-              <Heading
-                size="xl"
-                flex="1"
-                minW="0"
-                textAlign="center"
-                fontVariant="small-caps"
-                letterSpacing="wide"
-                textShadow={HALO}
-                truncate
-              >
-                {scene.scene.title}
-              </Heading>
+              <HStack flex="1" minW="0" justify="center" gap="1">
+                <Heading
+                  size="xl"
+                  minW="0"
+                  textAlign="center"
+                  fontVariant="small-caps"
+                  letterSpacing="wide"
+                  textShadow={HALO}
+                  truncate
+                >
+                  {scene.scene.title}
+                </Heading>
+                <SceneTextPopover
+                  title={scene.scene.title}
+                  text={scene.scene.text}
+                  save={(values) => sa_setPlaySceneText(idStory, scene.scene!.idStoryScene, values)}
+                  onSaved={onTextChange}
+                />
+              </HStack>
             </>
           )}
           {note && (

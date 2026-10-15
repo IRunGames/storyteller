@@ -54,6 +54,8 @@ describe("ElementForm", () => {
       title: "",
       description: "",
       notes: "",
+      url: "",
+      urlText: "",
     },
   };
 
@@ -149,6 +151,8 @@ describe("ElementForm", () => {
         title: "",
         description: "",
         notes: "Glenys carries it.",
+        url: "",
+        urlText: "",
       },
     ]);
     expect(created).toEqual(["THING"]);
@@ -168,6 +172,8 @@ describe("ElementForm", () => {
             title: "Magistrate",
             description: "",
             notes: "",
+            url: "",
+            urlText: "",
           },
         }}
       />,

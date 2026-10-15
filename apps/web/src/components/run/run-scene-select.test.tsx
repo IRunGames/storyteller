@@ -95,9 +95,14 @@ describe("RunSceneSelect", () => {
     );
   }
 
-  it("names the scene the table is on", () => {
+  it("names the scene the table is on, in its tooltip rather than on the button", async () => {
+    const user = userEvent.setup();
     render();
-    expect(screen.getByRole("button", { name: "Scene: The docks" })).toBeEnabled();
+    const button = screen.getByRole("button", { name: "Scene: The docks" });
+    expect(button).toBeEnabled();
+    expect(button).toHaveTextContent(/^Scene$/);
+    await user.hover(button);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("The docks");
   });
 
   it("is shut while no session is being played", () => {

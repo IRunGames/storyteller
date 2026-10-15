@@ -15,6 +15,8 @@ function element(over: Partial<PublicElement> = {}): PublicElement {
     title: "Harbourmaster",
     description: null,
     imageUrl: null,
+    url: null,
+    urlText: null,
     tags: [],
     pendingAt: null,
     readyAt: null,
@@ -34,6 +36,8 @@ function link(over: Partial<PublicSceneElement> = {}): PublicSceneElement {
     tags: ["scene"],
     elementShowing: "initial_name",
     showInfo: true,
+    url: null,
+    urlText: null,
     readyAt: null,
     invisibleAt: null,
     tappedAt: null,
@@ -46,7 +50,12 @@ function link(over: Partial<PublicSceneElement> = {}): PublicSceneElement {
 
 const scene: PlayScene = {
   idStorySession: 2,
-  scene: { idStoryScene: 3, title: "The docks", status: "ACTIVE" },
+  scene: {
+    idStoryScene: 3,
+    title: "The docks",
+    status: "ACTIVE",
+    text: { description: "Fog on the water.", notes: null },
+  },
   tags: ["scene", "elements"],
   coverUrl: null,
   items: [{ element: element(), sceneElement: link() }],

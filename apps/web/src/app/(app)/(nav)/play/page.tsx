@@ -24,8 +24,8 @@ export default async function PlayPage() {
           <List.Root as="ol" gap="2" ps="5">
             <List.Item>
               Storytellers: you open a session of play for one of your stories
-              from here or from the play button on your story card from the
-              hoome page or your stories page.
+              from here or from the play button on your story card from the home
+              page or your stories page.
             </List.Item>
             <List.Item>
               Players: you can join an active session from the JOIN button on a
@@ -40,9 +40,6 @@ export default async function PlayPage() {
         </Stack>
 
         <Stack as="section" aria-labelledby="play-picker-heading" gap="4">
-          <Heading id="play-picker-heading" size="xl">
-            Start a session
-          </Heading>
           <PlayPicker stories={stories} />
         </Stack>
       </Stack>

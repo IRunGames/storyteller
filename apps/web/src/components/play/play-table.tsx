@@ -52,7 +52,7 @@ type Props = {
 export function PlayTable({ idStory, title, session, initialScene }: Props) {
   const user = useUser();
   const preferences = useUserPreferences();
-  const { scene, channel } = usePlayScene(idStory, initialScene);
+  const { scene, channel, setSceneText } = usePlayScene(idStory, initialScene);
 
   const showChat = preferences.get<boolean>(SHOW_CHAT, false);
   const showCharacter = preferences.get<boolean>(SHOW_CHARACTER, false);
@@ -106,7 +106,12 @@ export function PlayTable({ idStory, title, session, initialScene }: Props) {
           instead of stretching the page past the window. */}
       <Flex flex="1" minH="0">
         <Flex direction="column" flex="1" minW="0">
-          <PlaySpace scene={scene} status={channel.status} />
+          <PlaySpace
+            idStory={idStory}
+            scene={scene}
+            status={channel.status}
+            onTextChange={setSceneText}
+          />
 
           {showCharacter && (
             <Box flexBasis="40%" flexShrink="0" minH="0" overflowY="auto" borderTopWidth="1px">

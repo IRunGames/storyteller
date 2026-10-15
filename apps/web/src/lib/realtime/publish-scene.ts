@@ -1,3 +1,6 @@
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { sceneElements } from "@/db/schema";
 import { currentScene, sceneItem } from "@/db/scene-items";
 import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
 import { toPublicElement, toPublicSceneElement, type StoryEvent } from "./events";
@@ -51,6 +54,23 @@ export async function publishSceneElement(
           sceneElement: toPublicSceneElement(row.link),
         };
   await publishStoryEvent(idStory, event);
+}
+
+/**
+ * A link's own pictures changed (the attachment actions, which know the
+ * link only by its id): the link as the players may now see it, found
+ * through its scene and element. Nothing for a link that is gone.
+ */
+export async function publishSceneElementPictures(
+  idStory: number,
+  idSceneElement: number,
+): Promise<void> {
+  const [link] = await db
+    .select({ idStoryScene: sceneElements.idStoryScene, idElement: sceneElements.idElement })
+    .from(sceneElements)
+    .where(eq(sceneElements.idSceneElement, idSceneElement))
+    .limit(1);
+  if (link) await publishSceneElement(idStory, link.idStoryScene, link.idElement);
 }
 
 /**

@@ -131,10 +131,14 @@ export function RunNewElementPopover({
                     title: "",
                     description: "",
                     notes: "",
+                    url: "",
+                    urlText: "",
                     status: "",
                     // The library's Add as invisible switch sets where a new
                     // element starts in the scene; the pill can still change it.
                     sceneStatus: addInvisible ? SCENE_ELEMENT_HIDDEN : "",
+                    sceneUrl: "",
+                    sceneUrlText: "",
                   }}
                   save={(values) =>
                     sa_createSceneElement(idStory, idStoryScene, tag, {

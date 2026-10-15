@@ -130,7 +130,10 @@ export function SceneDetail({
       {/* The storyteller can bring the story's own attachments onto the
           scene from here; nobody else sees the fold. */}
       {canEdit && (
-        <StoryAttachmentPicker idStory={detail.idStory} idStoryScene={detail.idStoryScene} />
+        <StoryAttachmentPicker
+          idStory={detail.idStory}
+          holder={{ kind: "STORY_SCENE", idExternal: detail.idStoryScene }}
+        />
       )}
     </Stack>
   );

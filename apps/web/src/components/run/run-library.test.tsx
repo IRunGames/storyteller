@@ -60,19 +60,20 @@ const sceneAttachments: Attachment[] = [
 ];
 
 // A file attached to the scene stays in the story's list: it is the story's.
+// An element's link has no pictures of its own here.
 const sa_listAttachments = mock.fn(async (kind: string, _id: number) =>
-  kind === "STORY_SCENE" ? sceneAttachments : attachments,
+  kind === "STORY_SCENE" ? sceneAttachments : kind === "STORY" ? attachments : [],
 );
-const sa_attachToSceneAsCover = mock.fn(async (_scene: number, id: number) => ({
+const sa_attachAsCover = mock.fn(async (_kind: string, _holder: number, id: number) => ({
   ok: true as const,
   url: `https://x.test/${id}.png`,
 }));
 const onSceneCoverChange = mock.fn((_url: string | null) => {});
-const sa_attachToScene = mock.fn(async (_scene: number, ids: number[]) => ({
+const sa_attachToHolder = mock.fn(async (_kind: string, _holder: number, ids: number[]) => ({
   ok: true as const,
   attached: ids,
 }));
-const sa_detachFromScene = mock.fn(async (_scene: number, ids: number[]) => ({
+const sa_detachFromHolder = mock.fn(async (_kind: string, _holder: number, ids: number[]) => ({
   ok: true as const,
   detached: ids,
 }));
@@ -101,6 +102,8 @@ const dafydd: ElementDetail = {
   imageUrl: null,
   status: "ACTIVE",
   tags: ["harbour"],
+  url: null,
+  urlText: null,
 };
 // Dafydd is in scene 15, the one the table is on by default.
 const sa_getElementDetail = mock.fn(
@@ -166,9 +169,9 @@ describe("RunLibrary", () => {
         sa_retryAttachment: mock.fn(),
         sa_setAttachmentCover,
         sa_setAttachmentTags,
-        sa_attachToSceneAsCover,
-        sa_attachToScene,
-        sa_detachFromScene,
+        sa_attachAsCover,
+        sa_attachToHolder,
+        sa_detachFromHolder,
       },
     });
     mock.module("next/navigation", {
@@ -217,9 +220,9 @@ describe("RunLibrary", () => {
     sa_createAttachment.mock.resetCalls();
     sa_setAttachmentCover.mock.resetCalls();
     sa_setAttachmentTags.mock.resetCalls();
-    sa_attachToSceneAsCover.mock.resetCalls();
-    sa_attachToScene.mock.resetCalls();
-    sa_detachFromScene.mock.resetCalls();
+    sa_attachAsCover.mock.resetCalls();
+    sa_attachToHolder.mock.resetCalls();
+    sa_detachFromHolder.mock.resetCalls();
     onSceneCoverChange.mock.resetCalls();
   });
 
@@ -248,6 +251,7 @@ describe("RunLibrary", () => {
           onSceneCoverChange={onSceneCoverChange}
           onCreated={() => {}}
           stackTag={null}
+          sceneStacks={["elements", "scene"]}
           locked={locked}
         />
       </UserPreferencesProvider>
@@ -405,8 +409,8 @@ describe("RunLibrary", () => {
 
     await u.click(await within(panel).findByRole("button", { name: "Cover Handout 2" }));
 
-    await waitFor(() => expect(sa_attachToSceneAsCover.mock.callCount()).toBe(1));
-    expect(sa_attachToSceneAsCover.mock.calls[0].arguments).toEqual([15, 2]);
+    await waitFor(() => expect(sa_attachAsCover.mock.callCount()).toBe(1));
+    expect(sa_attachAsCover.mock.calls[0].arguments).toEqual(["STORY_SCENE", 15, 2]);
     expect(sa_setAttachmentCover.mock.callCount()).toBe(0);
     expect(onSceneCoverChange.mock.calls[0].arguments).toEqual(["https://x.test/2.png"]);
     expect(await screen.findByText("Attached to the scene as its cover")).toBeInTheDocument();
@@ -425,7 +429,7 @@ describe("RunLibrary", () => {
     await waitFor(() => expect(onSceneCoverChange.mock.callCount()).toBe(1));
     expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual(["STORY_SCENE", 15, 70, true]);
     expect(onSceneCoverChange.mock.calls[0].arguments).toEqual(["https://x.test/70.png"]);
-    expect(sa_attachToSceneAsCover.mock.callCount()).toBe(0);
+    expect(sa_attachAsCover.mock.callCount()).toBe(0);
   });
 
   it("edits the tags from the full-size preview too", async () => {
@@ -484,7 +488,7 @@ describe("RunLibrary", () => {
       await within(panel).findByRole("button", { name: "Attach Handout 3 to the scene" }),
     );
 
-    expect(sa_attachToScene.mock.calls[0].arguments).toEqual([15, [3]]);
+    expect(sa_attachToHolder.mock.calls[0].arguments).toEqual(["STORY_SCENE", 15, [3]]);
     await waitFor(() => expect(sa_listAttachments.mock.callCount()).toBeGreaterThan(1));
     expect(await within(panel).findByText("Handout 3")).toBeInTheDocument();
     expect(onSceneCoverChange.mock.callCount()).toBe(0);
@@ -498,8 +502,8 @@ describe("RunLibrary", () => {
     await u.click(
       await within(panel).findByRole("button", { name: "Detach Docks map from the scene" }),
     );
-    await waitFor(() => expect(sa_detachFromScene.mock.callCount()).toBe(1));
-    expect(sa_detachFromScene.mock.calls[0].arguments).toEqual([15, [70]]);
+    await waitFor(() => expect(sa_detachFromHolder.mock.callCount()).toBe(1));
+    expect(sa_detachFromHolder.mock.calls[0].arguments).toEqual(["STORY_SCENE", 15, [70]]);
     expect(onSceneCoverChange.mock.callCount()).toBe(0);
 
     await u.click(

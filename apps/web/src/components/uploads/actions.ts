@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
 import { isOwnUploadedBlobUrl, isUploadedBlobUrl } from "@/lib/image-uploads";
 import {
+  attachHolderKindSchema,
   attachmentIdsSchema,
   attachmentKindSchema,
   attachmentTagsSchema,
@@ -16,11 +17,15 @@ import {
   idExternalSchema,
 } from "@/lib/attachment-schemas";
 import {
+  ATTACH_HOLDER_NOUNS,
   COVER_TAG,
   MAX_ATTACHMENTS,
+  type AttachHolderKind,
   type Attachment,
   type AttachmentKind,
 } from "@/lib/attachments";
+import { publishLater } from "@/lib/realtime/publish";
+import { publishSceneElementPictures } from "@/lib/realtime/publish-scene";
 
 const {
   attachments,
@@ -29,6 +34,7 @@ const {
   stories,
   storySessions,
   storyScenes,
+  sceneElements,
   elements,
 } = schema;
 
@@ -39,7 +45,8 @@ const useIsCoverSql = sql<boolean>`${attachmentUses.tags} @> array[${COVER_TAG}]
 /**
  * The story a holder belongs to, when the caller is its storyteller: null
  * otherwise, and for a holder that is not there. A story is its own; a
- * session, a scene or an element names theirs. Proven by walking to the
+ * session, a scene or an element names theirs; a scene element's is its
+ * scene's, as tr_attachment_uses_same_story reads it. Proven by walking to the
  * story and comparing its creator, the same way the board's own reads prove
  * it. The exists-trigger (tr_biu_attachment_uses_external_exists) only
  * proves the holder row is there; it is a backstop against a bad id, never
@@ -78,6 +85,15 @@ async function holderStory(
         .from(elements)
         .innerJoin(stories, eq(stories.idStory, elements.idStory))
         .where(eq(elements.idElement, idExternal))
+        .limit(1);
+      break;
+    case "SCENE_ELEMENT":
+      [row] = await db
+        .select(owned)
+        .from(sceneElements)
+        .innerJoin(storyScenes, eq(storyScenes.idStoryScene, sceneElements.idStoryScene))
+        .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
+        .where(eq(sceneElements.idSceneElement, idExternal))
         .limit(1);
       break;
   }
@@ -364,6 +380,9 @@ export async function sa_setAttachmentCover(
       if (parsedKind === "STORY") await dropEmptyStoryUses(tx, parsedIdExternal);
     }
   });
+  if (parsedKind === "SCENE_ELEMENT") {
+    publishLater(() => publishSceneElementPictures(idStory, parsedIdExternal));
+  }
 }
 
 /**
@@ -562,56 +581,84 @@ export type DetachResult = { ok: true; detached: number[] } | { ok: false; error
 export type AttachAsCoverResult = { ok: true; url: string } | { ok: false; error: string };
 
 /**
- * The scene's own pictures, counted, with the scene row locked: the cap and
- * the attach that follows run in one transaction, so two attaches at once
- * cannot each find room for the same last places.
+ * The holder's own pictures, counted, with the holder's row locked: the cap
+ * and the attach that follows run in one transaction, so two attaches at
+ * once cannot each find room for the same last places.
  */
-async function lockedSceneCount(
+async function lockedHolderCount(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  sceneId: number,
+  kind: AttachHolderKind,
+  idExternal: number,
 ): Promise<number> {
-  await tx
-    .select({ idStory: storyScenes.idStory })
-    .from(storyScenes)
-    .where(eq(storyScenes.idStoryScene, sceneId))
-    .for("update")
-    .limit(1);
+  if (kind === "STORY_SCENE") {
+    await tx
+      .select({ id: storyScenes.idStoryScene })
+      .from(storyScenes)
+      .where(eq(storyScenes.idStoryScene, idExternal))
+      .for("update")
+      .limit(1);
+  } else {
+    await tx
+      .select({ id: sceneElements.idSceneElement })
+      .from(sceneElements)
+      .where(eq(sceneElements.idSceneElement, idExternal))
+      .for("update")
+      .limit(1);
+  }
   const [{ count }] = await tx
     .select({ count: sql<number>`count(*)`.mapWith(Number) })
     .from(attachmentUses)
-    .where(and(eq(attachmentUses.kind, "STORY_SCENE"), eq(attachmentUses.idExternal, sceneId)));
+    .where(and(eq(attachmentUses.kind, kind), eq(attachmentUses.idExternal, idExternal)));
   return count;
 }
 
 /**
- * Gives a scene some of its story's pictures: the story attachment picker's
- * Add button and the arrow beside a story picture in the run page's library.
- * Each becomes a use of the scene's, so it joins the scene's list; it stays
- * the story's, in the story's list, since a file is the story's whether or
- * not a scene shows it.
+ * A change to a scene element's pictures is told to the players' table,
+ * whose pill shows the link's cover; a scene's pictures are the storyteller's
+ * backdrop and library, which the players do not follow.
+ */
+function tellPlayers(idStory: number, kind: AttachHolderKind, idExternal: number): void {
+  if (kind === "SCENE_ELEMENT") {
+    publishLater(() => publishSceneElementPictures(idStory, idExternal));
+  }
+}
+
+/**
+ * Gives a holder some of its story's pictures: the story attachment picker's
+ * Add button and the arrow beside a story picture in the run page's
+ * library. The holder is a scene, or an element's link to one (the element
+ * panel's Other images). Each becomes a use of the holder's, so it joins
+ * the holder's list; it stays the story's, in the story's list, since a
+ * file is the story's whether or not a holder shows it.
  *
- * Only the scene's storyteller may (holderStory), and only files of that
+ * Only the holder's storyteller may (holderStory), and only files of that
  * story that are READY go: the picker offers no others, and the WHERE
  * repeats each condition so a row that changed since the picker loaded is
- * left alone rather than attached by mistake. One the scene already uses is
- * left as it is. What was attached comes back, for the picker to say.
+ * left alone rather than attached by mistake. One the holder already uses
+ * is left as it is. What was attached comes back, for the picker to say.
  *
- * The scene is held to MAX_ATTACHMENTS like an upload is, counted in the
- * same transaction with the scene row locked (lockedSceneCount).
+ * The holder is held to MAX_ATTACHMENTS like an upload is, counted in the
+ * same transaction with the holder's row locked (lockedHolderCount).
  */
-export async function sa_attachToScene(idStoryScene: number, ids: number[]): Promise<AttachResult> {
+export async function sa_attachToHolder(
+  kind: AttachHolderKind,
+  idExternal: number,
+  ids: number[],
+): Promise<AttachResult> {
   const user = await requireUser();
-  const sceneId = idExternalSchema.parse(idStoryScene);
+  const holderKind = attachHolderKindSchema.parse(kind);
+  const holderId = idExternalSchema.parse(idExternal);
   const parsedIds = attachmentIdsSchema.parse(ids);
   if (parsedIds.length === 0) return { ok: true, attached: [] };
 
-  const idStory = await holderStory(user.id, "STORY_SCENE", sceneId);
+  const idStory = await holderStory(user.id, holderKind, holderId);
   if (idStory === null) throw new Error("You do not have access to that story.");
+  const noun = ATTACH_HOLDER_NOUNS[holderKind];
 
-  return db.transaction(async (tx) => {
-    const count = await lockedSceneCount(tx, sceneId);
+  const result = await db.transaction(async (tx) => {
+    const count = await lockedHolderCount(tx, holderKind, holderId);
 
-    // The files the scene does not use yet, of those asked for.
+    // The files the holder does not use yet, of those asked for.
     const candidates = await tx
       .select({ idAttachment: attachments.idAttachment })
       .from(attachments)
@@ -627,8 +674,8 @@ export async function sa_attachToScene(idStoryScene: number, ids: number[]): Pro
               .where(
                 and(
                   eq(attachmentUses.idAttachment, attachments.idAttachment),
-                  eq(attachmentUses.kind, "STORY_SCENE"),
-                  eq(attachmentUses.idExternal, sceneId),
+                  eq(attachmentUses.kind, holderKind),
+                  eq(attachmentUses.idExternal, holderId),
                 ),
               ),
           ),
@@ -641,85 +688,94 @@ export async function sa_attachToScene(idStoryScene: number, ids: number[]): Pro
         ok: false as const,
         error:
           room === 0
-            ? `This scene already has ${MAX_ATTACHMENTS} attachments. Remove one first.`
-            : `This scene has room for ${room} more. Choose fewer.`,
+            ? `This ${noun} already has ${MAX_ATTACHMENTS} attachments. Remove one first.`
+            : `This ${noun} has room for ${room} more. Choose fewer.`,
       };
     }
 
     await tx.insert(attachmentUses).values(
       candidates.map((row) => ({
         idAttachment: row.idAttachment,
-        kind: "STORY_SCENE",
-        idExternal: sceneId,
+        kind: holderKind,
+        idExternal: holderId,
         idCreatedByUser: user.id,
         idUpdatedByUser: user.id,
       })),
     );
     return { ok: true as const, attached: candidates.map((row) => row.idAttachment) };
   });
+  if (result.ok && result.attached.length > 0) tellPlayers(idStory, holderKind, holderId);
+  return result;
 }
 
 /**
- * Takes some pictures off a scene: the arrow beside a scene picture in the
- * run page's library, the way back from sa_attachToScene. The scene's use
- * goes, its cover tag with it, so a scene whose cover is taken off is left
+ * Takes some pictures off a holder: the arrow beside a scene picture in the
+ * run page's library, and the − on an element's picture for a scene in the
+ * element panel; the way back from sa_attachToHolder. The holder's use
+ * goes, its cover tag with it, so a holder whose cover is taken off is left
  * with none; the file stays the story's, in the story's list.
  *
- * Only the scene's storyteller may. What was detached comes back.
+ * Only the holder's storyteller may. What was detached comes back.
  */
-export async function sa_detachFromScene(
-  idStoryScene: number,
+export async function sa_detachFromHolder(
+  kind: AttachHolderKind,
+  idExternal: number,
   ids: number[],
 ): Promise<DetachResult> {
   const user = await requireUser();
-  const sceneId = idExternalSchema.parse(idStoryScene);
+  const holderKind = attachHolderKindSchema.parse(kind);
+  const holderId = idExternalSchema.parse(idExternal);
   const parsedIds = attachmentIdsSchema.parse(ids);
   if (parsedIds.length === 0) return { ok: true, detached: [] };
 
-  if ((await holderStory(user.id, "STORY_SCENE", sceneId)) === null) {
-    throw new Error("You do not have access to that story.");
-  }
+  const idStory = await holderStory(user.id, holderKind, holderId);
+  if (idStory === null) throw new Error("You do not have access to that story.");
 
   const detached = await db
     .delete(attachmentUses)
     .where(
       and(
         inArray(attachmentUses.idAttachment, parsedIds),
-        eq(attachmentUses.kind, "STORY_SCENE"),
-        eq(attachmentUses.idExternal, sceneId),
+        eq(attachmentUses.kind, holderKind),
+        eq(attachmentUses.idExternal, holderId),
       ),
     )
     .returning({ idAttachment: attachmentUses.idAttachment });
+  if (detached.length > 0) tellPlayers(idStory, holderKind, holderId);
   return { ok: true, detached: detached.map((row) => row.idAttachment) };
 }
 
 /**
- * Gives a scene one of its story's pictures and makes it the scene's cover:
- * the Cover button beside a story picture in the run page's library, while
- * the table is on a scene. The url comes back for the play space, which
- * shows the scene's cover behind its stacks.
+ * Gives a holder one of its story's pictures and makes it the holder's
+ * cover: the Cover button beside a story picture in the run page's library,
+ * while the table is on a scene, and the element panel's + for an element's
+ * picture in this scene. The url comes back for whatever shows the cover:
+ * the play space behind its stacks, or the pill.
  *
- * The attach is sa_attachToScene's, with its conditions: only the scene's
- * storyteller, only a READY file of that story, and only while the scene
+ * The attach is sa_attachToHolder's, with its conditions: only the holder's
+ * storyteller, only a READY file of that story, and only while the holder
  * has room (a file it uses already takes no new place). The cover is then
- * sa_setAttachmentCover's, taking the tag off whichever scene picture held
- * it first. Both in one transaction with the scene row locked, so a refusal
- * leaves the scene as it was rather than using the file but not as its
- * cover.
+ * sa_setAttachmentCover's, taking the tag off whichever of the holder's
+ * pictures held it first. Both in one transaction with the holder's row
+ * locked, so a refusal leaves the holder as it was rather than using the
+ * file but not as its cover.
  */
-export async function sa_attachToSceneAsCover(
-  idStoryScene: number,
+export async function sa_attachAsCover(
+  kind: AttachHolderKind,
+  idExternal: number,
   id: number,
 ): Promise<AttachAsCoverResult> {
   const user = await requireUser();
-  const sceneId = idExternalSchema.parse(idStoryScene);
+  const holderKind = attachHolderKindSchema.parse(kind);
+  const holderId = idExternalSchema.parse(idExternal);
   const attachmentId = idAttachmentSchema.parse(id);
 
-  const idStory = await holderStory(user.id, "STORY_SCENE", sceneId);
+  const idStory = await holderStory(user.id, holderKind, holderId);
   if (idStory === null) throw new Error("You do not have access to that story.");
+  const noun = ATTACH_HOLDER_NOUNS[holderKind];
 
-  return db.transaction(async (tx) => {
-    const count = await lockedSceneCount(tx, sceneId);
+  const result = await db.transaction(async (tx) => {
+    const count = await lockedHolderCount(tx, holderKind, holderId);
 
     const [file] = await tx
       .select({ url: attachments.url })
@@ -733,7 +789,10 @@ export async function sa_attachToSceneAsCover(
       )
       .limit(1);
     if (!file?.url) {
-      return { ok: false as const, error: "That attachment can no longer be used by the scene." };
+      return {
+        ok: false as const,
+        error: `That attachment can no longer be used by the ${noun}.`,
+      };
     }
     const [used] = await tx
       .select({ idAttachmentUse: attachmentUses.idAttachmentUse })
@@ -741,15 +800,15 @@ export async function sa_attachToSceneAsCover(
       .where(
         and(
           eq(attachmentUses.idAttachment, attachmentId),
-          eq(attachmentUses.kind, "STORY_SCENE"),
-          eq(attachmentUses.idExternal, sceneId),
+          eq(attachmentUses.kind, holderKind),
+          eq(attachmentUses.idExternal, holderId),
         ),
       )
       .limit(1);
     if (!used && count >= MAX_ATTACHMENTS) {
       return {
         ok: false as const,
-        error: `This scene already has ${MAX_ATTACHMENTS} attachments. Remove one first.`,
+        error: `This ${noun} already has ${MAX_ATTACHMENTS} attachments. Remove one first.`,
       };
     }
 
@@ -761,8 +820,8 @@ export async function sa_attachToSceneAsCover(
       })
       .where(
         and(
-          eq(attachmentUses.kind, "STORY_SCENE"),
-          eq(attachmentUses.idExternal, sceneId),
+          eq(attachmentUses.kind, holderKind),
+          eq(attachmentUses.idExternal, holderId),
           useIsCoverSql,
         ),
       );
@@ -770,8 +829,8 @@ export async function sa_attachToSceneAsCover(
       .insert(attachmentUses)
       .values({
         idAttachment: attachmentId,
-        kind: "STORY_SCENE",
-        idExternal: sceneId,
+        kind: holderKind,
+        idExternal: holderId,
         tags: [COVER_TAG],
         idCreatedByUser: user.id,
         idUpdatedByUser: user.id,
@@ -786,4 +845,6 @@ export async function sa_attachToSceneAsCover(
 
     return { ok: true as const, url: file.url };
   });
+  if (result.ok) tellPlayers(idStory, holderKind, holderId);
+  return result;
 }

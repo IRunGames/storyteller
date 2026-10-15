@@ -1,7 +1,8 @@
 /*
 Keeps a use inside its attachment's story. The holder's story is worked out
 from kind and external_id (a story is its own; a session, a scene or an
-element names theirs), written into attachment_uses.id_story, and held
+element names theirs; a scene element's is its scene's), written into
+attachment_uses.id_story, and held
 against attachments.id_story: a use of another story's picture raises. An
 attachment with no story yet (a create form's upload, not yet claimed) is
 claimed by its first use, which is how attachments.id_story is set now that
@@ -32,6 +33,14 @@ BEGIN
         WHEN 'ELEMENT' THEN
             SELECT id_story INTO holder_story
             FROM elements WHERE id_element = NEW.external_id;
+        WHEN 'SCENE_ELEMENT' THEN
+            -- Through the scene rather than the element: nothing holds a
+            -- link's two halves to one story, and the scene is what the
+            -- picture is for.
+            SELECT s.id_story INTO holder_story
+            FROM scene_elements se
+                     JOIN story_scenes s ON s.id_story_scene = se.id_story_scene
+            WHERE se.id_scene_element = NEW.external_id;
     END CASE;
 
     SELECT id_story INTO file_story

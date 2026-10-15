@@ -16,16 +16,22 @@ import {
   Text,
 } from "@chakra-ui/react";
 import { Search } from "lucide-react";
-import type { Attachment } from "@/lib/attachments";
-import { sa_attachToScene, sa_listAttachments, sa_searchAttachments } from "./actions";
+import { ATTACH_HOLDER_NOUNS, type AttachHolderKind, type Attachment } from "@/lib/attachments";
+import { sa_attachToHolder, sa_listAttachments, sa_searchAttachments } from "./actions";
 
 type Props = {
   /** The story whose own attachments are offered. */
   idStory: number;
-  /** The scene they are added to. */
-  idStoryScene: number;
+  /** What they are added to: a scene, or an element's link to one. */
+  holder: { kind: AttachHolderKind; idExternal: number };
   /** The ids now attached, once they are, so a list of the scene's can reload. */
   onAttached?: (ids: number[]) => void;
+  /**
+   * Open from the start, listing at once: for a holder that shows the fold
+   * only once a + has been pressed, such as the element panel's Other
+   * images, where a second press to open it would be one too many.
+   */
+  defaultOpen?: boolean;
 };
 
 // The same pause the board's search boxes take, so a word asks once.
@@ -37,18 +43,21 @@ const pickable = (rows: Attachment[]) =>
   rows.filter((row) => row.status === "READY" && row.url !== null);
 
 /**
- * A fold that offers a story's own attachments to one of its scenes. Closed
- * to begin with, and nothing is fetched until it is first opened: most visits
- * to a scene never want it.
+ * A fold that offers a story's own attachments to one of its holders: a
+ * scene, on the prep board, or an element's link to a scene, in the run
+ * page's element panel. Closed to begin with unless `defaultOpen`, and
+ * nothing is fetched until it is first opened: most visits to a scene never
+ * want it.
  *
  * Opened, it lists the story's pictures, narrowed by a search box that goes
  * to the database (attachments.search_text, as the board's Attachments
  * column does). Any number can be ticked, and the button under them attaches
- * the ticked ones to the scene: the scene gets a use of each, and they stay
- * the story's.
+ * the ticked ones to the holder: the holder gets a use of each, and they
+ * stay the story's.
  */
-export function StoryAttachmentPicker({ idStory, idStoryScene, onAttached }: Props) {
-  const [opened, setOpened] = useState(false);
+export function StoryAttachmentPicker({ idStory, holder, onAttached, defaultOpen = false }: Props) {
+  const noun = ATTACH_HOLDER_NOUNS[holder.kind];
+  const [opened, setOpened] = useState(defaultOpen);
   const [rows, setRows] = useState<Attachment[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -59,20 +68,21 @@ export function StoryAttachmentPicker({ idStory, idStoryScene, onAttached }: Pro
   const [moveError, setMoveError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function load() {
-    setLoadError(null);
-    try {
-      setRows(pickable(await sa_listAttachments("STORY", idStory)));
-    } catch {
-      setLoadError("Could not load the story's attachments.");
-    }
-  }
+  // Fetched once the fold is first opened, which for `defaultOpen` is as
+  // this mounts; a fold closed and opened again keeps what it had.
+  useEffect(() => {
+    if (!opened) return;
+    let live = true;
+    sa_listAttachments("STORY", idStory)
+      .then((rows) => live && setRows(pickable(rows)))
+      .catch(() => live && setLoadError("Could not load the story's attachments."));
+    return () => {
+      live = false;
+    };
+  }, [opened, idStory]);
 
   function onValueChange(value: string[]) {
-    if (value.includes("picker") && !opened) {
-      setOpened(true);
-      void load();
-    }
+    if (value.includes("picker")) setOpened(true);
   }
 
   // Which search is the latest, so a slow reply to an earlier one does not
@@ -113,7 +123,7 @@ export function StoryAttachmentPicker({ idStory, idStoryScene, onAttached }: Pro
     setMoveError(null);
     setNotice(null);
     try {
-      const result = await sa_attachToScene(idStoryScene, ids);
+      const result = await sa_attachToHolder(holder.kind, holder.idExternal, ids);
       if (!result.ok) {
         setMoveError(result.error);
         return;
@@ -121,16 +131,16 @@ export function StoryAttachmentPicker({ idStory, idStoryScene, onAttached }: Pro
       const attached = new Set(result.attached);
       setRows((current) => current?.filter((row) => !attached.has(row.idAttachment)) ?? current);
       setSelected(new Set());
-      // A row that changed since the list loaded, or that the scene had
+      // A row that changed since the list loaded, or that the holder had
       // already, is left alone; say how many did go.
       setNotice(
         result.attached.length === ids.length
-          ? `Added ${ids.length} to this scene.`
-          : `Added ${result.attached.length} of ${ids.length}; the rest had changed or were in the scene already.`,
+          ? `Added ${ids.length} to this ${noun}.`
+          : `Added ${result.attached.length} of ${ids.length}; the rest had changed or were in the ${noun} already.`,
       );
       if (result.attached.length > 0) onAttached?.(result.attached);
     } catch {
-      setMoveError("Could not add them to the scene.");
+      setMoveError(`Could not add them to the ${noun}.`);
     } finally {
       setMoving(false);
     }
@@ -143,6 +153,7 @@ export function StoryAttachmentPicker({ idStory, idStoryScene, onAttached }: Pro
       collapsible
       size="sm"
       variant="enclosed"
+      defaultValue={defaultOpen ? ["picker"] : []}
       onValueChange={(details) => onValueChange(details.value)}
     >
       <Accordion.Item value="picker">
@@ -258,8 +269,8 @@ export function StoryAttachmentPicker({ idStory, idStoryScene, onAttached }: Pro
                     loading={isMoving}
                   >
                     {selected.size === 0
-                      ? "Add to this scene"
-                      : `Add ${selected.size} to this scene`}
+                      ? `Add to this ${noun}`
+                      : `Add ${selected.size} to this ${noun}`}
                   </Button>
                 </Box>
               )}

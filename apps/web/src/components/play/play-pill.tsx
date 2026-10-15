@@ -12,7 +12,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { Info, RotateCw } from "lucide-react";
+import { ExternalLink, Info, RotateCw } from "lucide-react";
 import { SCENE_ELEMENT_DISABLED, SCENE_ELEMENT_TAPPED, type PlayItem } from "@/lib/run";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 
@@ -38,6 +38,11 @@ type Props = {
  * An element switched off in the scene (DISABLED) is in grey italics; one
  * used up for now (TAPPED) is dimmed, with a turned-arrow marker at its
  * end; a hidden one never reaches this table.
+ *
+ * An element with an external link (the link's own for this scene, else
+ * the element's; lib/run.ts pillLink) carries a link icon at its end,
+ * before the info button, which opens the address in a new tab; its
+ * tooltip is the words given for the link, else the address.
  */
 export function PlayPill({ item }: Props) {
   const isDisabled = item.sceneStatus === SCENE_ELEMENT_DISABLED;
@@ -93,8 +98,38 @@ export function PlayPill({ item }: Props) {
           <RotateCw size={16} />
         </chakra.span>
       )}
+      {item.link && <PlayLinkButton label={item.label} link={item.link} />}
       {showInfo && <PlayInfoPopover label={item.label} title={item.detail} info={item.info} />}
     </HStack>
+  );
+}
+
+/**
+ * The pill's link icon: an anchor in the icon button's clothes, opening the
+ * link in a new tab. The accessible name says whose link it is; the tooltip
+ * says what it is.
+ */
+function PlayLinkButton({ label, link }: { label: string; link: NonNullable<PlayItem["link"]> }) {
+  return (
+    <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+      <Tooltip.Trigger asChild>
+        <IconButton asChild size="xs" variant="ghost" rounded="full">
+          <a
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Link for ${label}: ${link.text}`}
+          >
+            <ExternalLink />
+          </a>
+        </IconButton>
+      </Tooltip.Trigger>
+      <Portal>
+        <Tooltip.Positioner>
+          <Tooltip.Content>{link.text}</Tooltip.Content>
+        </Tooltip.Positioner>
+      </Portal>
+    </Tooltip.Root>
   );
 }
 

@@ -1,6 +1,6 @@
 /*
 Proves a use's holder row exists. external_id cannot be a foreign key because
-it points at one of four tables depending on kind, so this stands in for the
+it points at one of five tables depending on kind, so this stands in for the
 constraint Postgres cannot express.
 */
 CREATE OR REPLACE FUNCTION tr_attachment_uses_external_exists() RETURNS trigger
@@ -23,6 +23,8 @@ BEGIN
             parent_table := 'story_scenes';   parent_key := 'id_story_scene';
         WHEN 'ELEMENT' THEN
             parent_table := 'elements';       parent_key := 'id_element';
+        WHEN 'SCENE_ELEMENT' THEN
+            parent_table := 'scene_elements'; parent_key := 'id_scene_element';
     END CASE;
 
     EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE %I = $1)', parent_table, parent_key)

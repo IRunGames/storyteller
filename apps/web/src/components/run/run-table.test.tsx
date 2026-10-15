@@ -64,6 +64,8 @@ const dafyddDetail: ElementDetail = {
   imageUrl: null,
   status: "READY",
   tags: [],
+  url: null,
+  urlText: null,
 };
 
 // The story's attachments, for the library and the pickers. Empty but for
@@ -186,7 +188,34 @@ const sceneStatusOptions: StatusOption[] = ["PENDING", "ACTIVE", "COMPLETE"].map
   from: null,
 }));
 
-const kildealg: RunSession = { idStorySession: -30, number: 3, title: "Kildealg" };
+const sa_setSceneText = mock.fn(
+  async (_story: number, _scene: number, values: { description: string; notes: string }) => ({
+    ok: true as const,
+    text: { description: values.description || null, notes: values.notes || null },
+  }),
+);
+
+// Where the table sends the storyteller once the session is paused or ended.
+const push = mock.fn((_href: string) => {});
+
+const kildealg: RunSession = { idStorySession: -30, number: 3, title: "Kildealg", status: "OPEN" };
+// The session workflow, as the chip beside the title reads it.
+// Read as transitions FROM each status, as the seed declares them: open
+// pauses or ends; paused resumes or ends; resumed pauses or ends.
+const SESSION_FROM: Record<string, string[]> = {
+  OPEN: [],
+  SUSPENDED: ["OPEN", "RESUMED"],
+  RESUMED: ["SUSPENDED"],
+  DONE: ["OPEN", "SUSPENDED", "RESUMED"],
+};
+const sessionStatusOptions: StatusOption[] = ["OPEN", "SUSPENDED", "RESUMED", "DONE"].map(
+  (key) => ({
+    key,
+    label: key.charAt(0) + key.slice(1).toLowerCase(),
+    description: null,
+    from: SESSION_FROM[key],
+  }),
+);
 
 function renderTable(
   preferences: Record<string, boolean> = {},
@@ -203,6 +232,7 @@ function renderTable(
           session={session}
           initialSpace={initialSpace}
           sceneStatusOptions={sceneStatusOptions}
+          sessionStatusOptions={sessionStatusOptions}
         />
         <Toaster />
       </UserPreferencesProvider>
@@ -215,7 +245,7 @@ describe("RunTable", () => {
     Element.prototype.scrollIntoView = () => {};
     mock.module("next/navigation", {
       namedExports: {
-        useRouter: () => ({ push: mock.fn(), refresh: mock.fn() }),
+        useRouter: () => ({ push, refresh: mock.fn() }),
         usePathname: () => "/run/-4",
       },
     });
@@ -244,6 +274,7 @@ describe("RunTable", () => {
         sa_createSceneElement,
         sa_setSceneElementShown: mock.fn(),
         sa_setSceneElementShowing: mock.fn(),
+        sa_setSceneText,
 
         sa_getElementDetail,
         sa_updateStoryElement: mock.fn(
@@ -297,12 +328,19 @@ describe("RunTable", () => {
     toaster.remove();
   });
 
-  it("names the story and the session in the header", () => {
+  it("names the story and the session in the header, with the session's status beside it", () => {
     renderTable();
     const header = screen.getByRole("banner");
 
     expect(within(header).getByText("Psychoneira")).toBeInTheDocument();
     expect(within(header).getByText("3. Kildealg")).toBeInTheDocument();
+    // The session's status, as a menu for pausing or ending it.
+    const chip = within(header).getByRole("button", { name: "Open" });
+    expect(chip).toHaveAttribute("data-status", "OPEN");
+    // The scene selector follows, saying only Scene; no scene is loaded yet.
+    const selector = within(header).getByRole("button", { name: "Scene: None" });
+    expect(selector).toHaveTextContent(/^Scene$/);
+    expect(selector).toBeEnabled();
   });
 
   it("opens with the library beside the play space, and the chat and character closed", () => {
@@ -436,14 +474,22 @@ describe("RunTable", () => {
       },
     ];
     renderTable({}, kildealg, { scene, tags: ["elements", "scene"], coverUrl: null, inPlay });
-    expect(
-      within(screen.getByRole("banner")).getByRole("button", {
-        name: "Scene: Strangers in the morning",
-      }),
-    ).toBeInTheDocument();
     const space = screen.getByRole("region", { name: "Play space" });
-    // The scene is what the space is about, so its heading stands aside for
-    // the eye and stays for a screen reader.
+    // The scene selector and its status sit in the header, after the session.
+    const header = screen.getByRole("banner");
+    const selector = within(header).getByRole("button", {
+      name: "Scene: Strangers in the morning",
+    });
+    const chip = within(header).getByRole("button", { name: "Active" });
+    expect(selector.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The scene's title stands in the play space, before its stacks; the
+    // region's own heading stands aside for the eye and stays for a screen
+    // reader.
+    const title = within(space).getByRole("heading", { name: "Strangers in the morning" });
+    expect(
+      title.compareDocumentPosition(within(space).getByRole("region", { name: "elements" })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(within(space).getByRole("heading", { name: "Play space" })).toHaveStyle({
       position: "absolute",
     });
@@ -892,8 +938,12 @@ describe("RunTable", () => {
         title: "",
         description: "",
         notes: "Cold.",
+        url: "",
+        urlText: "",
         status: "READY",
         sceneStatus: "READY",
+        sceneUrl: "",
+        sceneUrlText: "",
         // No picture chosen, and the Add showing info switch off.
         idAttachment: null,
         showInfo: false,
@@ -1075,11 +1125,93 @@ describe("RunTable", () => {
     });
   });
 
+  it("opens the scene's description and notes from the chevron beside its title, and saves them", async () => {
+    const u = userEvent.setup();
+    sa_setSceneText.mock.resetCalls();
+    renderTable({}, kildealg, {
+      scene: { ...scene, text: { description: "Fog on the water.", notes: null } },
+      tags: ["scene"],
+      coverUrl: null,
+      inPlay: [],
+    });
+    const space = screen.getByRole("region", { name: "Play space" });
+
+    const chevron = within(space).getByRole("button", {
+      name: "Describe Strangers in the morning",
+    });
+    expect(chevron).toHaveAttribute("aria-expanded", "false");
+    await u.click(chevron);
+    const panel = await screen.findByRole("dialog", { name: "Strangers in the morning" });
+    expect(chevron).toHaveAttribute("aria-expanded", "true");
+    // The description takes focus as the panel opens.
+    const description = within(panel).getByRole("textbox", { name: "Description" });
+    await waitFor(() => expect(description).toHaveFocus());
+    expect(description).toHaveValue("Fog on the water.");
+    const notes = within(panel).getByRole("textbox", { name: "Notes" });
+    expect(notes).toHaveValue("");
+    await u.type(notes, "The ferryman was already dead.");
+    await u.click(within(panel).getByRole("button", { name: "Save scene" }));
+
+    await waitFor(() => expect(sa_setSceneText.mock.callCount()).toBe(1));
+    expect(sa_setSceneText.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      { description: "Fog on the water.", notes: "The ferryman was already dead." },
+    ]);
+    expect(await screen.findByText("Scene saved")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Strangers in the morning" })).toBeNull(),
+    );
+    // Opened again, the panel starts from what was saved.
+    await u.click(chevron);
+    expect(
+      within(await screen.findByRole("dialog", { name: "Strangers in the morning" })).getByRole(
+        "textbox",
+        { name: "Notes" },
+      ),
+    ).toHaveValue("The ferryman was already dead.");
+  });
+
+  it("pauses the session from its chip once asked, and goes back to the story's page", async () => {
+    const u = userEvent.setup();
+    push.mock.resetCalls();
+    sa_setRowStatus.mock.resetCalls();
+    renderTable();
+    const header = screen.getByRole("banner");
+
+    const chip = within(header).getByRole("button", { name: "Open" });
+    await u.hover(chip);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Set session status");
+    await u.click(chip);
+    // Open leads to Suspended or Done, as the workflow has it.
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(["Suspended", "Done"]);
+    await choose(u, items[0]);
+
+    const ask = await screen.findByRole("dialog", { name: "Pause this session?" });
+    expect(ask).toHaveTextContent("resumed from the story's page");
+    expect(sa_setRowStatus.mock.callCount()).toBe(0);
+    await u.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Pause this session?" })).not.toBeInTheDocument(),
+    );
+    expect(push.mock.callCount()).toBe(0);
+
+    await u.click(chip);
+    await choose(u, await screen.findByRole("menuitem", { name: "Done" }));
+    const end = await screen.findByRole("dialog", { name: "End this session?" });
+    await u.click(within(end).getByRole("button", { name: "End session" }));
+    await waitFor(() => expect(sa_setRowStatus.mock.callCount()).toBe(1));
+    expect(sa_setRowStatus.mock.calls[0].arguments).toEqual(["story_sessions", -30, "DONE"]);
+    await waitFor(() => expect(push.mock.calls[0]?.arguments).toEqual(["/home/-4"]));
+  });
+
   it("tells the storyteller when no session is being played", async () => {
     renderTable({}, null);
 
     const header = screen.getByRole("banner");
     expect(within(header).getByTitle("No active session")).toHaveTextContent("None");
+    expect(within(header).queryByText("Open")).not.toBeInTheDocument();
     // With no session there is no table to put a scene on.
     expect(within(header).getByRole("button", { name: "Scene: None" })).toBeDisabled();
     expect(await screen.findByText("There is no active session.")).toBeInTheDocument();

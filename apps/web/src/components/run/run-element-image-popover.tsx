@@ -19,7 +19,7 @@ import {
 import { Plus, Search } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import { ELEMENT_SEARCH_DELAY_MS } from "@/lib/elements";
-import { attachmentLabel, RUN_LIST_SIZE } from "@/lib/run";
+import { attachmentLabel } from "@/lib/run";
 import { sa_listAttachments, sa_searchAttachments } from "@/components/uploads/actions";
 import { sa_setElementImage } from "@/app/(app)/run/[id]/actions";
 import { toaster } from "@/components/ui/toaster";
@@ -204,10 +204,12 @@ export function RunElementImagePicker({
     }
   }
 
+  // Every match, in a list that scrolls, rather than the library's first
+  // ten: a story's pool can run to dozens, and a picture past the cut was
+  // nowhere to be found unless the storyteller thought to search for it.
   const shown = (rows ?? [])
     .filter((row) => row.status === "READY" && row.url !== null)
-    .filter((row) => ids === null || ids.has(row.idAttachment))
-    .slice(0, RUN_LIST_SIZE);
+    .filter((row) => ids === null || ids.has(row.idAttachment));
 
   return (
     <Stack gap="3">
@@ -250,7 +252,7 @@ export function RunElementImagePicker({
                     the library, so the storyteller can look before choosing;
                     Add is what picks it. */}
                 <HStack gap="2" p="1">
-                  <Box boxSize="8" flexShrink="0" rounded="sm" overflow="hidden" bg="bg.muted">
+                  <Box boxSize="12" flexShrink="0" rounded="sm" overflow="hidden" bg="bg.muted">
                     <AttachmentPreview
                       url={row.url!}
                       label={name}
@@ -258,7 +260,18 @@ export function RunElementImagePicker({
                       isCover={row.isCover}
                     />
                   </Box>
-                  <Text flex="1" minW="0" truncate>
+                  {/* Two lines, broken anywhere, with the whole name on
+                      hover: generated file names share a long prefix and
+                      differ only further along, so one truncated line made
+                      them all read the same. */}
+                  <Text
+                    flex="1"
+                    minW="0"
+                    fontSize="sm"
+                    lineClamp="2"
+                    wordBreak="break-all"
+                    title={name}
+                  >
                     {name}
                   </Text>
                   <Button

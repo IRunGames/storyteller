@@ -1,19 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Box,
-  chakra,
-  Heading,
-  HStack,
-  IconButton,
-  Menu,
-  Portal,
-  Stack,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
-import { ChevronDown, Info, Slash } from "lucide-react";
+import { Box, chakra, Heading, HStack, Menu, Portal, Stack, Text } from "@chakra-ui/react";
+import { ChevronDown } from "lucide-react";
 import {
   ELEMENT_SHOWING,
   elementIdOf,
@@ -36,6 +25,7 @@ import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { RunElementImagePopover } from "./run-element-image-popover";
 import { RunElementPanel } from "./run-element-panel";
+import { RunInfoToggle } from "./run-info-toggle";
 import { RunSceneStatusMenu } from "./run-scene-status-menu";
 
 type Props = {
@@ -47,6 +37,8 @@ type Props = {
   stackTag: string | null;
   /** The scene's other stacks, which the panel's Move to offers. */
   otherStacks: string[];
+  /** Every stack of the scene, in order, which the panel's stacks dialog offers. */
+  sceneStacks: string[];
   /** The element has been taken out of the scene from its panel's −. */
   onRemove: (key: string) => void;
   /** The item's scene_elements status has changed, or is being changed. */
@@ -73,6 +65,7 @@ export function RunPlayPill({
   item,
   stackTag,
   otherStacks,
+  sceneStacks,
   onRemove,
   onStatusChange,
   onItemChange,
@@ -149,7 +142,6 @@ export function RunPlayPill({
 
   const fields = item.fields;
   const highlighted = fields && item.showing ? pillText(fields, item.showing).highlighted : false;
-  const infoLabel = showInfo ? "Showing info to users" : "Info not showing – click to show";
 
   return (
     <Stack
@@ -170,35 +162,7 @@ export function RunPlayPill({
             read as a hole. */}
         {linked && (
           <HStack gap="0" flexShrink="0" me="-1.5">
-            <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-              <Tooltip.Trigger asChild>
-                <IconButton
-                  aria-label={infoLabel}
-                  aria-pressed={showInfo}
-                  size="xs"
-                  variant={showInfo ? "solid" : "ghost"}
-                  rounded="full"
-                  onClick={() => void toggleInfo()}
-                >
-                  {/* Lucide has no crossed-out Info, so its Slash is laid
-                      over it when the info is kept back, as PlayerCount does
-                      for nobody. Ban is the DISABLED status beside this. */}
-                  <Box as="span" position="relative" display="inline-flex">
-                    <Info />
-                    {!showInfo && (
-                      <Box as="span" position="absolute" inset="0" display="inline-flex">
-                        <Slash />
-                      </Box>
-                    )}
-                  </Box>
-                </IconButton>
-              </Tooltip.Trigger>
-              <Portal>
-                <Tooltip.Positioner>
-                  <Tooltip.Content>{infoLabel}</Tooltip.Content>
-                </Tooltip.Positioner>
-              </Portal>
-            </Tooltip.Root>
+            <RunInfoToggle showInfo={showInfo} onToggle={() => void toggleInfo()} />
             <RunSceneStatusMenu
               label={item.label}
               status={status}
@@ -351,11 +315,13 @@ export function RunPlayPill({
               </Heading>
             )}
             onSceneStatusChange={(next) => onStatusChange(item.key, next)}
+            onShowInfoChange={(next) => onItemChange({ ...item, showInfo: next })}
             onItemChange={onItemChange}
             onImageChange={(imageUrl) => onItemChange({ ...item, imageUrl })}
             onRemovedFromScene={() => onRemove(item.key)}
             stackTag={stackTag}
             otherStacks={otherStacks}
+            sceneStacks={sceneStacks}
           />
         </Box>
       )}

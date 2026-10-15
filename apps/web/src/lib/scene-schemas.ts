@@ -28,3 +28,12 @@ export type SceneValues = z.infer<typeof sceneSchema>;
 export const runSceneSchema = sceneSchema.pick({ title: true, description: true });
 
 export type RunSceneValues = z.infer<typeof runSceneSchema>;
+
+// The panel behind the scene's title at either table: the description, as
+// the scene forms bound it, and the notes beside it. Both may be empty.
+export const sceneTextSchema = z.object({
+  description: sceneSchema.shape.description,
+  notes: z.string().trim().max(8000, "Keep the notes under 8000 characters."),
+});
+
+export type SceneTextValues = z.infer<typeof sceneTextSchema>;

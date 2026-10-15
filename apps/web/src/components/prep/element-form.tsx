@@ -59,6 +59,8 @@ export function ElementForm({ idStory, kind = "PERSON", element, onCreated, onCa
       title: "",
       description: "",
       notes: "",
+      url: "",
+      urlText: "",
     },
   });
 
@@ -139,6 +141,19 @@ export function ElementForm({ idStory, kind = "PERSON", element, onCreated, onCa
             <Field.Label>Notes (optional)</Field.Label>
             <Textarea rows={5} {...register("notes")} />
             <Field.ErrorText>{errors.notes?.message}</Field.ErrorText>
+          </Field.Root>
+
+          <Field.Root invalid={!!errors.url}>
+            <Field.Label>Link (optional)</Field.Label>
+            <Input autoComplete="off" inputMode="url" {...register("url")} />
+            <Field.HelperText>A web address the players can open from the pill.</Field.HelperText>
+            <Field.ErrorText>{errors.url?.message}</Field.ErrorText>
+          </Field.Root>
+
+          <Field.Root invalid={!!errors.urlText}>
+            <Field.Label>Link text (optional)</Field.Label>
+            <Input autoComplete="off" {...register("urlText")} />
+            <Field.ErrorText>{errors.urlText?.message}</Field.ErrorText>
           </Field.Root>
 
           <HStack gap="3">

@@ -569,6 +569,8 @@ export async function sa_createElement(idStory: number, input: unknown): Promise
     title: values.title || null,
     description: values.description || null,
     notes: values.notes || null,
+    url: values.url || null,
+    urlText: values.urlText || null,
     idCreatedByUser: user.id,
     idUpdatedByUser: user.id,
   });
@@ -591,6 +593,8 @@ export async function sa_getElementForEdit(idElement: number): Promise<{
     title: string;
     description: string;
     notes: string;
+    url: string;
+    urlText: string;
   };
 } | null> {
   const user = await requireUser();
@@ -607,6 +611,8 @@ export async function sa_getElementForEdit(idElement: number): Promise<{
       title: elements.title,
       description: elements.description,
       notes: elements.notes,
+      url: elements.url,
+      urlText: elements.urlText,
       owner: stories.idCreatedByUser,
     })
     .from(elements)
@@ -625,6 +631,8 @@ export async function sa_getElementForEdit(idElement: number): Promise<{
       title: row.title ?? "",
       description: row.description ?? "",
       notes: row.notes ?? "",
+      url: row.url ?? "",
+      urlText: row.urlText ?? "",
     },
   };
 }
@@ -700,6 +708,8 @@ export async function sa_updateElement(
       title: values.title || null,
       description: values.description || null,
       notes: values.notes || null,
+      url: values.url || null,
+      urlText: values.urlText || null,
       idUpdatedByUser: user.id,
     })
     .where(eq(elements.idElement, id));

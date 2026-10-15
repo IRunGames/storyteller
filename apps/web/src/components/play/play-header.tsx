@@ -22,7 +22,7 @@ type Props = {
   sessionContent?: ReactNode;
   /** What sits in the middle of the header; the table puts its panel toggles here. */
   center?: ReactNode;
-  /** What follows the session on the left; the storyteller's table puts its scene selector here. */
+  /** What follows the session on the left; the storyteller's table puts the session's status chip here. */
   afterSession?: ReactNode;
 };
 

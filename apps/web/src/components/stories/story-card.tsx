@@ -53,6 +53,14 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
   // puzzle them. An inactive story has no Play to put the count on.
   const waiting = story.isOwner && story.isActive ? story.waitingCount : 0;
   const waitingText = `${waiting} ${waiting === 1 ? "player" : "players"} waiting`;
+  // A session is being played at the table: the card glows, for the
+  // storyteller and the players alike, so a story in play stands out on the
+  // home page and the stories page without anyone reading the counts. A
+  // retired story has no table, so none.
+  const live = story.hasOpenSession && story.isActive;
+  // In the theme's highlight, as the waiting outline is; wider on hover,
+  // where every other card takes a shadow.
+  const glow = (spread: number) => `0 0 ${spread * 6}px ${spread}px var(--chakra-colors-play-accent)`;
 
   return (
     <LinkBox
@@ -63,9 +71,11 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
       rounded="xl"
       aspectRatio={{ base: 3 / 4, md: 4 / 3 }}
       color="white"
-      _hover={{ boxShadow: "lg" }}
+      boxShadow={live ? glow(3) : undefined}
+      _hover={{ boxShadow: live ? glow(5) : "lg" }}
       transition="box-shadow 0.15s"
       data-waiting={waiting > 0 ? "" : undefined}
+      data-live={live ? "" : undefined}
     >
       {/* The highlight round a card with players waiting. A layer of its own
           above everything else rather than the card's border or outline:

@@ -30,9 +30,9 @@ import {
 import { sa_listStoryElements } from "@/app/(app)/(nav)/libraries/actions";
 import { sa_listSceneLibraryElements } from "@/app/(app)/run/[id]/actions";
 import {
-  sa_attachToScene,
-  sa_attachToSceneAsCover,
-  sa_detachFromScene,
+  sa_attachAsCover,
+  sa_attachToHolder,
+  sa_detachFromHolder,
   sa_searchAttachments,
 } from "@/components/uploads/actions";
 import { toaster } from "@/components/ui/toaster";
@@ -69,6 +69,8 @@ type Props = {
   onSceneStatusChange: (key: string, status: string) => void;
   /** The footer's In select: the stack a tab's + files the new element under. */
   stackTag: string | null;
+  /** The scene's stacks, in order, for the info popover's stacks dialog. */
+  sceneStacks: string[];
   /**
    * The scene is complete: nothing may go into it or come out of it, so the
    * arrows, the element tabs' + and Remove from scene are left out.
@@ -114,6 +116,7 @@ export function RunLibrary({
   onItemChange,
   onSceneStatusChange,
   stackTag,
+  sceneStacks,
   locked,
   onSceneCoverChange,
 }: Props) {
@@ -244,6 +247,7 @@ export function RunLibrary({
                     idStoryScene={idStoryScene}
                     placement="right-start"
                     locked={locked}
+                    sceneStacks={sceneStacks}
                     onSceneStatusChange={(status) => onSceneStatusChange(item.key, status)}
                     onItemChange={(changed) => {
                       onItemChange(changed);
@@ -345,8 +349,8 @@ export function RunLibrary({
  *
  * An attachment's arrow attaches it to the scene the table is on, or takes
  * it off again: from the story's list the scene gets a use of it
- * (sa_attachToScene), and from the scene's list the use goes
- * (sa_detachFromScene), so the storyteller gives a scene what it needs as it
+ * (sa_attachToHolder), and from the scene's list the use goes
+ * (sa_detachFromHolder), so the storyteller gives a scene what it needs as it
  * comes up. A file is the story's either way and stays in the story's list.
  * With no scene at the table a story attachment has nowhere to go and shows
  * no arrow.
@@ -354,7 +358,7 @@ export function RunLibrary({
  * At the table, a scene's cover is the picture behind the play space. So
  * while the table is on a scene, Cover on one of the story's attachments
  * does not make it the story's cover: it attaches it to the scene as the
- * scene's cover (sa_attachToSceneAsCover). Cover on the scene's attachments
+ * scene's cover (sa_attachAsCover). Cover on the scene's attachments
  * is the plain toggle, and the play space follows it.
  */
 function RunAttachments({
@@ -423,7 +427,7 @@ function RunAttachments({
         async function changeCover(row: Attachment, isCover: boolean): Promise<boolean> {
           if (isCover && movesToScene(row)) {
             try {
-              const result = await sa_attachToSceneAsCover(idStoryScene!, row.idAttachment);
+              const result = await sa_attachAsCover("STORY_SCENE", idStoryScene!, row.idAttachment);
               if (!result.ok) {
                 toaster.create({ title: result.error, type: "error" });
                 return false;
@@ -450,7 +454,9 @@ function RunAttachments({
         async function move(row: Attachment) {
           try {
             if (kind === "STORY") {
-              const result = await sa_attachToScene(idStoryScene!, [row.idAttachment]);
+              const result = await sa_attachToHolder("STORY_SCENE", idStoryScene!, [
+                row.idAttachment,
+              ]);
               if (!result.ok) {
                 toaster.create({ title: result.error, type: "error" });
                 return;
@@ -460,7 +466,9 @@ function RunAttachments({
                 return;
               }
             } else {
-              const result = await sa_detachFromScene(idExternal, [row.idAttachment]);
+              const result = await sa_detachFromHolder("STORY_SCENE", idExternal, [
+                row.idAttachment,
+              ]);
               if (!result.ok) {
                 toaster.create({ title: result.error, type: "error" });
                 return;

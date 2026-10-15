@@ -29,3 +29,7 @@ CREATE OR REPLACE TRIGGER tr_ad_story_scenes_attachment_uses
 CREATE OR REPLACE TRIGGER tr_ad_elements_attachment_uses
     AFTER DELETE ON elements
     FOR EACH ROW EXECUTE FUNCTION tr_attachment_uses_delete_for_parent('ELEMENT', 'id_element');
+
+CREATE OR REPLACE TRIGGER tr_ad_scene_elements_attachment_uses
+    AFTER DELETE ON scene_elements
+    FOR EACH ROW EXECUTE FUNCTION tr_attachment_uses_delete_for_parent('SCENE_ELEMENT', 'id_scene_element');

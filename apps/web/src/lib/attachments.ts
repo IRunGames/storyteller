@@ -20,8 +20,25 @@ export const MAX_ATTACHMENTS = 20;
  * Which kind of row uses an attachment. Mirrors the attachment_uses_kind
  * enum. STORY is the story showing the file itself (its cover); every
  * attachment belongs to a story whether or not the story uses it.
+ * SCENE_ELEMENT is an element's link to one scene (scene_elements): how the
+ * element looks in that scene, whose cover its pill shows there instead of
+ * the element's own picture.
  */
-export type AttachmentKind = "STORY" | "STORY_SESSION" | "STORY_SCENE" | "ELEMENT";
+export type AttachmentKind =
+  "STORY" | "STORY_SESSION" | "STORY_SCENE" | "ELEMENT" | "SCENE_ELEMENT";
+
+/**
+ * The holders that pictures are attached to out of the story's pool by the
+ * story attachment picker and the run page's library: a scene, or an
+ * element's link to one.
+ */
+export type AttachHolderKind = Extract<AttachmentKind, "STORY_SCENE" | "SCENE_ELEMENT">;
+
+/** What a holder is called where the picker speaks of it: "This scene has room for 1 more." */
+export const ATTACH_HOLDER_NOUNS: Record<AttachHolderKind, string> = {
+  STORY_SCENE: "scene",
+  SCENE_ELEMENT: "element",
+};
 
 /**
  * One attachment as a form or a card sees it, listed for one holder: the

@@ -41,13 +41,15 @@ export default async function RunTablePage({ params }: { params: Promise<{ id: s
   }
 
   // The play space opens on the scene the session is on, with its elements;
-  // the scene workflow names each status in the header's scene selector.
-  const [session, initialSpace, sceneStatusOptions] = await Promise.all([
+  // the scene workflow names each status in the play space's scene selector,
+  // and the session workflow the chip beside the session in the header.
+  const [session, initialSpace, sceneStatusOptions, sessionStatusOptions] = await Promise.all([
     story.hasOpenSession && story.idStorySession !== null
       ? sa_getStorySession(story.idStorySession)
       : null,
     sa_getRunPlaySpace(story.idStory),
     sa_listStatusOptions("story_scenes"),
+    sa_listStatusOptions("story_sessions"),
   ]);
 
   return (
@@ -56,11 +58,17 @@ export default async function RunTablePage({ params }: { params: Promise<{ id: s
       title={story.title}
       session={
         session
-          ? { idStorySession: session.idStorySession, number: session.number, title: session.title }
+          ? {
+              idStorySession: session.idStorySession,
+              number: session.number,
+              title: session.title,
+              status: session.status,
+            }
           : null
       }
       initialSpace={initialSpace}
       sceneStatusOptions={sceneStatusOptions}
+      sessionStatusOptions={sessionStatusOptions}
     />
   );
 }

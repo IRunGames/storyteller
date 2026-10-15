@@ -15,6 +15,10 @@ import {
   type WaitingRoomState,
 } from "@/lib/play";
 import { EMPTY_PLAY_SCENE, type PlayScene } from "@/lib/play-scene";
+import { publishLater } from "@/lib/realtime/publish";
+import { publishSceneChanged } from "@/lib/realtime/publish-scene";
+import { sceneTextSchema } from "@/lib/scene-schemas";
+import type { SetSceneTextResult } from "@/lib/scenes";
 import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
 import { storyStateTopic } from "@/lib/realtime/topics";
 import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
@@ -296,6 +300,8 @@ export async function sa_getPlayScene(idStory: number): Promise<PlayScene | null
       status: storyScenes.status,
       tags: storyScenes.tags,
       coverUrl: attachmentUrl("STORY_SCENE", "story_scenes", "id_story_scene"),
+      description: storyScenes.sceneDescription,
+      notes: storyScenes.notes,
     })
     .from(storyScenes)
     .where(
@@ -310,7 +316,12 @@ export async function sa_getPlayScene(idStory: number): Promise<PlayScene | null
   const rows = await sceneItems(story.idStory, scene.idStoryScene, [SCENE_ELEMENT_HIDDEN]);
   return {
     idStorySession: current.idStorySession,
-    scene: { idStoryScene: scene.idStoryScene, title: scene.title, status: scene.status },
+    scene: {
+      idStoryScene: scene.idStoryScene,
+      title: scene.title,
+      status: scene.status,
+      text: { description: scene.description, notes: scene.notes },
+    },
     tags: scene.tags,
     coverUrl: scene.coverUrl,
     items: rows.map((row) => ({
@@ -318,6 +329,46 @@ export async function sa_getPlayScene(idStory: number): Promise<PlayScene | null
       sceneElement: toPublicSceneElement(row.link),
     })),
   };
+}
+
+const NOT_AT_THIS_TABLE = "You are not at this story's table.";
+
+/**
+ * The panel behind the scene's title on the players' table: a player, or
+ * the storyteller looking on, writes up the scene's description and notes
+ * as it is played. Anyone the story seats may (loadPlayStory), for any scene
+ * of the story; every table hears the scene changed and reads it afresh.
+ * Field errors come back for the form.
+ */
+export async function sa_setPlaySceneText(
+  idStory: number,
+  idStoryScene: number,
+  input: unknown,
+): Promise<SetSceneTextResult> {
+  const user = await requireUser();
+  const story = await loadPlayStory(user.id, idStory);
+  const scene = idStorySchema.safeParse(idStoryScene);
+  if (!story || !scene.success) return { ok: false, errors: { root: NOT_AT_THIS_TABLE } };
+
+  const parsed = sceneTextSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      errors: Object.fromEntries(
+        parsed.error.issues.map((issue) => [issue.path.join(".") || "root", issue.message]),
+      ),
+    };
+  }
+  const text = { description: parsed.data.description || null, notes: parsed.data.notes || null };
+
+  const updated = await db
+    .update(storyScenes)
+    .set({ sceneDescription: text.description, notes: text.notes, idUpdatedByUser: user.id })
+    .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.idStory)))
+    .returning({ idStoryScene: storyScenes.idStoryScene });
+  if (updated.length === 0) return { ok: false, errors: { root: NOT_AT_THIS_TABLE } };
+  publishLater(() => publishSceneChanged(story.idStory));
+  return { ok: true, text };
 }
 
 /** How the browser reaches the broker and what it listens to there. */

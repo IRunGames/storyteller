@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Box,
   Flex,
@@ -28,10 +29,10 @@ import {
   type RunSession,
 } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
-import { SCENE_LOCKED_STATUS } from "@/lib/scenes";
+import { EMPTY_SCENE_TEXT, SCENE_LOCKED_STATUS } from "@/lib/scenes";
 import type { StackRename } from "@/lib/stack-schemas";
 import { cssUrlValue, sessionHeading } from "@/lib/stories";
-import { sa_linkSceneElement } from "@/app/(app)/run/[id]/actions";
+import { sa_linkSceneElement, sa_setSceneText } from "@/app/(app)/run/[id]/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { useUser } from "@/components/auth/user-provider";
 import { toaster } from "@/components/ui/toaster";
@@ -41,6 +42,7 @@ import { PlayChat } from "@/components/play/play-chat";
 import { PlayDiagnostics } from "@/components/play/play-diagnostics";
 import { PlayHeader } from "@/components/play/play-header";
 import { PlayPanelToggle } from "@/components/play/play-panel-toggle";
+import { SceneTextPopover } from "@/components/play/scene-text-popover";
 import { useStoryChannel } from "@/components/play/use-story-channel";
 import { RunLibrary } from "./run-library";
 import { RunPlayStack } from "./run-play-stack";
@@ -69,6 +71,10 @@ const DIAGNOSTICS_ID = "run-panel-diagnostics";
 // message. The channel is opened for the diagnostics panel alone.
 const ignoreEvent = () => {};
 
+// The session statuses in which there is a table to run: the same two
+// hasOpenSession counts (db/open-session.ts).
+const PLAYING = ["OPEN", "RESUMED"];
+
 type Props = {
   idStory: number;
   /** The story being run, shown in the header. */
@@ -79,6 +85,8 @@ type Props = {
   initialSpace: RunPlaySpace;
   /** The story_scenes workflow, for the scene selector's statuses. */
   sceneStatusOptions: StatusOption[];
+  /** The story_sessions workflow, for the chip beside the session's title. */
+  sessionStatusOptions: StatusOption[];
 };
 
 // The storyteller's table, /run/[id]: the player's table (PlayTable) with the
@@ -95,19 +103,34 @@ type Props = {
 // back in its stack. An element added with no scene at the table is kept
 // in this page's state only, so it is the storyteller's alone; showing it
 // to the players is for when the table has somewhere shared to keep it.
-// The scene selector in the header moves the table to another scene, which
-// replaces the play space with that scene's.
+// The scene selector in the header, beside the session and its status chip,
+// moves the table to another scene, which replaces the play space with that
+// scene's; the scene's status chip sits beside the selector. The session's
+// chip is a menu too: pausing or ending the session from it takes the
+// table down and goes back to the story's page, which is where a paused
+// session is resumed. The scene's title stands in the play space's upper
+// right.
 //
 // Every change made here is published on the story's MQTT topic for the
 // players' table (lib/realtime/publish-scene.ts). The diagnostics panel, in
 // the chat's place as on the players' table, listens to that same topic so
 // the storyteller can see each change go out.
-export function RunTable({ idStory, title, session, initialSpace, sceneStatusOptions }: Props) {
+export function RunTable({
+  idStory,
+  title,
+  session,
+  initialSpace,
+  sceneStatusOptions,
+  sessionStatusOptions,
+}: Props) {
   const user = useUser();
   const preferences = useUserPreferences();
   const diagnosticsOffered = canSeeDiagnostics(user.idUserType);
   const channel = useStoryChannel(idStory, ignoreEvent, ignoreEvent, diagnosticsOffered);
+  const router = useRouter();
   const [scene, setScene] = useState<RunScene | null>(initialSpace.scene);
+  // The session's status as its chip last moved it; the page loaded it.
+  const [sessionStatus, setSessionStatus] = useState(session?.status ?? null);
   const [tags, setTags] = useState<string[]>(initialSpace.tags);
   const [coverUrl, setCoverUrl] = useState<string | null>(initialSpace.coverUrl);
   const [inPlay, setInPlay] = useState<PlayItem[]>(initialSpace.inPlay);
@@ -325,7 +348,43 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
         sessionContent={session && <RunSessionTitle idStory={idStory} session={session} />}
         center={toggles}
         afterSession={
-          <HStack gap="1" minW="0">
+          <HStack gap="1" flexShrink="0">
+            {/* The session's status as a chip beside its title, and the
+                way to pause or end it. Either asks first, since it takes
+                the table down: with the session no longer being played
+                there is nothing to run, so the storyteller goes back to the
+                story's page, where a paused session is resumed from. */}
+            {session && sessionStatus !== null && (
+              <StatusPill
+                table="story_sessions"
+                id={session.idStorySession}
+                status={sessionStatus}
+                options={sessionStatusOptions}
+                canEdit
+                tooltip="Set session status"
+                confirm={(next) => {
+                  if (next === "DONE") {
+                    return {
+                      title: "End this session?",
+                      body: "The session is over and the table closes. Carrying the story on means starting a new session from the story's page.",
+                      confirmLabel: "End session",
+                    };
+                  }
+                  if (next === "SUSPENDED") {
+                    return {
+                      title: "Pause this session?",
+                      body: "The table closes until the session is resumed from the story's page.",
+                      confirmLabel: "Pause session",
+                    };
+                  }
+                  return null;
+                }}
+                onChanged={(status) => {
+                  setSessionStatus(status);
+                  if (!PLAYING.includes(status)) router.push(`/home/${idStory}`);
+                }}
+              />
+            )}
             <RunSceneSelect
               idStory={idStory}
               scene={scene}
@@ -333,11 +392,12 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
               statusOptions={sceneStatusOptions}
               onLoaded={loadSpace}
             />
-            {/* The scene's status beside it. Keyed by the scene, so moving
-                to another starts from that scene's status. It stays a menu on
-                a complete scene, as the workflow allows: moving it back lifts
-                the overlay and the locks, which all follow the status.
-                Completing a scene and resuming one each ask first. */}
+            {/* The scene's status beside the selector. Keyed by the scene,
+                so moving to another starts from that scene's status. It
+                stays a menu on a complete scene, as the workflow allows:
+                moving it back lifts the overlay and the locks, which all
+                follow the status. Completing a scene and resuming one each
+                ask first. */}
             {scene && (
               <StatusPill
                 key={scene.idStoryScene}
@@ -355,8 +415,8 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
                       confirmLabel: "Complete scene",
                     };
                   }
-                  // Leaving complete undoes a scene the storyteller finished,
-                  // so it asks too.
+                  // Leaving complete undoes a scene the storyteller
+                  // finished, so it asks too.
                   if (isComplete) {
                     const label =
                       sceneStatusOptions.find((option) => option.key === next)?.label ?? next;
@@ -434,6 +494,7 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
                 onItemChange={replace}
                 onSceneStatusChange={setStatus}
                 stackTag={inStack}
+                sceneStacks={tags}
                 locked={isComplete}
                 onSceneCoverChange={setCoverUrl}
               />
@@ -532,17 +593,45 @@ export function RunTable({ idStory, title, session, initialSpace, sceneStatusOpt
               </>
             )}
             <Stack position="relative" h="full" overflowY="auto" gap="3" p="4">
-              {/* With a scene loaded, the scene is what the space is about and
-                  its heading would only repeat the selector; it stays for a
-                  screen reader, which names the region by it. */}
+              {/* With a scene loaded, the scene is what the space is about:
+                  its title stands in the upper right, on the panel colour,
+                  part see-through, as the pills are, so it reads over the
+                  cover, with the chevron that opens its description and
+                  notes. The region's own heading stays for a screen reader,
+                  which names the region by it. */}
               {scene === null ? (
                 <Heading id="play-space-heading" size="sm">
                   Play space
                 </Heading>
               ) : (
-                <Heading id="play-space-heading" srOnly>
-                  Play space
-                </Heading>
+                <>
+                  <Heading id="play-space-heading" srOnly>
+                    Play space
+                  </Heading>
+                  <HStack
+                    gap="1"
+                    alignSelf="flex-end"
+                    maxW="full"
+                    rounded="2xl"
+                    bg="bg.panel/55"
+                    backdropFilter="blur(6px)"
+                    ps="3"
+                    pe="1"
+                    py="1"
+                  >
+                    <Heading as="h2" size="md" minW="0" truncate title={scene.title}>
+                      {scene.title}
+                    </Heading>
+                    <SceneTextPopover
+                      title={scene.title}
+                      text={scene.text ?? EMPTY_SCENE_TEXT}
+                      save={(values) => sa_setSceneText(idStory, scene.idStoryScene, values)}
+                      onSaved={(text) =>
+                        setScene((current) => (current ? { ...current, text } : current))
+                      }
+                    />
+                  </HStack>
+                </>
               )}
               {/* space-between: the first stack against the left edge and
                   the rest spread across the width. */}

@@ -38,3 +38,18 @@ export type StoryElement = {
   title: string | null;
   description: string | null;
 };
+
+/**
+ * Whether a link an element carries is a web address a pill can offer: one
+ * the browser can parse, on http or https. Anything else is kept as typed
+ * but never linked, so a half-typed address or a javascript: one goes
+ * nowhere.
+ */
+export function isWebUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}

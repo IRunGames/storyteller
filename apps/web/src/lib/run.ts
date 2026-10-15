@@ -1,5 +1,6 @@
 import type { Attachment } from "@/lib/attachments";
-import { ELEMENT_KINDS, type ElementKind } from "@/lib/elements";
+import { ELEMENT_KINDS, isWebUrl, type ElementKind } from "@/lib/elements";
+import type { SceneText } from "@/lib/scenes";
 
 // The storyteller's table, /run/[id]: the pieces its library panel and play
 // space share. The player's table is /play/[id]; see lib/play.ts.
@@ -16,6 +17,8 @@ export type RunSession = {
   /** 1 for the story's first session, counted in the order they opened. */
   number: number;
   title: string | null;
+  /** As the database has it, a story_sessions workflow key, for the chip beside the title. */
+  status: string;
 };
 
 /** One scene as the header's scene selector lists it. */
@@ -24,6 +27,12 @@ export type RunScene = {
   title: string;
   /** As the database has it, a story_scenes workflow key. */
   status: string;
+  /**
+   * Its description and notes, for the panel behind its title. Carried by
+   * the scene the table is on (sa_getRunPlaySpace, sa_loadRunScene); the
+   * selector's list leaves them out.
+   */
+  text?: SceneText;
 };
 
 /**
@@ -98,6 +107,11 @@ export type PlayItem = {
   /** The players' table: the element's description, when show_info lets them see it. */
   info?: string | null;
   /**
+   * The external link the pill offers (pillLink): the link's own for this
+   * scene, else the element's. Null or absent for none.
+   */
+  link?: PillLink | null;
+  /**
    * An element linked to the scene: its fields the pill can show, which the
    * pill's name lists as a dropdown, and the one it shows in this scene
    * (scene_elements.element_showing). The label and detail are worked out
@@ -119,6 +133,28 @@ export const DEFAULT_ELEMENT_SHOWING: ElementShowing = "initial_name";
 
 export function isElementShowing(value: unknown): value is ElementShowing {
   return ELEMENT_SHOWING.includes(value as ElementShowing);
+}
+
+/** The external link a pill offers: the address, and the words for its tooltip. */
+export type PillLink = { url: string; text: string };
+
+/** An external link as a row carries it: the address and the words for it, either empty. */
+export type ElementLink = { url: string | null; urlText: string | null };
+
+/**
+ * The link a pill offers for an element in a scene: the link's own for this
+ * scene when it has one, else the element's, and only an address that is a
+ * well-formed web address (isWebUrl); anything else is kept but not
+ * offered. The tooltip is the words given with the address, else the
+ * address itself. Null for no link.
+ */
+export function pillLink(
+  scene: ElementLink | null | undefined,
+  element: ElementLink,
+): PillLink | null {
+  const chosen = scene?.url ? scene : element;
+  if (!chosen.url || !isWebUrl(chosen.url)) return null;
+  return { url: chosen.url, text: chosen.urlText || chosen.url };
 }
 
 /** An element's showable fields by their column names; only the name is never empty. */
@@ -210,6 +246,9 @@ export type ElementDetail = {
   imageUrl: string | null;
   status: string;
   tags: string[];
+  /** Its external link, and the words for it. */
+  url: string | null;
+  urlText: string | null;
 };
 
 /** An element's link to a scene (scene_elements): how it stands there. */
@@ -219,6 +258,9 @@ export type SceneLink = {
   tags: string[];
   /** Whether the players' table shows the element's description. */
   showInfo: boolean;
+  /** The link's own external link for this scene, and the words for it. */
+  url: string | null;
+  urlText: string | null;
   createdAt: Date | null;
 };
 

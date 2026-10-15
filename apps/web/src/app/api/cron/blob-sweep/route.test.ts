@@ -35,10 +35,13 @@ const requireHere = createRequire(__filename);
 // own leftovers and nothing else, which is what makes the sweep in `before`
 // safe to run while other files are mid-assertion.
 const FIXTURE_USER = "00000000-0000-7000-8000-000000000017";
-// An existing seeded story_scene row. tr_biu_attachments_external_exists
-// raises on a non-null external_id with no parent row, so the "claimed"
-// fixture needs a real id rather than a made-up one.
-const SCENE_ID = -21;
+// A seeded story on which `before` makes a scene for the "claimed" fixture
+// to hang off: tr_biu_attachment_uses_external_exists raises on a holder
+// with no row, so the use needs a real scene rather than a made-up id, and
+// the seeds no longer hold one (story -1 and its scenes were renumbered off
+// them on 2026-10-15).
+const SEED_STORY = -3;
+let sceneId = 0;
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 
@@ -100,6 +103,14 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
 
     ({ db, schema: tables } = await import("@/db"));
     ({ GET } = await import("./route"));
+    [{ id: sceneId }] = await db
+      .insert(tables.storyScenes)
+      .values({
+        idStory: SEED_STORY,
+        sceneTitle: "Blob sweep fixture scene",
+        idCreatedByUser: FIXTURE_USER,
+      })
+      .returning({ id: tables.storyScenes.idStoryScene });
 
     // A run that died before `after` leaves rows behind, and a stale one
     // past the grace period would be swept by the case below and land in
@@ -123,6 +134,9 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
     if (!db) return;
     if (created.length > 0) {
       await db.delete(tables.attachments).where(inArray(tables.attachments.idAttachment, created));
+    }
+    if (sceneId) {
+      await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, sceneId));
     }
     // Otherwise the process lingers until the pool's idle timeout.
     await db.$client.end();
@@ -167,7 +181,7 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
     // Claimed and referenced: must survive both passes.
     const claimed = await insertAttachment(
       { status: "READY", url: referencedUrl, isUploaded: true, idCreatedByUser: FIXTURE_USER },
-      SCENE_ID,
+      sceneId,
     );
 
     // Unclaimed, past the grace period, still holding an uploaded blob: the

@@ -16,10 +16,9 @@ import {
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { RunElementForm } from "./run-element-form";
-import { DetailSection, ElementDetailRows, tagList } from "./run-element-detail";
+import { ElementDetailRows } from "./run-element-detail";
+import { RunSceneSection } from "./run-scene-section";
 import { sa_listStatusOptions } from "@/components/status/actions";
-import { StatusPill } from "@/components/status/status-pill";
-import { LocalDate } from "@/components/dates/local-date";
 
 type Props = {
   idStory: number;
@@ -42,11 +41,20 @@ type Props = {
   locked?: boolean;
   /** The element's status in the scene has been moved from here. */
   onSceneStatusChange: (status: string) => void;
-  /** The element has been edited in the scene or moved from here, as its pill now is. */
+  /** The In this scene info toggle has been pressed from here, or put back. */
+  onShowInfoChange?: (showInfo: boolean) => void;
+  /**
+   * The element has been edited in the scene, moved, or filed under other
+   * stacks from here, as its pill now is.
+   */
   onItemChange: (item: PlayItem) => void;
   /** The element has been edited from here, as the story now holds it. */
   onEdited?: (element: ElementDetail) => void;
-  /** The element's picture has been changed from here: its address, or null for none. */
+  /**
+   * The picture the pill shows has been changed from here: its address, or
+   * null for none. The link's own picture for this scene when it has one,
+   * else the element's.
+   */
   onImageChange: (imageUrl: string | null) => void;
   /** The element has been taken out of the scene from here. */
   onRemovedFromScene: () => void;
@@ -57,6 +65,8 @@ type Props = {
    */
   stackTag?: string | null;
   otherStacks?: string[];
+  /** The scene's stacks, in order, for the Stack row's dialog; left out, the tags are only shown. */
+  sceneStacks?: string[];
 };
 
 /** What the panel shows once it has loaded: the detail and both workflows. */
@@ -76,10 +86,16 @@ type Loaded = ElementPanelDetail & {
  *
  * A badge beside the name says which it is: SCENE for an element in the
  * scene, STORY for one that is only the story's. Only a SCENE element has
- * the scene's part: its status as a pill beside the name, the In this scene
- * rows with the − that takes it out, and, from a pill, Move to. Moving its
- * status tells the play space, so the pill keeps up. The element's own
- * status is among its own rows either way.
+ * the scene's part, first, as a card (RunSceneSection): its status on the
+ * In this scene heading with the − that takes it out, its stacks, its info
+ * toggle, its picture and other images for this scene, and, under the
+ * element's own rows, Move to. Moving its status tells the play space, so
+ * the pill keeps up. The element's own status is among its own rows either
+ * way.
+ *
+ * The pill shows the link's picture for this scene when it has one, else
+ * the element's, so a change to either here is reported as whichever the
+ * pill should now show (onImageChange).
  *
  * The pencil swaps the detail for RunElementForm, filled in. A SCENE
  * element is edited with its scene status (sa_updateSceneElement), which
@@ -95,15 +111,20 @@ export function RunElementPanel({
   heading,
   locked = false,
   onSceneStatusChange,
+  onShowInfoChange,
   onItemChange,
   onEdited,
   onImageChange,
   onRemovedFromScene,
   stackTag = null,
   otherStacks = [],
+  sceneStacks,
 }: Props) {
   // undefined while loading, null when there is nothing to show.
   const [loaded, setLoaded] = useState<Loaded | null | undefined>(undefined);
+  // The link's own picture for this scene, as the scene card last read or
+  // set it; null for none. What the pill shows over the element's picture.
+  const [sceneImageUrl, setSceneImageUrl] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [moving, setMoving] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -196,22 +217,6 @@ export function RunElementPanel({
               {inScene ? "SCENE" : "STORY"}
             </Badge>
           )}
-          {/* The scene status beside the name: how the element stands in
-              this scene is what the table is about. The scene's form has a
-              pill of its own, so this one stands aside while editing. */}
-          {loaded?.link && inScene && !editing && (
-            <StatusPill
-              table="scene_elements"
-              id={loaded.link.idSceneElement}
-              status={loaded.link.status}
-              options={loaded.sceneOptions}
-              canEdit={!locked}
-              onChanged={(status) => {
-                patchLink({ status });
-                onSceneStatusChange(status);
-              }}
-            />
-          )}
         </HStack>
         {loaded && !editing && (
           <PrepIconButton label={`Edit ${name}`} onClick={() => setEditing(true)} outlined>
@@ -247,20 +252,16 @@ export function RunElementPanel({
         <Text color="fg.muted">This element is no longer in the story.</Text>
       ) : (
         <Stack gap="4">
-          <ElementDetailRows
-            element={loaded.element}
-            statusOptions={loaded.elementOptions}
-            onStatusChange={(status) => patchElement({ status })}
-            idStory={idStory}
-            idStoryScene={idStoryScene}
-            onImageChange={(imageUrl) => {
-              patchElement({ imageUrl });
-              onImageChange(imageUrl);
-            }}
-          />
-          {loaded.link && inScene && (
-            <SceneRows
+          {loaded.link && inScene && idStoryScene !== null && (
+            <RunSceneSection
+              idStory={idStory}
+              idStoryScene={idStoryScene}
+              idElement={idElement}
+              name={name}
               link={loaded.link}
+              locked={locked}
+              sceneOptions={loaded.sceneOptions}
+              sceneStacks={sceneStacks}
               action={
                 // Hidden while the action is out, so a second press cannot
                 // send it twice.
@@ -275,8 +276,37 @@ export function RunElementPanel({
                   </PrepIconButton>
                 )
               }
+              onStatusChange={(status) => {
+                patchLink({ status });
+                onSceneStatusChange(status);
+              }}
+              onShowInfoChange={(showInfo) => {
+                patchLink({ showInfo });
+                onShowInfoChange?.(showInfo);
+              }}
+              onTagsChange={(item) => {
+                patchLink({ tags: item.sceneTags ?? [] });
+                onItemChange(item);
+              }}
+              onImageLoaded={setSceneImageUrl}
+              onImageChange={(url) => {
+                setSceneImageUrl(url);
+                onImageChange(url ?? loaded.element.imageUrl);
+              }}
             />
           )}
+          <ElementDetailRows
+            element={loaded.element}
+            statusOptions={loaded.elementOptions}
+            onStatusChange={(status) => patchElement({ status })}
+            idStory={idStory}
+            idStoryScene={idStoryScene}
+            onImageChange={(imageUrl) => {
+              patchElement({ imageUrl });
+              // The link's own picture, if any, still stands in front.
+              onImageChange(sceneImageUrl ?? imageUrl);
+            }}
+          />
           {inScene && !locked && otherStacks.length > 0 && (
             <>
               <Separator />
@@ -305,19 +335,6 @@ export function RunElementPanel({
       )}
     </Stack>
   );
-}
-
-/**
- * The In this scene rows: the link's stack tags, whether the players see
- * the element's info, and when it was made, with the − beside the heading.
- */
-function SceneRows({ link, action }: { link: SceneLink; action: ReactNode }) {
-  const rows: [string, ReactNode][] = [
-    ["Tags", tagList(link.tags)],
-    ["Shows info", link.showInfo ? "Yes" : "No"],
-    ["Added", link.createdAt ? <LocalDate value={new Date(link.createdAt)} withTime /> : null],
-  ];
-  return <DetailSection title="In this scene" action={action} rows={rows} />;
 }
 
 /**
@@ -351,8 +368,12 @@ function EditForm({
     title: element.title ?? "",
     description: element.description ?? "",
     notes: element.notes ?? "",
+    url: element.url ?? "",
+    urlText: element.urlText ?? "",
     status: element.status,
     sceneStatus: link?.status ?? "",
+    sceneUrl: link?.url ?? "",
+    sceneUrlText: link?.urlText ?? "",
   } as const;
 
   if (link && idStoryScene !== null) {

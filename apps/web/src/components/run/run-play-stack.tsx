@@ -105,6 +105,7 @@ export function RunPlayStack({
                 item={item}
                 stackTag={stack.tag}
                 otherStacks={sceneTags.filter((tag) => tag !== stack.tag)}
+                sceneStacks={sceneTags}
                 onRemove={onRemove}
                 onStatusChange={onStatusChange}
                 onItemChange={onItemChange}

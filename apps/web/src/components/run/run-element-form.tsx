@@ -59,16 +59,22 @@ const FIELDS = [
   "title",
   "description",
   "notes",
+  "url",
+  "urlText",
   "status",
   "sceneStatus",
+  "sceneUrl",
+  "sceneUrlText",
 ] as const;
 
 /**
  * The run page's element form, for a new element from a stack's + and for
  * an edit from a pill's info popover, so the two ask the same things in the
  * same order. How the element stands in this scene comes first, as a status
- * pill like the one in the info popover; then every field the board's form
- * has; then the element's own status in the story, as a dropdown.
+ * pill like the one in the info popover, with the link's own external link
+ * for this scene; then every field the board's form has, the element's own
+ * link among them; then the element's own status in the story, as a
+ * dropdown.
  *
  * Both workflows are read as the form opens, so the pill and the dropdown
  * offer exactly what the database will accept.
@@ -174,6 +180,23 @@ export function RunElementForm<Saved extends { ok: true }>({
             <Field.ErrorText>{errors.sceneStatus?.message}</Field.ErrorText>
           </Field.Root>
         )}
+        {inScene && (
+          <>
+            <Field.Root invalid={!!errors.sceneUrl}>
+              <Field.Label>Link in this scene (optional)</Field.Label>
+              <Input size="sm" autoComplete="off" inputMode="url" {...register("sceneUrl")} />
+              <Field.HelperText>
+                A web address the players can open from the pill, in this scene only.
+              </Field.HelperText>
+              <Field.ErrorText>{errors.sceneUrl?.message}</Field.ErrorText>
+            </Field.Root>
+            <Field.Root invalid={!!errors.sceneUrlText}>
+              <Field.Label>Link text in this scene (optional)</Field.Label>
+              <Input size="sm" autoComplete="off" {...register("sceneUrlText")} />
+              <Field.ErrorText>{errors.sceneUrlText?.message}</Field.ErrorText>
+            </Field.Root>
+          </>
+        )}
         <Field.Root invalid={!!errors.kind}>
           <Field.Label>Kind</Field.Label>
           <ElementKindSelect {...register("kind")} />
@@ -204,6 +227,17 @@ export function RunElementForm<Saved extends { ok: true }>({
           <Field.Label>Notes (optional)</Field.Label>
           <Textarea size="sm" rows={3} {...register("notes")} />
           <Field.ErrorText>{errors.notes?.message}</Field.ErrorText>
+        </Field.Root>
+        <Field.Root invalid={!!errors.url}>
+          <Field.Label>Link (optional)</Field.Label>
+          <Input size="sm" autoComplete="off" inputMode="url" {...register("url")} />
+          <Field.HelperText>A web address the players can open from the pill.</Field.HelperText>
+          <Field.ErrorText>{errors.url?.message}</Field.ErrorText>
+        </Field.Root>
+        <Field.Root invalid={!!errors.urlText}>
+          <Field.Label>Link text (optional)</Field.Label>
+          <Input size="sm" autoComplete="off" {...register("urlText")} />
+          <Field.ErrorText>{errors.urlText?.message}</Field.ErrorText>
         </Field.Root>
         <Field.Root invalid={!!errors.status}>
           <Field.Label>Status</Field.Label>

@@ -697,7 +697,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
 
   describe("writing elements", () => {
     const NAME = "Fixture written element";
-    const blank = { initialName: "", title: "", description: "", notes: "" };
+    const blank = { initialName: "", title: "", description: "", notes: "", url: "", urlText: "" };
 
     async function written() {
       return db

@@ -1,8 +1,10 @@
 import { ELEMENT_KINDS } from "@/lib/elements";
 import type { PublicElement, PublicSceneElement, StoryEvent } from "@/lib/realtime/events";
+import type { SceneText } from "@/lib/scenes";
 import {
   DEFAULT_ELEMENT_SHOWING,
   isElementShowing,
+  pillLink,
   pillText,
   SCENE_ELEMENT_HIDDEN,
   type PlayItem,
@@ -20,8 +22,8 @@ export type PlaySceneItem = { element: PublicElement; sceneElement: PublicSceneE
 export type PlayScene = {
   /** The session being played, or null when none is. */
   idStorySession: number | null;
-  /** The scene the session is on, or null when it is on none. */
-  scene: { idStoryScene: number; title: string; status: string } | null;
+  /** The scene the session is on, with its description and notes, or null when it is on none. */
+  scene: { idStoryScene: number; title: string; status: string; text: SceneText } | null;
   /** The scene's tags, one stack each. */
   tags: string[];
   coverUrl: string | null;
@@ -63,6 +65,7 @@ export function toPlayItem({ element, sceneElement }: PlaySceneItem): PlayItem {
     sceneStatus: sceneElement.status,
     showInfo: sceneElement.showInfo,
     info: sceneElement.showInfo ? element.description : null,
+    link: pillLink(sceneElement, element),
     fields,
     showing,
   };

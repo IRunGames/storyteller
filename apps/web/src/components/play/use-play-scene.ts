@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyStoryEvent, type PlayScene } from "@/lib/play-scene";
+import type { SceneText } from "@/lib/scenes";
 import type { StoryEvent } from "@/lib/realtime/events";
 import { sa_getPlayScene } from "@/app/(app)/play/[id]/actions";
 import { useStoryChannel, type ChannelState } from "./use-story-channel";
@@ -16,7 +17,7 @@ import { useStoryChannel, type ChannelState } from "./use-story-channel";
 export function usePlayScene(
   idStory: number,
   initial: PlayScene,
-): { scene: PlayScene; channel: ChannelState } {
+): { scene: PlayScene; channel: ChannelState; setSceneText: (text: SceneText) => void } {
   const [scene, setScene] = useState(initial);
   // A new story under the same table starts from that story's scene. Set
   // during render, the way React asks for state that follows a prop, so no
@@ -58,5 +59,15 @@ export function usePlayScene(
 
   const channel = useStoryChannel(idStory, onEvent, () => void reload());
 
-  return { scene, channel };
+  // The scene's text as the panel just saved it, kept at once rather than
+  // waiting for the topic to say the scene changed.
+  const setSceneText = useCallback(
+    (text: SceneText) =>
+      setScene((current) =>
+        current.scene ? { ...current, scene: { ...current.scene, text } } : current,
+      ),
+    [],
+  );
+
+  return { scene, channel, setSceneText };
 }

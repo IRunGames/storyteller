@@ -57,12 +57,16 @@ const detail: ElementPanelDetail = {
     // Pending, so its pill reads apart from the link's Ready.
     status: "PENDING",
     tags: ["harbour"],
+    url: null,
+    urlText: null,
   },
   link: {
     idSceneElement: 9,
     status: "READY",
     tags: ["scene"],
     showInfo: true,
+    url: null,
+    urlText: null,
     createdAt: new Date("2026-10-08T12:00:00Z"),
   },
 };
@@ -137,11 +141,15 @@ const sa_moveSceneElement = mock.fn(
   }),
 );
 
-const picture = (idAttachment: number, fileName: string, kind: "STORY" | "STORY_SCENE") => ({
+const picture = (
+  idAttachment: number,
+  fileName: string,
+  kind: "STORY" | "STORY_SCENE" | "SCENE_ELEMENT",
+) => ({
   idAttachment,
   idStory: -4,
   kind,
-  idExternal: kind === "STORY" ? -4 : -15,
+  idExternal: kind === "STORY" ? -4 : kind === "STORY_SCENE" ? -15 : 9,
   idAttachmentUse: kind === "STORY" ? null : idAttachment,
   status: "READY",
   url: `https://x.test/${idAttachment}.png`,
@@ -150,12 +158,49 @@ const picture = (idAttachment: number, fileName: string, kind: "STORY" | "STORY_
   isCover: false,
   tags: [],
 });
+// The link's own pictures for this scene, which the panel's Cover and Other
+// images read; a test that changes them puts the list as the database would
+// then have it. The scene's pictures are what the + for a cover lists under
+// Scene.
+let linkRows = [picture(42, "Lantern.png", "SCENE_ELEMENT")];
 const sa_listAttachments = mock.fn(async (kind: string, _id: number) =>
   kind === "STORY"
     ? [picture(30, "Hooded figure.png", "STORY"), picture(31, "Harbour.png", "STORY")]
-    : [picture(40, "Stall.png", "STORY_SCENE")],
+    : kind === "STORY_SCENE"
+      ? [picture(40, "Stall.png", "STORY_SCENE")]
+      : linkRows,
 );
 const sa_searchAttachments = mock.fn(async (_kind: string, _id: number, _q: string) => [31]);
+// A picture the link already uses is only tagged; another is added, tagged.
+const sa_attachAsCover = mock.fn(async (_kind: string, _holder: number, idAttachment: number) => {
+  const held = linkRows.some((row) => row.idAttachment === idAttachment);
+  linkRows = [
+    ...linkRows.map((row) => ({ ...row, isCover: row.idAttachment === idAttachment })),
+    ...(held ? [] : [{ ...picture(idAttachment, "Cover.png", "SCENE_ELEMENT"), isCover: true }]),
+  ];
+  return { ok: true as const, url: `https://x.test/${idAttachment}.png` };
+});
+const sa_setAttachmentCover = mock.fn(
+  async (_kind: string, _holder: number, idAttachment: number, isCover: boolean) => {
+    linkRows = linkRows.map((row) =>
+      row.idAttachment === idAttachment ? { ...row, isCover } : row,
+    );
+  },
+);
+const sa_detachFromHolder = mock.fn(async (_kind: string, _holder: number, ids: number[]) => {
+  linkRows = linkRows.filter((row) => !ids.includes(row.idAttachment));
+  return { ok: true as const, detached: ids };
+});
+const sa_attachToHolder = mock.fn(async (_kind: string, _holder: number, ids: number[]) => {
+  linkRows = [...linkRows, ...ids.map((id) => picture(id, `Added ${id}.png`, "SCENE_ELEMENT"))];
+  return { ok: true as const, attached: ids };
+});
+const sa_setSceneElementTags = mock.fn(
+  async (_story: number, _scene: number, _element: number, tags: string[]) => ({
+    ok: true as const,
+    item: { ...linked("READY"), sceneTags: tags },
+  }),
+);
 const sa_setElementImage = mock.fn(
   async (_story: number, _element: number, idAttachment: number | null) => ({
     ok: true as const,
@@ -182,11 +227,20 @@ describe("RunPlayPill", () => {
         sa_moveSceneElement,
         sa_setElementImage,
         sa_unlinkSceneElement,
+        sa_setSceneElementTags,
       },
     });
-    // The + for a picture lists the story's and the scene's attachments.
+    // The + for a picture lists the story's and the scene's attachments;
+    // the panel's In this scene card reads and changes the link's own.
     mock.module("@/components/uploads/actions", {
-      namedExports: { sa_listAttachments, sa_searchAttachments },
+      namedExports: {
+        sa_listAttachments,
+        sa_searchAttachments,
+        sa_attachAsCover,
+        sa_detachFromHolder,
+        sa_attachToHolder,
+        sa_setAttachmentCover,
+      },
     });
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions, sa_setRowStatus },
@@ -204,6 +258,12 @@ describe("RunPlayPill", () => {
     sa_moveSceneElement.mock.resetCalls();
     sa_setElementImage.mock.resetCalls();
     sa_listAttachments.mock.resetCalls();
+    sa_attachAsCover.mock.resetCalls();
+    sa_setAttachmentCover.mock.resetCalls();
+    sa_detachFromHolder.mock.resetCalls();
+    sa_attachToHolder.mock.resetCalls();
+    sa_setSceneElementTags.mock.resetCalls();
+    linkRows = [picture(42, "Lantern.png", "SCENE_ELEMENT")];
   });
 
   afterEach(() => {
@@ -229,6 +289,7 @@ describe("RunPlayPill", () => {
         item={item}
         stackTag="scene"
         otherStacks={otherStacks}
+        sceneStacks={["scene", ...otherStacks]}
         onRemove={() => {}}
         onItemChange={setItem}
         onStatusChange={(_key, sceneStatus) => setItem((current) => ({ ...current, sceneStatus }))}
@@ -370,27 +431,54 @@ describe("RunPlayPill", () => {
     expect(chevron).toHaveAttribute("aria-expanded", "true");
     expect(within(popover).getByRole("heading", { name: "Dafydd" })).toBeInTheDocument();
     expect(await within(popover).findByText("Person")).toBeInTheDocument();
-    expect(within(popover).getByText("Shows info")).toBeInTheDocument();
-    expect(within(popover).getByText("Yes")).toBeInTheDocument();
+    // The scene's card first, the element's rows under it.
+    const headings = within(popover).getAllByRole("heading", { level: 3 });
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      "Dafydd",
+      "In this scene",
+      "Other images",
+      "In the story",
+    ]);
+    // Whether the players see the info is the pill's own toggle, here too.
+    expect(within(popover).getByRole("button", { name: "Showing info to users" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(within(popover).getByText("A hooded figure")).toBeInTheDocument();
     expect(within(popover).getByText(/Knows the tides/)).toBeInTheDocument();
     expect(within(popover).getByText("harbour")).toBeInTheDocument();
     expect(within(popover).getByText("scene")).toBeInTheDocument();
-    // Added says when, to the minute, not only the day.
+    // When it was added is the heading's tooltip, to the minute, not only
+    // the day; there is no Added row.
+    expect(within(popover).queryByText("Added")).not.toBeInTheDocument();
+    await u.hover(within(popover).getByRole("heading", { name: "In this scene" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      /^Added Oct \d{1,2}, 2026, \d{1,2}:\d{2}\s[AP]M/,
+    );
+    // The link's own pictures for this scene: no cover yet, so a + for one,
+    // and the other image it has.
+    expect(await within(popover).findByRole("button", { name: "Add cover" })).toBeInTheDocument();
     expect(
-      within(popover).getByText(/^Oct \d{1,2}, 2026, \d{1,2}:\d{2}\s[AP]M/),
+      within(within(popover).getByRole("list", { name: "Other images" })).getByRole("button", {
+        name: "Preview Lantern.png",
+      }),
     ).toBeInTheDocument();
+    expect(sa_listAttachments.mock.calls.map((call) => call.arguments)).toEqual([
+      ["SCENE_ELEMENT", 9],
+    ]);
     // Name, title, description and notes are always listed, a dash for none.
     expect(within(popover).getByText("Name")).toBeInTheDocument();
     expect(within(popover).getByText("Notes")).toBeInTheDocument();
     expect(within(popover).getByText("—")).toBeInTheDocument();
     expect(sa_getElementDetail.mock.calls[0].arguments).toEqual([-4, 5, -15]);
 
-    // Both statuses are pills to move, the scene element's first.
+    // Both statuses are pills to move, the scene element's first, on the
+    // In this scene line.
     const pills = within(popover)
       .getAllByRole("button")
       .filter((button) => button.hasAttribute("data-status"));
     expect(pills.map((pill) => pill.textContent)).toEqual(["Ready", "Pending"]);
+    expect(headings[1].parentElement).toContainElement(pills[0]);
 
     // The chevron closes it again.
     await u.click(chevron);
@@ -503,8 +591,12 @@ describe("RunPlayPill", () => {
         title: "Shell seller",
         description: "Sells shells.\nKnows the tides.",
         notes: "",
+        url: "",
+        urlText: "",
         status: "PENDING",
         sceneStatus: "READY",
+        sceneUrl: "",
+        sceneUrlText: "",
       },
     ]);
     // With no initial name the pill goes by the name.
@@ -739,6 +831,157 @@ describe("RunPlayPill", () => {
     expect(screen.queryByRole("button", { name: /^Remove / })).not.toBeInTheDocument();
   });
 
+  it("toggles the info and files the element under other stacks from the panel", async () => {
+    const u = userEvent.setup();
+    const { container } = render(linked("READY"));
+    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    await within(popover).findByText("Person");
+
+    // The panel's toggle presses the same way as the pill's, which follows.
+    await u.click(within(popover).getByRole("button", { name: "Showing info to users" }));
+    expect(sa_setSceneElementShowInfo.mock.calls[0].arguments).toEqual([-4, -15, 5, false]);
+    await waitFor(() =>
+      expect(
+        within(container).getAllByRole("button", { name: "Info not showing – click to show" }),
+      ).toHaveLength(2),
+    );
+
+    // The Stack row opens the stacks dialog, ticked for the stacks it is in.
+    await u.click(within(popover).getByRole("button", { name: "Stacks for Dafydd" }));
+    const dialog = await screen.findByRole("dialog", { name: "Stacks for Dafydd" });
+    const scene = within(dialog).getByRole("checkbox", { name: "scene" });
+    const assets = within(dialog).getByRole("checkbox", { name: "assets" });
+    expect(scene).toBeChecked();
+    expect(assets).not.toBeChecked();
+    await u.click(assets);
+    await u.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(sa_setSceneElementTags.mock.callCount()).toBe(1));
+    expect(sa_setSceneElementTags.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      5,
+      ["scene", "assets"],
+    ]);
+    expect(await screen.findByText("Stacks saved")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Stacks for Dafydd" })).not.toBeInTheDocument(),
+    );
+    // The row says so, and the pill was handed its item as it now is.
+    expect(within(popover).getByRole("button", { name: "Stacks for Dafydd" })).toHaveTextContent(
+      "scene, assets",
+    );
+  });
+
+  it("gives the element a picture for this scene from the panel's +, which the pill shows, and takes it away with the −", async () => {
+    const u = userEvent.setup();
+    const { container } = render(linked("READY"));
+    // No picture of its own, so the pill offers its + for one.
+    expect(
+      within(container).getByRole("button", { name: "Add an image to A hooded figure" }),
+    ).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+
+    // The + opens the picker below the rows, listing the story's pictures.
+    await u.click(await within(popover).findByRole("button", { name: "Add cover" }));
+    await u.click(await within(popover).findByRole("button", { name: "Add Hooded figure.png" }));
+
+    expect(sa_attachAsCover.mock.calls[0].arguments).toEqual(["SCENE_ELEMENT", 9, 30]);
+    // The pill shows it in place of its +, and the row shows it with its −.
+    const thumbnail = await within(container).findByRole("button", {
+      name: "Preview A hooded figure",
+    });
+    expect(thumbnail.querySelector("img")).toHaveAttribute("src", "https://x.test/30.png");
+    expect(
+      within(container).queryByRole("button", { name: "Add an image to A hooded figure" }),
+    ).toBeNull();
+    const remove = await within(popover).findByRole("button", { name: "Remove cover" });
+    expect(within(popover).queryByRole("button", { name: "Add cover" })).toBeNull();
+    expect(within(popover).queryByRole("button", { name: "Add Harbour.png" })).toBeNull();
+
+    // Taken away, the pill falls back to the element's own picture: none.
+    await u.click(remove);
+    expect(sa_detachFromHolder.mock.calls[0].arguments).toEqual(["SCENE_ELEMENT", 9, [30]]);
+    expect(await within(popover).findByRole("button", { name: "Add cover" })).toBeInTheDocument();
+    expect(
+      await within(container).findByRole("button", { name: "Add an image to A hooded figure" }),
+    ).toBeInTheDocument();
+  });
+
+  it("swaps the cover and an other image with their stars, and the pill follows", async () => {
+    const u = userEvent.setup();
+    linkRows = [
+      { ...picture(42, "Lantern.png", "SCENE_ELEMENT"), isCover: true },
+      picture(43, "Rope.png", "SCENE_ELEMENT"),
+    ];
+    const { container } = render(linked("READY"));
+    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+
+    // The cover's star is filled; an other image's is not.
+    const coverStar = await within(popover).findByRole("button", { name: "Cover Lantern.png" });
+    expect(coverStar).toHaveAttribute("aria-pressed", "true");
+    const otherStar = within(popover).getByRole("button", { name: "Cover Rope.png" });
+    expect(otherStar).toHaveAttribute("aria-pressed", "false");
+    await u.hover(otherStar);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Make this the cover");
+
+    // Pressed on an other image, it takes the cover's place; the pill shows it.
+    await u.click(otherStar);
+    expect(sa_attachAsCover.mock.calls[0].arguments).toEqual(["SCENE_ELEMENT", 9, 43]);
+    await waitFor(() =>
+      expect(within(popover).getByRole("button", { name: "Cover Rope.png" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    expect(within(popover).getByRole("button", { name: "Cover Lantern.png" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(
+      within(container)
+        .getByRole("button", { name: "Preview A hooded figure" })
+        .querySelector("img"),
+    ).toHaveAttribute("src", "https://x.test/43.png");
+
+    // Pressed on the cover, it moves down among the other images, which
+    // leaves the link with no cover and the pill with the element's picture: none.
+    await u.click(within(popover).getByRole("button", { name: "Cover Rope.png" }));
+    expect(sa_setAttachmentCover.mock.calls[0].arguments).toEqual(["SCENE_ELEMENT", 9, 43, false]);
+    expect(await within(popover).findByRole("button", { name: "Add cover" })).toBeInTheDocument();
+    expect(
+      within(within(popover).getByRole("list", { name: "Other images" })).getAllByRole("button", {
+        name: /^Cover /,
+      }),
+    ).toHaveLength(2);
+    expect(
+      await within(container).findByRole("button", { name: "Add an image to A hooded figure" }),
+    ).toBeInTheDocument();
+  });
+
+  it("adds the story's pictures to the element for this scene from Other images' +", async () => {
+    const u = userEvent.setup();
+    render(linked("READY"));
+    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+
+    // The + opens the story attachment picker, already unfolded.
+    await u.click(await within(popover).findByRole("button", { name: "Add images" }));
+    await u.click(await within(popover).findByRole("checkbox", { name: "Harbour.png" }));
+    await u.click(within(popover).getByRole("button", { name: "Add 1 to this element" }));
+
+    expect(sa_attachToHolder.mock.calls[0].arguments).toEqual(["SCENE_ELEMENT", 9, [31]]);
+    // The scene's list is read again, and now shows it.
+    await waitFor(() => expect(sa_listAttachments.mock.callCount()).toBeGreaterThan(2));
+    const list = await within(popover).findByRole("list", { name: "Other images" });
+    expect(
+      await within(list).findByRole("button", { name: "Preview Added 31.png" }),
+    ).toBeInTheDocument();
+  });
+
   it("removes an element from the scene with the − beside In this scene", async () => {
     const onRemove = mock.fn((_key: string) => {});
     const u = userEvent.setup();
@@ -750,6 +993,7 @@ describe("RunPlayPill", () => {
           item={linked("READY")}
           stackTag="scene"
           otherStacks={[]}
+          sceneStacks={["scene"]}
           onRemove={onRemove}
           onItemChange={() => {}}
           onStatusChange={() => {}}

@@ -38,9 +38,10 @@ const sa_listAttachments = mock.fn(async () => storyRows);
 const sa_searchAttachments = mock.fn(async (_kind: string, _id: number, query: string) =>
   storyRows.filter((row) => row.fileName?.includes(query)).map((row) => row.idAttachment),
 );
-const sa_attachToScene = mock.fn(
+const sa_attachToHolder = mock.fn(
   async (
-    _scene: number,
+    _kind: string,
+    _holder: number,
     ids: number[],
   ): Promise<{ ok: true; attached: number[] } | { ok: false; error: string }> => ({
     ok: true,
@@ -60,7 +61,7 @@ describe("StoryAttachmentPicker", () => {
       namedExports: {
         sa_listAttachments,
         sa_searchAttachments,
-        sa_attachToScene,
+        sa_attachToHolder,
       },
     });
     ({ StoryAttachmentPicker } = await import("./story-attachment-picker"));
@@ -69,8 +70,8 @@ describe("StoryAttachmentPicker", () => {
   beforeEach(() => {
     sa_listAttachments.mock.resetCalls();
     sa_searchAttachments.mock.resetCalls();
-    sa_attachToScene.mock.resetCalls();
-    sa_attachToScene.mock.mockImplementation(async (_scene, ids) => ({
+    sa_attachToHolder.mock.resetCalls();
+    sa_attachToHolder.mock.mockImplementation(async (_kind, _holder, ids) => ({
       ok: true,
       attached: ids,
     }));
@@ -78,7 +79,9 @@ describe("StoryAttachmentPicker", () => {
 
   it("starts closed and fetches nothing until it is opened", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<StoryAttachmentPicker idStory={STORY} idStoryScene={SCENE} />);
+    renderWithProviders(
+      <StoryAttachmentPicker idStory={STORY} holder={{ kind: "STORY_SCENE", idExternal: SCENE }} />,
+    );
 
     expect(sa_listAttachments.mock.callCount()).toBe(0);
     await openFold(user);
@@ -88,7 +91,9 @@ describe("StoryAttachmentPicker", () => {
 
   it("offers the story's finished attachments, its cover among them", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<StoryAttachmentPicker idStory={STORY} idStoryScene={SCENE} />);
+    renderWithProviders(
+      <StoryAttachmentPicker idStory={STORY} holder={{ kind: "STORY_SCENE", idExternal: SCENE }} />,
+    );
     await openFold(user);
 
     expect(await screen.findByRole("checkbox", { name: "map-of-the-dun.jpg" })).toBeInTheDocument();
@@ -99,7 +104,9 @@ describe("StoryAttachmentPicker", () => {
 
   it("narrows the list by what the search box holds, asking the database", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<StoryAttachmentPicker idStory={STORY} idStoryScene={SCENE} />);
+    renderWithProviders(
+      <StoryAttachmentPicker idStory={STORY} holder={{ kind: "STORY_SCENE", idExternal: SCENE }} />,
+    );
     await openFold(user);
     await screen.findByRole("checkbox", { name: "map-of-the-dun.jpg" });
 
@@ -122,7 +129,7 @@ describe("StoryAttachmentPicker", () => {
     renderWithProviders(
       <StoryAttachmentPicker
         idStory={STORY}
-        idStoryScene={SCENE}
+        holder={{ kind: "STORY_SCENE", idExternal: SCENE }}
         onAttached={(ids) => attached.push(ids)}
       />,
     );
@@ -134,8 +141,8 @@ describe("StoryAttachmentPicker", () => {
     await user.click(screen.getByRole("checkbox", { name: "the-wizard.jpg" }));
     await user.click(screen.getByRole("button", { name: "Add 2 to this scene" }));
 
-    await waitFor(() => expect(sa_attachToScene.mock.callCount()).toBe(1));
-    expect(sa_attachToScene.mock.calls[0].arguments).toEqual([SCENE, [1, 2]]);
+    await waitFor(() => expect(sa_attachToHolder.mock.callCount()).toBe(1));
+    expect(sa_attachToHolder.mock.calls[0].arguments).toEqual(["STORY_SCENE", SCENE, [1, 2]]);
     expect(await screen.findByRole("status")).toHaveTextContent("Added 2 to this scene.");
     expect(attached).toEqual([[1, 2]]);
     // The cover is still on offer.
@@ -143,12 +150,14 @@ describe("StoryAttachmentPicker", () => {
   });
 
   it("says why when the scene has no room, and attaches nothing", async () => {
-    sa_attachToScene.mock.mockImplementation(async () => ({
+    sa_attachToHolder.mock.mockImplementation(async () => ({
       ok: false,
       error: "This scene has room for 1 more. Choose fewer.",
     }));
     const user = userEvent.setup();
-    renderWithProviders(<StoryAttachmentPicker idStory={STORY} idStoryScene={SCENE} />);
+    renderWithProviders(
+      <StoryAttachmentPicker idStory={STORY} holder={{ kind: "STORY_SCENE", idExternal: SCENE }} />,
+    );
     await openFold(user);
 
     await user.click(await screen.findByRole("checkbox", { name: "map-of-the-dun.jpg" }));

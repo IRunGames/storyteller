@@ -30,6 +30,23 @@ import type { AttachmentKind } from "@/lib/attachments";
  * groups need it, and a "use server" module may only export server actions,
  * so none of them can lend the others a helper.
  */
+/**
+ * The picture a pill shows for an element in a scene: the cover of the
+ * element's link to the scene (its SCENE_ELEMENT use, how it looks there),
+ * else the element's own picture (its ELEMENT use), else none. `linkSource`
+ * is the outer relation holding id_scene_element and `elementSource` the
+ * one holding id_element; a view that has both names the same relation
+ * twice. With the link left-joined and absent, the first half is null and
+ * the element's picture stands.
+ */
+export function sceneElementImageUrl(linkSource: string, elementSource: string) {
+  return sql<string | null>`coalesce(${attachmentUrl(
+    "SCENE_ELEMENT",
+    linkSource,
+    "id_scene_element",
+  )}, ${attachmentUrl("ELEMENT", elementSource, "id_element")})`;
+}
+
 export function attachmentUrl(kind: AttachmentKind, source: string, column: string) {
   return sql<string | null>`(
     select ${vAttachmentUses.url}

@@ -33,7 +33,10 @@ describe("RunSessionTitle", () => {
   const render = (title: string | null = "Kildealg") =>
     renderWithProviders(
       <>
-        <RunSessionTitle idStory={-4} session={{ idStorySession: -30, number: 3, title }} />
+        <RunSessionTitle
+          idStory={-4}
+          session={{ idStorySession: -30, number: 3, title, status: "OPEN" }}
+        />
         <Toaster />
       </>,
     );

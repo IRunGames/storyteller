@@ -1,5 +1,22 @@
 import { z } from "zod";
-import { ELEMENT_KINDS } from "./elements";
+import { ELEMENT_KINDS, isWebUrl } from "./elements";
+
+// An external link on an element, or on its link to a scene: a full web
+// address or nothing, and the words to show for it. The address is checked
+// the way the pill checks it (isWebUrl), so what the form accepts is what
+// the players can follow.
+export const linkUrlSchema = z
+  .string()
+  .trim()
+  .max(2000, "Keep the link under 2000 characters.")
+  .refine(
+    (url) => url === "" || isWebUrl(url),
+    "Please enter a full web address, starting with http:// or https://.",
+  );
+export const linkTextSchema = z
+  .string()
+  .trim()
+  .max(200, "Keep the link text under 200 characters.");
 
 // One schema for creating and editing an element: both forms post the same
 // fields. The status is not among them; a new element takes the workflow's
@@ -15,6 +32,8 @@ export const elementSchema = z.object({
   title: z.string().trim().max(200, "Keep the title under 200 characters."),
   description: z.string().trim().max(8000, "Keep the description under 8000 characters."),
   notes: z.string().trim().max(8000, "Keep the notes under 8000 characters."),
+  url: linkUrlSchema,
+  urlText: linkTextSchema,
 });
 
 export type ElementValues = z.infer<typeof elementSchema>;
@@ -28,6 +47,9 @@ const statusKeySchema = z.string().trim().min(1, "Choose a status.").max(64);
 export const runElementSchema = elementSchema.extend({
   status: statusKeySchema,
   sceneStatus: statusKeySchema,
+  // The link's own link, for this scene, in front of the element's.
+  sceneUrl: linkUrlSchema,
+  sceneUrlText: linkTextSchema,
 });
 
 export type RunElementValues = z.infer<typeof runElementSchema>;

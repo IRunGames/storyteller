@@ -394,6 +394,9 @@ export const storyScenes = pgTable("story_scenes", {
     .default(sql`DEFAULT`),
   sceneTitle: text("scene_title").notNull(),
   sceneDescription: text("scene_description"),
+  // Free text beside the description, kept at the table from the panel
+  // behind the scene's title (db/migrations/..._add_story_scenes_notes.sql).
+  notes: text("notes"),
   // status, scene_title and scene_description joined for lookups, built by
   // the database from the search_fields recipe on the story_scenes row of
   // _tables. Generated, so an insert or update never names it.
@@ -562,6 +565,10 @@ export const elements = pgTable("elements", {
   title: text("title"),
   description: text("description"),
   notes: text("notes"),
+  // An external link and the words to show for it; see
+  // db/migrations/..._add_element_urls.sql.
+  url: text("url"),
+  urlText: text("url_text"),
   // The standard tags feature from _tables.
   tags: text("tags")
     .array()
@@ -607,6 +614,10 @@ export const sceneElements = pgTable("scene_elements", {
     .default(sql`'{}'`),
   // Which of the element's fields its pill shows in this scene: initial_name,
   // name or title, held by a CHECK. The link's own, despite the prefix.
+  // An external link for the element in this scene, standing in front of
+  // the element's own at the players' table; see the same migration.
+  url: text("url"),
+  urlText: text("url_text"),
   elementShowing: varchar("element_showing").notNull().default("initial_name"),
   // Whether the players' table shows the element's description in this
   // scene: true unless the storyteller keeps it back.
@@ -645,6 +656,8 @@ export const vSceneElements = pgView("v_scene_elements", {
   tags: text("tags").array(),
   elementShowing: varchar("element_showing"),
   showInfo: boolean("show_info"),
+  url: text("url"),
+  urlText: text("url_text"),
   createdAt: timestamp("created_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -657,6 +670,8 @@ export const vSceneElements = pgView("v_scene_elements", {
   title: text("title"),
   description: text("description"),
   notes: text("notes"),
+  elementUrl: text("element_url"),
+  elementUrlText: text("element_url_text"),
   elementTags: text("element_tags").array(),
   elementSearchText: text("element_search_text"),
   elementUpdatedAt: timestamp("element_updated_at", { withTimezone: true }),

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Box, Button, chakra, HStack, Menu, Portal, Text } from "@chakra-ui/react";
+import { useId, useState } from "react";
+import { Box, Button, chakra, HStack, Menu, Portal, Text, Tooltip } from "@chakra-ui/react";
 import { Check, ChevronDown, Plus } from "lucide-react";
 import type { RunPlaySpace, RunScene } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
@@ -22,9 +22,11 @@ type Props = {
 };
 
 /**
- * The scene selector beside the session in the storyteller's header: the
- * scene the table is on, and a menu of Create new scene and the story's ten
- * most recently touched scenes with their status, fetched as it opens.
+ * The scene selector in the storyteller's header, beside the session: a
+ * button that says only Scene, with the scene the table is on in its
+ * tooltip and its accessible name, and a menu of Create new scene and the
+ * story's ten most recently touched scenes with their status, fetched as it
+ * opens. The scene's title itself stands in the play space.
  *
  * Choosing a scene puts the table on it (sa_loadRunScene): a pending one
  * becomes active, and an active or complete one is loaded as it is. A
@@ -37,6 +39,10 @@ export function RunSceneSelect({ idStory, scene, hasSession, statusOptions, onLo
   const [scenes, setScenes] = useState<RunScene[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [isLoading, setLoading] = useState(false);
+  // Tooltip and menu each look their trigger up by id; sharing one keeps the
+  // menu from opening at the page corner (nav-theme-menu.tsx).
+  const triggerId = useId();
+  const current = scene?.title ?? "None";
 
   const statusLabel = (status: string) =>
     statusOptions.find((option) => option.key === status)?.label ?? status;
@@ -69,9 +75,9 @@ export function RunSceneSelect({ idStory, scene, hasSession, statusOptions, onLo
 
   return (
     <>
-      {/* Shrinks with the header's left side, so the button inside can. */}
-      <Box display="inline-flex" minW="0" flexShrink="1">
+      <Box display="inline-flex" flexShrink="0">
         <Menu.Root
+          ids={{ trigger: triggerId }}
           positioning={{ placement: "bottom-start" }}
           onOpenChange={(details) => {
             if (details.open) void list();
@@ -85,30 +91,36 @@ export function RunSceneSelect({ idStory, scene, hasSession, statusOptions, onLo
             if (chosen) void load(chosen);
           }}
         >
-          <Menu.Trigger asChild>
-            {/* Shrinks with the header's left side (Chakra's button does
-                  not by default), its title truncating, so a narrow window
-                  shortens the scene's name rather than cutting the button. */}
-            <Button
-              size="sm"
-              variant="ghost"
-              minW="0"
-              flexShrink="1"
-              overflow="hidden"
-              justifyContent="flex-start"
-              disabled={!hasSession}
-              loading={isLoading}
-              title={hasSession ? undefined : "Start a session to choose a scene"}
-            >
-              <chakra.span color="fg.muted" flexShrink="0">
-                Scene:
-              </chakra.span>{" "}
-              <chakra.span truncate minW="0">
-                {scene?.title ?? "None"}
-              </chakra.span>
-              <ChevronDown />
-            </Button>
-          </Menu.Trigger>
+          <Tooltip.Root
+            openDelay={200}
+            positioning={{ placement: "top" }}
+            ids={{ trigger: triggerId }}
+          >
+            <Tooltip.Trigger asChild>
+              <Menu.Trigger asChild>
+                {/* Only the word; the scene's title is the tooltip's and the
+                    accessible name's, and the play space shows it in full.
+                    Disabled with no session, when a disabled button's own
+                    title has to say why, since no tooltip opens on one. */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={`Scene: ${current}`}
+                  disabled={!hasSession}
+                  loading={isLoading}
+                  title={hasSession ? undefined : "Start a session to choose a scene"}
+                >
+                  Scene
+                  <ChevronDown />
+                </Button>
+              </Menu.Trigger>
+            </Tooltip.Trigger>
+            <Portal>
+              <Tooltip.Positioner>
+                <Tooltip.Content>{current}</Tooltip.Content>
+              </Tooltip.Positioner>
+            </Portal>
+          </Tooltip.Root>
           <Portal>
             <Menu.Positioner>
               <Menu.Content minW="xs">

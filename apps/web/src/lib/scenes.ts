@@ -96,3 +96,16 @@ export function formatSceneLength(minutes: number): string {
   if (minutes >= 60) return formatSessionLength(minutes);
   return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
+
+/**
+ * A scene's description and notes, as the panel behind its title at either
+ * table shows and edits them. Null for one left empty, as the columns hold
+ * it.
+ */
+export type SceneText = { description: string | null; notes: string | null };
+
+export const EMPTY_SCENE_TEXT: SceneText = { description: null, notes: null };
+
+/** What saving the panel hands back: the text as stored, or errors by field. */
+export type SetSceneTextResult =
+  { ok: true; text: SceneText } | { ok: false; errors: Record<string, string> };

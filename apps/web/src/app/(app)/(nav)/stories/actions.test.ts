@@ -19,6 +19,10 @@ import { initialStatus, pausePair, terminalStatus } from "@/test/workflow";
 loadEnvConfig(process.cwd());
 
 const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// A story seeded as the seed user's own. Story -1 was the one the seeds
+// made for it until 2026-10-15, when it was renumbered off the seeds to go
+// to production; the cases that need a seeded story of theirs use this one.
+const SEEDED_STORY = -3;
 const hasDb = Boolean(process.env.DATABASE_URL);
 
 const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
@@ -296,14 +300,14 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("fetches one story by id", async () => {
-    // What the seed calls story -1 is the seed's business and has changed
+    // What the seed calls the story is the seed's business and has changed
     // once already, so the title to expect is read from the row rather than
     // written down: the case is that the id fetches its own story.
     const [seeded] = await db
       .select({ title: tables.stories.title })
       .from(tables.stories)
-      .where(eq(tables.stories.idStory, -1));
-    const story = await actions.sa_getStory(-1);
+      .where(eq(tables.stories.idStory, SEEDED_STORY));
+    const story = await actions.sa_getStory(SEEDED_STORY);
     expect(story?.title).toBe(seeded.title);
     expect(await actions.sa_getStory(999999)).toBeNull();
     // Beyond int4: Postgres would error on the comparison, so the id is
@@ -743,14 +747,14 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
 
   it("marks each card with whether the caller owns it", async () => {
     const mine = [...(await actions.sa_listMyStories(0)), ...(await actions.sa_listMyStories(10))];
-    expect(mine.find((s) => s.idStory === -1)?.isOwner).toBe(true); // seed user created it
+    expect(mine.find((s) => s.idStory === SEEDED_STORY)?.isOwner).toBe(true); // seed user created it
     expect(mine.find((s) => s.idStory === storyA)?.isOwner).toBe(false); // only plays in it
   });
 
   it("names each card's storyteller, preferring their nickname", async () => {
     const mine = [...(await actions.sa_listMyStories(0)), ...(await actions.sa_listMyStories(10))];
     expect(mine.find((s) => s.idStory === storyA)?.storytellerName).toBe("Other"); // nickname set
-    expect(mine.find((s) => s.idStory === -1)?.storytellerName).toBe("Pol"); // seed user has none
+    expect(mine.find((s) => s.idStory === SEEDED_STORY)?.storytellerName).toBe("Pol"); // seed user has none
 
     // The favorites list builds its joins separately, so it is checked too.
     const favorites = await actions.sa_listFavoriteStories(0);

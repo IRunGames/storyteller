@@ -1,10 +1,13 @@
 -- Where an attachment is used: by the story itself (its cover), by one of
--- the story's sessions or scenes, or by one of its elements (the element's
--- picture). An attachment is a file a story owns (attachments.id_story);
--- this table is the holders that show it, any number of them, so the same
--- picture can be a scene's cover and an element's at once. Before this
--- table an attachment hung off one holder through attachments.kind and
--- attachments.external_id, and moved between holders.
+-- the story's sessions or scenes, by one of its elements (the element's
+-- picture), or by an element's link to one scene (scene_elements: how the
+-- element looks in that scene, which its pill shows there in place of the
+-- element's own picture). An attachment is a file a story owns
+-- (attachments.id_story); this table is the holders that show it, any
+-- number of them, so the same picture can be a scene's cover and an
+-- element's at once. Before this table an attachment hung off one holder
+-- through attachments.kind and attachments.external_id, and moved between
+-- holders.
 --
 -- `kind` is NOT declared here. _p_update_tables_kinds() builds it, and the
 -- attachment_uses_kind enum behind it, from the kind_values declared below.
@@ -40,7 +43,7 @@ CALL _p_set_and_update_table_features('attachment_uses',
     p_timestamps  := TRUE,
     p_user_ids    := TRUE,
     p_tags        := TRUE,
-    p_kind_values := ARRAY['STORY', 'STORY_SESSION', 'STORY_SCENE', 'ELEMENT']);
+    p_kind_values := ARRAY['STORY', 'STORY_SESSION', 'STORY_SCENE', 'ELEMENT', 'SCENE_ELEMENT']);
 
 -- _p_update_tables_kinds() adds the column nullable, as it must for a table
 -- that might already hold rows. Every use has a kind from the start.

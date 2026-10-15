@@ -31,16 +31,25 @@ const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
 // A different seeded user, owning none of the seeded attachments, so it is
 // safe to use as "someone else" in the ownership tests.
 const OTHER_USER = "00000000-0000-7000-8000-000000000002";
-// An existing seeded story_scene row of the seed user's.
-// tr_biu_attachment_uses_external_exists raises on a holder with no row, so
-// uses need real ids rather than made-up ones.
-const SCENE_ID = -21;
+// A story seeded as the seed user's own, on which `before` makes the scene
+// the holder cases attach to: tr_biu_attachment_uses_external_exists raises
+// on a holder with no row, so uses need a real scene rather than a made-up
+// id, and the seeds no longer hold one (story -1 and its scenes were
+// renumbered off them on 2026-10-15).
+const SEED_STORY = -3;
+let sceneId = 0;
 // A story seeded as OTHER_USER's own, for the ownership-of-the-holder tests.
 const OTHER_STORY_ID = -16;
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 
 const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+// What a change to a scene element's pictures tells the players' table,
+// mocked so the tests see it reached for; what it sends is its own test's
+// business (lib/realtime/publish-scene.test.ts).
+const publishSceneElementPictures = mock.fn(
+  async (_idStory: number, _idSceneElement: number) => {},
+);
 // del() really would reach Vercel Blob, so it is mocked rather than left to
 // run against a url that is not a real blob.
 const del = mock.fn(async () => {});
@@ -108,11 +117,20 @@ async function usesOf(id: number) {
 describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
+    mock.module("@/lib/realtime/publish-scene", { namedExports: { publishSceneElementPictures } });
     const blobModule: { del: unknown } = requireHere("@vercel/blob");
     originalDel = blobModule.del;
     blobModule.del = del;
     ({ db, schema: tables } = await import("@/db"));
     actions = await import("./actions");
+    [{ id: sceneId }] = await db
+      .insert(tables.storyScenes)
+      .values({
+        idStory: SEED_STORY,
+        sceneTitle: "Attachment fixture scene",
+        idCreatedByUser: SEED_USER,
+      })
+      .returning({ id: tables.storyScenes.idStoryScene });
   });
 
   after(async () => {
@@ -122,6 +140,10 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     if (created.length > 0) {
       await db.delete(tables.attachments).where(inArray(tables.attachments.idAttachment, created));
     }
+    // Its uses, if any are left, go with it.
+    if (sceneId) {
+      await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, sceneId));
+    }
     // Otherwise the process lingers until the pool's idle timeout.
     await db.$client.end();
   });
@@ -129,7 +151,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
   it("inserts a typed link as READY with is_uploaded false, used by its holder", async () => {
     const result = await actions.sa_createAttachment({
       kind: "STORY_SCENE",
-      idExternal: SCENE_ID,
+      idExternal: sceneId,
       url: "https://example.com/a.jpg",
     });
     created.push(result.idAttachment);
@@ -153,7 +175,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     // place: the trigger gave the use 1000 plus its id.
     const uses = await usesOf(result.idAttachment);
     expect(uses).toHaveLength(1);
-    expect(uses[0]).toMatchObject({ kind: "STORY_SCENE", idExternal: SCENE_ID, tags: [] });
+    expect(uses[0]).toMatchObject({ kind: "STORY_SCENE", idExternal: sceneId, tags: [] });
     expect(uses[0].idStory).toBe(row.idStory);
     expect(uses[0].sortOrder).toBeGreaterThan(1000);
   });
@@ -243,7 +265,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     const url = `https://abc123.public.blob.vercel-storage.com/uploads/${SEED_USER}/photo.png`;
     const created = await insertAttachment(
       { status: "READY", url, isUploaded: true, idCreatedByUser: SEED_USER },
-      [{ kind: "STORY_SCENE", idExternal: SCENE_ID }],
+      [{ kind: "STORY_SCENE", idExternal: sceneId }],
     );
 
     await actions.sa_deleteAttachment(created.id);
@@ -322,34 +344,33 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     // no sort_order of its own and so goes last, and d ties b by sort_order
     // and loses on updated_at.
     const a = await insertAttachment({ status: "READY", url: "https://x/a.jpg" }, [
-      { kind: "STORY_SCENE", idExternal: SCENE_ID, sortOrder: 2 },
+      { kind: "STORY_SCENE", idExternal: sceneId, sortOrder: 2 },
     ]);
     const b = await insertAttachment({ status: "READY", url: "https://x/b.jpg" }, [
-      { kind: "STORY_SCENE", idExternal: SCENE_ID, sortOrder: 1 },
+      { kind: "STORY_SCENE", idExternal: sceneId, sortOrder: 1 },
     ]);
     const c = await insertAttachment({ status: "READY", url: "https://x/c.jpg" }, [
-      { kind: "STORY_SCENE", idExternal: SCENE_ID },
+      { kind: "STORY_SCENE", idExternal: sceneId },
     ]);
     const d = await insertAttachment({ status: "READY", url: "https://x/d.jpg" }, [
-      { kind: "STORY_SCENE", idExternal: SCENE_ID, sortOrder: 1 },
+      { kind: "STORY_SCENE", idExternal: sceneId, sortOrder: 1 },
     ]);
     await db
       .update(tables.attachmentUses)
       .set({ updatedAt: new Date("2026-09-29T12:00:00Z") })
       .where(eq(tables.attachmentUses.idAttachment, d.id));
 
-    const rows = await actions.sa_listAttachments("STORY_SCENE", SCENE_ID);
+    const rows = await actions.sa_listAttachments("STORY_SCENE", sceneId);
 
     // Narrowed to this case's own rows rather than asserting the whole list,
-    // because this scene is shared: earlier cases here attach to it,
-    // blob-sweep/route.test.ts uses it for its "claimed" fixture, and both
-    // may be running concurrently. Filtering keeps their relative order.
+    // because this scene is shared with the earlier cases here, which attach
+    // to it too. Filtering keeps their relative order.
     const mine = new Set([a.id, b.id, c.id, d.id]);
     const ours = rows.map((r) => r.idAttachment).filter((id) => mine.has(id));
     expect(ours).toEqual([b.id, d.id, a.id, c.id]);
     expect(rows.find((r) => r.idAttachment === c.id)).toMatchObject({
       kind: "STORY_SCENE",
-      idExternal: SCENE_ID,
+      idExternal: sceneId,
       isCover: false,
       tags: [],
     });
@@ -366,7 +387,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     await db.insert(tables.attachmentUses).values({
       idAttachment: row.id,
       kind: "STORY_SCENE",
-      idExternal: SCENE_ID,
+      idExternal: sceneId,
       idCreatedByUser: SEED_USER,
     });
 
@@ -519,7 +540,11 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         isUploaded: true,
       });
 
-      const result = await actions.sa_attachToScene(idScene, [plain, cover, uploading]);
+      const result = await actions.sa_attachToHolder("STORY_SCENE", idScene, [
+        plain,
+        cover,
+        uploading,
+      ]);
       expect(result.ok && [...result.attached].sort()).toEqual([plain, cover].sort());
 
       expect(await sceneUse(plain)).toMatchObject({ tags: [] });
@@ -531,7 +556,10 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect(pool.find((row) => row.idAttachment === cover)?.isCover).toBe(true);
 
       // Again changes nothing and attaches nothing.
-      expect(await actions.sa_attachToScene(idScene, [plain])).toEqual({ ok: true, attached: [] });
+      expect(await actions.sa_attachToHolder("STORY_SCENE", idScene, [plain])).toEqual({
+        ok: true,
+        attached: [],
+      });
     });
 
     it("attaches one story picture to the scene as the scene's only cover", async () => {
@@ -546,7 +574,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       );
       const { id: plain } = await onStory("https://example.com/picker-new-scene-cover.jpg");
 
-      expect(await actions.sa_attachToSceneAsCover(idScene, plain)).toEqual({
+      expect(await actions.sa_attachAsCover("STORY_SCENE", idScene, plain)).toEqual({
         ok: true,
         url: "https://example.com/picker-new-scene-cover.jpg",
       });
@@ -554,7 +582,9 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect(covers.filter((row) => row.isCover).map((row) => row.idAttachment)).toEqual([plain]);
       expect(covers.find((row) => row.idAttachment === earlier)?.isCover).toBe(false);
       // The use the scene had already is the one tagged, not a second.
-      expect(await actions.sa_attachToSceneAsCover(idScene, earlier)).toMatchObject({ ok: true });
+      expect(await actions.sa_attachAsCover("STORY_SCENE", idScene, earlier)).toMatchObject({
+        ok: true,
+      });
       expect((await usesOf(earlier)).filter((use) => use.kind === "STORY_SCENE")).toHaveLength(1);
     });
 
@@ -566,12 +596,12 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       });
       const { id: plain } = await onStory("https://example.com/picker-refused-cover.jpg");
 
-      expect(await actions.sa_attachToSceneAsCover(idScene, uploading)).toEqual({
+      expect(await actions.sa_attachAsCover("STORY_SCENE", idScene, uploading)).toEqual({
         ok: false,
         error: "That attachment can no longer be used by the scene.",
       });
       expect(await sceneUse(uploading)).toBeUndefined();
-      await expect(actions.sa_attachToSceneAsCover(theirScene, plain)).rejects.toThrow(
+      await expect(actions.sa_attachAsCover("STORY_SCENE", theirScene, plain)).rejects.toThrow(
         "You do not have access to that story.",
       );
     });
@@ -588,13 +618,15 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         [{ kind: "STORY_SCENE", idExternal: idScene }],
       );
       // Whatever an earlier test left as the scene's cover gives way first.
-      await actions.sa_attachToSceneAsCover(idScene, cover);
+      await actions.sa_attachAsCover("STORY_SCENE", idScene, cover);
       const { id: elsewhere } = await onStory("https://example.com/picker-not-in-scene.jpg");
 
-      expect(await actions.sa_detachFromScene(idScene, [cover, elsewhere])).toEqual({
-        ok: true,
-        detached: [cover],
-      });
+      expect(await actions.sa_detachFromHolder("STORY_SCENE", idScene, [cover, elsewhere])).toEqual(
+        {
+          ok: true,
+          detached: [cover],
+        },
+      );
       expect(await sceneUse(cover)).toBeUndefined();
       expect(
         (await actions.sa_listAttachments("STORY_SCENE", idScene)).some((r) => r.isCover),
@@ -603,7 +635,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         (row) => row.idAttachment === cover,
       );
       expect(back).toMatchObject({ isCover: false, tags: ["harbour"] });
-      await expect(actions.sa_detachFromScene(theirScene, [cover])).rejects.toThrow(
+      await expect(actions.sa_detachFromHolder("STORY_SCENE", theirScene, [cover])).rejects.toThrow(
         "You do not have access to that story.",
       );
     });
@@ -633,16 +665,16 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       const { id: first } = await onStory("https://example.com/picker-first.jpg");
       const { id: second } = await onStory("https://example.com/picker-second.jpg");
 
-      expect(await actions.sa_attachToScene(idScene, [first, second])).toEqual({
+      expect(await actions.sa_attachToHolder("STORY_SCENE", idScene, [first, second])).toEqual({
         ok: false,
         error: "This scene has room for 1 more. Choose fewer.",
       });
       expect(await sceneUse(first)).toBeUndefined();
-      expect(await actions.sa_attachToScene(idScene, [first])).toEqual({
+      expect(await actions.sa_attachToHolder("STORY_SCENE", idScene, [first])).toEqual({
         ok: true,
         attached: [first],
       });
-      expect(await actions.sa_attachToSceneAsCover(idScene, second)).toEqual({
+      expect(await actions.sa_attachAsCover("STORY_SCENE", idScene, second)).toEqual({
         ok: false,
         error: `This scene already has ${MAX_ATTACHMENTS} attachments. Remove one first.`,
       });
@@ -650,10 +682,133 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
     it("refuses a scene on a story the caller does not own", async () => {
       const { id } = await onStory("https://example.com/picker-refused.jpg");
-      await expect(actions.sa_attachToScene(theirScene, [id])).rejects.toThrow(
+      await expect(actions.sa_attachToHolder("STORY_SCENE", theirScene, [id])).rejects.toThrow(
         "You do not have access to that story.",
       );
       expect(await usesOf(id)).toEqual([]);
+    });
+  });
+
+  describe("an element's pictures for one scene", () => {
+    // A story with a scene and an element linked to it, the test's own.
+    const title = "Fixture — scene element pictures";
+    let idStory = 0;
+    let idScene = 0;
+    let idElement = 0;
+    let idLink = 0;
+
+    before(async () => {
+      await db.delete(tables.stories).where(eq(tables.stories.title, title));
+      [{ idStory }] = await db
+        .insert(tables.stories)
+        .values({ title, idCreatedByUser: SEED_USER, idUpdatedByUser: SEED_USER })
+        .returning({ idStory: tables.stories.idStory });
+      [{ id: idScene }] = await db
+        .insert(tables.storyScenes)
+        .values({ idStory, sceneTitle: "Fixture pictures scene", idCreatedByUser: SEED_USER })
+        .returning({ id: tables.storyScenes.idStoryScene });
+      [{ id: idElement }] = await db
+        .insert(tables.elements)
+        .values({ idStory, kind: "PERSON", name: "Fixture Pictured", idCreatedByUser: SEED_USER })
+        .returning({ id: tables.elements.idElement });
+      [{ id: idLink }] = await db
+        .insert(tables.sceneElements)
+        .values({ idStoryScene: idScene, idElement, idCreatedByUser: SEED_USER })
+        .returning({ id: tables.sceneElements.idSceneElement });
+      publishSceneElementPictures.mock.resetCalls();
+    });
+
+    after(async () => {
+      await db.delete(tables.stories).where(eq(tables.stories.idStory, idStory));
+    });
+
+    const onStory = (url: string) =>
+      insertAttachment({ idStory, status: "READY", url, idCreatedByUser: SEED_USER });
+    const linkUses = async (id: number) =>
+      (await usesOf(id)).filter((use) => use.kind === "SCENE_ELEMENT" && use.idExternal === idLink);
+
+    it("gives the link a cover and other pictures of the story's, held to the scene's story", async () => {
+      const { id: face } = await onStory("https://example.com/link-face.jpg");
+      const { id: hood } = await onStory("https://example.com/link-hood.jpg");
+      const { id: scroll } = await onStory("https://example.com/link-scroll.jpg");
+
+      expect(await actions.sa_attachAsCover("SCENE_ELEMENT", idLink, face)).toEqual({
+        ok: true,
+        url: "https://example.com/link-face.jpg",
+      });
+      expect(await actions.sa_attachToHolder("SCENE_ELEMENT", idLink, [scroll])).toEqual({
+        ok: true,
+        attached: [scroll],
+      });
+      // The same story, as the trigger copies it onto the use.
+      expect(await linkUses(face)).toMatchObject([{ idStory, tags: ["cover"] }]);
+      const listed = await actions.sa_listAttachments("SCENE_ELEMENT", idLink);
+      expect(listed.map((row) => [row.idAttachment, row.isCover])).toEqual([
+        [face, true],
+        [scroll, false],
+      ]);
+
+      // A second cover takes the tag from the first, which stays among the rest.
+      expect(await actions.sa_attachAsCover("SCENE_ELEMENT", idLink, hood)).toMatchObject({
+        ok: true,
+      });
+      expect(
+        (await actions.sa_listAttachments("SCENE_ELEMENT", idLink))
+          .filter((row) => row.isCover)
+          .map((row) => row.idAttachment),
+      ).toEqual([hood]);
+
+      // The − takes a picture off the link, cover tag and all.
+      expect(await actions.sa_detachFromHolder("SCENE_ELEMENT", idLink, [hood])).toEqual({
+        ok: true,
+        detached: [hood],
+      });
+      expect(await linkUses(hood)).toEqual([]);
+
+      // The star on an other image tags it; on the cover, it takes the tag
+      // off and leaves the use.
+      await actions.sa_setAttachmentCover("SCENE_ELEMENT", idLink, scroll, true);
+      await actions.sa_setAttachmentCover("SCENE_ELEMENT", idLink, scroll, false);
+      expect(await linkUses(scroll)).toMatchObject([{ tags: [] }]);
+
+      // Each change was told to the players' table, by the link's id.
+      expect(publishSceneElementPictures.mock.calls.map((call) => call.arguments)).toEqual(
+        Array.from({ length: 6 }, () => [idStory, idLink]),
+      );
+    });
+
+    it("takes the link's pictures with the link, and refuses another's link", async () => {
+      const { id: brief } = await onStory("https://example.com/link-brief.jpg");
+      const [{ id: passing }] = await db
+        .insert(tables.sceneElements)
+        .values({ idStoryScene: idScene, idElement, idCreatedByUser: SEED_USER })
+        .onConflictDoNothing()
+        .returning({ id: tables.sceneElements.idSceneElement })
+        .then((rows) => (rows.length > 0 ? rows : [{ id: idLink }]));
+      // The link is unique per scene and element, so a second scene holds it.
+      const [{ id: otherScene }] = await db
+        .insert(tables.storyScenes)
+        .values({ idStory, sceneTitle: "Fixture pictures scene 2", idCreatedByUser: SEED_USER })
+        .returning({ id: tables.storyScenes.idStoryScene });
+      const [{ id: link2 }] = await db
+        .insert(tables.sceneElements)
+        .values({ idStoryScene: otherScene, idElement, idCreatedByUser: SEED_USER })
+        .returning({ id: tables.sceneElements.idSceneElement });
+      expect(passing).toBe(idLink);
+
+      await actions.sa_attachAsCover("SCENE_ELEMENT", link2, brief);
+      expect(await usesOf(brief)).toHaveLength(1);
+      await db.delete(tables.sceneElements).where(eq(tables.sceneElements.idSceneElement, link2));
+      expect(await usesOf(brief)).toEqual([]);
+
+      // Another storyteller's story: the link cannot be reached.
+      getSession.mock.mockImplementationOnce(async () => ({ user: { id: OTHER_USER } }));
+      await expect(actions.sa_attachToHolder("SCENE_ELEMENT", idLink, [brief])).rejects.toThrow(
+        "You do not have access to that story.",
+      );
+      expect(await actions.sa_listAttachments("SCENE_ELEMENT", idLink)).not.toContainEqual(
+        expect.objectContaining({ idAttachment: brief }),
+      );
     });
   });
 

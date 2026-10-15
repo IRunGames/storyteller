@@ -80,7 +80,10 @@ describe("StoryCard", () => {
     // URL inject declarations into every viewer's page.
     renderWithProviders(
       <StoryCard
-        story={{ ...story, imageUrl: 'https://rpg.irun.games/x.jpg");color:red;background-image:url("' }}
+        story={{
+          ...story,
+          imageUrl: 'https://rpg.irun.games/x.jpg");color:red;background-image:url("',
+        }}
       />,
     );
 
@@ -220,9 +223,7 @@ describe("StoryCard", () => {
 
   it("names one waiting player in the singular", () => {
     renderWithProviders(<StoryCard story={{ ...story, isOwner: true, waitingCount: 1 }} />);
-    expect(screen.getByRole("button", { name: "Play, 1 player waiting" })).toHaveTextContent(
-      "(1)",
-    );
+    expect(screen.getByRole("button", { name: "Play, 1 player waiting" })).toHaveTextContent("(1)");
   });
 
   it("highlights the card only when the owner has players waiting", () => {
@@ -237,6 +238,29 @@ describe("StoryCard", () => {
       <StoryCard story={{ ...story, idStory: -15, isOwner: true, waitingCount: 2 }} />,
     );
     expect(screen.getAllByRole("article")[2]).toHaveAttribute("data-waiting");
+  });
+
+  it("glows while a session is being played, for the owner and a player alike", () => {
+    renderWithProviders(<StoryCard story={story} />);
+    const plain = screen.getByRole("article");
+    expect(plain).not.toHaveAttribute("data-live");
+    expect(getComputedStyle(plain).boxShadow).not.toContain("play-accent");
+
+    renderWithProviders(<StoryCard story={{ ...story, idStory: -14, hasOpenSession: true }} />);
+    const playing = screen.getAllByRole("article")[1];
+    expect(playing).toHaveAttribute("data-live");
+    expect(getComputedStyle(playing).boxShadow).toContain("play-accent");
+
+    renderWithProviders(
+      <StoryCard story={{ ...story, idStory: -15, isOwner: true, hasOpenSession: true }} />,
+    );
+    expect(screen.getAllByRole("article")[2]).toHaveAttribute("data-live");
+
+    // A retired story has no table, so no glow whatever its session says.
+    renderWithProviders(
+      <StoryCard story={{ ...story, idStory: -16, hasOpenSession: true, isActive: false }} />,
+    );
+    expect(screen.getAllByRole("article")[3]).not.toHaveAttribute("data-live");
   });
 
   it("offers the owner the Library beside Play, and beside the Inactive pill", async () => {
@@ -278,9 +302,7 @@ describe("StoryCard", () => {
 
   it("highlights a player's Play with how many are at the table while a session is on", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <StoryCard story={{ ...story, hasOpenSession: true, presentCount: 3 }} />,
-    );
+    renderWithProviders(<StoryCard story={{ ...story, hasOpenSession: true, presentCount: 3 }} />);
 
     const play = screen.getByRole("link", { name: "Play, 3 players at the table" });
     expect(play).toHaveAttribute("href", "/play/-13");

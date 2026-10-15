@@ -3,7 +3,7 @@
 import { and, asc, desc, eq, ilike, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { attachmentUrl } from "@/db/attachment-url";
+import { attachmentUrl, sceneElementImageUrl } from "@/db/attachment-url";
 import { COVER_TAG } from "@/lib/attachments";
 import { requireUser } from "@/lib/authorize";
 import {
@@ -18,6 +18,7 @@ import {
   DEFAULT_ELEMENT_SHOWING,
   EMPTY_PLAY_SPACE,
   isElementShowing,
+  pillLink,
   pillText,
   RUN_LIST_SIZE,
   RUN_SCENES_LIST_SIZE,
@@ -39,10 +40,10 @@ import {
   publishSceneElementRemoved,
   publishSessionUpdated,
 } from "@/lib/realtime/publish-scene";
-import { runSceneSchema } from "@/lib/scene-schemas";
-import { SCENE_LOCKED_STATUS } from "@/lib/scenes";
+import { runSceneSchema, sceneTextSchema } from "@/lib/scene-schemas";
+import { SCENE_LOCKED_STATUS, type SetSceneTextResult } from "@/lib/scenes";
 import { sessionTitleSchema } from "@/lib/session-schemas";
-import { sceneStacksSchema } from "@/lib/stack-schemas";
+import { sceneStacksSchema, stacksSchema } from "@/lib/stack-schemas";
 
 const {
   attachments,
@@ -127,6 +128,8 @@ async function spaceFor(idStory: number, idStoryScene: number): Promise<RunPlayS
       status: storyScenes.status,
       tags: storyScenes.tags,
       coverUrl: attachmentUrl("STORY_SCENE", "story_scenes", "id_story_scene"),
+      description: storyScenes.sceneDescription,
+      notes: storyScenes.notes,
     })
     .from(storyScenes)
     .where(and(eq(storyScenes.idStoryScene, idStoryScene), eq(storyScenes.idStory, idStory)))
@@ -144,7 +147,11 @@ async function spaceFor(idStory: number, idStoryScene: number): Promise<RunPlayS
       status: vSceneElements.status,
       showing: vSceneElements.elementShowing,
       showInfo: vSceneElements.showInfo,
-      imageUrl: attachmentUrl("ELEMENT", "v_scene_elements", "id_element"),
+      imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
+      url: vSceneElements.elementUrl,
+      urlText: vSceneElements.elementUrlText,
+      sceneUrl: vSceneElements.url,
+      sceneUrlText: vSceneElements.urlText,
     })
     .from(vSceneElements)
     .where(
@@ -173,15 +180,57 @@ async function spaceFor(idStory: number, idStoryScene: number): Promise<RunPlayS
         showing: row.showing,
         showInfo: row.showInfo,
         imageUrl: row.imageUrl,
+        url: row.url,
+        urlText: row.urlText,
+        sceneUrl: row.sceneUrl,
+        sceneUrlText: row.sceneUrlText,
       }),
     );
 
   return {
-    scene: { idStoryScene: scene.idStoryScene, title: scene.title, status: scene.status },
+    scene: {
+      idStoryScene: scene.idStoryScene,
+      title: scene.title,
+      status: scene.status,
+      text: { description: scene.description, notes: scene.notes },
+    },
     tags: scene.tags,
     coverUrl: scene.coverUrl,
     inPlay: linked,
   };
+}
+
+/**
+ * The panel behind the scene's title: the scene's description and notes,
+ * written as it is played. Text alone, so a complete scene takes it too:
+ * the notes on a scene are often written once it is done. The players'
+ * table hears the scene changed and reads it afresh.
+ *
+ * Refused for a scene that is not this story's or the caller is not its
+ * storyteller; field errors come back for the form.
+ */
+export async function sa_setSceneText(
+  idStory: number,
+  idStoryScene: number,
+  input: unknown,
+): Promise<SetSceneTextResult> {
+  const user = await requireUser();
+  const story = idSchema.safeParse(idStory);
+  const scene = idSchema.safeParse(idStoryScene);
+  if (!story.success || !scene.success) return { ok: false, errors: { root: NOT_THIS_STORY } };
+  const owned = await ownedScene(user.id, story.data, scene.data);
+  if (owned === null) return { ok: false, errors: { root: NOT_THIS_STORY } };
+
+  const parsed = sceneTextSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error.issues) };
+  const text = { description: parsed.data.description || null, notes: parsed.data.notes || null };
+
+  await db
+    .update(storyScenes)
+    .set({ sceneDescription: text.description, notes: text.notes, idUpdatedByUser: user.id })
+    .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.data)));
+  publishLater(() => publishSceneChanged(story.data));
+  return { ok: true, text };
 }
 
 /**
@@ -203,8 +252,13 @@ function linkedItem(row: {
   showing?: string | null;
   /** Whether the players see its description; the column's default when not read. */
   showInfo?: boolean | null;
-  /** The element's picture (elements.id_attachment), when it has one. */
+  /** The picture the pill shows: the link's own cover in this scene, else the element's. */
   imageUrl?: string | null;
+  /** The element's external link, and the link's own for this scene (pillLink). */
+  url?: string | null;
+  urlText?: string | null;
+  sceneUrl?: string | null;
+  sceneUrlText?: string | null;
 }): PlayItem {
   const fields = { initial_name: row.initialName, name: row.name, title: row.title };
   const showing = isElementShowing(row.showing) ? row.showing : DEFAULT_ELEMENT_SHOWING;
@@ -218,6 +272,10 @@ function linkedItem(row: {
     sceneTags: row.tags,
     sceneStatus: row.status,
     showInfo: row.showInfo ?? true,
+    link: pillLink(
+      { url: row.sceneUrl ?? null, urlText: row.sceneUrlText ?? null },
+      { url: row.url ?? null, urlText: row.urlText ?? null },
+    ),
     fields,
     showing,
   };
@@ -577,7 +635,9 @@ async function parseElementForm(
 }
 
 /** The element columns the run page's form writes. */
-function elementColumns(values: Omit<RunElementValues, "sceneStatus">) {
+function elementColumns(
+  values: Omit<RunElementValues, "sceneStatus" | "sceneUrl" | "sceneUrlText">,
+) {
   return {
     kind: values.kind,
     name: values.name,
@@ -585,8 +645,15 @@ function elementColumns(values: Omit<RunElementValues, "sceneStatus">) {
     title: values.title || null,
     description: values.description || null,
     notes: values.notes || null,
+    url: values.url || null,
+    urlText: values.urlText || null,
     status: values.status,
   };
+}
+
+/** The link's own columns from the run form: its external link for this scene. */
+function sceneLinkColumns(values: Pick<RunElementValues, "sceneUrl" | "sceneUrlText">) {
+  return { url: values.sceneUrl || null, urlText: values.sceneUrlText || null };
 }
 
 /**
@@ -657,6 +724,7 @@ export async function sa_createSceneElement(
       tags,
       status: values.sceneStatus,
       showInfo,
+      ...sceneLinkColumns(values),
       idCreatedByUser: user.id,
       idUpdatedByUser: user.id,
     });
@@ -687,6 +755,10 @@ export async function sa_createSceneElement(
       status: values.sceneStatus,
       showInfo,
       imageUrl,
+      url: values.url || null,
+      urlText: values.urlText || null,
+      sceneUrl: values.sceneUrl || null,
+      sceneUrlText: values.sceneUrlText || null,
     }),
   };
 }
@@ -726,7 +798,7 @@ export async function sa_updateSceneElement(
       tags: vSceneElements.tags,
       showing: vSceneElements.elementShowing,
       showInfo: vSceneElements.showInfo,
-      imageUrl: attachmentUrl("ELEMENT", "v_scene_elements", "id_element"),
+      imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
     })
     .from(vSceneElements)
     .where(
@@ -750,12 +822,16 @@ export async function sa_updateSceneElement(
           idUpdatedByUser: user.id,
         })
         .where(and(eq(elements.idElement, element), eq(elements.idStory, story)));
-      if (values.sceneStatus !== current.status) {
-        await tx
-          .update(sceneElements)
-          .set({ status: values.sceneStatus, idUpdatedByUser: user.id })
-          .where(and(eq(sceneElements.idStoryScene, scene), eq(sceneElements.idElement, element)));
-      }
+      // The link's own link always; its status only when it moved, since a
+      // move to the status a row holds is not a transition.
+      await tx
+        .update(sceneElements)
+        .set({
+          ...sceneLinkColumns(values),
+          ...(values.sceneStatus !== current.status ? { status: values.sceneStatus } : {}),
+          idUpdatedByUser: user.id,
+        })
+        .where(and(eq(sceneElements.idStoryScene, scene), eq(sceneElements.idElement, element)));
     });
   } catch {
     // The transition trigger raises rather than returns, naming database
@@ -777,6 +853,10 @@ export async function sa_updateSceneElement(
       showing: current.showing,
       showInfo: current.showInfo,
       imageUrl: current.imageUrl,
+      url: values.url || null,
+      urlText: values.urlText || null,
+      sceneUrl: values.sceneUrl || null,
+      sceneUrlText: values.sceneUrlText || null,
     }),
   };
 }
@@ -834,6 +914,8 @@ export async function sa_linkSceneElement(
       initialName: elements.initialName,
       title: elements.title,
       imageUrl: attachmentUrl("ELEMENT", "elements", "id_element"),
+      url: elements.url,
+      urlText: elements.urlText,
     })
     .from(elements)
     .where(and(eq(elements.idElement, element.data), eq(elements.idStory, story.data)))
@@ -858,6 +940,10 @@ export async function sa_linkSceneElement(
       status: sceneElements.status,
       showing: sceneElements.elementShowing,
       showInfo: sceneElements.showInfo,
+      // An existing link may have a picture, and a link, of its own in this scene.
+      imageUrl: attachmentUrl("SCENE_ELEMENT", "scene_elements", "id_scene_element"),
+      sceneUrl: sceneElements.url,
+      sceneUrlText: sceneElements.urlText,
     })
     .from(sceneElements)
     .where(
@@ -870,6 +956,9 @@ export async function sa_linkSceneElement(
     ok: true,
     item: linkedItem({
       ...row,
+      imageUrl: link?.imageUrl ?? row.imageUrl,
+      sceneUrl: link?.sceneUrl,
+      sceneUrlText: link?.sceneUrlText,
       tags: link?.tags ?? [],
       status: link?.status ?? "",
       showing: link?.showing,
@@ -1149,6 +1238,8 @@ export async function sa_getElementDetail(
       imageUrl: attachmentUrl("ELEMENT", "elements", "id_element"),
       status: elements.status,
       tags: elements.tags,
+      url: elements.url,
+      urlText: elements.urlText,
     })
     .from(elements)
     .where(and(eq(elements.idElement, element.data), eq(elements.idStory, story.data)))
@@ -1166,6 +1257,8 @@ export async function sa_getElementDetail(
             status: sceneElements.status,
             tags: sceneElements.tags,
             showInfo: sceneElements.showInfo,
+            url: sceneElements.url,
+            urlText: sceneElements.urlText,
             createdAt: sceneElements.createdAt,
           })
           .from(sceneElements)
@@ -1394,6 +1487,86 @@ export async function sa_moveSceneElement(
   if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
   if (!owned.tags.includes(toTag.data)) return { ok: false, error: NO_SUCH_STACK };
 
+  const row = await linkedRow(story.data, scene.data, element.data);
+  if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
+
+  const kept = row.tags.filter((tag) => tag !== fromTag.data && tag !== toTag.data);
+  const tags = [...kept, toTag.data];
+  await db
+    .update(sceneElements)
+    .set({ tags, idUpdatedByUser: user.id })
+    .where(
+      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, element.data)),
+    );
+  publishLater(() => publishSceneElement(story.data, scene.data, element.data));
+
+  return { ok: true, item: linkedItem({ ...row, tags }) };
+}
+
+export type SetSceneElementTagsResult = { ok: true; item: PlayItem } | { ok: false; error: string };
+
+/**
+ * The element panel's stacks dialog: which of the scene's stacks the element
+ * is filed under, the link's tags replaced with the ones ticked, kept in the
+ * scene's order whatever order they were ticked in. A tag the link carried
+ * that is no longer one of the scene's goes with the rest, since the dialog
+ * could not offer it. No stacks at all is allowed: the pill then shows in
+ * the first stack, where playStacks files anything with none of the scene's
+ * tags. Only the link changes. The pill comes back as it now is.
+ *
+ * Refused for a stack that is not one of the scene's tags, since the stacks
+ * it was ticked from are out of date; when the element is not linked to
+ * the scene; and for a scene the caller does not tell or that is complete.
+ */
+export async function sa_setSceneElementTags(
+  idStory: number,
+  idStoryScene: number,
+  idElement: number,
+  tags: string[],
+): Promise<SetSceneElementTagsResult> {
+  const user = await requireUser();
+  const story = idSchema.safeParse(idStory);
+  const scene = idSchema.safeParse(idStoryScene);
+  const element = idSchema.safeParse(idElement);
+  const ticked = stacksSchema.safeParse(tags);
+  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
+  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+  if (!ticked.success) return { ok: false, error: NO_SUCH_STACK };
+
+  const owned = await ownedScene(user.id, story.data, scene.data);
+  if (owned === null) return { ok: false, error: NOT_THIS_STORY };
+  if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
+  if (ticked.data.some((tag) => !owned.tags.includes(tag))) {
+    return { ok: false, error: NO_SUCH_STACK };
+  }
+
+  const row = await linkedRow(story.data, scene.data, element.data);
+  if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
+
+  const ordered = owned.tags.filter((tag) => ticked.data.includes(tag));
+  await db
+    .update(sceneElements)
+    .set({ tags: ordered, idUpdatedByUser: user.id })
+    .where(
+      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, element.data)),
+    );
+  publishLater(() => publishSceneElement(story.data, scene.data, element.data));
+
+  return { ok: true, item: linkedItem({ ...row, tags: ordered }) };
+}
+
+/**
+ * An element's link to a scene of the story with everything its pill shows,
+ * read for a write that hands the pill back (Move to, the stacks dialog), or
+ * null when the element is not linked to the scene. The story is checked
+ * because nothing in the database holds a link's element to the scene's
+ * story.
+ */
+async function linkedRow(
+  idStory: number,
+  idStoryScene: number,
+  idElement: number,
+): Promise<Parameters<typeof linkedItem>[0] | null> {
   const [row] = await db
     .select({
       kind: vSceneElements.kind,
@@ -1404,44 +1577,36 @@ export async function sa_moveSceneElement(
       status: vSceneElements.status,
       showing: vSceneElements.elementShowing,
       showInfo: vSceneElements.showInfo,
-      imageUrl: attachmentUrl("ELEMENT", "v_scene_elements", "id_element"),
+      imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
+      url: vSceneElements.elementUrl,
+      urlText: vSceneElements.elementUrlText,
+      sceneUrl: vSceneElements.url,
+      sceneUrlText: vSceneElements.urlText,
     })
     .from(vSceneElements)
     .where(
       and(
-        eq(vSceneElements.idStoryScene, scene.data),
-        eq(vSceneElements.idElement, element.data),
-        eq(vSceneElements.idStory, story.data),
+        eq(vSceneElements.idStoryScene, idStoryScene),
+        eq(vSceneElements.idElement, idElement),
+        eq(vSceneElements.idStory, idStory),
       ),
     )
     .limit(1);
-  if (!row || row.kind === null || row.name === null) {
-    return { ok: false, error: NOT_IN_THIS_SCENE };
-  }
-
-  const kept = (row.tags ?? []).filter((tag) => tag !== fromTag.data && tag !== toTag.data);
-  const tags = [...kept, toTag.data];
-  await db
-    .update(sceneElements)
-    .set({ tags, idUpdatedByUser: user.id })
-    .where(
-      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, element.data)),
-    );
-  publishLater(() => publishSceneElement(story.data, scene.data, element.data));
-
+  if (!row || row.kind === null || row.name === null) return null;
   return {
-    ok: true,
-    item: linkedItem({
-      idElement: element.data,
-      kind: row.kind,
-      name: row.name,
-      initialName: row.initialName,
-      title: row.title,
-      tags,
-      status: row.status ?? "",
-      showing: row.showing,
-      showInfo: row.showInfo,
-      imageUrl: row.imageUrl,
-    }),
+    idElement,
+    kind: row.kind,
+    name: row.name,
+    initialName: row.initialName,
+    title: row.title,
+    tags: row.tags ?? [],
+    status: row.status ?? "",
+    showing: row.showing,
+    showInfo: row.showInfo,
+    imageUrl: row.imageUrl,
+    url: row.url,
+    urlText: row.urlText,
+    sceneUrl: row.sceneUrl,
+    sceneUrlText: row.sceneUrlText,
   };
 }

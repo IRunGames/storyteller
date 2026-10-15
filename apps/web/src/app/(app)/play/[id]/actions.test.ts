@@ -17,6 +17,9 @@ const hasDb = Boolean(process.env.DATABASE_URL);
 // Who the actions think is asking; each test that changes it sets it back.
 let caller = SEED_USER;
 const getSession = mock.fn(async () => ({ user: { id: caller } }));
+// Writing a scene up tells every table it changed; mocked so the tests see
+// it reached for, and so nothing publishes after the pool has closed.
+const publishSceneChanged = mock.fn(async (_idStory: number) => {});
 
 let actions: typeof import("./actions");
 
@@ -35,6 +38,7 @@ let fixtureStoryIds: number[] = [];
 describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
+    mock.module("@/lib/realtime/publish-scene", { namedExports: { publishSceneChanged } });
     ({ db, schema: tables } = await import("@/db"));
     actions = await import("./actions");
 
@@ -408,6 +412,56 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         .where(eq(tables.storySessions.idStorySession, id));
       return id;
     }
+
+    it("lets a player write up the scene's description and notes, and no one else", async () => {
+      publishSceneChanged.mock.resetCalls();
+      const textOf = async () =>
+        (
+          await db
+            .select({
+              description: tables.storyScenes.sceneDescription,
+              notes: tables.storyScenes.notes,
+            })
+            .from(tables.storyScenes)
+            .where(eq(tables.storyScenes.idStoryScene, docks))
+        )[0];
+
+      // The seed user plays in the story.
+      expect(
+        await actions.sa_setPlaySceneText(playsIn, docks, {
+          description: " Fog on the water. ",
+          notes: "The ferryman was already dead.",
+        }),
+      ).toEqual({
+        ok: true,
+        text: { description: "Fog on the water.", notes: "The ferryman was already dead." },
+      });
+      expect(await textOf()).toEqual({
+        description: "Fog on the water.",
+        notes: "The ferryman was already dead.",
+      });
+      expect(publishSceneChanged.mock.calls.map((call) => call.arguments)).toEqual([[playsIn]]);
+
+      expect(
+        await actions.sa_setPlaySceneText(playsIn, docks, {
+          description: "x".repeat(8001),
+          notes: "",
+        }),
+      ).toEqual({
+        ok: false,
+        errors: { description: "Keep the description under 8000 characters." },
+      });
+      // A scene of a story the caller is not seated at, under either story's id.
+      expect(
+        await actions.sa_setPlaySceneText(stranger, docks, { description: "Mine", notes: "" }),
+      ).toEqual({ ok: false, errors: { root: "You are not at this story's table." } });
+      expect(await textOf()).toMatchObject({ description: "Fog on the water." });
+
+      await db
+        .update(tables.storyScenes)
+        .set({ sceneDescription: null, notes: null })
+        .where(eq(tables.storyScenes.idStoryScene, docks));
+    });
 
     it("gives a player the scene with the elements they may see, whole but for the notes", async () => {
       const session = await onScene(docks);

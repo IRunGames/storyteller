@@ -233,7 +233,7 @@ export function SceneForm({
           />
           <StoryAttachmentPicker
             idStory={idStory}
-            idStoryScene={scene.idStoryScene}
+            holder={{ kind: "STORY_SCENE", idExternal: scene.idStoryScene }}
             onAttached={() => setPicturesKey((key) => key + 1)}
           />
         </Stack>

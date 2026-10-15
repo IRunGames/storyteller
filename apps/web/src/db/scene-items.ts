@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { db } from "./index";
-import { attachmentUrl } from "./attachment-url";
+import { sceneElementImageUrl } from "./attachment-url";
 import { elements, sceneElements, stories, storySessions } from "./schema";
 import { ELEMENT_KINDS } from "@/lib/elements";
 
@@ -32,7 +32,10 @@ export async function currentScene(idStory: number): Promise<CurrentScene | null
   return row ?? null;
 }
 
-/** An element with its link to one scene, and its picture's address. */
+/**
+ * An element with its link to one scene, and the address of the picture its
+ * pill shows there: the link's own cover, else the element's.
+ */
 export type SceneItemRow = {
   element: typeof elements.$inferSelect;
   link: typeof sceneElements.$inferSelect;
@@ -53,7 +56,7 @@ export async function sceneItem(
     .select({
       element: elements,
       link: sceneElements,
-      imageUrl: attachmentUrl("ELEMENT", "elements", "id_element"),
+      imageUrl: sceneElementImageUrl("scene_elements", "elements"),
     })
     .from(elements)
     .leftJoin(
@@ -83,7 +86,7 @@ export async function sceneItems(
     .select({
       element: elements,
       link: sceneElements,
-      imageUrl: attachmentUrl("ELEMENT", "elements", "id_element"),
+      imageUrl: sceneElementImageUrl("scene_elements", "elements"),
     })
     .from(sceneElements)
     .innerJoin(elements, eq(elements.idElement, sceneElements.idElement))

@@ -9,7 +9,16 @@ import { z } from "zod";
 export const idAttachmentSchema = z.number().int().min(-2147483648).max(2147483647);
 export const idExternalSchema = z.number().int().min(-2147483648).max(2147483647);
 
-export const attachmentKindSchema = z.enum(["STORY", "STORY_SESSION", "STORY_SCENE", "ELEMENT"]);
+export const attachmentKindSchema = z.enum([
+  "STORY",
+  "STORY_SESSION",
+  "STORY_SCENE",
+  "ELEMENT",
+  "SCENE_ELEMENT",
+]);
+
+/** The holders the story's pictures are attached to; see AttachHolderKind. */
+export const attachHolderKindSchema = z.enum(["STORY_SCENE", "SCENE_ELEMENT"]);
 
 // A create form only ever collects a handful of ids; a bound keeps a crafted
 // array from turning a claim into a full-table scan, the same reasoning
