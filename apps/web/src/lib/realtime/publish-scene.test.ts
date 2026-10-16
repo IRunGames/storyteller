@@ -98,7 +98,7 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   }
 
   describe("publishSceneElement", () => {
-    it("sends the element and its link whole, without the notes", async () => {
+    it("sends the element and its link whole, the players' notes included", async () => {
       await play(docks);
       await helpers.publishSceneElement(story, docks, zed);
 
@@ -107,10 +107,9 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
         v: 1,
         idStory: story,
         type: "scene_element.upserted",
-        element: { idElement: zed, name: "Fixture Zed" },
+        element: { idElement: zed, name: "Fixture Zed", notes: "The villain" },
         sceneElement: { idStoryScene: docks, idElement: zed, tags: ["scene"], status: "READY" },
       });
-      expect(event).not.toHaveProperty("element.notes");
       expect(publishStoryEvent.mock.calls[0].arguments[0]).toBe(story);
     });
 

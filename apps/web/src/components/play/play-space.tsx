@@ -17,6 +17,10 @@ type Props = {
   status: ChannelStatus;
   /** The scene's description and notes have been saved from the title's panel. */
   onTextChange: (text: SceneText) => void;
+  /** The players' notes on an element have been saved from its pill's info popover. */
+  onNotesChange: (idElement: number, notes: string | null) => void;
+  /** A pill has changed its link's status, or put it back after a refusal. */
+  onStatusChange: (idElement: number, status: string) => void;
 };
 
 // The same halo the storyteller's stack headings carry, so a tag reads over
@@ -40,7 +44,14 @@ const STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
  * the players to write up (SceneTextPopover). With no session, or a session
  * on no scene yet, it says which.
  */
-export function PlaySpace({ idStory, scene, status, onTextChange }: Props) {
+export function PlaySpace({
+  idStory,
+  scene,
+  status,
+  onTextChange,
+  onNotesChange,
+  onStatusChange,
+}: Props) {
   const note = STATUS_NOTES[status];
   const items = scene.items.map(toPlayItem);
 
@@ -136,7 +147,13 @@ export function PlaySpace({ idStory, scene, status, onTextChange }: Props) {
                   <List.Root listStyleType="none" gap="2">
                     {stack.items.map((item) => (
                       <List.Item key={item.key}>
-                        <PlayPill item={item} />
+                        <PlayPill
+                          idStory={idStory}
+                          idStoryScene={scene.scene!.idStoryScene}
+                          item={item}
+                          onNotesChange={onNotesChange}
+                          onStatusChange={onStatusChange}
+                        />
                       </List.Item>
                     ))}
                   </List.Root>

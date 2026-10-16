@@ -13,6 +13,32 @@ default:
 dev:
     npm run dev
 
+# `just dev` spawns two process groups (just → npm → turbo, and the web
+# workspace's npm → next dev → next-server), so each matched process's whole
+# group is signalled rather than walking a parent chain that turbo breaks.
+# Stop a running `just dev` (the turbo/next dev server on port 3000)
+[group('web')]
+kill:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # lsof and pgrep exit 1 when they match nothing, which is not a failure here.
+    pids="$( { lsof -tiTCP:3000 -sTCP:LISTEN || true
+               pgrep -f '{{ justfile_directory() }}/node_modules/.bin/(turbo|next) dev' || true
+             } 2>/dev/null | sort -u )"
+    if [ -z "$pids" ]; then
+        echo "No dev server running"
+        exit 0
+    fi
+    me="$(ps -o pgid= -p $$ | tr -d ' ')"
+    groups="$(ps -o pgid= -p $pids | tr -d ' ' | sort -u | grep -vx "$me" || true)"
+    for pg in $groups; do kill -TERM -- "-$pg" 2>/dev/null || true; done
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        ps -o pid= -p $pids >/dev/null 2>&1 || break
+        sleep 0.5
+    done
+    for pg in $groups; do kill -KILL -- "-$pg" 2>/dev/null || true; done
+    echo "Stopped dev server (process groups: $(echo $groups))"
+
 # Run the web app's tests
 # Pass node --test flags through, e.g. `just test --test-name-pattern LoginForm`
 [group('web')]

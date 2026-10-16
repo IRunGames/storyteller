@@ -17,12 +17,13 @@ const isoDate = z.string().nullable();
 const tags = z.array(z.string());
 
 /**
- * An element as the players may see it: every column but notes, which are
- * the storyteller's own, and the two the database builds for itself
- * (search_text, activity_log). Timestamps are ISO strings, since the message
- * is JSON. imageUrl is the element's cover picture (its ELEMENT use in
- * attachment_uses), worked out on the way out as the storyteller's table has
- * it, so the players' table need not ask again.
+ * An element as the players may see it: every column but the two the
+ * database builds for itself (search_text, activity_log). The notes are
+ * the players' own, written from their table, so they go whole. Timestamps
+ * are ISO strings, since the message is JSON. imageUrl is the element's
+ * cover picture (its ELEMENT use in attachment_uses), worked out on the way
+ * out as the storyteller's table has it, so the players' table need not ask
+ * again.
  */
 export const publicElementSchema = z.object({
   idElement: z.number().int(),
@@ -33,6 +34,7 @@ export const publicElementSchema = z.object({
   name: z.string(),
   title: z.string().nullable(),
   description: z.string().nullable(),
+  notes: z.string().nullable(),
   imageUrl: z.string().nullable(),
   url: z.string().nullable(),
   urlText: z.string().nullable(),
@@ -89,6 +91,7 @@ export function toPublicElement(
     name: row.name,
     title: row.title,
     description: showInfo ? row.description : null,
+    notes: row.notes,
     imageUrl,
     url: row.url,
     urlText: row.urlText,

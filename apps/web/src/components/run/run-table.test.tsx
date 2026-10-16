@@ -34,6 +34,11 @@ const people: StoryElement[] = [
 
 const scene = { idStoryScene: -15, title: "Strangers in the morning", status: "ACTIVE" };
 
+// The reload button reads the space afresh; what it answers is set per test.
+const sa_getRunPlaySpace = mock.fn(async (_idStory: number): Promise<RunPlaySpace> => ({
+  ...EMPTY_PLAY_SPACE,
+}));
+
 const sa_linkSceneElement = mock.fn(
   async (
     _story: number,
@@ -275,6 +280,7 @@ describe("RunTable", () => {
         sa_setSceneElementShown: mock.fn(),
         sa_setSceneElementShowing: mock.fn(),
         sa_setSceneText,
+        sa_getRunPlaySpace,
 
         sa_getElementDetail,
         sa_updateStoryElement: mock.fn(
@@ -452,6 +458,71 @@ describe("RunTable", () => {
     // Pills have no ✕; taking an element out is the info popover's −,
     // which needs a scene.
     expect(within(space).queryByRole("button", { name: /^Remove / })).not.toBeInTheDocument();
+  });
+
+  it("reloads the scene from the button at the left of its title", async () => {
+    const u = userEvent.setup();
+    sa_getRunPlaySpace.mock.resetCalls();
+    sa_getRunPlaySpace.mock.mockImplementationOnce(async () => ({
+      scene: { ...scene, title: "Strangers at noon" },
+      tags: ["scene"],
+      coverUrl: null,
+      inPlay: [
+        {
+          key: "PERSON:5",
+          kind: "PERSON",
+          label: "Dafydd",
+          detail: null,
+          imageUrl: null,
+          sceneTags: ["scene"],
+        },
+      ],
+    }));
+    renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay: [] });
+    const space = screen.getByRole("region", { name: "Play space" });
+    expect(within(space).queryByText("Dafydd")).not.toBeInTheDocument();
+
+    // Before the title, in its pill, not in the header.
+    const reload = within(space).getByRole("button", { name: "Reload the scene" });
+    const title = within(space).getByRole("heading", { name: "Strangers in the morning" });
+    expect(reload.parentElement).toBe(title.parentElement);
+    expect(reload.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      within(screen.getByRole("banner")).queryByRole("button", { name: "Reload the scene" }),
+    ).not.toBeInTheDocument();
+    await u.hover(reload);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Reload the scene");
+    await u.click(reload);
+
+    await waitFor(() => expect(sa_getRunPlaySpace.mock.callCount()).toBe(1));
+    expect(sa_getRunPlaySpace.mock.calls[0].arguments).toEqual([-4]);
+    // The space is what the database holds now: the scene's title and its
+    // elements as read.
+    expect(await within(space).findByText("Dafydd")).toBeInTheDocument();
+    expect(within(space).getByRole("heading", { name: "Strangers at noon" })).toBeInTheDocument();
+  });
+
+  it("says so and keeps the space when the scene cannot be reloaded", async () => {
+    const u = userEvent.setup();
+    sa_getRunPlaySpace.mock.mockImplementationOnce(async () => {
+      throw new Error("offline");
+    });
+    renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay: [] });
+
+    await u.click(screen.getByRole("button", { name: "Reload the scene" }));
+    expect(
+      await screen.findByText("The scene could not be reloaded. Try again."),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "Play space" })).getByRole("heading", {
+        name: "Strangers in the morning",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers no reload with no scene at the table, since there is none to reload", () => {
+    renderTable();
+    expect(screen.queryByRole("button", { name: "Reload the scene" })).not.toBeInTheDocument();
   });
 
   it("stacks the scene's elements by its tags, the untagged in the first", () => {

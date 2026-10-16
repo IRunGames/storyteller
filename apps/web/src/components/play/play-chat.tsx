@@ -16,6 +16,7 @@ import {
 import { Dices } from "lucide-react";
 import { useUser } from "@/components/auth/user-provider";
 import type { ChatEntry } from "@/lib/chat";
+import { chatLog } from "@/lib/chat-log";
 import { PlayChatEntry } from "./play-chat-entry";
 
 // What the chat will be used for, shown until the first real message: a
@@ -68,11 +69,15 @@ type Props = {
 // The table's chat: the right-hand panel. A placeholder until the messaging
 // service lands: messages live in this component's state only, nobody else
 // sees them, and a sample conversation stands in until the first is sent.
-// Its input sits at the foot of the panel rather than across the page, so
-// closing the chat takes the input with it.
+// Lines the table itself posts (lib/chat-log.ts: a card untapped) count as
+// sent too: those posted before the panel opened are there on opening, and
+// later ones arrive as they are posted. Its input sits at the foot of the
+// panel rather than across the page, so closing the chat takes the input
+// with it.
 export function PlayChat({ id }: Props) {
   const user = useUser();
-  const [entries, setEntries] = useState<ChatEntry[]>([]);
+  const [entries, setEntries] = useState<ChatEntry[]>(() => chatLog.entries());
+  useEffect(() => chatLog.subscribe((entry) => setEntries((current) => [...current, entry])), []);
   // TODO: populate from the messaging service's presence feed.
   const [online] = useState<string[]>([]);
   const [input, setInput] = useState("");

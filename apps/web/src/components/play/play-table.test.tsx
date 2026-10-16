@@ -1,14 +1,17 @@
 import { EventEmitter } from "node:events";
-import { before, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
+import { Toaster, toaster } from "@/components/ui/toaster";
 import { UserProvider } from "@/components/auth/user-provider";
+import { chatLog } from "@/lib/chat-log";
 import type { CurrentUser } from "@/lib/current-user";
 import type { PlayScene } from "@/lib/play-scene";
 import type { StoryEvent } from "@/lib/realtime/events";
+import type { SetElementNotesResult, UntapSceneElementResult } from "@/app/(app)/play/[id]/actions";
 
 // A storyteller (-2), so the diagnostics toggle is offered; the player test
 // overrides the type.
@@ -50,6 +53,18 @@ const sa_setPlaySceneText = mock.fn(
     text: { description: values.description || null, notes: values.notes || null },
   }),
 );
+const sa_untapPlaySceneElement = mock.fn(
+  async (_story: number, _scene: number, _element: number): Promise<UntapSceneElementResult> => ({
+    ok: true,
+    status: "READY",
+  }),
+);
+const sa_setPlayElementNotes = mock.fn(
+  async (_story: number, _element: number, notes: string): Promise<SetElementNotesResult> => ({
+    ok: true,
+    notes: notes.trim() || null,
+  }),
+);
 
 const zed = {
   element: {
@@ -61,6 +76,7 @@ const zed = {
     name: "Zed",
     title: "Harbourmaster",
     description: null,
+    notes: null,
     imageUrl: null,
     url: null,
     urlText: null,
@@ -124,6 +140,7 @@ function renderTable(
     <UserProvider user={who}>
       <UserPreferencesProvider preferences={preferences}>
         <PlayTable idStory={7} title="Psychoneira" session={session} initialScene={initialScene} />
+        <Toaster />
       </UserPreferencesProvider>
     </UserProvider>,
   );
@@ -162,7 +179,13 @@ describe("PlayTable", () => {
       namedExports: { sa_setUserPreference },
     });
     mock.module("@/app/(app)/play/[id]/actions", {
-      namedExports: { sa_getStoryChannel, sa_getPlayScene, sa_setPlaySceneText },
+      namedExports: {
+        sa_getStoryChannel,
+        sa_getPlayScene,
+        sa_setPlaySceneText,
+        sa_setPlayElementNotes,
+        sa_untapPlaySceneElement,
+      },
     });
     mock.module("mqtt", { defaultExport: { connect } });
 
@@ -178,6 +201,12 @@ describe("PlayTable", () => {
     sa_getPlayScene.mock.resetCalls();
     sa_getPlayScene.mock.mockImplementation(async () => null);
     connect.mock.resetCalls();
+    sa_untapPlaySceneElement.mock.resetCalls();
+    chatLog.clear();
+  });
+
+  afterEach(() => {
+    toaster.remove();
   });
 
   it("links the Storyteller name in its header to the home page", () => {
@@ -320,10 +349,17 @@ describe("PlayTable", () => {
       element: { ...zed.element, updatedAt: "2026-10-13T10:02:00.000Z" },
       sceneElement: { ...zed.sceneElement, status: "DISABLED", elementShowing: "name" },
     });
-    expect(screen.getByText("Zed").closest("[data-scene-status]")).toHaveAttribute(
-      "data-scene-status",
-      "DISABLED",
-    );
+    const disabled = screen.getByText("Zed").closest("[data-scene-status]") as HTMLElement;
+    expect(disabled).toHaveAttribute("data-scene-status", "DISABLED");
+    // Stepped back: see-through, with its text dimmed.
+    expect(disabled).toHaveStyle({ opacity: "0.7" });
+    // Switched off: a ban leads the pill, and says so on hover.
+    const ban = within(disabled).getByRole("img", { name: "Currently disabled" });
+    expect(disabled.firstElementChild).toContainElement(ban);
+    const u = userEvent.setup();
+    await u.hover(ban);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Currently disabled");
+    await u.unhover(ban);
 
     await deliver({
       ...base,
@@ -358,7 +394,15 @@ describe("PlayTable", () => {
     });
     const pill = screen.getByText("Zed").closest("[data-scene-status]") as HTMLElement;
     expect(pill).toHaveAttribute("data-scene-status", "TAPPED");
-    expect(within(pill).getByRole("img", { name: "Tapped" })).toBeInTheDocument();
+    expect(pill).toHaveStyle({ opacity: "0.7" });
+    // With its info showing, the marker is the untap button, at the start.
+    expect(within(pill).getByRole("button", { name: "Tapped: untap Zed" })).toBeInTheDocument();
+    expect(within(pill).queryByRole("img", { name: "Currently disabled" })).toBeNull();
+    // The whole pill says so on hover too.
+    const hover = userEvent.setup();
+    await hover.hover(pill);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Tapped");
+    await hover.unhover(pill);
     // With its info on: the title under the name, and the description
     // behind the info button, in a popover.
     expect(within(pill).getByText("Harbourmaster")).toBeInTheDocument();
@@ -421,6 +465,143 @@ describe("PlayTable", () => {
         name: "Notes",
       }),
     ).toHaveValue("Ask about the mist.");
+  });
+
+  it("leads a tapped pill with its marker, which with the info showing asks and untaps the card", async () => {
+    const u = userEvent.setup();
+    const tapped = (showInfo: boolean): PlayScene => ({
+      ...scene,
+      items: [{ ...zed, sceneElement: { ...zed.sceneElement, status: "TAPPED", showInfo } }],
+    });
+
+    // Info off: the marker alone, at the start, and nothing to press.
+    const quiet = renderTable({}, "3. Kildealg", user, tapped(false));
+    let pill = screen.getByText("A hooded figure").closest("[data-scene-status]") as HTMLElement;
+    const marker = within(pill).getByRole("img", { name: "Tapped" });
+    expect(pill.firstElementChild).toContainElement(marker);
+    expect(within(pill).queryByRole("button", { name: /untap/ })).toBeNull();
+    quiet.unmount();
+
+    renderTable({}, "3. Kildealg", user, tapped(true));
+    pill = screen.getByText("A hooded figure").closest("[data-scene-status]") as HTMLElement;
+    const untap = within(pill).getByRole("button", { name: "Tapped: untap A hooded figure" });
+    expect(pill.firstElementChild).toContainElement(untap);
+    await u.hover(untap);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Tapped: press to untap");
+    await u.click(untap);
+    const ask = await screen.findByRole("dialog", { name: "Untap A hooded figure?" });
+    // Cancel leaves it tapped and says nothing.
+    await u.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(sa_untapPlaySceneElement.mock.callCount()).toBe(0);
+    expect(chatLog.entries()).toHaveLength(0);
+
+    await u.click(untap);
+    await u.click(
+      within(await screen.findByRole("dialog", { name: "Untap A hooded figure?" })).getByRole(
+        "button",
+        { name: "Untap" },
+      ),
+    );
+    await waitFor(() => expect(sa_untapPlaySceneElement.mock.callCount()).toBe(1));
+    expect(sa_untapPlaySceneElement.mock.calls[0].arguments).toEqual([7, 3, 5]);
+    // Ready again, the marker gone, and the chat told who did it. The pill
+    // is drawn afresh without its tooltip, so it is found again.
+    const readied = () =>
+      screen.getByText("A hooded figure").closest("[data-scene-status]") as HTMLElement;
+    await waitFor(() => expect(readied()).toHaveAttribute("data-scene-status", "READY"));
+    // In play again, it stands out as the others do.
+    expect(readied()).not.toHaveStyle({ opacity: "0.7" });
+    expect(within(readied()).queryByRole("button", { name: /untap/ })).toBeNull();
+    expect(within(readied()).queryByRole("img", { name: "Tapped" })).toBeNull();
+    expect(chatLog.entries()).toMatchObject([
+      { from: "Paul Stafford", text: "untapped A hooded figure" },
+    ]);
+  });
+
+  it("stays tapped, says why and tells the chat nothing when the untap is refused", async () => {
+    const u = userEvent.setup();
+    sa_untapPlaySceneElement.mock.mockImplementationOnce(async () => ({
+      ok: false,
+      error: "That element is not tapped.",
+    }));
+    renderTable({}, "3. Kildealg", user, {
+      ...scene,
+      items: [{ ...zed, sceneElement: { ...zed.sceneElement, status: "TAPPED", showInfo: true } }],
+    });
+    const pill = screen.getByText("A hooded figure").closest("[data-scene-status]") as HTMLElement;
+
+    await u.click(within(pill).getByRole("button", { name: "Tapped: untap A hooded figure" }));
+    await u.click(
+      within(await screen.findByRole("dialog", { name: "Untap A hooded figure?" })).getByRole(
+        "button",
+        { name: "Untap" },
+      ),
+    );
+    expect(await screen.findByText("That element is not tapped.")).toBeInTheDocument();
+    expect(screen.getByText("A hooded figure").closest("[data-scene-status]")).toHaveAttribute(
+      "data-scene-status",
+      "TAPPED",
+    );
+    expect(chatLog.entries()).toHaveLength(0);
+  });
+
+  it("lets a player keep notes on an element from its info popover", async () => {
+    const u = userEvent.setup();
+    sa_setPlayElementNotes.mock.resetCalls();
+    renderTable();
+
+    const pill = screen.getByText("A hooded figure").closest("[data-scene-status]") as HTMLElement;
+    await u.click(within(pill).getByRole("button", { name: "About A hooded figure" }));
+    const popover = await screen.findByRole("dialog", { name: "A hooded figure" });
+    const notes = within(popover).getByRole("textbox", { name: "Notes" });
+    expect(notes).toHaveValue("");
+    // Nothing to save until the notes differ from what is held.
+    const save = within(popover).getByRole("button", { name: "Save notes" });
+    expect(save).toBeDisabled();
+    await u.type(notes, "Owes the harbourmaster.");
+    expect(save).toBeEnabled();
+    await u.click(save);
+
+    await waitFor(() => expect(sa_setPlayElementNotes.mock.callCount()).toBe(1));
+    expect(sa_setPlayElementNotes.mock.calls[0].arguments).toEqual([
+      7,
+      5,
+      "Owes the harbourmaster.",
+    ]);
+    await waitFor(() => expect(save).toBeDisabled());
+    await u.keyboard("{Escape}");
+
+    // The table keeps what was saved, without waiting on the topic.
+    await u.click(within(pill).getByRole("button", { name: "About A hooded figure" }));
+    expect(
+      within(await screen.findByRole("dialog", { name: "A hooded figure" })).getByRole("textbox", {
+        name: "Notes",
+      }),
+    ).toHaveValue("Owes the harbourmaster.");
+  });
+
+  it("keeps the notes and says why when saving them is refused", async () => {
+    const u = userEvent.setup();
+    sa_setPlayElementNotes.mock.mockImplementationOnce(async () => ({
+      ok: false,
+      error: "Keep the notes under 8000 characters.",
+    }));
+    renderTable();
+
+    const pill = screen.getByText("A hooded figure").closest("[data-scene-status]") as HTMLElement;
+    await u.click(within(pill).getByRole("button", { name: "About A hooded figure" }));
+    const popover = await screen.findByRole("dialog", { name: "A hooded figure" });
+    const notes = within(popover).getByRole("textbox", { name: "Notes" });
+    await u.type(notes, "Too long, in principle.");
+    await u.click(within(popover).getByRole("button", { name: "Save notes" }));
+
+    expect(
+      await within(popover).findByText("Keep the notes under 8000 characters."),
+    ).toBeInTheDocument();
+    expect(notes).toHaveValue("Too long, in principle.");
+    expect(notes).toBeInvalid();
+    expect(within(popover).getByRole("button", { name: "Save notes" })).toBeEnabled();
   });
 
   it("reloads the scene when the table moves to another", async () => {

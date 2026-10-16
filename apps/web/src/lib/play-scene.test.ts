@@ -14,6 +14,7 @@ function element(over: Partial<PublicElement> = {}): PublicElement {
     name: "Zed",
     title: "Harbourmaster",
     description: null,
+    notes: null,
     imageUrl: null,
     url: null,
     urlText: null,

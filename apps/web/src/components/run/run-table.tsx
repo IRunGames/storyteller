@@ -13,7 +13,7 @@ import {
   Switch,
   Text,
 } from "@chakra-ui/react";
-import { Activity, BookOpen, MessageSquare, Settings, UserRound } from "lucide-react";
+import { Activity, BookOpen, MessageSquare, RefreshCw, Settings, UserRound } from "lucide-react";
 import {
   elementIdOf,
   playStacks,
@@ -32,7 +32,11 @@ import type { StatusOption } from "@/lib/status";
 import { EMPTY_SCENE_TEXT, SCENE_LOCKED_STATUS } from "@/lib/scenes";
 import type { StackRename } from "@/lib/stack-schemas";
 import { cssUrlValue, sessionHeading } from "@/lib/stories";
-import { sa_linkSceneElement, sa_setSceneText } from "@/app/(app)/run/[id]/actions";
+import {
+  sa_getRunPlaySpace,
+  sa_linkSceneElement,
+  sa_setSceneText,
+} from "@/app/(app)/run/[id]/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { useUser } from "@/components/auth/user-provider";
 import { toaster } from "@/components/ui/toaster";
@@ -152,6 +156,22 @@ export function RunTable({
     setCoverUrl(space.coverUrl);
     setInPlay(space.inPlay);
   };
+
+  // The reload at the scene's title: the space read again as the database
+  // holds it now, for a change made elsewhere (a player untapping a card,
+  // another window) that the table has not heard of. Hidden while it is
+  // out, so a second press cannot send it twice.
+  const [reloading, setReloading] = useState(false);
+  async function reloadSpace() {
+    setReloading(true);
+    try {
+      loadSpace(await sa_getRunPlaySpace(idStory));
+    } catch {
+      toaster.create({ title: "The scene could not be reloaded. Try again.", type: "error" });
+    } finally {
+      setReloading(false);
+    }
+  }
 
   // Nothing can be played until a session is, so the storyteller is told as
   // the table opens. The ref keeps React's development double mount from
@@ -594,11 +614,12 @@ export function RunTable({
             )}
             <Stack position="relative" h="full" overflowY="auto" gap="3" p="4">
               {/* With a scene loaded, the scene is what the space is about:
-                  its title stands in the upper right, on the panel colour,
+                  its title stands in the upper left, on the panel colour,
                   part see-through, as the pills are, so it reads over the
-                  cover, with the chevron that opens its description and
-                  notes. The region's own heading stays for a screen reader,
-                  which names the region by it. */}
+                  cover, with the reload before it and the chevron that
+                  opens its description and notes after. The region's own
+                  heading stays for a screen reader, which names the region
+                  by it. */}
               {scene === null ? (
                 <Heading id="play-space-heading" size="sm">
                   Play space
@@ -610,15 +631,20 @@ export function RunTable({
                   </Heading>
                   <HStack
                     gap="1"
-                    alignSelf="flex-end"
+                    alignSelf="flex-start"
                     maxW="full"
                     rounded="2xl"
                     bg="bg.panel/55"
                     backdropFilter="blur(6px)"
-                    ps="3"
+                    ps="1"
                     pe="1"
                     py="1"
                   >
+                    {!reloading && (
+                      <PrepIconButton label="Reload the scene" onClick={() => void reloadSpace()}>
+                        <RefreshCw />
+                      </PrepIconButton>
+                    )}
                     <Heading as="h2" size="md" minW="0" truncate title={scene.title}>
                       {scene.title}
                     </Heading>

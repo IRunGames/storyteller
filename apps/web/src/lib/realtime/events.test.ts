@@ -58,10 +58,10 @@ const link: SceneElementRow = {
 };
 
 describe("public rows", () => {
-  it("drops the storyteller's notes and the database's own columns from an element", () => {
+  it("keeps the players' notes, and drops the database's own columns from an element", () => {
     const pub = toPublicElement(element, "https://blob/zed.png", true);
 
-    expect(pub).not.toHaveProperty("notes");
+    expect(pub.notes).toBe("Secretly the villain.");
     expect(pub).not.toHaveProperty("searchText");
     expect(pub).not.toHaveProperty("activityLog");
     expect(pub).not.toHaveProperty("idCreatedByUser");

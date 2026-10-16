@@ -106,6 +106,8 @@ export type PlayItem = {
   showInfo?: boolean;
   /** The players' table: the element's description, when show_info lets them see it. */
   info?: string | null;
+  /** The players' table: their own notes on the element (elements.notes), from its info popover. */
+  notes?: string | null;
   /**
    * The external link the pill offers (pillLink): the link's own for this
    * scene, else the element's. Null or absent for none.

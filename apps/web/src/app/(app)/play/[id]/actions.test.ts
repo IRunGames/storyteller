@@ -17,9 +17,14 @@ const hasDb = Boolean(process.env.DATABASE_URL);
 // Who the actions think is asking; each test that changes it sets it back.
 let caller = SEED_USER;
 const getSession = mock.fn(async () => ({ user: { id: caller } }));
-// Writing a scene up tells every table it changed; mocked so the tests see
-// it reached for, and so nothing publishes after the pool has closed.
+// Writing a scene up tells every table it changed, and notes on an element
+// send the element again; mocked so the tests see them reached for, and so
+// nothing publishes after the pool has closed.
 const publishSceneChanged = mock.fn(async (_idStory: number) => {});
+const publishElementChanged = mock.fn(async (_idStory: number, _idElement: number) => {});
+const publishSceneElement = mock.fn(
+  async (_idStory: number, _idStoryScene: number, _idElement: number) => {},
+);
 
 let actions: typeof import("./actions");
 
@@ -38,7 +43,9 @@ let fixtureStoryIds: number[] = [];
 describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
-    mock.module("@/lib/realtime/publish-scene", { namedExports: { publishSceneChanged } });
+    mock.module("@/lib/realtime/publish-scene", {
+      namedExports: { publishSceneChanged, publishElementChanged, publishSceneElement },
+    });
     ({ db, schema: tables } = await import("@/db"));
     actions = await import("./actions");
 
@@ -463,7 +470,102 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         .where(eq(tables.storyScenes.idStoryScene, docks));
     });
 
-    it("gives a player the scene with the elements they may see, whole but for the notes", async () => {
+    it("lets a player untap a tapped card whose info is showing, logging who did it", async () => {
+      publishSceneElement.mock.resetCalls();
+      const zedLink = and(
+        eq(tables.sceneElements.idStoryScene, docks),
+        eq(tables.sceneElements.idElement, zed),
+      );
+      const linkOf = async () =>
+        (
+          await db
+            .select({ status: tables.sceneElements.status, log: tables.sceneElements.activityLog })
+            .from(tables.sceneElements)
+            .where(zedLink)
+        )[0];
+      type Entry = {
+        activityCategory: string;
+        userId: string | null;
+        activityData: { previousStatus: string; status: string; userName?: string };
+      };
+      const notPlayed = { ok: false, error: "That scene is not being played." };
+
+      try {
+        // Nothing to untap until the scene is on, the card is tapped and its
+        // info is showing.
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zed)).toEqual(notPlayed);
+        await onScene(docks);
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zed)).toEqual({
+          ok: false,
+          error: "That element is not tapped.",
+        });
+        await db
+          .update(tables.sceneElements)
+          .set({ status: "TAPPED", showInfo: false })
+          .where(zedLink);
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zed)).toEqual({
+          ok: false,
+          error: "That element's info is not showing.",
+        });
+        await db.update(tables.sceneElements).set({ showInfo: true }).where(zedLink);
+        const before = ((await linkOf()).log as Entry[]).length;
+
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zed)).toEqual({
+          ok: true,
+          status: "READY",
+        });
+        const link = await linkOf();
+        expect(link.status).toBe("READY");
+        // The database logs the move itself; the player's untap adds who did it.
+        const log = link.log as Entry[];
+        expect(log.length).toBeGreaterThan(before);
+        expect(log[log.length - 1]).toMatchObject({
+          activityCategory: "untap_log",
+          userId: SEED_USER,
+          activityData: { previousStatus: "TAPPED", status: "READY" },
+        });
+        expect(typeof log[log.length - 1].activityData.userName).toBe("string");
+        expect(publishSceneElement.mock.calls.map((call) => call.arguments)).toEqual([
+          [playsIn, docks, zed],
+        ]);
+
+        // The hidden ghost cannot be seen, let alone untapped; a stranger
+        // is turned away; a complete scene takes no change.
+        await db
+          .update(tables.sceneElements)
+          .set({ status: "TAPPED", showInfo: true })
+          .where(zedLink);
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, ghost)).toEqual({
+          ok: false,
+          error: "That element is not in this scene.",
+        });
+        expect(await actions.sa_untapPlaySceneElement(stranger, docks, zed)).toEqual({
+          ok: false,
+          error: "You are not at this story's table.",
+        });
+        await db
+          .update(tables.storyScenes)
+          .set({ status: "COMPLETE" })
+          .where(eq(tables.storyScenes.idStoryScene, docks));
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zed)).toEqual({
+          ok: false,
+          error: "That scene is complete, so nothing in it can change.",
+        });
+        expect((await linkOf()).status).toBe("TAPPED");
+        expect(publishSceneElement.mock.callCount()).toBe(1);
+      } finally {
+        await db
+          .update(tables.storyScenes)
+          .set({ status: "ACTIVE" })
+          .where(eq(tables.storyScenes.idStoryScene, docks));
+        await db
+          .update(tables.sceneElements)
+          .set({ status: "READY", showInfo: true })
+          .where(zedLink);
+      }
+    });
+
+    it("gives a player the scene with the elements they may see, whole, their notes included", async () => {
       const session = await onScene(docks);
       const scene = await actions.sa_getPlayScene(playsIn);
       expect(scene).toMatchObject({
@@ -472,8 +574,107 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         tags: ["scene", "elements"],
       });
       expect(scene!.items.map((item) => item.element.name)).toEqual(["Play fixture Zed"]);
-      expect(scene!.items[0].element).not.toHaveProperty("notes");
+      expect(scene!.items[0].element.notes).toBe("The villain");
       expect(scene!.items[0].sceneElement).toMatchObject({ idStoryScene: docks, tags: ["scene"] });
+    });
+
+    it("lets a player keep notes on an element, logged with who wrote them, and no one else", async () => {
+      publishElementChanged.mock.resetCalls();
+      const stored = async () =>
+        (
+          await db
+            .select({ notes: tables.elements.notes, log: tables.elements.activityLog })
+            .from(tables.elements)
+            .where(eq(tables.elements.idElement, zed))
+        )[0];
+      type Entry = {
+        activityCategory: string;
+        userId: string | null;
+        activityData: { previousNotes: string | null; notes: string | null; userName?: string };
+      };
+      const before = ((await stored()).log as Entry[]).length;
+
+      try {
+        // A player writes only on an element they can see: with no scene
+        // on, none; on the docks, Zed but not the hidden ghost.
+        const unseen = { ok: false, error: "That element is not in this scene." };
+        expect(await actions.sa_setPlayElementNotes(playsIn, zed, "Too soon")).toEqual(unseen);
+        await onScene(docks);
+        expect(await actions.sa_setPlayElementNotes(playsIn, ghost, "A ghost?")).toEqual(unseen);
+        expect(((await stored()).log as Entry[]).length).toBe(before);
+
+        // Trimmed, stored, logged against the element with the player's id
+        // and name and the notes before and after, and sent to every table.
+        expect(
+          await actions.sa_setPlayElementNotes(playsIn, zed, "  Owes the harbourmaster. "),
+        ).toEqual({ ok: true, notes: "Owes the harbourmaster." });
+        let row = await stored();
+        expect(row.notes).toBe("Owes the harbourmaster.");
+        let log = row.log as Entry[];
+        expect(log).toHaveLength(before + 1);
+        expect(log[before]).toMatchObject({
+          activityCategory: "notes_change_log",
+          userId: SEED_USER,
+          activityData: { previousNotes: "The villain", notes: "Owes the harbourmaster." },
+        });
+        expect(typeof log[before].activityData.userName).toBe("string");
+        expect(publishElementChanged.mock.calls.map((call) => call.arguments)).toEqual([
+          [playsIn, zed],
+        ]);
+
+        // The same notes again write nothing, log nothing and send nothing.
+        expect(
+          await actions.sa_setPlayElementNotes(playsIn, zed, "Owes the harbourmaster."),
+        ).toEqual({ ok: true, notes: "Owes the harbourmaster." });
+        expect(((await stored()).log as Entry[]).length).toBe(before + 1);
+        expect(publishElementChanged.mock.callCount()).toBe(1);
+
+        // Empty is null, as the column holds it, and that is a change too.
+        expect(await actions.sa_setPlayElementNotes(playsIn, zed, " ")).toEqual({
+          ok: true,
+          notes: null,
+        });
+        row = await stored();
+        expect(row.notes).toBeNull();
+        log = row.log as Entry[];
+        expect(log).toHaveLength(before + 2);
+        expect(log[before + 1].activityData).toMatchObject({
+          previousNotes: "Owes the harbourmaster.",
+          notes: null,
+        });
+
+        expect(await actions.sa_setPlayElementNotes(playsIn, zed, "x".repeat(8001))).toEqual({
+          ok: false,
+          error: "Keep the notes under 8000 characters.",
+        });
+        // Not at the table, or an element of another story under this one's id.
+        expect(await actions.sa_setPlayElementNotes(stranger, zed, "Mine now")).toEqual({
+          ok: false,
+          error: "You are not at this story's table.",
+        });
+        expect(await actions.sa_setPlayElementNotes(playsIn, 2 ** 20, "Nobody's")).toEqual({
+          ok: false,
+          error: "That element is not part of this story.",
+        });
+        expect(((await stored()).log as Entry[]).length).toBe(before + 2);
+
+        // The storyteller sees every element, the hidden ghost included.
+        caller = otherUserId;
+        expect(await actions.sa_setPlayElementNotes(playsIn, ghost, "Drowned, 1842")).toEqual({
+          ok: true,
+          notes: "Drowned, 1842",
+        });
+      } finally {
+        caller = SEED_USER;
+        await db
+          .update(tables.elements)
+          .set({ notes: "The villain" })
+          .where(eq(tables.elements.idElement, zed));
+        await db
+          .update(tables.elements)
+          .set({ notes: null })
+          .where(eq(tables.elements.idElement, ghost));
+      }
     });
 
     it("keeps an element's description back while its link does not show its info", async () => {

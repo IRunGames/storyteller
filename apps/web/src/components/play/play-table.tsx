@@ -52,7 +52,10 @@ type Props = {
 export function PlayTable({ idStory, title, session, initialScene }: Props) {
   const user = useUser();
   const preferences = useUserPreferences();
-  const { scene, channel, setSceneText } = usePlayScene(idStory, initialScene);
+  const { scene, channel, setSceneText, setElementNotes, setElementStatus } = usePlayScene(
+    idStory,
+    initialScene,
+  );
 
   const showChat = preferences.get<boolean>(SHOW_CHAT, false);
   const showCharacter = preferences.get<boolean>(SHOW_CHARACTER, false);
@@ -111,6 +114,8 @@ export function PlayTable({ idStory, title, session, initialScene }: Props) {
             scene={scene}
             status={channel.status}
             onTextChange={setSceneText}
+            onNotesChange={setElementNotes}
+            onStatusChange={setElementStatus}
           />
 
           {showCharacter && (

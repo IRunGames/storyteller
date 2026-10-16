@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
@@ -16,14 +16,19 @@ import {
 } from "@/lib/play";
 import { EMPTY_PLAY_SCENE, type PlayScene } from "@/lib/play-scene";
 import { publishLater } from "@/lib/realtime/publish";
-import { publishSceneChanged } from "@/lib/realtime/publish-scene";
+import {
+  publishElementChanged,
+  publishSceneChanged,
+  publishSceneElement,
+} from "@/lib/realtime/publish-scene";
+import { elementSchema } from "@/lib/element-schemas";
 import { sceneTextSchema } from "@/lib/scene-schemas";
-import type { SetSceneTextResult } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS, type SetSceneTextResult } from "@/lib/scenes";
 import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
 import { storyStateTopic } from "@/lib/realtime/topics";
-import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
+import { SCENE_ELEMENT_HIDDEN, SCENE_ELEMENT_SHOWN, SCENE_ELEMENT_TAPPED } from "@/lib/run";
 
-const { stories, storyPlayers, sessionPlayers, storyScenes } = schema;
+const { stories, storyPlayers, sessionPlayers, storyScenes, elements, sceneElements } = schema;
 
 // stories.id_story is int4; an id outside that range is a query error to
 // Postgres rather than a missing row, so it is turned away before the query.
@@ -369,6 +374,193 @@ export async function sa_setPlaySceneText(
   if (updated.length === 0) return { ok: false, errors: { root: NOT_AT_THIS_TABLE } };
   publishLater(() => publishSceneChanged(story.idStory));
   return { ok: true, text };
+}
+
+export type SetElementNotesResult =
+  { ok: true; notes: string | null } | { ok: false; error: string };
+
+const NOT_THIS_STORYS_ELEMENT = "That element is not part of this story.";
+const NOT_IN_THIS_SCENE = "That element is not in this scene.";
+
+/**
+ * The Notes field in a pill's info popover on the players' table: the
+ * players' own notes on the element (elements.notes), written as the scene
+ * is played. Anyone the story seats may (loadPlayStory), the storyteller
+ * looking on included. A player may only write on an element they can see,
+ * by the rule sa_getPlayScene reads by: linked to the scene the session is
+ * on, and not hidden there. The storyteller sees every element, so the
+ * rule is not applied to them. Trimmed, and empty stored as null, as the
+ * column holds it.
+ *
+ * Every change is appended to the element's activity_log through the
+ * database's own _append_activity_log, as a `notes_change_log` entry with
+ * the caller's id as its userId and, by the function's own lookup, their
+ * name, and the notes before and after under activityData. Notes the same
+ * as those stored write nothing, log nothing and send nothing, so the log
+ * holds only changes. A change sends the element to every table, as an
+ * edit of it would.
+ *
+ * Refused when the caller is not at the story's table, the element is not
+ * the story's, a player cannot see it, or the notes are too long; the
+ * refusal is the field's message.
+ */
+export async function sa_setPlayElementNotes(
+  idStory: number,
+  idElement: number,
+  input: unknown,
+): Promise<SetElementNotesResult> {
+  const user = await requireUser();
+  const story = await loadPlayStory(user.id, idStory);
+  const element = idStorySchema.safeParse(idElement);
+  if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
+  if (!element.success) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
+  const parsed = elementSchema.shape.notes.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message };
+  const notes = parsed.data || null;
+
+  const [current] = await db
+    .select({ notes: elements.notes })
+    .from(elements)
+    .where(and(eq(elements.idElement, element.data), eq(elements.idStory, story.idStory)))
+    .limit(1);
+  if (!current) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
+  if (!story.isOwner && !(await playerSees(story.idStory, element.data))) {
+    return { ok: false, error: NOT_IN_THIS_SCENE };
+  }
+  if (current.notes === notes) return { ok: true, notes };
+
+  // The write and its log entry land together or not at all. The function
+  // reads and rewrites activity_log itself, by the row's primary key, so
+  // the update names only the notes.
+  await db.transaction(async (tx) => {
+    await tx
+      .update(elements)
+      .set({ notes, idUpdatedByUser: user.id })
+      .where(eq(elements.idElement, element.data));
+    await tx.execute(sql`
+      select _append_activity_log(
+        table_name := 'elements',
+        field_name := 'activity_log',
+        record_id := ${String(element.data)},
+        activity_category := 'notes_change_log',
+        activity_details := 'notes',
+        activity_source := 'play element info',
+        user_id := ${user.id},
+        activity_data := ${JSON.stringify({ previousNotes: current.notes, notes })}::jsonb
+      )
+    `);
+  });
+  publishLater(() => publishElementChanged(story.idStory, element.data));
+  return { ok: true, notes };
+}
+
+export type UntapSceneElementResult = { ok: true; status: string } | { ok: false; error: string };
+
+const NOT_BEING_PLAYED = "That scene is not being played.";
+const SCENE_COMPLETE = "That scene is complete, so nothing in it can change.";
+const NOT_TAPPED = "That element is not tapped.";
+const INFO_NOT_SHOWING = "That element's info is not showing.";
+
+/**
+ * The turned arrow at the start of a tapped player pill: a player readies
+ * the card, moving its link to the scene from TAPPED back to READY. Only
+ * for the scene the session is on, while it is not complete, and only for
+ * a card the player can see (playerSees) whose info the storyteller is
+ * showing, which is the rule the pill shows the button by; the storyteller
+ * looking on is held to everything but the info rule, since they see it all.
+ *
+ * The database logs the move on the link's activity_log itself, but with no
+ * user, so the untap appends its own `untap_log` entry through
+ * _append_activity_log with the caller's id and, by the function's own
+ * lookup, their name, together in one transaction with the move. The link
+ * is then sent to every table, the storyteller's included.
+ */
+export async function sa_untapPlaySceneElement(
+  idStory: number,
+  idStoryScene: number,
+  idElement: number,
+): Promise<UntapSceneElementResult> {
+  const user = await requireUser();
+  const story = await loadPlayStory(user.id, idStory);
+  const scene = idStorySchema.safeParse(idStoryScene);
+  const element = idStorySchema.safeParse(idElement);
+  if (!story || !scene.success) return { ok: false, error: NOT_AT_THIS_TABLE };
+  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+
+  const current = await currentScene(story.idStory);
+  if (current === null || current.idStoryScene !== scene.data) {
+    return { ok: false, error: NOT_BEING_PLAYED };
+  }
+  const [played] = await db
+    .select({ status: storyScenes.status })
+    .from(storyScenes)
+    .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.idStory)))
+    .limit(1);
+  if (!played) return { ok: false, error: NOT_BEING_PLAYED };
+  if (played.status === SCENE_LOCKED_STATUS) return { ok: false, error: SCENE_COMPLETE };
+
+  const link = and(
+    eq(sceneElements.idStoryScene, scene.data),
+    eq(sceneElements.idElement, element.data),
+  );
+  const [row] = await db
+    .select({
+      idSceneElement: sceneElements.idSceneElement,
+      status: sceneElements.status,
+      showInfo: sceneElements.showInfo,
+    })
+    .from(sceneElements)
+    .where(link)
+    .limit(1);
+  if (!row || row.status === SCENE_ELEMENT_HIDDEN) return { ok: false, error: NOT_IN_THIS_SCENE };
+  if (row.status !== SCENE_ELEMENT_TAPPED) return { ok: false, error: NOT_TAPPED };
+  if (!row.showInfo && !story.isOwner) return { ok: false, error: INFO_NOT_SHOWING };
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(sceneElements)
+      .set({ status: SCENE_ELEMENT_SHOWN, idUpdatedByUser: user.id })
+      .where(link);
+    await tx.execute(sql`
+      select _append_activity_log(
+        table_name := 'scene_elements',
+        field_name := 'activity_log',
+        record_id := ${String(row.idSceneElement)},
+        activity_category := 'untap_log',
+        activity_details := 'untapped',
+        activity_source := 'play pill',
+        user_id := ${user.id},
+        activity_data := ${JSON.stringify({
+          previousStatus: SCENE_ELEMENT_TAPPED,
+          status: SCENE_ELEMENT_SHOWN,
+        })}::jsonb
+      )
+    `);
+  });
+  publishLater(() => publishSceneElement(story.idStory, scene.data, element.data));
+  return { ok: true, status: SCENE_ELEMENT_SHOWN };
+}
+
+/**
+ * Whether the players can see the element right now: the story's playing
+ * session is on a scene, and the element is linked there other than as
+ * INVISIBLE, which is what sa_getPlayScene lists and the topic publishes.
+ */
+async function playerSees(idStory: number, idElement: number): Promise<boolean> {
+  const current = await currentScene(idStory);
+  if (current === null || current.idStoryScene === null) return false;
+  const [link] = await db
+    .select({ idSceneElement: sceneElements.idSceneElement })
+    .from(sceneElements)
+    .where(
+      and(
+        eq(sceneElements.idStoryScene, current.idStoryScene),
+        eq(sceneElements.idElement, idElement),
+        ne(sceneElements.status, SCENE_ELEMENT_HIDDEN),
+      ),
+    )
+    .limit(1);
+  return link !== undefined;
 }
 
 /** How the browser reaches the broker and what it listens to there. */

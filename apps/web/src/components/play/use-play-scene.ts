@@ -17,7 +17,13 @@ import { useStoryChannel, type ChannelState } from "./use-story-channel";
 export function usePlayScene(
   idStory: number,
   initial: PlayScene,
-): { scene: PlayScene; channel: ChannelState; setSceneText: (text: SceneText) => void } {
+): {
+  scene: PlayScene;
+  channel: ChannelState;
+  setSceneText: (text: SceneText) => void;
+  setElementNotes: (idElement: number, notes: string | null) => void;
+  setElementStatus: (idElement: number, status: string) => void;
+} {
   const [scene, setScene] = useState(initial);
   // A new story under the same table starts from that story's scene. Set
   // during render, the way React asks for state that follows a prop, so no
@@ -69,5 +75,34 @@ export function usePlayScene(
     [],
   );
 
-  return { scene, channel, setSceneText };
+  // An element's notes as a pill's popover just saved them, the same way;
+  // the topic's copy of the element, when it comes, says the same.
+  const setElementNotes = useCallback(
+    (idElement: number, notes: string | null) =>
+      setScene((current) => ({
+        ...current,
+        items: current.items.map((item) =>
+          item.element.idElement === idElement
+            ? { ...item, element: { ...item.element, notes } }
+            : item,
+        ),
+      })),
+    [],
+  );
+
+  // A link's status as a pill just moved it (a card untapped), the same way.
+  const setElementStatus = useCallback(
+    (idElement: number, status: string) =>
+      setScene((current) => ({
+        ...current,
+        items: current.items.map((item) =>
+          item.element.idElement === idElement
+            ? { ...item, sceneElement: { ...item.sceneElement, status } }
+            : item,
+        ),
+      })),
+    [],
+  );
+
+  return { scene, channel, setSceneText, setElementNotes, setElementStatus };
 }

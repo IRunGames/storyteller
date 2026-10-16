@@ -43,7 +43,8 @@ export const EMPTY_PLAY_SCENE: PlayScene = {
  * An item as a pill shows it, keyed and labelled as the storyteller's
  * linkedItem keys and labels its own, so playStacks files it the same way.
  * The description goes on the pill as `info` only when the link's show_info
- * lets the players see it; the pill never looks at the element itself.
+ * lets the players see it; the notes, the players' own, go as they are. The
+ * pill never looks at the element itself.
  */
 export function toPlayItem({ element, sceneElement }: PlaySceneItem): PlayItem {
   const fields = {
@@ -65,6 +66,7 @@ export function toPlayItem({ element, sceneElement }: PlaySceneItem): PlayItem {
     sceneStatus: sceneElement.status,
     showInfo: sceneElement.showInfo,
     info: sceneElement.showInfo ? element.description : null,
+    notes: element.notes,
     link: pillLink(sceneElement, element),
     fields,
     showing,
