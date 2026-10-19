@@ -4,15 +4,24 @@ import { and, asc, desc, eq, ilike, inArray, isNull, ne, notInArray, sql } from 
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl, sceneElementImageUrl } from "@/db/attachment-url";
+import { elementOrderBy } from "@/db/element-order";
 import { COVER_TAG } from "@/lib/attachments";
 import { requireUser } from "@/lib/authorize";
 import {
+  elementTagsSchema,
   runElementSchema,
   runStoryElementSchema,
   type RunElementValues,
 } from "@/lib/element-schemas";
 import { sa_listStatusOptions } from "@/components/status/actions";
-import { ELEMENT_KINDS, isElementKind, type ElementKind, type StoryElement } from "@/lib/elements";
+import {
+  ELEMENT_KINDS,
+  ELEMENT_SORT_KEYS,
+  isElementKind,
+  type ElementKind,
+  type ElementSort,
+  type StoryElement,
+} from "@/lib/elements";
 import { likeContains } from "@/lib/filter-text";
 import {
   DEFAULT_ELEMENT_SHOWING,
@@ -32,11 +41,13 @@ import {
   type ElementShowing,
   type ElementPanelDetail,
 } from "@/lib/run";
+import { isScenePulse, scenePulseSchema } from "@/lib/realtime/events";
 import { publishLater } from "@/lib/realtime/publish";
 import {
   publishElementChanged,
   publishSceneChanged,
   publishSceneElement,
+  publishSceneElementPulse,
   publishSceneElementRemoved,
   publishSessionUpdated,
 } from "@/lib/realtime/publish-scene";
@@ -581,12 +592,14 @@ function formErrors(issues: z.core.$ZodIssue[]): Record<string, string> {
   return errors;
 }
 
-// What the new-element form sends beside its fields: the picture Add picture
-// chose, and whether the players see the description (the library's Add
-// showing info switch). The form's schema carries neither, since the edit
-// form sends neither.
+// What the new-element form sends beside its fields: the pictures its two
+// Add pictures chose, the element's own and the link's for this scene, and
+// whether the players see the description (the library's Add showing info
+// switch). The form's schema carries none of them, since the edit form
+// sends none.
 const newElementExtrasSchema = z.object({
   idAttachment: idSchema.nullable().default(null),
+  idSceneAttachment: idSchema.nullable().default(null),
   showInfo: z.boolean().default(true),
 });
 
@@ -662,8 +675,10 @@ function sceneLinkColumns(values: Pick<RunElementValues, "sceneUrl" | "sceneUrlT
  * transaction so an element is never left made but unlinked. Inserted
  * straight into its statuses: a new row has no transition to check, and the
  * status triggers still stamp each one's timestamp. An `idAttachment` beside
- * the fields, from the form's Add picture, is the new element's picture; it
- * must be one of the story's finished attachments. With no tag (null) the
+ * the fields, from the form's Add picture, is the new element's picture, and
+ * an `idSceneAttachment` the link's own picture for this scene, which the
+ * pill shows over the element's; each must be one of the story's finished
+ * attachments. With no tag (null) the
  * link takes the scene's first tag, the first stack's, as the library's
  * arrow does: that is what the library's + sends. The Default stack of a
  * scene with no tags sends null too, and its link carries none.
@@ -697,15 +712,20 @@ export async function sa_createSceneElement(
   const values = form.values;
   const tags = stackTag === null ? sceneTags.slice(0, 1) : [stackTag];
 
-  // The picture the form's Add picture chose, if any: held to the story's
-  // finished attachments as sa_setElementImage holds it.
+  // The pictures the form's Add pictures chose, if any: each held to the
+  // story's finished attachments as sa_setElementImage holds it.
   const extras = newElementExtrasSchema.safeParse(input);
   if (!extras.success) return { ok: false, errors: { root: NOT_THIS_STORYS_PICTURE } };
-  const { idAttachment, showInfo } = extras.data;
+  const { idAttachment, idSceneAttachment, showInfo } = extras.data;
   let imageUrl: string | null = null;
   if (idAttachment !== null) {
     imageUrl = await storyPictureUrl(story, idAttachment);
     if (imageUrl === null) return { ok: false, errors: { root: NOT_THIS_STORYS_PICTURE } };
+  }
+  let sceneImageUrl: string | null = null;
+  if (idSceneAttachment !== null) {
+    sceneImageUrl = await storyPictureUrl(story, idSceneAttachment);
+    if (sceneImageUrl === null) return { ok: false, errors: { root: NOT_THIS_STORYS_PICTURE } };
   }
 
   const idElement = await db.transaction(async (tx) => {
@@ -718,22 +738,36 @@ export async function sa_createSceneElement(
         idUpdatedByUser: user.id,
       })
       .returning({ idElement: elements.idElement });
-    await tx.insert(sceneElements).values({
-      idStoryScene: scene,
-      idElement: created.idElement,
-      tags,
-      status: values.sceneStatus,
-      showInfo,
-      ...sceneLinkColumns(values),
-      idCreatedByUser: user.id,
-      idUpdatedByUser: user.id,
-    });
-    // Its picture: the element's use of the attachment, tagged cover.
+    const [link] = await tx
+      .insert(sceneElements)
+      .values({
+        idStoryScene: scene,
+        idElement: created.idElement,
+        tags,
+        status: values.sceneStatus,
+        showInfo,
+        ...sceneLinkColumns(values),
+        idCreatedByUser: user.id,
+        idUpdatedByUser: user.id,
+      })
+      .returning({ idSceneElement: sceneElements.idSceneElement });
+    // Its pictures: the element's use of the one attachment, and the
+    // link's of the other, each tagged cover.
     if (idAttachment !== null) {
       await tx.insert(attachmentUses).values({
         idAttachment,
         kind: "ELEMENT",
         idExternal: created.idElement,
+        tags: [COVER_TAG],
+        idCreatedByUser: user.id,
+        idUpdatedByUser: user.id,
+      });
+    }
+    if (idSceneAttachment !== null) {
+      await tx.insert(attachmentUses).values({
+        idAttachment: idSceneAttachment,
+        kind: "SCENE_ELEMENT",
+        idExternal: link.idSceneElement,
         tags: [COVER_TAG],
         idCreatedByUser: user.id,
         idUpdatedByUser: user.id,
@@ -754,7 +788,8 @@ export async function sa_createSceneElement(
       tags,
       status: values.sceneStatus,
       showInfo,
-      imageUrl,
+      // The link's picture stands in front of the element's, as the pill shows them.
+      imageUrl: sceneImageUrl ?? imageUrl,
       url: values.url || null,
       urlText: values.urlText || null,
       sceneUrl: values.sceneUrl || null,
@@ -1056,6 +1091,56 @@ export async function sa_setSceneElementShowInfo(
   return { ok: true, showInfo: updated[0].showInfo };
 }
 
+export type PulseSceneElementResult = { ok: true } | { ok: false; error: string };
+
+const NOT_A_PULSE = "That is not something the players' table answers.";
+
+/**
+ * The tack over a pill's thumbnail: a pulse about one element of the scene
+ * to every players' table (publishSceneElementPulse), such as opening its
+ * picture full size and closing it again. Nothing is written: a pulse is
+ * something that happens at the table, not how the scene stands, so a
+ * players' table that joins later never hears of it and the storyteller's
+ * page keeps for itself which picture it last put up. The guards are the
+ * ones a write has, so a pulse cannot say anything a write could not.
+ *
+ * Refused for an action the players' table does not answer
+ * (SCENE_ELEMENT_PULSES), when the scene is not this story's or the caller
+ * is not its storyteller, and when the element is not linked to the scene.
+ */
+export async function sa_pulseSceneElement(
+  idStory: number,
+  idStoryScene: number,
+  idElement: number,
+  custom: { action: string },
+): Promise<PulseSceneElementResult> {
+  const user = await requireUser();
+  const story = idSchema.safeParse(idStory);
+  const scene = idSchema.safeParse(idStoryScene);
+  const element = idSchema.safeParse(idElement);
+  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
+  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+  const parsed = scenePulseSchema.safeParse(custom);
+  if (!parsed.success || !isScenePulse(parsed.data.action)) {
+    return { ok: false, error: NOT_A_PULSE };
+  }
+  const owned = await ownedScene(user.id, story.data, scene.data);
+  if (owned === null) return { ok: false, error: NOT_THIS_STORY };
+  if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
+
+  const [row] = await db
+    .select({ idSceneElement: sceneElements.idSceneElement })
+    .from(sceneElements)
+    .where(
+      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, element.data)),
+    )
+    .limit(1);
+  if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
+
+  publishLater(() => publishSceneElementPulse(story.data, scene.data, element.data, parsed.data));
+  return { ok: true };
+}
+
 export type SetSceneElementShowingResult =
   { ok: true; showing: ElementShowing } | { ok: false; error: string };
 
@@ -1100,15 +1185,24 @@ export async function sa_setSceneElementShowing(
   return { ok: true, showing };
 }
 
+/**
+ * The scene's elements of one kind, for the library's Scene only: the first
+ * RUN_LIST_SIZE that match the search box, in the sort the library's menu
+ * asks for (elementOrderBy), by name unless told otherwise. The view holds
+ * the element's columns but not every one the sorts need, so the elements
+ * table is joined for the order.
+ */
 export async function sa_listSceneLibraryElements(
   idStory: number,
   idStoryScene: number,
   kind: ElementKind,
   query: string = "",
+  sort: ElementSort = "name",
 ): Promise<StoryElement[]> {
   const user = await requireUser();
   // The same bound as sa_listStoryElements' search, refused the same way.
   const needle = z.string().max(200).parse(query).trim();
+  const order = z.enum(ELEMENT_SORT_KEYS).parse(sort);
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   if (!story.success || !scene.success || !isElementKind(kind)) return [];
@@ -1123,6 +1217,7 @@ export async function sa_listSceneLibraryElements(
       description: vSceneElements.description,
     })
     .from(vSceneElements)
+    .innerJoin(elements, eq(elements.idElement, vSceneElements.idElement))
     .where(
       and(
         eq(vSceneElements.idStoryScene, scene.data),
@@ -1131,7 +1226,7 @@ export async function sa_listSceneLibraryElements(
         needle === "" ? undefined : ilike(vSceneElements.elementSearchText, likeContains(needle)),
       ),
     )
-    .orderBy(asc(vSceneElements.name), asc(vSceneElements.idElement))
+    .orderBy(...elementOrderBy(order))
     .limit(RUN_LIST_SIZE);
   // The view's columns are all nullable to Drizzle; a link always has its element.
   return rows.map((row) => ({
@@ -1376,6 +1471,47 @@ export async function sa_setElementImage(
   });
   publishLater(() => publishElementChanged(story.data, element.data));
   return { ok: true, imageUrl: url };
+}
+
+export type SetElementTagsResult = { ok: true; tags: string[] } | { ok: false; error: string };
+
+/**
+ * The element panel's Tags editor: the element's own tags (elements.tags),
+ * replaced whole with what the editor now holds, trimmed, lower-cased and
+ * deduplicated (elementTagsSchema). The tags as saved come back for the
+ * row. The players' table is told, since the element went out whole.
+ *
+ * Refused when the story is not the caller's, when the element is not the
+ * story's, and for a tag the schema will not take, with its message.
+ */
+export async function sa_setElementTags(
+  idStory: number,
+  idElement: number,
+  tags: unknown,
+): Promise<SetElementTagsResult> {
+  const user = await requireUser();
+  const story = idSchema.safeParse(idStory);
+  const element = idSchema.safeParse(idElement);
+  if (!story.success || !(await ownsStory(user.id, story.data))) {
+    return { ok: false, error: NOT_THIS_STORY };
+  }
+  if (!element.success) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
+  const parsed = elementTagsSchema.safeParse(tags);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Those tags could not be saved.",
+    };
+  }
+
+  const updated = await db
+    .update(elements)
+    .set({ tags: parsed.data, idUpdatedByUser: user.id })
+    .where(and(eq(elements.idElement, element.data), eq(elements.idStory, story.data)))
+    .returning({ tags: elements.tags });
+  if (updated.length === 0) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
+  publishLater(() => publishElementChanged(story.data, element.data));
+  return { ok: true, tags: updated[0].tags };
 }
 
 export type SetSceneStacksResult =

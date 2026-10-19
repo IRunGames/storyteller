@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { Box, Flex, HStack } from "@chakra-ui/react";
 import { Activity, MessageSquare, UserRound } from "lucide-react";
 import { useUser } from "@/components/auth/user-provider";
@@ -12,7 +13,7 @@ import { PlayDiagnostics } from "./play-diagnostics";
 import { PlayHeader } from "./play-header";
 import { PlayPanelToggle } from "./play-panel-toggle";
 import { PlaySpace } from "./play-space";
-import { usePlayScene } from "./use-play-scene";
+import { usePlayScene, type ScenePulseEvent } from "./use-play-scene";
 
 // The preference keys for the panels, closed until the user opens them,
 // so a first visit gives the play space the whole window.
@@ -36,9 +37,12 @@ const DIAGNOSTICS_ID = "play-panel-diagnostics";
 // across stories and visits, and across devices.
 //
 // The play space follows the storyteller's table over the story's MQTT
-// topic (usePlayScene). A storyteller or administrator gets a fourth part,
-// the diagnostics panel, which takes the chat's place while it is open and
-// shows what comes over that topic.
+// topic (usePlayScene). The storyteller's pulses come the same way: the
+// element whose picture they last put up (preview.open) is held here, as
+// nothing but this page remembers it, and the play space shows it full
+// size until preview.close or the player closes it. A storyteller or
+// administrator gets a fourth part, the diagnostics panel, which takes the
+// chat's place while it is open and shows what comes over that topic.
 type Props = {
   idStory: number;
   /** The story being played, shown in the header. */
@@ -52,9 +56,17 @@ type Props = {
 export function PlayTable({ idStory, title, session, initialScene }: Props) {
   const user = useUser();
   const preferences = useUserPreferences();
+  const [previewIdElement, setPreviewIdElement] = useState<number | null>(null);
+  // An action this build does not know is left alone, so an older table
+  // keeps working when a newer storyteller's page sends something new.
+  const onPulse = useCallback((event: ScenePulseEvent) => {
+    if (event.custom.action === "preview.open") setPreviewIdElement(event.idElement);
+    else if (event.custom.action === "preview.close") setPreviewIdElement(null);
+  }, []);
   const { scene, channel, setSceneText, setElementNotes, setElementStatus } = usePlayScene(
     idStory,
     initialScene,
+    onPulse,
   );
 
   const showChat = preferences.get<boolean>(SHOW_CHAT, false);
@@ -116,6 +128,8 @@ export function PlayTable({ idStory, title, session, initialScene }: Props) {
             onTextChange={setSceneText}
             onNotesChange={setElementNotes}
             onStatusChange={setElementStatus}
+            previewIdElement={previewIdElement}
+            onPreviewClose={() => setPreviewIdElement(null)}
           />
 
           {showCharacter && (

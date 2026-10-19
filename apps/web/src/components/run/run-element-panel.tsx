@@ -39,6 +39,12 @@ type Props = {
    * out, and the pencil edits the element alone.
    */
   locked?: boolean;
+  /**
+   * Whether the pencil is offered. A pill in a complete scene leaves it
+   * out, the scene being there to read; the library keeps it, since the
+   * element in the story may still be edited from there.
+   */
+  canEdit?: boolean;
   /** The element's status in the scene has been moved from here. */
   onSceneStatusChange: (status: string) => void;
   /** The In this scene info toggle has been pressed from here, or put back. */
@@ -65,7 +71,7 @@ type Props = {
    */
   stackTag?: string | null;
   otherStacks?: string[];
-  /** The scene's stacks, in order, for the Stack row's dialog; left out, the tags are only shown. */
+  /** The scene's stacks, in order, for the heading's stacks menu; left out, the tags are only shown. */
   sceneStacks?: string[];
 };
 
@@ -87,8 +93,8 @@ type Loaded = ElementPanelDetail & {
  * A badge beside the name says which it is: SCENE for an element in the
  * scene, STORY for one that is only the story's. Only a SCENE element has
  * the scene's part, first, as a card (RunSceneSection): its status on the
- * In this scene heading with the − that takes it out, its stacks, its info
- * toggle, its picture and other images for this scene, and, under the
+ * In this scene heading with its stacks and the − that takes it out, its
+ * info switch, its picture and other images for this scene, and, under the
  * element's own rows, Move to. Moving its status tells the play space, so
  * the pill keeps up. The element's own status is among its own rows either
  * way.
@@ -110,6 +116,7 @@ export function RunElementPanel({
   label,
   heading,
   locked = false,
+  canEdit = true,
   onSceneStatusChange,
   onShowInfoChange,
   onItemChange,
@@ -218,7 +225,7 @@ export function RunElementPanel({
             </Badge>
           )}
         </HStack>
-        {loaded && !editing && (
+        {loaded && !editing && canEdit && (
           <PrepIconButton label={`Edit ${name}`} onClick={() => setEditing(true)} outlined>
             <Pencil />
           </PrepIconButton>
@@ -299,6 +306,10 @@ export function RunElementPanel({
             element={loaded.element}
             statusOptions={loaded.elementOptions}
             onStatusChange={(status) => patchElement({ status })}
+            onTagsChange={(tags) => {
+              patchElement({ tags });
+              onEdited?.({ ...loaded.element, tags });
+            }}
             idStory={idStory}
             idStoryScene={idStoryScene}
             onImageChange={(imageUrl) => {

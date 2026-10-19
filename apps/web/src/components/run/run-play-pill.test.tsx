@@ -9,6 +9,8 @@ import { Toaster, toaster } from "@/components/ui/toaster";
 import type { ElementPanelDetail, PlayItem } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import type {
+  PulseSceneElementResult,
+  SetElementTagsResult,
   SetSceneElementShowingResult,
   SetSceneElementShowInfoResult,
   SetSceneElementStatusResult,
@@ -30,6 +32,15 @@ const sa_setSceneElementShowInfo = mock.fn(
     _element: number,
     showInfo: boolean,
   ): Promise<SetSceneElementShowInfoResult> => ({ ok: true, showInfo }),
+);
+
+const sa_pulseSceneElement = mock.fn(
+  async (
+    _story: number,
+    _scene: number,
+    _element: number,
+    _custom: { action: string },
+  ): Promise<PulseSceneElementResult> => ({ ok: true }),
 );
 
 const sa_setSceneElementShowing = mock.fn(
@@ -212,6 +223,13 @@ const sa_unlinkSceneElement = mock.fn(async (_story: number, _scene: number, _el
   ok: true as const,
 }));
 
+const sa_setElementTags = mock.fn(
+  async (_story: number, _element: number, tags: string[]): Promise<SetElementTagsResult> => ({
+    ok: true,
+    tags,
+  }),
+);
+
 let RunPlayPill: typeof import("./run-play-pill").RunPlayPill;
 
 describe("RunPlayPill", () => {
@@ -220,6 +238,7 @@ describe("RunPlayPill", () => {
       namedExports: {
         sa_setSceneElementStatus,
         sa_setSceneElementShowInfo,
+        sa_pulseSceneElement,
         sa_setSceneElementShowing,
         sa_getElementDetail,
         sa_updateStoryElement: mock.fn(),
@@ -228,6 +247,7 @@ describe("RunPlayPill", () => {
         sa_setElementImage,
         sa_unlinkSceneElement,
         sa_setSceneElementTags,
+        sa_setElementTags,
       },
     });
     // The + for a picture lists the story's and the scene's attachments;
@@ -251,6 +271,7 @@ describe("RunPlayPill", () => {
   beforeEach(() => {
     sa_setSceneElementStatus.mock.resetCalls();
     sa_setSceneElementShowInfo.mock.resetCalls();
+    sa_pulseSceneElement.mock.resetCalls();
     sa_setSceneElementShowing.mock.resetCalls();
     sa_getElementDetail.mock.resetCalls();
     sa_setRowStatus.mock.resetCalls();
@@ -263,6 +284,7 @@ describe("RunPlayPill", () => {
     sa_detachFromHolder.mock.resetCalls();
     sa_attachToHolder.mock.resetCalls();
     sa_setSceneElementTags.mock.resetCalls();
+    sa_setElementTags.mock.resetCalls();
     linkRows = [picture(42, "Lantern.png", "SCENE_ELEMENT")];
   });
 
@@ -282,6 +304,8 @@ describe("RunPlayPill", () => {
     otherStacks: string[];
   }) {
     const [item, setItem] = useState(start);
+    // Which pill has its picture up is the table's state, not the item's.
+    const [pictureUp, setPictureUp] = useState(false);
     return (
       <RunPlayPill
         idStory={-4}
@@ -293,6 +317,8 @@ describe("RunPlayPill", () => {
         onRemove={() => {}}
         onItemChange={setItem}
         onStatusChange={(_key, sceneStatus) => setItem((current) => ({ ...current, sceneStatus }))}
+        pictureUp={pictureUp}
+        onPictureUpChange={(_key, up) => setPictureUp(up)}
       />
     );
   }
@@ -439,10 +465,11 @@ describe("RunPlayPill", () => {
       "Other images",
       "In the story",
     ]);
-    // Whether the players see the info is the pill's own toggle, here too.
-    expect(within(popover).getByRole("button", { name: "Showing info to users" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+    // Whether the players see the info, as a switch here, on with the pill's toggle.
+    expect(within(popover).getByRole("switch", { name: "Show info to players" })).toBeChecked();
+    // The stacks the element is filed under, on the heading's line, as a menu.
+    expect(within(popover).getByRole("button", { name: "Stacks for Dafydd" })).toHaveTextContent(
+      "scene",
     );
     expect(within(popover).getByText("A hooded figure")).toBeInTheDocument();
     expect(within(popover).getByText(/Knows the tides/)).toBeInTheDocument();
@@ -472,13 +499,16 @@ describe("RunPlayPill", () => {
     expect(within(popover).getByText("—")).toBeInTheDocument();
     expect(sa_getElementDetail.mock.calls[0].arguments).toEqual([-4, 5, -15]);
 
-    // Both statuses are pills to move, the scene element's first, on the
-    // In this scene line.
+    // Both statuses are pills to move, each on its heading's line: the scene
+    // element's beside In this scene, the element's beside In the story.
     const pills = within(popover)
       .getAllByRole("button")
       .filter((button) => button.hasAttribute("data-status"));
     expect(pills.map((pill) => pill.textContent)).toEqual(["Ready", "Pending"]);
     expect(headings[1].parentElement).toContainElement(pills[0]);
+    expect(headings[3].parentElement).toContainElement(pills[1]);
+    // The element's tags, with the editor beside them.
+    expect(within(popover).getByRole("button", { name: "Tags for Dafydd" })).toBeInTheDocument();
 
     // The chevron closes it again.
     await u.click(chevron);
@@ -524,9 +554,9 @@ describe("RunPlayPill", () => {
     // The pencil's form starts from the status just chosen, so saving it
     // does not put the old one back.
     await u.click(within(popover).getByRole("button", { name: "Edit Dafydd" }));
-    expect(await within(popover).findByRole("combobox", { name: "Status" })).toHaveValue(
-      "INACTIVE",
-    );
+    expect(
+      await within(popover).findByRole("button", { name: "Status: Inactive" }),
+    ).toBeInTheDocument();
   });
 
   it("moves the element to another stack from the bottom of its popover", async () => {
@@ -748,6 +778,93 @@ describe("RunPlayPill", () => {
     expect(within(preview).queryByText("No tags")).toBeNull();
   });
 
+  it("puts the picture up for the players from the tack over its thumbnail, and takes it down", async () => {
+    const u = userEvent.setup();
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
+
+    const tack = within(container).getByRole("button", {
+      name: "Show A hooded figure's picture to the players",
+    });
+    expect(tack).toHaveAttribute("aria-pressed", "false");
+    await u.hover(tack);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Show for players");
+    // No glow while it is down.
+    const frame = within(container)
+      .getByRole("button", { name: "Preview A hooded figure" })
+      .closest("[data-picture-up]") as HTMLElement;
+    expect(frame).toHaveAttribute("data-picture-up", "false");
+    expect(getComputedStyle(frame).boxShadow).not.toContain("run-picture-up");
+
+    await u.click(tack);
+    const up = await within(container).findByRole("button", {
+      name: "Hide A hooded figure's picture from the players",
+    });
+    expect(up).toHaveAttribute("aria-pressed", "true");
+    expect(sa_pulseSceneElement.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      5,
+      { action: "preview.open" },
+    ]);
+    // The press closed the tooltip; it opens again on a fresh hover.
+    await u.unhover(up);
+    await u.hover(up);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Hide for players");
+    // The thumbnail glows while the picture is up.
+    expect(frame).toHaveAttribute("data-picture-up", "true");
+    expect(getComputedStyle(frame).boxShadow).toContain("run-picture-up");
+
+    await u.click(up);
+    expect(sa_pulseSceneElement.mock.calls[1].arguments).toEqual([
+      -4,
+      -15,
+      5,
+      { action: "preview.close" },
+    ]);
+    expect(
+      await within(container).findByRole("button", {
+        name: "Show A hooded figure's picture to the players",
+      }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(frame).toHaveAttribute("data-picture-up", "false");
+  });
+
+  it("takes the picture down again and says so when the tack is refused", async () => {
+    const u = userEvent.setup();
+    sa_pulseSceneElement.mock.mockImplementationOnce(async () => ({
+      ok: false,
+      error: "That element is not in this scene.",
+    }));
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
+
+    await u.click(
+      within(container).getByRole("button", {
+        name: "Show A hooded figure's picture to the players",
+      }),
+    );
+    expect(await screen.findByText("That element is not in this scene.")).toBeInTheDocument();
+    expect(
+      within(container).getByRole("button", {
+        name: "Show A hooded figure's picture to the players",
+      }),
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("gives an element without a picture, or one the page alone holds, no tack", () => {
+    const { container, unmount } = render(linked("READY"));
+    expect(within(container).queryByRole("button", { name: /picture to the players$/ })).toBeNull();
+    unmount();
+
+    render({
+      key: "PERSON:5",
+      kind: "PERSON",
+      label: "Dafydd",
+      detail: null,
+      imageUrl: "https://x.test/9.png",
+    });
+    expect(screen.queryByRole("button", { name: /picture to the players$/ })).toBeNull();
+  });
+
   it("takes an element's picture away from its info popover, and the + comes back", async () => {
     sa_getElementDetail.mock.mockImplementationOnce(async () => ({
       ...detail,
@@ -814,6 +931,108 @@ describe("RunPlayPill", () => {
     expect(sa_setElementImage.mock.callCount()).toBe(0);
   });
 
+  it("edits the element's tags from the Tags row's editor", async () => {
+    const u = userEvent.setup();
+    const { container } = render(linked("READY"));
+    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    await within(popover).findByText("Person");
+
+    await u.click(within(popover).getByRole("button", { name: "Tags for Dafydd" }));
+    const editor = await screen.findByRole("dialog", { name: "Tags" });
+    expect(
+      within(within(editor).getByRole("list", { name: "Tags" }))
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["harbour"]);
+    await u.type(within(editor).getByRole("textbox", { name: "New tag" }), "Docks{Enter}");
+
+    await waitFor(() => expect(sa_setElementTags.mock.callCount()).toBe(1));
+    expect(sa_setElementTags.mock.calls[0].arguments).toEqual([-4, 5, ["harbour", "docks"]]);
+    // The row and the editor both say so.
+    expect(await within(editor).findByText("docks")).toBeInTheDocument();
+    expect(within(popover).getByText("harbour, docks")).toBeInTheDocument();
+
+    await u.click(within(editor).getByRole("button", { name: "Remove tag harbour" }));
+    await waitFor(() => expect(sa_setElementTags.mock.callCount()).toBe(2));
+    expect(sa_setElementTags.mock.calls[1].arguments).toEqual([-4, 5, ["docks"]]);
+
+    // Refused: the row keeps what it had and the editor says why.
+    sa_setElementTags.mock.mockImplementationOnce(async () => ({
+      ok: false,
+      error: "That element is not part of this story.",
+    }));
+    await u.type(within(editor).getByRole("textbox", { name: "New tag" }), "quay{Enter}");
+    expect(
+      await within(editor).findByText("That tag could not be added. Please try again."),
+    ).toBeInTheDocument();
+    expect(within(container).queryByText(/quay/)).toBeNull();
+  });
+
+  it("in a complete scene, opens its panel to read and offers nothing that changes the link", async () => {
+    const u = userEvent.setup();
+    const { container } = renderWithProviders(
+      <>
+        <RunPlayPill
+          idStory={-4}
+          idStoryScene={-15}
+          item={{ ...linked("READY"), imageUrl: "https://x.test/9.png" }}
+          stackTag="scene"
+          otherStacks={["assets"]}
+          sceneStacks={["scene", "assets"]}
+          locked
+          onRemove={() => {}}
+          onItemChange={() => {}}
+          onStatusChange={() => {}}
+          pictureUp={false}
+          onPictureUpChange={() => {}}
+        />
+        <Toaster />
+      </>,
+    );
+
+    // The name is plain, the status is shown but not a menu, the info toggle
+    // says which way it is without pressing, and there is no tack.
+    expect(
+      within(container).queryByRole("button", { name: /choose what the pill shows/ }),
+    ).toBeNull();
+    expect(within(container).getByText("A hooded figure")).toBeInTheDocument();
+    expect(
+      within(container).queryByRole("button", { name: /change A hooded figure's status/ }),
+    ).toBeNull();
+    expect(
+      within(container).getByRole("button", { name: "Showing info to users" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(within(container).queryByRole("button", { name: /picture to the players$/ })).toBeNull();
+    // The picture still opens full size.
+    expect(
+      within(container).getByRole("button", { name: "Preview A hooded figure" }),
+    ).toBeInTheDocument();
+
+    await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
+    const panel = await screen.findByRole("region", { name: "About A hooded figure" });
+    await within(panel).findByText("Person");
+    expect(within(panel).queryByRole("button", { name: "Remove from scene" })).toBeNull();
+    expect(within(panel).getByRole("switch", { name: "Show info to players" })).toBeDisabled();
+    expect(within(panel).queryByRole("button", { name: "Stacks for Dafydd" })).toBeNull();
+    expect(within(panel).getByText("scene")).toBeInTheDocument();
+    expect(within(panel).queryByRole("combobox", { name: "Move to" })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Edit Dafydd" })).toBeNull();
+  });
+
+  it("says nothing under Other images when the link has none", async () => {
+    linkRows = [];
+    const u = userEvent.setup();
+    render(linked("READY"));
+
+    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    expect(await within(popover).findByRole("button", { name: "Add cover" })).toBeInTheDocument();
+    expect(within(popover).getByRole("heading", { name: "Other images" })).toBeInTheDocument();
+    expect(within(popover).queryByText(/No other images/)).toBeNull();
+    expect(within(popover).queryByRole("list", { name: "Other images" })).toBeNull();
+  });
+
   it("gives an element with a picture no +", () => {
     const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
 
@@ -838,24 +1057,30 @@ describe("RunPlayPill", () => {
     const popover = await screen.findByRole("region", { name: "About A hooded figure" });
     await within(popover).findByText("Person");
 
-    // The panel's toggle presses the same way as the pill's, which follows.
-    await u.click(within(popover).getByRole("button", { name: "Showing info to users" }));
+    // The panel's switch presses the same way as the pill's toggle, which follows.
+    const info = within(popover).getByRole("switch", { name: "Show info to players" });
+    expect(info).toBeChecked();
+    // Its tooltip says what pressing it does, which way it stands.
+    await u.hover(info);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Hide info from the players");
+    await u.click(info);
     expect(sa_setSceneElementShowInfo.mock.calls[0].arguments).toEqual([-4, -15, 5, false]);
-    await waitFor(() =>
-      expect(
-        within(container).getAllByRole("button", { name: "Info not showing – click to show" }),
-      ).toHaveLength(2),
-    );
+    await waitFor(() => expect(info).not.toBeChecked());
+    await u.unhover(info);
+    await u.hover(info);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Show info to the players");
+    expect(
+      within(container).getByRole("button", { name: "Info not showing – click to show" }),
+    ).toBeInTheDocument();
 
-    // The Stack row opens the stacks dialog, ticked for the stacks it is in.
+    // The stacks menu on the heading's line, ticked for the stacks it is in;
+    // each tick saves at once and the menu stays open for the next.
     await u.click(within(popover).getByRole("button", { name: "Stacks for Dafydd" }));
-    const dialog = await screen.findByRole("dialog", { name: "Stacks for Dafydd" });
-    const scene = within(dialog).getByRole("checkbox", { name: "scene" });
-    const assets = within(dialog).getByRole("checkbox", { name: "assets" });
-    expect(scene).toBeChecked();
-    expect(assets).not.toBeChecked();
-    await u.click(assets);
-    await u.click(within(dialog).getByRole("button", { name: "Save" }));
+    const scene = await screen.findByRole("menuitemcheckbox", { name: "scene" });
+    const assets = screen.getByRole("menuitemcheckbox", { name: "assets" });
+    expect(scene).toHaveAttribute("aria-checked", "true");
+    expect(assets).toHaveAttribute("aria-checked", "false");
+    await choose(u, assets);
 
     await waitFor(() => expect(sa_setSceneElementTags.mock.callCount()).toBe(1));
     expect(sa_setSceneElementTags.mock.calls[0].arguments).toEqual([
@@ -864,13 +1089,15 @@ describe("RunPlayPill", () => {
       5,
       ["scene", "assets"],
     ]);
-    expect(await screen.findByText("Stacks saved")).toBeInTheDocument();
+    // The trigger says so, and the pill was handed its item as it now is.
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Stacks for Dafydd" })).not.toBeInTheDocument(),
+      expect(within(popover).getByRole("button", { name: "Stacks for Dafydd" })).toHaveTextContent(
+        "scene, assets",
+      ),
     );
-    // The row says so, and the pill was handed its item as it now is.
-    expect(within(popover).getByRole("button", { name: "Stacks for Dafydd" })).toHaveTextContent(
-      "scene, assets",
+    expect(screen.getByRole("menuitemcheckbox", { name: "assets" })).toHaveAttribute(
+      "aria-checked",
+      "true",
     );
   });
 
@@ -997,6 +1224,8 @@ describe("RunPlayPill", () => {
           onRemove={onRemove}
           onItemChange={() => {}}
           onStatusChange={() => {}}
+          pictureUp={false}
+          onPictureUpChange={() => {}}
         />
         <Toaster />
       </>,

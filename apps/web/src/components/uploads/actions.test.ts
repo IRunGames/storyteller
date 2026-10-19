@@ -17,7 +17,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 import { createRequire } from "node:module";
 
-import { MAX_ATTACHMENTS, type AttachmentKind } from "@/lib/attachments";
+import type { AttachmentKind } from "@/lib/attachments";
 
 loadEnvConfig(process.cwd());
 
@@ -640,7 +640,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       );
     });
 
-    it("holds the scene to the most attachments one holder may have", async () => {
+    it("puts no ceiling on how many attachments a scene uses", async () => {
       const already = await db
         .select({ id: tables.attachmentUses.idAttachmentUse })
         .from(tables.attachmentUses)
@@ -650,8 +650,8 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
             eq(tables.attachmentUses.idExternal, idScene),
           ),
         );
-      // Fill the scene to one short of the limit.
-      for (let n = already.length; n < MAX_ATTACHMENTS - 1; n += 1) {
+      // Past twenty, where a cap once stood.
+      for (let n = already.length; n < 20; n += 1) {
         await insertAttachment(
           {
             idStory,
@@ -665,19 +665,15 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       const { id: first } = await onStory("https://example.com/picker-first.jpg");
       const { id: second } = await onStory("https://example.com/picker-second.jpg");
 
-      expect(await actions.sa_attachToHolder("STORY_SCENE", idScene, [first, second])).toEqual({
-        ok: false,
-        error: "This scene has room for 1 more. Choose fewer.",
-      });
-      expect(await sceneUse(first)).toBeUndefined();
       expect(await actions.sa_attachToHolder("STORY_SCENE", idScene, [first])).toEqual({
         ok: true,
         attached: [first],
       });
-      expect(await actions.sa_attachAsCover("STORY_SCENE", idScene, second)).toEqual({
-        ok: false,
-        error: `This scene already has ${MAX_ATTACHMENTS} attachments. Remove one first.`,
+      expect(await actions.sa_attachAsCover("STORY_SCENE", idScene, second)).toMatchObject({
+        ok: true,
       });
+      expect(await sceneUse(first)).toBeDefined();
+      expect(await sceneUse(second)).toBeDefined();
     });
 
     it("refuses a scene on a story the caller does not own", async () => {

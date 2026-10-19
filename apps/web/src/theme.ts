@@ -271,6 +271,20 @@ const config = defineConfig({
               _wave: "#38bdf8",
             },
           },
+          // The glow round a pill's thumbnail while the players have its
+          // picture open full size (the tack). The second highlight, as the
+          // initial name is, so it is never mistaken for the hidden pill's
+          // glow beside it.
+          pictureUp: {
+            value: {
+              base: "#0f766e",
+              _dark: "#5eead4",
+              _halloween: "#c084fc",
+              _blackberry: "#f9a8d4",
+              _mint: "#fcd34d",
+              _wave: "#fbbf24",
+            },
+          },
         },
         // A story card's Play when there is something to go to: players
         // waiting for the storyteller (with the outline round the card), or

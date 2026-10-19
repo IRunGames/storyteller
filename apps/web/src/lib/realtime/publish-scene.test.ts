@@ -234,6 +234,29 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     });
   });
 
+  describe("publishSceneElementPulse", () => {
+    it("sends the pulse as given, for the current scene only, reading nothing", async () => {
+      await helpers.publishSceneElementPulse(story, docks, zed, { action: "preview.open" });
+      await play(docks);
+      await helpers.publishSceneElementPulse(story, docks, zed, { action: "preview.open" });
+      // Whatever the pulse carries goes as it is; the helper does not look.
+      await helpers.publishSceneElementPulse(story, docks, 999, { action: "dice.roll", sides: 20 });
+      expect(sent()).toEqual([
+        expect.objectContaining({
+          type: "scene_element.custom",
+          idStoryScene: docks,
+          idElement: zed,
+          custom: { action: "preview.open" },
+        }),
+        expect.objectContaining({
+          type: "scene_element.custom",
+          idElement: 999,
+          custom: { action: "dice.roll", sides: 20 },
+        }),
+      ]);
+    });
+  });
+
   describe("publishSessionUpdated", () => {
     it("sends the session's new title", async () => {
       await helpers.publishSessionUpdated(story, 4, "Kildealg");

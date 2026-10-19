@@ -272,6 +272,23 @@ describe("PlayTable", () => {
           },
           sceneElement: { ...zed.sceneElement, idSceneElement: 12, idElement: 6, url: null },
         },
+        {
+          element: {
+            ...zed.element,
+            idElement: 7,
+            name: "Nain",
+            initialName: null,
+            url: "https://example.com/nain",
+            urlText: "Nain's book",
+          },
+          sceneElement: {
+            ...zed.sceneElement,
+            idSceneElement: 13,
+            idElement: 7,
+            showInfo: false,
+            url: "https://example.com/nain-here",
+          },
+        },
       ],
     });
 
@@ -287,8 +304,11 @@ describe("PlayTable", () => {
     await u.hover(link);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("https://example.com/docks");
 
-    // An element whose address is not a web address offers no link.
+    // An element whose address is not a web address offers no link; nor
+    // does one whose info the storyteller keeps back, whatever its address.
     expect(screen.queryByRole("link", { name: /^Link for Abbot/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Nain")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Link for Nain/ })).not.toBeInTheDocument();
   });
 
   it("says when nothing is being played", () => {
@@ -435,6 +455,101 @@ describe("PlayTable", () => {
     expect(screen.queryByRole("img", { name: "Tapped" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "About Zed" })).not.toBeInTheDocument();
     expect(within(pill).queryByText("Harbourmaster")).not.toBeInTheDocument();
+  });
+
+  // Zed with a picture, and the storyteller's pulses about it.
+  const picturedZed = {
+    ...zed,
+    element: { ...zed.element, imageUrl: "https://x.test/zed.png" },
+  };
+  const pulse = (action: string, idElement = 5, idStoryScene = 3) => ({
+    v: 1 as const,
+    at: "2026-10-13T10:01:00.000Z",
+    idStory: 7,
+    type: "scene_element.custom" as const,
+    idStoryScene,
+    idElement,
+    custom: { action },
+  });
+
+  it("opens an element's picture full size on the storyteller's pulse, and closes it on the next", async () => {
+    renderTable({}, "3. Kildealg", user, { ...scene, items: [picturedZed] });
+    await connected();
+    expect(screen.queryByRole("dialog", { name: "A hooded figure" })).not.toBeInTheDocument();
+
+    await deliver(pulse("preview.open"));
+    // The same preview the thumbnail opens.
+    const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    expect(within(preview).getByRole("img", { name: "A hooded figure" })).toHaveAttribute(
+      "src",
+      "https://x.test/zed.png",
+    );
+
+    await deliver(pulse("preview.close"));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "A hooded figure" })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("lets a player close the picture for themselves until the storyteller puts it up again", async () => {
+    const u = userEvent.setup();
+    renderTable({}, "3. Kildealg", user, { ...scene, items: [picturedZed] });
+    await connected();
+    await deliver(pulse("preview.open"));
+    const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+
+    await u.click(within(preview).getByRole("button", { name: "Close preview" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "A hooded figure" })).not.toBeInTheDocument(),
+    );
+    // The element changing in some other way does not bring it back.
+    await deliver({
+      v: 1 as const,
+      at: "2026-10-13T10:02:00.000Z",
+      idStory: 7,
+      type: "scene_element.upserted",
+      element: { ...picturedZed.element, updatedAt: "2026-10-13T10:02:00.000Z" },
+      sceneElement: { ...picturedZed.sceneElement, updatedAt: "2026-10-13T10:02:00.000Z" },
+    });
+    expect(screen.queryByRole("dialog", { name: "A hooded figure" })).not.toBeInTheDocument();
+
+    await deliver(pulse("preview.open"));
+    expect(await screen.findByRole("dialog", { name: "A hooded figure" })).toBeInTheDocument();
+  });
+
+  it("swaps the picture when another element's goes up, and ignores pulses it cannot answer", async () => {
+    const abbot = {
+      element: {
+        ...zed.element,
+        idElement: 6,
+        name: "Abbot",
+        initialName: null,
+        imageUrl: "https://x.test/abbot.png",
+      },
+      sceneElement: { ...zed.sceneElement, idSceneElement: 12, idElement: 6 },
+    };
+    renderTable({}, "3. Kildealg", user, { ...scene, items: [picturedZed, abbot] });
+    await connected();
+
+    await deliver(pulse("preview.open"));
+    await screen.findByRole("dialog", { name: "A hooded figure" });
+    await deliver(pulse("preview.open", 6));
+    const preview = await screen.findByRole("dialog", { name: "Abbot" });
+    expect(within(preview).getByRole("img", { name: "Abbot" })).toHaveAttribute(
+      "src",
+      "https://x.test/abbot.png",
+    );
+    expect(screen.queryByRole("dialog", { name: "A hooded figure" })).not.toBeInTheDocument();
+
+    // Another scene's pulse, an unknown action, and an element with no
+    // picture change nothing.
+    await deliver(pulse("preview.close", 6, 4));
+    await deliver(pulse("dice.roll", 6));
+    expect(screen.getByRole("dialog", { name: "Abbot" })).toBeInTheDocument();
+    await deliver(pulse("preview.close", 6));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await deliver(pulse("preview.open", 99));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("lets a player write up the scene from the chevron beside its title", async () => {
@@ -629,6 +744,128 @@ describe("PlayTable", () => {
 
     expect(sa_getPlayScene.mock.calls).toHaveLength(1);
     await screen.findByRole("heading", { name: "The abbey" });
+  });
+
+  it("asks the players to stand by over a pending scene", () => {
+    renderTable({}, "3. Kildealg", user, {
+      ...scene,
+      scene: { ...scene.scene!, status: "PENDING" },
+    });
+    const space = screen.getByRole("region", { name: "Play space" });
+
+    const overlay = within(space).getByTestId("scene-pending-overlay");
+    expect(overlay).toHaveTextContent("PENDING");
+    expect(overlay).toHaveTextContent("Please Stand By");
+    // The scene is still there under it, as the storyteller's table keeps it.
+    expect(within(space).getByRole("heading", { name: "The docks" })).toBeInTheDocument();
+  });
+
+  it("puts the overlay up when the storyteller sets the scene pending, and takes it down when it is active again", async () => {
+    renderTable();
+    await connected();
+    expect(screen.queryByTestId("scene-pending-overlay")).not.toBeInTheDocument();
+
+    // The storyteller's status change comes over the topic as a change of
+    // scene, so the table reads the scene afresh and finds it pending.
+    sa_getPlayScene.mock.mockImplementation(async () => ({
+      ...scene,
+      scene: { ...scene.scene!, status: "PENDING" },
+    }));
+    await deliver({
+      v: 1,
+      at: "2026-10-13T10:01:00.000Z",
+      idStory: 7,
+      type: "scene.changed",
+      idStoryScene: 3,
+    });
+    expect(await screen.findByTestId("scene-pending-overlay")).toHaveTextContent("Please Stand By");
+
+    sa_getPlayScene.mock.mockImplementation(async () => scene);
+    await deliver({
+      v: 1,
+      at: "2026-10-13T10:02:00.000Z",
+      idStory: 7,
+      type: "scene.changed",
+      idStoryScene: 3,
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("scene-pending-overlay")).not.toBeInTheDocument(),
+    );
+  });
+
+  for (const status of ["PENDING", "COMPLETE"]) {
+    it(`lets a player read the pills and the scene's text in a ${status.toLowerCase()} scene, without writing`, async () => {
+      const u = userEvent.setup();
+      renderTable({}, "3. Kildealg", user, {
+        ...scene,
+        scene: { ...scene.scene!, status },
+        items: [
+          {
+            element: { ...zed.element, description: "Keeps the docks.", notes: "Owes us." },
+            sceneElement: { ...zed.sceneElement, status: "TAPPED" },
+          },
+        ],
+      });
+      const space = screen.getByRole("region", { name: "Play space" });
+      const overlay = within(space).getByTestId(`scene-${status.toLowerCase()}-overlay`);
+      // The overlay says so without taking the pointer from what is under it.
+      expect(overlay).toHaveStyle({ pointerEvents: "none" });
+
+      // The pill's info opens to read; the tapped marker is not a button here.
+      const pill = within(space).getByText("A hooded figure").closest("[data-scene-status]")!;
+      expect(within(pill as HTMLElement).getByRole("img", { name: "Tapped" })).toBeInTheDocument();
+      expect(within(pill as HTMLElement).queryByRole("button", { name: /untap/ })).toBeNull();
+      await u.click(
+        within(pill as HTMLElement).getByRole("button", { name: "About A hooded figure" }),
+      );
+      const info = await screen.findByRole("dialog", { name: "A hooded figure" });
+      expect(within(info).getByText("Keeps the docks.")).toBeInTheDocument();
+      expect(within(info).getByText("Owes us.")).toBeInTheDocument();
+      expect(within(info).queryByRole("textbox")).toBeNull();
+      await u.keyboard("{Escape}");
+
+      // The scene's text the same way.
+      await u.click(within(space).getByRole("button", { name: "Describe The docks" }));
+      const text = await screen.findByRole("dialog", { name: "The docks" });
+      expect(within(text).getByText("Fog on the water.")).toBeInTheDocument();
+      expect(within(text).queryByRole("textbox")).toBeNull();
+    });
+  }
+
+  it("marks a complete scene over the stacks, as the storyteller's table does", async () => {
+    renderTable();
+    await connected();
+    expect(screen.queryByTestId("scene-complete-overlay")).not.toBeInTheDocument();
+
+    // The storyteller moving to a finished scene comes as a change of scene.
+    sa_getPlayScene.mock.mockImplementation(async () => ({
+      ...scene,
+      scene: { ...scene.scene!, idStoryScene: 4, title: "The abbey", status: "COMPLETE" },
+    }));
+    await deliver({
+      v: 1,
+      at: "2026-10-13T10:01:00.000Z",
+      idStory: 7,
+      type: "scene.changed",
+      idStoryScene: 4,
+    });
+    const overlay = await screen.findByTestId("scene-complete-overlay");
+    expect(overlay).toHaveTextContent("COMPLETE");
+    expect(screen.queryByTestId("scene-pending-overlay")).not.toBeInTheDocument();
+    // The scene is still there under it.
+    expect(screen.getByRole("heading", { name: "The abbey" })).toBeInTheDocument();
+
+    sa_getPlayScene.mock.mockImplementation(async () => scene);
+    await deliver({
+      v: 1,
+      at: "2026-10-13T10:02:00.000Z",
+      idStory: 7,
+      type: "scene.changed",
+      idStoryScene: 3,
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("scene-complete-overlay")).not.toBeInTheDocument(),
+    );
   });
 
   it("says live updates are off when the broker is not configured", async () => {

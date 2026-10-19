@@ -72,8 +72,11 @@ export function RunNewElementPopover({
   // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [open, setOpen] = useState(false);
-  // The picture Add picture chose, sent with the form; cleared each opening.
+  // The pictures the two Add picture buttons chose, sent with the form and
+  // cleared each opening: the element's own, and the link's for this scene,
+  // which the pill shows over the element's while it is in this scene.
   const [picture, setPicture] = useState<Attachment | null>(null);
+  const [scenePicture, setScenePicture] = useState<Attachment | null>(null);
   const label = `New element in ${title}`;
   // The library's switches: where a new element starts in the scene, and
   // whether the players see its description.
@@ -89,7 +92,10 @@ export function RunNewElementPopover({
       open={open}
       onOpenChange={(details) => {
         setOpen(details.open);
-        if (details.open) setPicture(null);
+        if (details.open) {
+          setPicture(null);
+          setScenePicture(null);
+        }
       }}
       positioning={{ placement: floating ? "top-end" : "bottom-start" }}
     >
@@ -115,7 +121,9 @@ export function RunNewElementPopover({
       </Tooltip.Root>
       <Portal>
         <Popover.Positioner>
-          <Popover.Content w="md" maxH="80vh" overflowY="auto">
+          {/* Lightly see-through, so the play space shows through the
+              form while the scene's own box inside it stays solid. */}
+          <Popover.Content w="md" maxH="80vh" overflowY="auto" bg="bg.panel/90">
             <Popover.Arrow />
             <Popover.Header>
               <Popover.Title fontWeight="semibold">New element in {title}</Popover.Title>
@@ -144,15 +152,30 @@ export function RunNewElementPopover({
                     sa_createSceneElement(idStory, idStoryScene, tag, {
                       ...values,
                       idAttachment: picture?.idAttachment ?? null,
-                      showInfo: addShowInfo,
+                      idSceneAttachment: scenePicture?.idAttachment ?? null,
+                      // Ephemera start with their info hidden whatever the
+                      // switch says: a handout is the storyteller's to give
+                      // out, so its description is not the players' at
+                      // once. The pill's info toggle still shows it.
+                      showInfo: values.kind === "EPHEMERA" ? false : addShowInfo,
                     })
                   }
-                  extra={
+                  elementPicture={
                     <NewElementPicture
+                      label="Picture (optional)"
                       idStory={idStory}
                       idStoryScene={idStoryScene}
                       picture={picture}
                       onChange={setPicture}
+                    />
+                  }
+                  scenePicture={
+                    <NewElementPicture
+                      label="Picture in this scene (optional)"
+                      idStory={idStory}
+                      idStoryScene={idStoryScene}
+                      picture={scenePicture}
+                      onChange={setScenePicture}
                     />
                   }
                   onSaved={({ item }) => {
@@ -172,17 +195,21 @@ export function RunNewElementPopover({
 }
 
 /**
- * The new element's picture, chosen before it exists: Add picture opens the
- * pill's picker in place, which only hands the choice back here, and the
- * form sends it with the fields. Once chosen it shows small, with a − to
- * choose again, as the info popover's Picture row does.
+ * A picture for the new element, chosen before it exists: Add picture opens
+ * the pill's picker in place, which only hands the choice back here, and
+ * the form sends it with the fields. Once chosen it shows small, with a −
+ * to choose again, as the info popover's Picture row does. Twice in the
+ * form: the element's own picture, and the link's for this scene.
  */
 function NewElementPicture({
+  label,
   idStory,
   idStoryScene,
   picture,
   onChange,
 }: {
+  /** The field's name: which of the two pictures this is. */
+  label: string;
   idStory: number;
   idStoryScene: number;
   picture: Attachment | null;
@@ -192,7 +219,7 @@ function NewElementPicture({
 
   return (
     <Field.Root>
-      <Field.Label>Picture (optional)</Field.Label>
+      <Field.Label>{label}</Field.Label>
       {picture?.url ? (
         <HStack gap="1">
           <Box boxSize="10" flexShrink="0" rounded="sm" overflow="hidden" bg="bg.muted">

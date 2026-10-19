@@ -15,9 +15,9 @@ type Props = {
 
 /**
  * Whether the players see an element's description in the scene
- * (scene_elements.show_info), as a toggle: on a pill, left of its status
- * menu, and in the element panel's In this scene rows, both pressing the
- * same way. Solid while the info shows. Lucide has no crossed-out Info, so
+ * (scene_elements.show_info), as a one-button toggle on a pill, left of its
+ * status menu; the element panel has room for a switch (RunInfoSwitch), and
+ * both press the same way. Solid while the info shows. Lucide has no crossed-out Info, so
  * its Slash is laid over the Info when the info is kept back, as
  * PlayerCount does for nobody; Ban is the DISABLED status beside this on
  * the pill.

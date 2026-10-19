@@ -10,7 +10,8 @@
 -- space), `element_tags` the element's own. `element_showing` is the link's
 -- too, despite its prefix: which of the element's fields the pill shows in
 -- this scene, as `show_info` is whether the players' table shows the
--- element's description there.
+-- element's description there and `show_image` whether it opens the
+-- element's picture full size.
 --
 -- The columns are listed rather than taken as se.* and e.*, so a column added
 -- to either table does not change the view's shape until it is added here and
@@ -27,6 +28,7 @@ SELECT se.id_scene_element,
        se.tags,
        se.element_showing,
        se.show_info,
+       se.show_image,
        se.url,
        se.url_text,
        se.created_at,

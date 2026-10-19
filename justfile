@@ -13,6 +13,29 @@ default:
 dev:
     npm run dev
 
+# `next dev` already listens on every interface, but three things still pin
+# it to this machine: Next refuses HMR and other /_next requests whose Origin
+# is not localhost or the --hostname it was given, Better Auth rejects sign-in
+# requests from any origin but BETTER_AUTH_URL, and the browser auth client
+# posts to NEXT_PUBLIC_APP_URL. So the server is bound to this machine's LAN
+# address and both URLs are pointed at it for this run (values set in the
+# environment win over .env.local). Use that URL on this machine too;
+# localhost does not work in this mode. Google sign-in only redirects back to
+# localhost, so sign in with email and password from other machines.
+# The second `--` is for npm: it hands `-- --hostname …` to turbo, which passes
+# `--hostname …` on to `next dev`.
+# Start the dev server for other machines on the network (http://<this LAN IP>:3000)
+[group('web')]
+dev-remote:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    iface="$(route -n get default | awk '/interface:/{print $2}')"
+    ip="$(ipconfig getifaddr "$iface")"
+    url="http://$ip:3000"
+    echo "Serving on $url (reach it from other machines at that address; stop with Ctrl+C or just kill)"
+    export BETTER_AUTH_URL="$url" NEXT_PUBLIC_APP_URL="$url"
+    npm run dev -- -- --hostname "$ip"
+
 # `just dev` spawns two process groups (just → npm → turbo, and the web
 # workspace's npm → next dev → next-server), so each matched process's whole
 # group is signalled rather than walking a parent chain that turbo breaks.

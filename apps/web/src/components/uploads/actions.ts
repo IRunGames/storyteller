@@ -19,7 +19,6 @@ import {
 import {
   ATTACH_HOLDER_NOUNS,
   COVER_TAG,
-  MAX_ATTACHMENTS,
   type AttachHolderKind,
   type Attachment,
   type AttachmentKind,
@@ -462,6 +461,8 @@ export async function sa_listAttachments(
         fileName: attachments.fileName,
         isCover: sql<boolean>`coalesce(${useIsCoverSql}, false)`,
         tags: attachments.tags,
+        createdAt: attachments.createdAt,
+        updatedAt: attachments.updatedAt,
       })
       .from(attachments)
       .leftJoin(
@@ -482,7 +483,13 @@ export async function sa_listAttachments(
         desc(attachments.updatedAt),
         desc(attachments.idAttachment),
       );
-    return rows.map((row) => ({ ...row, kind: "STORY" as const, idExternal: idStory }));
+    return rows.map((row) => ({
+      ...row,
+      kind: "STORY" as const,
+      idExternal: idStory,
+      createdAt: iso(row.createdAt),
+      updatedAt: iso(row.updatedAt),
+    }));
   }
 
   const rows = await db
@@ -496,6 +503,8 @@ export async function sa_listAttachments(
       fileName: vAttachmentUses.fileName,
       isCover: vAttachmentUses.isCover,
       tags: vAttachmentUses.attachmentTags,
+      createdAt: vAttachmentUses.attachmentCreatedAt,
+      updatedAt: vAttachmentUses.attachmentUpdatedAt,
     })
     .from(vAttachmentUses)
     .where(
@@ -520,7 +529,14 @@ export async function sa_listAttachments(
     fileName: row.fileName,
     isCover: row.isCover === true,
     tags: row.tags ?? [],
+    createdAt: iso(row.createdAt),
+    updatedAt: iso(row.updatedAt),
   }));
+}
+
+/** A timestamp as the Attachment type carries it; the view's are nullable to Drizzle. */
+function iso(date: Date | null): string | null {
+  return date ? date.toISOString() : null;
 }
 
 // A search box's contents, bounded like the Scenes column's.
@@ -530,7 +546,7 @@ const attachmentQuerySchema = z.string().max(200);
  * Which of a holder's attachments match what a search box holds, by
  * attachments.search_text: the address, the file name and every tag of the
  * file. Ids rather than rows, because the field asking already holds every
- * row (a holder has at most twenty) and only needs to know which to show.
+ * row and only needs to know which to show.
  * The story's pool for the story itself, as sa_listAttachments lists it. An
  * unowned or unusable holder answers like sa_listAttachments does, with
  * nothing.
@@ -581,38 +597,6 @@ export type DetachResult = { ok: true; detached: number[] } | { ok: false; error
 export type AttachAsCoverResult = { ok: true; url: string } | { ok: false; error: string };
 
 /**
- * The holder's own pictures, counted, with the holder's row locked: the cap
- * and the attach that follows run in one transaction, so two attaches at
- * once cannot each find room for the same last places.
- */
-async function lockedHolderCount(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  kind: AttachHolderKind,
-  idExternal: number,
-): Promise<number> {
-  if (kind === "STORY_SCENE") {
-    await tx
-      .select({ id: storyScenes.idStoryScene })
-      .from(storyScenes)
-      .where(eq(storyScenes.idStoryScene, idExternal))
-      .for("update")
-      .limit(1);
-  } else {
-    await tx
-      .select({ id: sceneElements.idSceneElement })
-      .from(sceneElements)
-      .where(eq(sceneElements.idSceneElement, idExternal))
-      .for("update")
-      .limit(1);
-  }
-  const [{ count }] = await tx
-    .select({ count: sql<number>`count(*)`.mapWith(Number) })
-    .from(attachmentUses)
-    .where(and(eq(attachmentUses.kind, kind), eq(attachmentUses.idExternal, idExternal)));
-  return count;
-}
-
-/**
  * A change to a scene element's pictures is told to the players' table,
  * whose pill shows the link's cover; a scene's pictures are the storyteller's
  * backdrop and library, which the players do not follow.
@@ -636,9 +620,8 @@ function tellPlayers(idStory: number, kind: AttachHolderKind, idExternal: number
  * repeats each condition so a row that changed since the picker loaded is
  * left alone rather than attached by mistake. One the holder already uses
  * is left as it is. What was attached comes back, for the picker to say.
- *
- * The holder is held to MAX_ATTACHMENTS like an upload is, counted in the
- * same transaction with the holder's row locked (lockedHolderCount).
+ * There is no ceiling on how many a holder uses: a story's pool is as big
+ * as the storyteller makes it, and a scene may take all of it.
  */
 export async function sa_attachToHolder(
   kind: AttachHolderKind,
@@ -653,11 +636,8 @@ export async function sa_attachToHolder(
 
   const idStory = await holderStory(user.id, holderKind, holderId);
   if (idStory === null) throw new Error("You do not have access to that story.");
-  const noun = ATTACH_HOLDER_NOUNS[holderKind];
 
   const result = await db.transaction(async (tx) => {
-    const count = await lockedHolderCount(tx, holderKind, holderId);
-
     // The files the holder does not use yet, of those asked for.
     const candidates = await tx
       .select({ idAttachment: attachments.idAttachment })
@@ -682,16 +662,6 @@ export async function sa_attachToHolder(
         ),
       );
     if (candidates.length === 0) return { ok: true as const, attached: [] };
-    if (count + candidates.length > MAX_ATTACHMENTS) {
-      const room = Math.max(MAX_ATTACHMENTS - count, 0);
-      return {
-        ok: false as const,
-        error:
-          room === 0
-            ? `This ${noun} already has ${MAX_ATTACHMENTS} attachments. Remove one first.`
-            : `This ${noun} has room for ${room} more. Choose fewer.`,
-      };
-    }
 
     await tx.insert(attachmentUses).values(
       candidates.map((row) => ({
@@ -753,12 +723,10 @@ export async function sa_detachFromHolder(
  * the play space behind its stacks, or the pill.
  *
  * The attach is sa_attachToHolder's, with its conditions: only the holder's
- * storyteller, only a READY file of that story, and only while the holder
- * has room (a file it uses already takes no new place). The cover is then
+ * storyteller, and only a READY file of that story. The cover is then
  * sa_setAttachmentCover's, taking the tag off whichever of the holder's
- * pictures held it first. Both in one transaction with the holder's row
- * locked, so a refusal leaves the holder as it was rather than using the
- * file but not as its cover.
+ * pictures held it first. Both in one transaction, so a refusal leaves the
+ * holder as it was rather than using the file but not as its cover.
  */
 export async function sa_attachAsCover(
   kind: AttachHolderKind,
@@ -775,8 +743,6 @@ export async function sa_attachAsCover(
   const noun = ATTACH_HOLDER_NOUNS[holderKind];
 
   const result = await db.transaction(async (tx) => {
-    const count = await lockedHolderCount(tx, holderKind, holderId);
-
     const [file] = await tx
       .select({ url: attachments.url })
       .from(attachments)
@@ -794,24 +760,6 @@ export async function sa_attachAsCover(
         error: `That attachment can no longer be used by the ${noun}.`,
       };
     }
-    const [used] = await tx
-      .select({ idAttachmentUse: attachmentUses.idAttachmentUse })
-      .from(attachmentUses)
-      .where(
-        and(
-          eq(attachmentUses.idAttachment, attachmentId),
-          eq(attachmentUses.kind, holderKind),
-          eq(attachmentUses.idExternal, holderId),
-        ),
-      )
-      .limit(1);
-    if (!used && count >= MAX_ATTACHMENTS) {
-      return {
-        ok: false as const,
-        error: `This ${noun} already has ${MAX_ATTACHMENTS} attachments. Remove one first.`,
-      };
-    }
-
     await tx
       .update(attachmentUses)
       .set({

@@ -20,6 +20,8 @@ const attachment = (id: number, values: Partial<Attachment> = {}): Attachment =>
   isUploaded: false,
   fileName: `picture-${id}.jpg`,
   isCover: false,
+  createdAt: null,
+  updatedAt: null,
   tags: [],
   ...values,
 });
@@ -149,10 +151,10 @@ describe("StoryAttachmentPicker", () => {
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
   });
 
-  it("says why when the scene has no room, and attaches nothing", async () => {
+  it("says why when the server refuses, and attaches nothing", async () => {
     sa_attachToHolder.mock.mockImplementation(async () => ({
       ok: false,
-      error: "This scene has room for 1 more. Choose fewer.",
+      error: "That scene is complete, so nothing in it can change.",
     }));
     const user = userEvent.setup();
     renderWithProviders(
@@ -164,7 +166,7 @@ describe("StoryAttachmentPicker", () => {
     await user.click(screen.getByRole("checkbox", { name: "the-wizard.jpg" }));
     await user.click(screen.getByRole("button", { name: "Add 2 to this scene" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("room for 1 more");
+    expect(await screen.findByRole("alert")).toHaveTextContent("That scene is complete");
     const list = screen.getByRole("list");
     expect(within(list).getAllByRole("checkbox")).toHaveLength(3);
   });

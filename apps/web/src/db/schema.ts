@@ -622,6 +622,10 @@ export const sceneElements = pgTable("scene_elements", {
   // Whether the players' table shows the element's description in this
   // scene: true unless the storyteller keeps it back.
   showInfo: boolean("show_info").notNull().default(true),
+  // Whether the players' table opens the element's picture full size in
+  // this scene: off unless the storyteller pins it from the pill, and on
+  // for one link of a scene at a time (sa_setSceneElementShowImage).
+  showImage: boolean("show_image").notNull().default(false),
   activityLog: jsonb("activity_log")
     .default(sql`'[]'::jsonb`)
     .notNull(),
@@ -656,6 +660,7 @@ export const vSceneElements = pgView("v_scene_elements", {
   tags: text("tags").array(),
   elementShowing: varchar("element_showing"),
   showInfo: boolean("show_info"),
+  showImage: boolean("show_image"),
   url: text("url"),
   urlText: text("url_text"),
   createdAt: timestamp("created_at", { withTimezone: true }),

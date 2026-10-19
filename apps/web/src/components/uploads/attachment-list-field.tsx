@@ -30,19 +30,7 @@ import {
   sa_setAttachmentTags,
 } from "./actions";
 import { AttachmentCard } from "./attachment-card";
-import { MAX_ATTACHMENTS, type Attachment, type AttachmentKind } from "@/lib/attachments";
-
-// MAX_ATTACHMENTS (lib/attachments.ts) is also the cap on concurrent uploads zag's own FileUpload ledger enforces
-// (see fileUpload.deleteFile in handleRemove, which keeps that ledger in
-// step with the rows actually on screen). zag's ledger only ever counts
-// files accepted through the dropzone, though -- a link added through
-// handleAddUrl never touches it -- so it is not authoritative for the
-// total the user can actually see, and cannot be trusted alone to enforce
-// this cap when the two kinds of row mix. rowsRef.current.length is: both
-// handleAddUrl and handleFilesAccepted check it directly before adding
-// anything, rather than leaning on zag's own count.
-
-const MAX_ATTACHMENTS_MESSAGE = `You can have at most ${MAX_ATTACHMENTS} attachments at once here. Remove one first.`;
+import type { Attachment, AttachmentKind } from "@/lib/attachments";
 
 // A client-only sentinel, never a status the server sends. It marks a row
 // this field only knows by id -- seeded from `value` after a remount with a
@@ -53,6 +41,15 @@ const MAX_ATTACHMENTS_MESSAGE = `You can have at most ${MAX_ATTACHMENTS} attachm
 // rendering: no thumbnail, no Retry (there is no cached File to resend and
 // no server status to justify offering one), just a name and Remove.
 const UNKNOWN_STATUS = "UNKNOWN";
+
+/**
+ * The stamps for a row this field just made, before the server lists it: the
+ * moment it was added, so a newest-first list puts it where it belongs.
+ */
+function justNow(): Pick<Attachment, "createdAt" | "updatedAt"> {
+  const now = new Date().toISOString();
+  return { createdAt: now, updatedAt: now };
+}
 
 type Props = {
   kind: AttachmentKind;
@@ -103,10 +100,9 @@ type Props = {
   addTarget?: HTMLElement | null;
   /**
    * Only these attachments show, when given: the ids a search matched, from
-   * sa_searchAttachments. The field still holds every row (an object has at
-   * most MAX_ATTACHMENTS), so narrowing it is a matter of what is drawn, and
-   * clearing the search brings the rest straight back. Null or absent shows
-   * them all.
+   * sa_searchAttachments. The field still holds every row, so narrowing it
+   * is a matter of what is drawn, and clearing the search brings the rest
+   * straight back. Null or absent shows them all.
    */
   shownIds?: ReadonlySet<number> | null;
   /** Leaves the cover out of the cards, for the Prep Work board's Covers switch. */
@@ -155,9 +151,6 @@ function rejectionMessage(rejection: { errors: string[] } | undefined): string {
   if (errors.includes("FILE_TOO_LARGE")) {
     return "That image is larger than the 10 MB limit.";
   }
-  if (errors.includes("TOO_MANY_FILES")) {
-    return MAX_ATTACHMENTS_MESSAGE;
-  }
   return "That file could not be added.";
 }
 
@@ -205,6 +198,8 @@ export function AttachmentListField({
           fileName: null,
           isCover: false,
           tags: [],
+          createdAt: null,
+          updatedAt: null,
         }))
       : [],
   );
@@ -365,7 +360,9 @@ export function AttachmentListField({
   const fileUpload = useFileUpload({
     accept: [...ALLOWED_IMAGE_TYPES],
     maxFileSize: MAX_IMAGE_BYTES,
-    maxFiles: MAX_ATTACHMENTS,
+    // No ceiling on how many a holder carries. zag's own default is one
+    // file, so a list has to say so.
+    maxFiles: Infinity,
     onFileAccept: (details) => handleFilesAccepted(details.files),
     onFileReject: (details) => setFieldError(rejectionMessage(details.files[0])),
   });
@@ -455,9 +452,8 @@ export function AttachmentListField({
       // Both ledgers were charged for a row that never existed. startedFiles
       // is what stops the same File being uploaded twice, so releasing it
       // lets the user simply pick the file again; zag's own accepted-files
-      // count never shrinks by itself, so a file left in it would keep its
-      // place against maxFiles for the rest of the session even though no
-      // row was ever added. handleRemove releases both for the same reason.
+      // list never shrinks by itself, so the file is taken out of it too,
+      // as handleRemove does for a row that goes.
       startedFiles.current.delete(file);
       fileUpload.deleteFile(file);
       return;
@@ -475,28 +471,15 @@ export function AttachmentListField({
       fileName: file.name,
       isCover: false,
       tags: [],
+      ...justNow(),
     });
     await runUpload(created.idAttachment, file);
   }
 
   function handleFilesAccepted(files: File[]) {
-    // A synchronous counter, not a repeated rowsRef.current.length check:
-    // each accepted file's row only lands in rowsRef once its
-    // sa_createAttachment call resolves, so a whole batch dropped at once
-    // would otherwise all see the same pre-batch count and all pass, even
-    // once the batch itself would push the total over the cap. It is only
-    // ever this one batch's budget: the next call recounts rowsRef, so a
-    // file whose sa_createAttachment fails costs nothing beyond its own
-    // batch (startUpload hands its place in the two lasting ledgers back).
-    let available = MAX_ATTACHMENTS - rowsRef.current.length;
     for (const file of files) {
       if (startedFiles.current.has(file)) continue;
       startedFiles.current.add(file);
-      if (available <= 0) {
-        setFieldError(MAX_ATTACHMENTS_MESSAGE);
-        continue;
-      }
-      available -= 1;
       void startUpload(file);
     }
   }
@@ -504,14 +487,6 @@ export function AttachmentListField({
   async function handleAddUrl() {
     const url = urlValue.trim();
     if (!url) return;
-    // Checked against rowsRef.current.length, not zag's own ledger: zag
-    // never sees a link added through this path, so its count and the
-    // true visible total can drift once the two kinds of row mix (see the
-    // comment on MAX_ATTACHMENTS above).
-    if (rowsRef.current.length >= MAX_ATTACHMENTS) {
-      setFieldError(MAX_ATTACHMENTS_MESSAGE);
-      return;
-    }
     // Checked client-side against the same schema sa_createAttachment runs
     // server-side, rather than letting a bad url reach the network and
     // relying on the thrown error's message surviving the server action
@@ -538,11 +513,12 @@ export function AttachmentListField({
         fileName: null,
         isCover: false,
         tags: [],
+        ...justNow(),
       });
       setUrlValue("");
     } catch {
-      // Genuinely unexpected at this point -- the url and the cap were
-      // already checked above -- so this is a network or server failure
+      // Genuinely unexpected at this point -- the url was already checked
+      // above -- so this is a network or server failure
       // rather than something the message could name more specifically.
       setFieldError("That link could not be added. Please try again.");
     }
@@ -644,11 +620,9 @@ export function AttachmentListField({
     // must not resurrect it once the user has asked for it to be gone.
     ticketsByAttachment.current.delete(id);
     filesByAttachment.current.delete(id);
-    // zag's own accepted-files ledger only ever grows (nothing else tells it
-    // a file left); left alone, an add/remove/re-add cycle burns through
-    // MAX_ATTACHMENTS even though the visible list holds far fewer rows.
-    // Removing it here is what keeps "how many uploads zag will still take"
-    // matching "how many rows are actually on screen".
+    // zag's own accepted-files list only ever grows (nothing else tells it
+    // a file left), so a row that goes is taken out of it here, and the
+    // list it keeps stays the files actually on screen.
     if (file) fileUpload.deleteFile(file);
     commit(rowsRef.current.filter((row) => row.idAttachment !== id));
     try {
@@ -664,9 +638,8 @@ export function AttachmentListField({
       // attached -- and, on a story, still its cover. Everything the removal
       // did is undone and the failure is named inline, next to the field
       // rather than in a toast, because it is a failure the user has to act
-      // on. zag's ledger is the one thing not put back: deleteFile has no
-      // inverse, and undercounting there is harmless since rowsRef is what
-      // actually enforces the cap.
+      // on. zag's accepted-files list is the one thing not put back:
+      // deleteFile has no inverse, and nothing reads that list but zag.
       removedIds.current.delete(id);
       if (ticket !== undefined) ticketsByAttachment.current.set(id, ticket);
       if (file) filesByAttachment.current.set(id, file);

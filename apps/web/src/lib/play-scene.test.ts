@@ -193,4 +193,15 @@ describe("applyStoryEvent", () => {
     const event: StoryEvent = { ...base, type: "session.updated", idStorySession: 2, title: "X" };
     expect(applyStoryEvent(scene, event)).toEqual({ scene, refetch: false });
   });
+
+  it("leaves the scene alone on a pulse: it is for the table to act on, not to keep", () => {
+    const event: StoryEvent = {
+      ...base,
+      type: "scene_element.custom",
+      idStoryScene: 3,
+      idElement: 5,
+      custom: { action: "preview.open" },
+    };
+    expect(applyStoryEvent(scene, event)).toEqual({ scene, refetch: false });
+  });
 });

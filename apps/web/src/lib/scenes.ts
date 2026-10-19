@@ -84,6 +84,14 @@ export type SessionScene = {
  */
 export const SCENE_LOCKED_STATUS = "COMPLETE";
 
+/**
+ * The status a scene waits in before it is played: the storyteller has not
+ * opened it, or has set it back after opening it. The players' table puts up
+ * a "stand by" overlay over a pending scene; the storyteller's does not, since
+ * it is the storyteller who moves the scene on.
+ */
+export const SCENE_PENDING_STATUS = "PENDING";
+
 /** A sitting of the story, as the scene form's select offers it. */
 export type SceneSessionOption = {
   idStorySession: number;
@@ -109,3 +117,13 @@ export const EMPTY_SCENE_TEXT: SceneText = { description: null, notes: null };
 /** What saving the panel hands back: the text as stored, or errors by field. */
 export type SetSceneTextResult =
   { ok: true; text: SceneText } | { ok: false; errors: Record<string, string> };
+
+/**
+ * The address of a scene's preview: the scene as the players would see it,
+ * with nothing to press, for the storyteller to look something up in
+ * another tab without moving the table. Keyed on the scene alone, since a
+ * scene names its story.
+ */
+export function scenePreviewPath(idStoryScene: number): string {
+  return `/preview/scene/${idStoryScene}`;
+}

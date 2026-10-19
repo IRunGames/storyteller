@@ -16,19 +16,25 @@ import { ExternalLink } from "lucide-react";
 import type { ElementLink } from "@/lib/run";
 import { isWebUrl } from "@/lib/elements";
 import { ELEMENT_KIND_LABELS, isElementKind } from "@/lib/elements";
+import { elementTagSchema } from "@/lib/element-schemas";
 import type { ElementDetail } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { StatusPill } from "@/components/status/status-pill";
-import { sa_setElementImage } from "@/app/(app)/run/[id]/actions";
+import { sa_setElementImage, sa_setElementTags } from "@/app/(app)/run/[id]/actions";
 import { toaster } from "@/components/ui/toaster";
+import { TagsPopover } from "@/components/popovers/tags-popover";
 import { RunElementImagePicker } from "./run-element-image-popover";
 import { RunPictureCell } from "./run-picture-cell";
 
 /**
  * An element's own rows, as both info popovers at the table list them: the
- * pill's in the play space and the library's. The status is a StatusPill the
- * storyteller can move, which reports the move so the popover holding it
- * keeps up.
+ * pill's in the play space and the library's. The status is a StatusPill on
+ * the In the story heading's line, as the scene's is on its own heading's,
+ * which the storyteller can move; the move is reported so the popover
+ * holding it keeps up. The Tags row lists the element's tags with the tags
+ * editor beside them (TagsPopover), always there so a first tag can be
+ * added; a change is saved whole (sa_setElementTags) and reported the same
+ * way.
  *
  * The picture leads: the attachment it points at as a small icon, which
  * opens it full size, with a − to take it away, or a + (RunPictureCell),
@@ -42,10 +48,13 @@ export function ElementDetailRows({
   idStory,
   idStoryScene,
   onImageChange,
+  onTagsChange,
 }: {
   element: ElementDetail;
   statusOptions: StatusOption[];
   onStatusChange: (status: string) => void;
+  /** The element's tags have been saved from the Tags row's editor. */
+  onTagsChange: (tags: string[]) => void;
   idStory: number;
   /** The scene the table is on, whose attachments the picker's Scene lists. */
   idStoryScene: number | null;
@@ -65,6 +74,22 @@ export function ElementDetailRows({
       toaster.create({ title: "The picture could not be removed. Try again.", type: "error" });
     } finally {
       setRemoving(false);
+    }
+  }
+
+  // The editor's handler: saved before it is shown, so a refusal needs
+  // nothing put back; false tells the editor to say so.
+  async function changeTags(tags: string[]): Promise<boolean> {
+    try {
+      const result = await sa_setElementTags(idStory, element.idElement, tags);
+      if (result.ok) {
+        onTagsChange(result.tags);
+        return true;
+      }
+      toaster.create({ title: result.error, type: "error" });
+      return false;
+    } catch {
+      return false;
     }
   }
 
@@ -89,18 +114,19 @@ export function ElementDetailRows({
     ["Kind", isElementKind(element.kind) ? ELEMENT_KIND_LABELS[element.kind] : element.kind],
     ["Title", always(element.title)],
     [
-      "Status",
-      <StatusPill
-        key="status"
-        table="elements"
-        id={element.idElement}
-        status={element.status}
-        options={statusOptions}
-        canEdit
-        onChanged={onStatusChange}
-      />,
+      "Tags",
+      <HStack key="tags" gap="1" minW="0">
+        <Text as="span" color={element.tags.length > 0 ? undefined : "fg.subtle"}>
+          {tagList(element.tags) ?? "No tags"}
+        </Text>
+        <TagsPopover
+          label={element.name}
+          tags={element.tags}
+          tagSchema={elementTagSchema}
+          onTagsChange={changeTags}
+        />
+      </HStack>,
     ],
-    ["Tags", tagList(element.tags)],
     ["Description", always(element.description)],
     ["Notes", always(element.notes)],
     ["Link", linkCell(element)],
@@ -109,7 +135,20 @@ export function ElementDetailRows({
   // what the element is in the story, and how it stands in this scene.
   return (
     <Stack gap="3">
-      <DetailSection title="In the story" rows={rows} />
+      <DetailSection
+        title="In the story"
+        beside={
+          <StatusPill
+            table="elements"
+            id={element.idElement}
+            status={element.status}
+            options={statusOptions}
+            canEdit
+            onChanged={onStatusChange}
+          />
+        }
+        rows={rows}
+      />
       {picking && !element.imageUrl && (
         <Box borderWidth="1px" rounded="md" p="2">
           <RunElementImagePicker

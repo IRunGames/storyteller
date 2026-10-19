@@ -37,6 +37,8 @@ type Props = {
   onNotesChange: (idElement: number, notes: string | null) => void;
   /** The link's status has been changed from the pill, or put back after a refusal. */
   onStatusChange: (idElement: number, status: string) => void;
+  /** A look at the scene (/preview/scene): a tapped card has its marker alone, and the notes are read, not written. */
+  readOnly?: boolean;
 };
 
 /**
@@ -70,9 +72,18 @@ type Props = {
  * An element with an external link (the link's own for this scene, else
  * the element's; lib/run.ts pillLink) carries a link icon at its end,
  * before the info button, which opens the address in a new tab; its
- * tooltip is the words given for the link, else the address.
+ * tooltip is the words given for the link, else the address. It goes with
+ * the info: with show_info off the link is kept back too, off the wire
+ * (lib/realtime/events.ts) and off the pill.
  */
-export function PlayPill({ idStory, idStoryScene, item, onNotesChange, onStatusChange }: Props) {
+export function PlayPill({
+  idStory,
+  idStoryScene,
+  item,
+  onNotesChange,
+  onStatusChange,
+  readOnly = false,
+}: Props) {
   const user = useUser();
   const isDisabled = item.sceneStatus === SCENE_ELEMENT_DISABLED;
   const isTapped = item.sceneStatus === SCENE_ELEMENT_TAPPED;
@@ -142,7 +153,7 @@ export function PlayPill({ idStory, idStoryScene, item, onNotesChange, onStatusC
       {/* Tapped: the turned arrow leads the pill too. With the info showing
           it is the button that readies the card; without, a marker alone. */}
       {isTapped &&
-        (showInfo ? (
+        (showInfo && !readOnly ? (
           <PlayUntapButton label={item.label} onConfirm={() => void untap()} />
         ) : (
           <chakra.span
@@ -182,7 +193,7 @@ export function PlayPill({ idStory, idStoryScene, item, onNotesChange, onStatusC
           </Text>
         )}
       </Stack>
-      {item.link && <PlayLinkButton label={item.label} link={item.link} />}
+      {showInfo && item.link && <PlayLinkButton label={item.label} link={item.link} />}
       {showInfo && (
         <PlayInfoPopover
           label={item.label}
@@ -192,6 +203,7 @@ export function PlayPill({ idStory, idStoryScene, item, onNotesChange, onStatusC
           idElement={idElement}
           notes={item.notes ?? null}
           onNotesChange={onNotesChange}
+          readOnly={readOnly}
         />
       )}
     </HStack>
@@ -246,7 +258,8 @@ function PlayLinkButton({ label, link }: { label: string; link: NonNullable<Play
  * players know of the element, under the name the pill shows. The title
  * and the description, each only when the element has one, and then the
  * players' notes field. The field is drawn afresh each opening, with the
- * popover, so it starts from the notes as the table holds them now.
+ * popover, so it starts from the notes as the table holds them now. Read
+ * only, the notes are shown as they are, when there are any.
  */
 function PlayInfoPopover({
   label,
@@ -256,6 +269,7 @@ function PlayInfoPopover({
   idElement,
   notes,
   onNotesChange,
+  readOnly,
 }: {
   label: string;
   title: string | null;
@@ -264,6 +278,7 @@ function PlayInfoPopover({
   idElement: number;
   notes: string | null;
   onNotesChange: (idElement: number, notes: string | null) => void;
+  readOnly: boolean;
 }) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps
   // the popover from opening at the page corner (nav-theme-menu.tsx).
@@ -313,12 +328,23 @@ function PlayInfoPopover({
                 ) : (
                   <Text color="fg.muted">Nothing more is known yet.</Text>
                 )}
-                <PlayElementNotesField
-                  idStory={idStory}
-                  idElement={idElement}
-                  notes={notes}
-                  onSaved={(saved) => onNotesChange(idElement, saved)}
-                />
+                {readOnly ? (
+                  notes && (
+                    <Stack gap="1">
+                      <Text fontSize="sm" fontWeight="medium">
+                        Notes
+                      </Text>
+                      <Text whiteSpace="pre-wrap">{notes}</Text>
+                    </Stack>
+                  )
+                ) : (
+                  <PlayElementNotesField
+                    idStory={idStory}
+                    idElement={idElement}
+                    notes={notes}
+                    onSaved={(saved) => onNotesChange(idElement, saved)}
+                  />
+                )}
               </Stack>
             </Popover.Body>
           </Popover.Content>

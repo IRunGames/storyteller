@@ -15,15 +15,22 @@ import {
 } from "@chakra-ui/react";
 import { Activity, BookOpen, MessageSquare, RefreshCw, Settings, UserRound } from "lucide-react";
 import {
+  DEFAULT_ATTACHMENT_SORT,
+  DEFAULT_ELEMENT_SORT,
   elementIdOf,
+  isAttachmentSort,
+  isElementSort,
   playStacks,
   RUN_ADD_INVISIBLE,
   RUN_ADD_SHOW_INFO,
+  RUN_LIBRARY_ATTACHMENT_SORT,
+  RUN_LIBRARY_ELEMENT_SORT,
   RUN_LIBRARY_SCENE_ONLY,
   DEFAULT_ELEMENT_SHOWING,
   withShowing,
   type ElementDetail,
   type PlayItem,
+  type RunLibrarySource,
   type RunPlaySpace,
   type RunScene,
   type RunSession,
@@ -49,6 +56,7 @@ import { PlayPanelToggle } from "@/components/play/play-panel-toggle";
 import { SceneTextPopover } from "@/components/play/scene-text-popover";
 import { useStoryChannel } from "@/components/play/use-story-channel";
 import { RunLibrary } from "./run-library";
+import { RunLibrarySortMenu } from "./run-library-sort-menu";
 import { RunPlayStack } from "./run-play-stack";
 import { RunSceneSelect } from "./run-scene-select";
 import { RunSessionTitle } from "./run-session-title";
@@ -133,6 +141,8 @@ export function RunTable({
   const channel = useStoryChannel(idStory, ignoreEvent, ignoreEvent, diagnosticsOffered);
   const router = useRouter();
   const [scene, setScene] = useState<RunScene | null>(initialSpace.scene);
+  // The library's tab, held here for the sort menu beside its heading.
+  const [libraryTab, setLibraryTab] = useState<RunLibrarySource>("ATTACHMENT");
   // The session's status as its chip last moved it; the page loaded it.
   const [sessionStatus, setSessionStatus] = useState(session?.status ?? null);
   const [tags, setTags] = useState<string[]>(initialSpace.tags);
@@ -146,6 +156,11 @@ export function RunTable({
   const inStack =
     chosenStack !== null && tags.includes(chosenStack) ? chosenStack : (tags[0] ?? null);
   const [managingStacks, setManagingStacks] = useState(false);
+  // The pill whose picture the storyteller last put up on the players'
+  // table from its tack, by key, or null for none. This page's alone: the
+  // pulse that put it up was not written anywhere, so a reload starts from
+  // none, and so does another scene.
+  const [pictureUpKey, setPictureUpKey] = useState<string | null>(null);
   // A complete scene is the record of what was played: nothing goes into it
   // or comes out of it (the actions refuse too), and the play space says so.
   const isComplete = scene?.status === SCENE_LOCKED_STATUS;
@@ -155,6 +170,7 @@ export function RunTable({
     setTags(space.tags);
     setCoverUrl(space.coverUrl);
     setInPlay(space.inPlay);
+    setPictureUpKey(null);
   };
 
   // The reload at the scene's title: the space read again as the database
@@ -196,6 +212,15 @@ export function RunTable({
   // The library's All / Scene only switch, kept as a preference like the
   // one above. Only on while there is a scene to narrow to.
   const sceneOnly = preferences.get<boolean>(RUN_LIBRARY_SCENE_ONLY, false) && scene !== null;
+  // The library's sorts, one for its Attachments tab and one for the element
+  // tabs, each falling back to the default on a value the menu no longer
+  // offers.
+  const storedAttachmentSort = preferences.get<string>(RUN_LIBRARY_ATTACHMENT_SORT, "");
+  const attachmentSort = isAttachmentSort(storedAttachmentSort)
+    ? storedAttachmentSort
+    : DEFAULT_ATTACHMENT_SORT;
+  const storedElementSort = preferences.get<string>(RUN_LIBRARY_ELEMENT_SORT, "");
+  const elementSort = isElementSort(storedElementSort) ? storedElementSort : DEFAULT_ELEMENT_SORT;
 
   // An item already in play stays where it is rather than going in twice.
   const put = (item: PlayItem) =>
@@ -312,6 +337,12 @@ export function RunTable({
         existing.key === key ? { ...existing, sceneStatus: status } : existing,
       ),
     );
+  // A pill's tack: the picture goes up, or comes down if it is the one up.
+  // One picture is up on the players' table at a time (their preview is one
+  // dialog, and a fresh open swaps it), so the one key says which pill
+  // glows, and another's going up takes this glow with it.
+  const setPictureUp = (key: string, up: boolean) =>
+    setPictureUpKey((current) => (up ? key : current === key ? null : current));
 
   const toggles = (
     <HStack gap="1">
@@ -475,12 +506,24 @@ export function RunTable({
             borderRightWidth="1px"
             bg="bg.subtle"
           >
-            {/* All / Scene only beside the heading: what the library lists.
-                With no scene at the table there is only All. */}
+            {/* The sort menu beside the heading, and All / Scene only at the
+                far end: how and what the library lists. With no scene at the
+                table there is only All. */}
             <HStack justify="space-between" gap="2">
-              <Heading id="run-library-heading" size="sm">
-                Library
-              </Heading>
+              <HStack gap="1">
+                <Heading id="run-library-heading" size="sm">
+                  Library
+                </Heading>
+                <RunLibrarySortMenu
+                  tab={libraryTab}
+                  attachmentSort={attachmentSort}
+                  elementSort={elementSort}
+                  onAttachmentSortChange={(sort) =>
+                    preferences.set(RUN_LIBRARY_ATTACHMENT_SORT, sort)
+                  }
+                  onElementSortChange={(sort) => preferences.set(RUN_LIBRARY_ELEMENT_SORT, sort)}
+                />
+              </HStack>
               <SegmentGroup.Root
                 size="xs"
                 aria-label="Which elements"
@@ -505,6 +548,10 @@ export function RunTable({
               <RunLibrary
                 idStory={idStory}
                 idStoryScene={scene?.idStoryScene ?? null}
+                tab={libraryTab}
+                onTabChange={setLibraryTab}
+                attachmentSort={attachmentSort}
+                elementSort={elementSort}
                 sceneOnly={sceneOnly}
                 onAdd={(item) => void add(item)}
                 onRemovedFromScene={removeElement}
@@ -655,6 +702,7 @@ export function RunTable({
                       onSaved={(text) =>
                         setScene((current) => (current ? { ...current, text } : current))
                       }
+                      readOnly={isComplete}
                     />
                   </HStack>
                 </>
@@ -673,12 +721,17 @@ export function RunTable({
                     onRemove={remove}
                     onStatusChange={setStatus}
                     onItemChange={replace}
+                    pictureUpKey={pictureUpKey}
+                    onPictureUpChange={setPictureUp}
+                    locked={isComplete}
                   />
                 ))}
               </Flex>
             </Stack>
-            {/* Over the stacks and taking their pointer, so nothing in a
-                complete scene can be pressed. */}
+            {/* Over the stacks, saying so, but letting the pointer through:
+                the pills' panels and the scene's text are still there to
+                read, and the pills themselves (locked) offer nothing that
+                changes the scene. */}
             {isComplete && (
               <Flex
                 position="absolute"
@@ -686,6 +739,7 @@ export function RunTable({
                 align="center"
                 justify="center"
                 bg="gray.500/35"
+                pointerEvents="none"
                 data-testid="scene-complete-overlay"
               >
                 <Text fontSize="5xl" fontWeight="bold" letterSpacing="widest" color="white">

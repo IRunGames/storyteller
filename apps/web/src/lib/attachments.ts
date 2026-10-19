@@ -8,15 +8,6 @@
 export const COVER_TAG = "cover";
 
 /**
- * How many attachments one holder (a story's pool, a sitting, a scene) may
- * carry at any one time -- a ceiling on what exists at once, not a budget
- * spent by uploading, so removing a row hands its place straight back. The
- * attachments field holds an upload to it, and attaching the story's
- * pictures to a scene is held to it on the server.
- */
-export const MAX_ATTACHMENTS = 20;
-
-/**
  * Which kind of row uses an attachment. Mirrors the attachment_uses_kind
  * enum. STORY is the story showing the file itself (its cover); every
  * attachment belongs to a story whether or not the story uses it.
@@ -34,7 +25,7 @@ export type AttachmentKind =
  */
 export type AttachHolderKind = Extract<AttachmentKind, "STORY_SCENE" | "SCENE_ELEMENT">;
 
-/** What a holder is called where the picker speaks of it: "This scene has room for 1 more." */
+/** What a holder is called where an action speaks of it: "no longer be used by the scene". */
 export const ATTACH_HOLDER_NOUNS: Record<AttachHolderKind, string> = {
   STORY_SCENE: "scene",
   SCENE_ELEMENT: "element",
@@ -70,4 +61,11 @@ export type Attachment = {
   isCover: boolean;
   /** The file's own tags, in the order they were added. COVER_TAG is never here. */
   tags: string[];
+  /**
+   * When the file was added and last changed, as ISO strings: what the run
+   * page's library sorts by. Null for a row the field only knows by id (see
+   * the field's UNKNOWN_STATUS), which it never sorts.
+   */
+  createdAt: string | null;
+  updatedAt: string | null;
 };

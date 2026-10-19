@@ -966,13 +966,11 @@ describe("AttachmentListField", () => {
     expect(screen.getByRole("button", { name: /^remove /i })).toBeInTheDocument();
   });
 
-  // zag's own FileUpload ledger only ever counts files accepted through the
-  // dropzone -- a link added here never touches it -- so it cannot be
-  // trusted to keep the URL path under the same cap. The 20 existing rows
-  // are seeded via `value` on a null-idExternal mount (synchronous, no
-  // network) purely to reach the cap without 20 real interactions; the
+  // There was once a cap of twenty rows here. The 20 existing rows are
+  // seeded via `value` on a null-idExternal mount (synchronous, no network)
+  // purely to get past that number without 20 real interactions; the
   // seeding path itself is exercised by the test above.
-  it("refuses a link once the attachment cap is reached, without calling the server", async () => {
+  it("takes a twenty-first link: a holder has no ceiling", async () => {
     const user = userEvent.setup();
     const existingIds = Array.from({ length: 20 }, (_, i) => i + 1);
     const onChange = mock.fn<(ids: number[]) => void>();
@@ -989,14 +987,13 @@ describe("AttachmentListField", () => {
 
     await user.type(
       screen.getByRole("textbox", { name: /link/i }),
-      "https://example.com/one-too-many.jpg",
+      "https://example.com/twenty-first.jpg",
     );
     await user.click(screen.getByRole("button", { name: /add link/i }));
 
-    expect(await screen.findByText(/at most 20 attachments/i)).toBeInTheDocument();
-    expect(sa_createAttachment.mock.callCount()).toBe(0);
-    expect(screen.getAllByRole("listitem")).toHaveLength(20);
-    expect(onChange.mock.callCount()).toBe(0);
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(21));
+    expect(sa_createAttachment.mock.callCount()).toBe(1);
+    expect(screen.queryByText(/at most/i)).not.toBeInTheDocument();
   });
 
   // attachmentUrlSchema's own "Please enter a valid URL." is the one and

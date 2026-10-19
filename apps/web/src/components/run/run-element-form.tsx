@@ -3,17 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  Alert,
-  Button,
-  Field,
-  HStack,
-  Input,
-  NativeSelect,
-  Stack,
-  Text,
-  Textarea,
-} from "@chakra-ui/react";
+import { Alert, Button, Field, HStack, Input, Stack, Text, Textarea } from "@chakra-ui/react";
 import { runElementSchema, type RunElementValues } from "@/lib/element-schemas";
 import type { StatusOption } from "@/lib/status";
 import { sa_listStatusOptions } from "@/components/status/actions";
@@ -46,10 +36,12 @@ type Props<Saved extends { ok: true }> = {
   onCancel: () => void;
   submitLabel: string;
   /**
-   * Drawn after the fields, before the buttons: the new-element form's
-   * picture, which is not one of the fields the schema checks.
+   * The new-element form's pictures, which are not fields the schema
+   * checks: the element's own, drawn at the top of its fields, and the
+   * link's own for this scene, drawn at the top of the scene's box.
    */
-  extra?: ReactNode;
+  elementPicture?: ReactNode;
+  scenePicture?: ReactNode;
 };
 
 const FIELDS = [
@@ -73,8 +65,7 @@ const FIELDS = [
  * same order. How the element stands in this scene comes first, as a status
  * pill like the one in the info popover, with the link's own external link
  * for this scene; then every field the board's form has, the element's own
- * link among them; then the element's own status in the story, as a
- * dropdown.
+ * link among them, with its status in the story as a pill beside its kind.
  *
  * Both workflows are read as the form opens, so the pill and the dropdown
  * offer exactly what the database will accept.
@@ -85,7 +76,8 @@ export function RunElementForm<Saved extends { ok: true }>({
   onSaved,
   onCancel,
   submitLabel,
-  extra,
+  elementPicture,
+  scenePicture,
   inScene = true,
 }: Props<Saved>) {
   const [options, setOptions] = useState<{
@@ -160,28 +152,30 @@ export function RunElementForm<Saved extends { ok: true }>({
             </Alert.Content>
           </Alert.Root>
         )}
+        {/* The scene's part of the element in a box of its own, darker than
+            the form round it, so what belongs to this scene alone reads
+            apart from the element's own fields below. */}
         {inScene && (
-          <Field.Root invalid={!!errors.sceneStatus}>
-            <HStack gap="3">
-              <Field.Label m="0">In this scene</Field.Label>
-              <Controller
-                control={control}
-                name="sceneStatus"
-                render={({ field }) => (
-                  <StatusChoicePill
-                    label="In this scene"
-                    value={field.value}
-                    options={options.scene}
-                    onChange={field.onChange}
-                  />
-                )}
-              />
-            </HStack>
-            <Field.ErrorText>{errors.sceneStatus?.message}</Field.ErrorText>
-          </Field.Root>
-        )}
-        {inScene && (
-          <>
+          <Stack gap="3" bg="bg.muted" rounded="md" p="3" data-testid="scene-element-fields">
+            {scenePicture}
+            <Field.Root invalid={!!errors.sceneStatus}>
+              <HStack gap="3">
+                <Field.Label m="0">In this scene</Field.Label>
+                <Controller
+                  control={control}
+                  name="sceneStatus"
+                  render={({ field }) => (
+                    <StatusChoicePill
+                      label="In this scene"
+                      value={field.value}
+                      options={options.scene}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </HStack>
+              <Field.ErrorText>{errors.sceneStatus?.message}</Field.ErrorText>
+            </Field.Root>
             <Field.Root invalid={!!errors.sceneUrl}>
               <Field.Label>Link in this scene (optional)</Field.Label>
               <Input size="sm" autoComplete="off" inputMode="url" {...register("sceneUrl")} />
@@ -195,13 +189,34 @@ export function RunElementForm<Saved extends { ok: true }>({
               <Input size="sm" autoComplete="off" {...register("sceneUrlText")} />
               <Field.ErrorText>{errors.sceneUrlText?.message}</Field.ErrorText>
             </Field.Root>
-          </>
+          </Stack>
         )}
-        <Field.Root invalid={!!errors.kind}>
-          <Field.Label>Kind</Field.Label>
-          <ElementKindSelect {...register("kind")} />
-          <Field.ErrorText>{errors.kind?.message}</Field.ErrorText>
-        </Field.Root>
+        {elementPicture}
+        {/* The kind and, beside it, the element's status in the story as a
+            pill: one row, since both are a word rather than a line. */}
+        <HStack gap="3" align="flex-start">
+          <Field.Root invalid={!!errors.kind} flex="1">
+            <Field.Label>Kind</Field.Label>
+            <ElementKindSelect {...register("kind")} />
+            <Field.ErrorText>{errors.kind?.message}</Field.ErrorText>
+          </Field.Root>
+          <Field.Root invalid={!!errors.status} w="auto">
+            <Field.Label>Status</Field.Label>
+            <Controller
+              control={control}
+              name="status"
+              render={({ field }) => (
+                <StatusChoicePill
+                  label="Status"
+                  value={field.value}
+                  options={options.element}
+                  onChange={field.onChange}
+                />
+              )}
+            />
+            <Field.ErrorText>{errors.status?.message}</Field.ErrorText>
+          </Field.Root>
+        </HStack>
         <Field.Root required invalid={!!errors.name}>
           <Field.Label>Name</Field.Label>
           <Input size="sm" autoComplete="off" {...register("name")} />
@@ -239,21 +254,6 @@ export function RunElementForm<Saved extends { ok: true }>({
           <Input size="sm" autoComplete="off" {...register("urlText")} />
           <Field.ErrorText>{errors.urlText?.message}</Field.ErrorText>
         </Field.Root>
-        <Field.Root invalid={!!errors.status}>
-          <Field.Label>Status</Field.Label>
-          <NativeSelect.Root size="sm">
-            <NativeSelect.Field {...register("status")}>
-              {options.element.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-            </NativeSelect.Field>
-            <NativeSelect.Indicator />
-          </NativeSelect.Root>
-          <Field.ErrorText>{errors.status?.message}</Field.ErrorText>
-        </Field.Root>
-        {extra}
         {/* Cancel at the start and the action at the end, as a dialog's
             footer lays them out. */}
         <HStack justify="space-between" w="full" pt="1">

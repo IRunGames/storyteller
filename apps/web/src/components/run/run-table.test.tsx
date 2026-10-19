@@ -76,6 +76,10 @@ const dafyddDetail: ElementDetail = {
 // The story's attachments, for the library and the pickers. Empty but for
 // the test that picks a picture, which fills it and empties it again.
 let storyAttachments: Attachment[] = [];
+const sa_listStoryElements = mock.fn(
+  async (_id: number, kind: string, _offset: number, _q?: string, _s?: string[], _sort?: string) =>
+    kind === "PERSON" ? people : [],
+);
 
 // A stand-in for mqtt.js's client with the two methods the channel calls.
 class FakeClient extends EventEmitter {
@@ -167,6 +171,12 @@ const sa_updateSceneElement = mock.fn(async () => ({
 const sa_setUserPreference = mock.fn(async (_input: { key: string; value: unknown }) => ({
   ok: true as const,
 }));
+
+const sa_pulseSceneElement = mock.fn(
+  async (_story: number, _scene: number, _element: number, _custom: { action: string }) => ({
+    ok: true as const,
+  }),
+);
 
 let RunTable: typeof import("./run-table").RunTable;
 type PreferencesModule = typeof import("@/components/preferences/user-preferences-provider");
@@ -279,6 +289,7 @@ describe("RunTable", () => {
         sa_createSceneElement,
         sa_setSceneElementShown: mock.fn(),
         sa_setSceneElementShowing: mock.fn(),
+        sa_pulseSceneElement,
         sa_setSceneText,
         sa_getRunPlaySpace,
 
@@ -298,6 +309,7 @@ describe("RunTable", () => {
         sa_setSceneStacks,
         sa_updateSceneElement,
         sa_moveSceneElement: mock.fn(),
+        sa_setElementTags: mock.fn(),
       },
     });
     mock.module("@/components/status/actions", {
@@ -309,10 +321,7 @@ describe("RunTable", () => {
     });
     mock.module("mqtt", { defaultExport: { connect } });
     mock.module("@/app/(app)/(nav)/libraries/actions", {
-      namedExports: {
-        sa_listStoryElements: async (_id: number, kind: string) =>
-          kind === "PERSON" ? people : [],
-      },
+      namedExports: { sa_listStoryElements },
     });
 
     ({ RunTable } = await import("./run-table"));
@@ -359,6 +368,60 @@ describe("RunTable", () => {
     expect(
       within(screen.getByRole("banner")).getByRole("button", { name: "Library" }),
     ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("sorts the library from the menu beside its heading, one sort for attachments and one for elements", async () => {
+    const u = userEvent.setup();
+    renderTable();
+    const library = screen.getByRole("region", { name: "Library" });
+    const sort = within(library).getByRole("button", { name: "Sort the library" });
+
+    // The Attachments tab is in view, so the menu offers its three, Updated in force.
+    await u.click(sort);
+    let items = await screen.findAllByRole("menuitemradio");
+    expect(items.map((item) => item.textContent)).toEqual(["File name", "Updated", "Created"]);
+    expect(screen.getByRole("menuitemradio", { name: "Updated" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await choose(u, screen.getByRole("menuitemradio", { name: "File name" }));
+    expect(sa_setUserPreference.mock.calls[0].arguments[0]).toEqual({
+      key: "run.libraryAttachmentSort",
+      value: "file_name",
+    });
+
+    // An element tab gets the elements' five, Name in force, and the tab
+    // asks the database for its list in the sort chosen.
+    await u.click(screen.getByRole("tab", { name: "People" }));
+    await screen.findByRole("tabpanel", { name: "People" });
+    await u.click(sort);
+    items = await screen.findAllByRole("menuitemradio");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Name",
+      "Initial name",
+      "Title",
+      "Created",
+      "Updated",
+    ]);
+    expect(screen.getByRole("menuitemradio", { name: "Name" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await choose(u, screen.getByRole("menuitemradio", { name: "Title" }));
+    expect(sa_setUserPreference.mock.calls[1].arguments[0]).toEqual({
+      key: "run.libraryElementSort",
+      value: "title",
+    });
+    await waitFor(() =>
+      expect(sa_listStoryElements.mock.calls.at(-1)?.arguments).toEqual([
+        -4,
+        "PERSON",
+        0,
+        "",
+        undefined,
+        "title",
+      ]),
+    );
   });
 
   it("closes the library from the header, and remembers it", async () => {
@@ -458,6 +521,53 @@ describe("RunTable", () => {
     // Pills have no ✕; taking an element out is the info popover's −,
     // which needs a scene.
     expect(within(space).queryByRole("button", { name: /^Remove / })).not.toBeInTheDocument();
+  });
+
+  it("keeps one picture up at a time: the tack on a second pill takes the first down", async () => {
+    const u = userEvent.setup();
+    const pictured = (idElement: number, label: string): PlayItem => ({
+      key: `PERSON:${idElement}`,
+      kind: "PERSON",
+      label,
+      detail: null,
+      imageUrl: `https://x.test/${idElement}.png`,
+      sceneTags: ["scene"],
+      sceneStatus: "READY",
+      showInfo: true,
+    });
+    renderTable({}, kildealg, {
+      scene,
+      tags: ["scene"],
+      coverUrl: null,
+      inPlay: [pictured(5, "Dafydd"), pictured(6, "Abbot")],
+    });
+    const space = screen.getByRole("region", { name: "Play space" });
+
+    await u.click(
+      within(space).getByRole("button", { name: "Show Dafydd's picture to the players" }),
+    );
+    await within(space).findByRole("button", { name: "Hide Dafydd's picture from the players" });
+    expect(sa_pulseSceneElement.mock.calls[0].arguments).toEqual([
+      -4,
+      -15,
+      5,
+      { action: "preview.open" },
+    ]);
+
+    // Abbot's goes up, and Dafydd's comes down with it, as the action took it.
+    await u.click(
+      within(space).getByRole("button", { name: "Show Abbot's picture to the players" }),
+    );
+    await within(space).findByRole("button", { name: "Hide Abbot's picture from the players" });
+    expect(
+      within(space).getByRole("button", { name: "Show Dafydd's picture to the players" }),
+    ).toBeInTheDocument();
+    expect(sa_pulseSceneElement.mock.calls[1].arguments).toEqual([
+      -4,
+      -15,
+      6,
+      { action: "preview.open" },
+    ]);
   });
 
   it("reloads the scene from the button at the left of its title", async () => {
@@ -827,15 +937,45 @@ describe("RunTable", () => {
     expect(screen.getByRole("button", { name: "Manage stacks" })).toBeInTheDocument();
   });
 
-  it("opens a complete scene under its overlay", () => {
+  it("opens a complete scene under its overlay, its pills and text still there to read", async () => {
+    const u = userEvent.setup();
     renderTable({}, kildealg, {
-      scene: { ...scene, status: "COMPLETE" },
+      scene: {
+        ...scene,
+        status: "COMPLETE",
+        text: { description: "Fog on the water.", notes: null },
+      },
       tags: ["scene"],
       coverUrl: null,
-      inPlay: [],
+      inPlay: [
+        {
+          key: "PERSON:5",
+          kind: "PERSON",
+          label: "Dafydd",
+          detail: "Shell seller",
+          imageUrl: null,
+          sceneTags: ["scene"],
+          sceneStatus: "READY",
+        },
+      ],
     });
 
-    expect(screen.getByTestId("scene-complete-overlay")).toHaveTextContent("COMPLETE");
+    const overlay = screen.getByTestId("scene-complete-overlay");
+    expect(overlay).toHaveTextContent("COMPLETE");
+    expect(overlay).toHaveStyle({ pointerEvents: "none" });
+
+    // The chevron opens the panel, read only.
+    const space = screen.getByRole("region", { name: "Play space" });
+    await u.click(within(space).getByRole("button", { name: "About Dafydd" }));
+    const panel = await screen.findByRole("region", { name: "About Dafydd" });
+    expect(await within(panel).findByTestId("element-panel-where")).toHaveTextContent("SCENE");
+    expect(within(panel).queryByRole("button", { name: "Remove from scene" })).toBeNull();
+
+    // The scene's text opens to read, with no form.
+    await u.click(within(space).getByRole("button", { name: /^Describe / }));
+    const text = await screen.findByRole("dialog", { name: scene.title });
+    expect(within(text).getByText("Fog on the water.")).toBeInTheDocument();
+    expect(within(text).queryByRole("textbox")).toBeNull();
   });
 
   it("opens the same panel from the library, with the scene's part for an element in it", async () => {
@@ -930,7 +1070,7 @@ describe("RunTable", () => {
     expect(screen.queryByRole("button", { name: /^Add to the / })).not.toBeInTheDocument();
   });
 
-  it("gives a new element a picture chosen in its form", async () => {
+  it("gives a new element a picture of its own and one for this scene, chosen in its form", async () => {
     storyAttachments = [
       {
         idAttachment: 30,
@@ -944,6 +1084,8 @@ describe("RunTable", () => {
         fileName: "Tide pool.png",
         isCover: false,
         tags: [],
+        createdAt: null,
+        updatedAt: null,
       },
     ];
     try {
@@ -954,21 +1096,31 @@ describe("RunTable", () => {
       await u.click(within(sceneStack).getByRole("button", { name: "New element in scene" }));
       const popover = await screen.findByRole("dialog", { name: "New element in scene" });
       await within(popover).findByRole("button", { name: "In this scene: Ready" });
-      await u.click(within(popover).getByRole("button", { name: "Add picture" }));
+      // The scene's box at the top holds the link's own picture for this
+      // scene; the element's own comes first among its fields below.
+      const sceneBox = within(popover).getByTestId("scene-element-fields");
+      expect(within(sceneBox).getByText("Picture in this scene (optional)")).toBeInTheDocument();
+      await u.click(within(sceneBox).getByRole("button", { name: "Add picture" }));
       // Choosing only fills the form; nothing is saved until Add element.
+      await u.click(await within(sceneBox).findByRole("button", { name: "Add Tide pool.png" }));
+      expect(within(sceneBox).getByText("Tide pool.png")).toBeInTheDocument();
+      expect(within(sceneBox).getByRole("button", { name: "Remove picture" })).toBeInTheDocument();
+
+      await u.click(within(popover).getByRole("button", { name: "Add picture" }));
       await u.click(await within(popover).findByRole("button", { name: "Add Tide pool.png" }));
-      expect(within(popover).getByText("Tide pool.png")).toBeInTheDocument();
-      expect(within(popover).getByRole("button", { name: "Remove picture" })).toBeInTheDocument();
+      expect(within(popover).getAllByRole("button", { name: "Remove picture" })).toHaveLength(2);
       expect(sa_createSceneElement.mock.callCount()).toBe(0);
 
       await u.type(within(popover).getByRole("textbox", { name: /^Name/ }), "The tide pool");
-      await u.selectOptions(within(popover).getByRole("combobox", { name: "Status" }), "READY");
+      await u.click(within(popover).getByRole("button", { name: "Status: Pending" }));
+      await choose(u, await screen.findByRole("menuitem", { name: "Ready" }));
       await u.click(within(popover).getByRole("button", { name: "Add element" }));
 
       await waitFor(() => expect(sa_createSceneElement.mock.callCount()).toBe(1));
       expect(sa_createSceneElement.mock.calls[0].arguments[3]).toMatchObject({
         name: "The tide pool",
         idAttachment: 30,
+        idSceneAttachment: 30,
       });
     } finally {
       storyAttachments = [];
@@ -994,7 +1146,8 @@ describe("RunTable", () => {
     ).toBeInTheDocument();
     await u.type(within(popover).getByRole("textbox", { name: /^Name/ }), "The tide pool");
     await u.type(within(popover).getByRole("textbox", { name: /^Notes/ }), "Cold.");
-    await u.selectOptions(within(popover).getByRole("combobox", { name: "Status" }), "READY");
+    await u.click(within(popover).getByRole("button", { name: "Status: Pending" }));
+    await choose(u, await screen.findByRole("menuitem", { name: "Ready" }));
     await u.click(within(popover).getByRole("button", { name: "Add element" }));
 
     expect(await within(sceneStack).findByText("The tide pool")).toBeInTheDocument();
@@ -1017,6 +1170,7 @@ describe("RunTable", () => {
         sceneUrlText: "",
         // No picture chosen, and the Add showing info switch off.
         idAttachment: null,
+        idSceneAttachment: null,
         showInfo: false,
       },
     ]);
@@ -1038,7 +1192,8 @@ describe("RunTable", () => {
     expect(within(popover).getByRole("combobox", { name: "Kind" })).toHaveValue("PLACE");
     await within(popover).findByRole("button", { name: "In this scene: Ready" });
     await u.type(within(popover).getByRole("textbox", { name: /^Name/ }), "The tide pool");
-    await u.selectOptions(within(popover).getByRole("combobox", { name: "Status" }), "READY");
+    await u.click(within(popover).getByRole("button", { name: "Status: Pending" }));
+    await choose(u, await screen.findByRole("menuitem", { name: "Ready" }));
     await u.click(within(popover).getByRole("button", { name: "Add element" }));
 
     // Filed under the In select's stack, the first by default.
@@ -1102,6 +1257,23 @@ describe("RunTable", () => {
     await u.click(within(popover).getByRole("button", { name: "Add element" }));
     await waitFor(() => expect(sa_createSceneElement.mock.callCount()).toBe(1));
     expect(sa_createSceneElement.mock.calls[0].arguments[3]).toMatchObject({ showInfo: true });
+
+    // Ephemera start with their info hidden whatever the switch says: a
+    // handout is for the storyteller to give out, not for the players to
+    // read the moment it appears.
+    await u.click(within(sceneStack).getByRole("button", { name: "New element in scene" }));
+    const again = await screen.findByRole("dialog", { name: "New element in scene" });
+    await u.selectOptions(
+      await within(again).findByRole("combobox", { name: /^Kind/ }),
+      "EPHEMERA",
+    );
+    await u.type(within(again).getByRole("textbox", { name: /^Name/ }), "A torn letter");
+    await u.click(within(again).getByRole("button", { name: "Add element" }));
+    await waitFor(() => expect(sa_createSceneElement.mock.callCount()).toBe(2));
+    expect(sa_createSceneElement.mock.calls[1].arguments[3]).toMatchObject({
+      kind: "EPHEMERA",
+      showInfo: false,
+    });
   });
 
   it("remembers the Add showing info switch", async () => {

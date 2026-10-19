@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Box, chakra, Stack, Text, Wrap } from "@chakra-ui/react";
+import { Box, Stack, Text, Wrap } from "@chakra-ui/react";
 import { Plus } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import { attachmentLabel, type PlayItem, type SceneLink } from "@/lib/run";
@@ -22,9 +22,9 @@ import { LocalDate } from "@/components/dates/local-date";
 import { DetailSection, linkCell, tagList } from "./run-element-detail";
 import { RunCoverStar } from "./run-cover-star";
 import { RunElementImagePicker } from "./run-element-image-popover";
-import { RunInfoToggle } from "./run-info-toggle";
+import { RunInfoSwitch } from "./run-info-switch";
 import { RunPictureCell } from "./run-picture-cell";
-import { RunSceneElementStacksDialog } from "./run-scene-element-stacks-dialog";
+import { RunSceneStacksMenu } from "./run-scene-stacks-menu";
 
 type Props = {
   idStory: number;
@@ -38,8 +38,9 @@ type Props = {
   /** The scene_elements workflow, for the status pill. */
   sceneOptions: StatusOption[];
   /**
-   * The scene's stacks, in order, which the Stack row's dialog offers. Left
-   * out where the holder does not know them; the tags are then only shown.
+   * The scene's stacks, in order, which the stacks menu on the heading's
+   * line offers. Left out where the holder does not know them; the tags are
+   * then only shown.
    */
   sceneStacks?: string[];
   /** The − beside the heading, drawn by the panel, which owns the removal. */
@@ -48,7 +49,7 @@ type Props = {
   onStatusChange: (status: string) => void;
   /** The info toggle has been pressed, or put back after a refusal. */
   onShowInfoChange: (showInfo: boolean) => void;
-  /** The stacks dialog has saved, as the pill now is. */
+  /** The stacks menu has saved a tick, as the pill now is. */
   onTagsChange: (item: PlayItem) => void;
   /** The link's picture for this scene, as read on opening: its address, or null for none. */
   onImageLoaded: (url: string | null) => void;
@@ -61,12 +62,14 @@ type Props = {
  * on a faint tint of its own: how the element stands in this scene, then
  * its pictures for this scene.
  *
- * The heading carries the scene status pill and the − that takes the
- * element out, and its tooltip says when the element was added. The rows:
- * Stack, which pressed opens the stacks dialog (RunSceneElementStacksDialog)
- * for choosing the stacks the element is filed under; the info toggle,
- * pressing the same way as the pill's; and Cover, the element's picture for
- * this scene alone (the cover of its link's SCENE_ELEMENT uses), which its
+ * The heading's line carries the scene status pill, then the stacks the
+ * element is filed under as a menu that saves each tick
+ * (RunSceneStacksMenu), and the − that takes the element out; the
+ * heading's tooltip says when the element was added. The rows: Info, a
+ * switch with the hidden and shown states either side of it
+ * (RunInfoSwitch), pressing the same way as the pill's toggle; and Cover,
+ * the element's picture for this scene alone (the cover of its link's
+ * SCENE_ELEMENT uses), which its
  * pill shows here instead of the element's own picture. It is shown as the
  * element rows show the element's picture (RunPictureCell): its + opens the
  * attachment picker in place to make one of the story's or the scene's
@@ -107,7 +110,6 @@ export function RunSceneSection({
   const [pickingCover, setPickingCover] = useState(false);
   const [removingCover, setRemovingCover] = useState(false);
   const [addingImages, setAddingImages] = useState(false);
-  const [editingTags, setEditingTags] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -201,28 +203,23 @@ export function RunSceneSection({
     }
   }
 
-  const tags = tagList(link.tags);
-  // The Stack row is a button while the stacks can be chosen; where they
-  // cannot, or the holder does not know the scene's stacks, plain text.
-  const tagsCell =
+  // The stacks beside the status: a menu while they can be chosen; where
+  // they cannot, or the holder does not know the scene's stacks, plain text.
+  const stacksCell =
     !locked && sceneStacks ? (
-      <chakra.button
-        type="button"
-        cursor="pointer"
-        textAlign="start"
-        rounded="sm"
-        color={tags ? undefined : "fg.subtle"}
-        textDecoration="underline"
-        textDecorationStyle="dotted"
-        textUnderlineOffset="3px"
-        aria-label={`Stacks for ${name}`}
-        onClick={() => setEditingTags(true)}
-        _focusVisible={{ outline: "2px solid", outlineColor: "colorPalette.focusRing" }}
-      >
-        {tags ?? "No stacks"}
-      </chakra.button>
+      <RunSceneStacksMenu
+        idStory={idStory}
+        idStoryScene={idStoryScene}
+        idElement={idElement}
+        name={name}
+        stacks={sceneStacks}
+        tags={link.tags}
+        onSaved={onTagsChange}
+      />
     ) : (
-      tags
+      <Text as="span" fontSize="xs" color={link.tags.length > 0 ? "fg.muted" : "fg.subtle"}>
+        {tagList(link.tags) ?? "No stacks"}
+      </Text>
     );
 
   const coverCell =
@@ -255,10 +252,9 @@ export function RunSceneSection({
     );
 
   const rows: [string, ReactNode][] = [
-    ["Stack", tagsCell],
     [
       "Info",
-      <RunInfoToggle
+      <RunInfoSwitch
         key="info"
         showInfo={link.showInfo}
         onToggle={locked ? undefined : () => void toggleInfo()}
@@ -282,14 +278,17 @@ export function RunSceneSection({
           ) : undefined
         }
         beside={
-          <StatusPill
-            table="scene_elements"
-            id={link.idSceneElement}
-            status={link.status}
-            options={sceneOptions}
-            canEdit={!locked}
-            onChanged={onStatusChange}
-          />
+          <>
+            <StatusPill
+              table="scene_elements"
+              id={link.idSceneElement}
+              status={link.status}
+              options={sceneOptions}
+              canEdit={!locked}
+              onChanged={onStatusChange}
+            />
+            {stacksCell}
+          </>
         }
         action={action}
         rows={rows}
@@ -320,11 +319,10 @@ export function RunSceneSection({
         }
         rows={[]}
       >
+        {/* None says nothing: the heading and its + are the whole of it. */}
         {attachments === null ? (
           <Text color="fg.muted">Loading…</Text>
-        ) : others.length === 0 ? (
-          <Text color="fg.muted">No other images in this scene.</Text>
-        ) : (
+        ) : others.length === 0 ? null : (
           <Wrap gap="2" role="list" aria-label="Other images">
             {others.map((row) => (
               // Each opens full size; these are the link's own pictures, so
@@ -366,19 +364,6 @@ export function RunSceneSection({
           />
         )}
       </DetailSection>
-      {sceneStacks && (
-        <RunSceneElementStacksDialog
-          idStory={idStory}
-          idStoryScene={idStoryScene}
-          idElement={idElement}
-          name={name}
-          stacks={sceneStacks}
-          tags={link.tags}
-          open={editingTags}
-          onClose={() => setEditingTags(false)}
-          onSaved={onTagsChange}
-        />
-      )}
     </Stack>
   );
 }

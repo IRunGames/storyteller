@@ -15,14 +15,16 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { ArrowLeft, ArrowRight, Plus, Search } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, Search, X } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
-import { ELEMENT_SEARCH_DELAY_MS } from "@/lib/elements";
+import { ELEMENT_SEARCH_DELAY_MS, type ElementSort } from "@/lib/elements";
 import {
   attachmentLabel,
   elementIdOf,
   RUN_LIBRARY_TABS,
   RUN_LIST_SIZE,
+  sortAttachments,
+  type AttachmentSort,
   type ElementDetail,
   type PlayItem,
   type RunLibrarySource,
@@ -39,7 +41,10 @@ import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
 import { AttachmentCoverButton } from "@/components/uploads/attachment-cover-button";
-import { AttachmentPreview } from "@/components/uploads/attachment-preview";
+import {
+  AttachmentPreviewButton,
+  AttachmentPreviewDialog,
+} from "@/components/uploads/attachment-preview";
 import { AttachmentTagsPopover } from "@/components/uploads/attachment-tags-popover";
 import { RunElementInfoPopover } from "./run-element-info-popover";
 import { RunNewElementPopover } from "./run-new-element-popover";
@@ -48,6 +53,17 @@ type Props = {
   idStory: number;
   /** The scene the table is on, whose attachments the Scene switch shows; null for none. */
   idStoryScene: number | null;
+  /**
+   * The tab in view. The table holds it rather than the library, because
+   * the sort menu beside the table's Library heading offers the sorts for
+   * whichever tab is showing.
+   */
+  tab: RunLibrarySource;
+  onTabChange: (tab: RunLibrarySource) => void;
+  /** The Attachments tab's order, from the table's sort menu. */
+  attachmentSort: AttachmentSort;
+  /** The element tabs' order, from the same menu. */
+  elementSort: ElementSort;
   /**
    * The All / Scene only switch: the element tabs list only the elements
    * linked to the scene. Ignored with no scene at the table.
@@ -97,7 +113,9 @@ type AttachmentsOf = "STORY" | "STORY_SCENE";
  * table's search_text, after the same pause, rather than matching what the
  * list happens to show. One box serves every tab, so what the storyteller
  * typed still holds when they look under another one. Only the tab in view
- * asks for anything.
+ * asks for anything. The element tabs list in the order the table's sort
+ * menu holds for them, asked of the database since a tab shows only the
+ * first page; the Attachments tab sorts its rows itself (RunAttachments).
  *
  * The Attachments tab lists the story's pictures, or with Scene only the
  * ones the scene uses; with no scene at the table there is only the story's.
@@ -107,6 +125,10 @@ type AttachmentsOf = "STORY" | "STORY_SCENE";
 export function RunLibrary({
   idStory,
   idStoryScene,
+  tab,
+  onTabChange,
+  attachmentSort,
+  elementSort,
   sceneOnly,
   onAdd,
   onRemovedFromScene,
@@ -121,7 +143,6 @@ export function RunLibrary({
   onSceneCoverChange,
 }: Props) {
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<RunLibrarySource>("ATTACHMENT");
   // An element tab's matches; null while it is loading.
   const [items, setItems] = useState<PlayItem[] | null>(null);
   // Whether the +'s link input and dropzone are showing.
@@ -162,7 +183,7 @@ export function RunLibrary({
 
     const timer = setTimeout(async () => {
       try {
-        const found = await loadElements(idStory, onlyScene, tab, needle);
+        const found = await loadElements(idStory, onlyScene, tab, needle, elementSort);
         if (mine === seq.current) setItems(found);
       } catch {
         // Leave the last results in place; the next keystroke tries again.
@@ -170,7 +191,7 @@ export function RunLibrary({
       }
     }, delay);
     return () => clearTimeout(timer);
-  }, [idStory, onlyScene, tab, needle, created]);
+  }, [idStory, onlyScene, tab, needle, created, elementSort]);
 
   return (
     // flex 1 and minH 0 down to the tab panel, which is what scrolls: each
@@ -192,7 +213,7 @@ export function RunLibrary({
         value={tab}
         onValueChange={(details) => {
           setItems(null);
-          setTab(details.value as RunLibrarySource);
+          onTabChange(details.value as RunLibrarySource);
         }}
         size="sm"
         variant="line"
@@ -229,6 +250,7 @@ export function RunLibrary({
                   idStoryScene={idStoryScene}
                   locked={locked}
                   needle={needle}
+                  sort={attachmentSort}
                   showAdd={adding}
                   onSceneCoverChange={onSceneCoverChange}
                   onMoved={() => setMoves((count) => count + 1)}
@@ -284,25 +306,27 @@ export function RunLibrary({
             element tab opens the stack's form in a popover, starting on
             the tab's kind, and the element is linked to the scene and put
             in the play space. With no scene there is nothing to link to,
-            so the element tabs have no +. */}
+            so the element tabs have no +. While the attachments' input is
+            open the + is a close button, since pressing it again is how
+            the input goes away. */}
         <Box position="absolute" bottom="2" right="2">
           {tab === "ATTACHMENT" ? (
             <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
               <Tooltip.Trigger asChild>
                 <IconButton
-                  aria-label="New attachment"
+                  aria-label={adding ? "Close" : "New attachment"}
                   aria-expanded={adding}
                   size="md"
                   rounded="full"
                   boxShadow="md"
                   onClick={() => setAdding((open) => !open)}
                 >
-                  <Plus />
+                  {adding ? <X /> : <Plus />}
                 </IconButton>
               </Tooltip.Trigger>
               <Portal>
                 <Tooltip.Positioner>
-                  <Tooltip.Content>New attachment</Tooltip.Content>
+                  <Tooltip.Content>{adding ? "Close" : "New attachment"}</Tooltip.Content>
                 </Tooltip.Positioner>
               </Portal>
             </Tooltip.Root>
@@ -341,8 +365,10 @@ export function RunLibrary({
  * + opens the field's link input and dropzone; the field stays mounted with
  * the + closed, so an upload in flight carries on.
  *
- * The search narrows the rows by the ids it returns, as the column's does;
- * a story or scene holds at most MAX_ATTACHMENTS of them.
+ * The search narrows the rows by the ids it returns, as the column's does.
+ * The rows are sorted here as the table's menu asks (sortAttachments),
+ * before the first RUN_LIST_SIZE are taken, so the list is the first ten
+ * of the holder's in that order rather than ten rows put in order.
  *
  * The story's own cover is left out of the story's list: it is the
  * picture on the story's card, not material for the table.
@@ -367,6 +393,7 @@ function RunAttachments({
   idStoryScene,
   locked,
   needle,
+  sort,
   showAdd,
   onSceneCoverChange,
   onMoved,
@@ -377,6 +404,7 @@ function RunAttachments({
   /** The scene is complete: no attachment moves into it or out of it. */
   locked: boolean;
   needle: string;
+  sort: AttachmentSort;
   showAdd: boolean;
   onSceneCoverChange: (url: string | null) => void;
   onMoved: () => void;
@@ -413,7 +441,7 @@ function RunAttachments({
       shownIds={matchedIds}
       hideCovers={kind === "STORY"}
       renderRows={({ rows, hasLoaded, setTags, setCover }) => {
-        const shown = rows.slice(0, RUN_LIST_SIZE);
+        const shown = sortAttachments(rows, sort).slice(0, RUN_LIST_SIZE);
         const byKey = new Map(shown.map((row) => [`ATTACHMENT:${row.idAttachment}`, row]));
 
         // Cover on a story picture while the table is on a scene makes it
@@ -577,82 +605,113 @@ function LibraryList({
    */
   renderActions?: (item: PlayItem) => ReactNode;
   /** An attachment's tag handlers, so its full-size preview edits them too. */
-  editTagsFor?: (item: PlayItem) => ComponentProps<typeof AttachmentPreview>["editTags"];
+  editTagsFor?: (item: PlayItem) => ComponentProps<typeof AttachmentPreviewDialog>["editTags"];
 }) {
+  // The attachment whose picture is open full size, by key. One dialog for
+  // the whole list rather than one per row, so the arrow keys can move it
+  // from picture to picture (AttachmentPreviewDialog's onStep).
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
+
   if (items === null) return <Text color="fg.muted">Loading…</Text>;
   if (items.length === 0) {
     return <Text color="fg.muted">{filtered ? "No matches." : "Nothing here yet."}</Text>;
   }
 
+  // The rows with a picture to preview, in the list's order; the keys step
+  // through these, so a row still uploading is passed over.
+  const previewable = items.filter((item) => item.imageUrl !== null && item.attachment);
+  const previewed = previewable.find((item) => item.key === previewKey) ?? null;
+  const step = (direction: -1 | 1) => {
+    const at = previewable.findIndex((item) => item.key === previewKey);
+    const next = previewable[at + direction];
+    if (next) setPreviewKey(next.key);
+  };
+
   return (
     // Full width: inside the attachments field the list sits in a column that
     // does not stretch its children, and at its content's width a long name
     // would push the controls out of the panel instead of truncating.
-    <List.Root listStyleType="none" gap="2" w="full">
-      {items.map((item) => (
-        <List.Item key={item.key}>
-          <HStack gap="2" align="center">
-            {item.imageUrl &&
-              (item.attachment ? (
-                // An attachment's picture opens full size with its tags, the
-                // same preview its card on the library page opens.
-                <Box boxSize="8" flexShrink="0" rounded="sm" overflow="hidden" bg="bg.muted">
-                  <AttachmentPreview
-                    url={item.imageUrl}
-                    label={item.label}
-                    tags={item.attachment.tags}
-                    isCover={item.attachment.isCover}
-                    editTags={editTagsFor?.(item)}
-                  />
-                </Box>
-              ) : (
-                // Decoration beside the name, which says what it is.
-                <Image src={item.imageUrl} alt="" boxSize="8" rounded="sm" objectFit="cover" />
-              ))}
-            <Stack gap="0" flex="1" minW="0">
-              <Text fontWeight="medium" truncate>
-                {item.label}
-              </Text>
-              {item.detail && (
-                <Text fontSize="sm" color="fg.muted" truncate>
-                  {item.detail}
+    <>
+      <List.Root listStyleType="none" gap="2" w="full">
+        {items.map((item) => (
+          <List.Item key={item.key}>
+            <HStack gap="2" align="center">
+              {item.imageUrl &&
+                (item.attachment ? (
+                  // An attachment's picture opens full size with its tags, the
+                  // same preview its card on the library page opens.
+                  <Box boxSize="8" flexShrink="0" rounded="sm" overflow="hidden" bg="bg.muted">
+                    <AttachmentPreviewButton
+                      url={item.imageUrl}
+                      label={item.label}
+                      onOpen={() => setPreviewKey(item.key)}
+                    />
+                  </Box>
+                ) : (
+                  // Decoration beside the name, which says what it is.
+                  <Image src={item.imageUrl} alt="" boxSize="8" rounded="sm" objectFit="cover" />
+                ))}
+              <Stack gap="0" flex="1" minW="0">
+                <Text fontWeight="medium" truncate>
+                  {item.label}
                 </Text>
-              )}
-            </Stack>
-            {renderActions?.(item)}
-            {renderArrow
-              ? renderArrow(item)
-              : onAdd && (
-                  <PrepIconButton
-                    label={`Add ${item.label} to the play space`}
-                    onClick={() => onAdd(item)}
-                  >
-                    <ArrowRight />
-                  </PrepIconButton>
+                {item.detail && (
+                  <Text fontSize="sm" color="fg.muted" truncate>
+                    {item.detail}
+                  </Text>
                 )}
-          </HStack>
-        </List.Item>
-      ))}
-    </List.Root>
+              </Stack>
+              {renderActions?.(item)}
+              {renderArrow
+                ? renderArrow(item)
+                : onAdd && (
+                    <PrepIconButton
+                      label={`Add ${item.label} to the play space`}
+                      onClick={() => onAdd(item)}
+                    >
+                      <ArrowRight />
+                    </PrepIconButton>
+                  )}
+            </HStack>
+          </List.Item>
+        ))}
+      </List.Root>
+      {previewed?.imageUrl && previewed.attachment && (
+        <AttachmentPreviewDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPreviewKey(null);
+          }}
+          url={previewed.imageUrl}
+          label={previewed.label}
+          tags={previewed.attachment.tags}
+          isCover={previewed.attachment.isCover}
+          editTags={editTagsFor?.(previewed)}
+          onStep={step}
+        />
+      )}
+    </>
   );
 }
 
 /**
- * The first RUN_LIST_SIZE of a kind's elements that match, as play items:
- * the story's, or with `idStoryScene` only those linked to that scene.
+ * The first RUN_LIST_SIZE of a kind's elements that match, in the sort
+ * asked for, as play items: the story's, or with `idStoryScene` only those
+ * linked to that scene.
  */
 async function loadElements(
   idStory: number,
   idStoryScene: number | null,
   kind: Exclude<RunLibrarySource, "ATTACHMENT">,
   needle: string,
+  sort: ElementSort,
 ): Promise<PlayItem[]> {
   // sa_listStoryElements pages by ELEMENTS_PAGE_SIZE, which is RUN_LIST_SIZE,
   // so its first page is the list.
   const elements =
     idStoryScene === null
-      ? await sa_listStoryElements(idStory, kind, 0, needle)
-      : await sa_listSceneLibraryElements(idStory, idStoryScene, kind, needle);
+      ? await sa_listStoryElements(idStory, kind, 0, needle, undefined, sort)
+      : await sa_listSceneLibraryElements(idStory, idStoryScene, kind, needle, sort);
   return elements.slice(0, RUN_LIST_SIZE).map((element) => ({
     key: `${kind}:${element.idElement}`,
     kind,

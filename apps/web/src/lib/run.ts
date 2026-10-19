@@ -1,5 +1,11 @@
 import type { Attachment } from "@/lib/attachments";
-import { ELEMENT_KINDS, isWebUrl, type ElementKind } from "@/lib/elements";
+import {
+  ELEMENT_KINDS,
+  ELEMENT_SORT_KEYS,
+  isWebUrl,
+  type ElementKind,
+  type ElementSort,
+} from "@/lib/elements";
 import type { SceneText } from "@/lib/scenes";
 
 // The storyteller's table, /run/[id]: the pieces its library panel and play
@@ -208,6 +214,66 @@ export const RUN_ADD_SHOW_INFO = "run.addShowInfo";
  * the scene the table is on.
  */
 export const RUN_LIBRARY_SCENE_ONLY = "run.librarySceneOnly";
+
+/**
+ * The preferences behind the library's sort menu, one for the Attachments
+ * tab and one shared by the element tabs, since the two offer different
+ * sorts. Each holds a key from ATTACHMENT_SORT_KEYS or ELEMENT_SORT_KEYS;
+ * an unknown value (a sort since dropped) falls back to the default.
+ */
+export const RUN_LIBRARY_ATTACHMENT_SORT = "run.libraryAttachmentSort";
+export const RUN_LIBRARY_ELEMENT_SORT = "run.libraryElementSort";
+
+/**
+ * What the Attachments tab can be sorted by. The file name sorts A to Z by
+ * the label the list shows (attachmentLabel); the dates newest first, as
+ * the element sorts do.
+ */
+export const ATTACHMENT_SORT_KEYS = ["file_name", "updated", "created"] as const;
+export type AttachmentSort = (typeof ATTACHMENT_SORT_KEYS)[number];
+
+export const ATTACHMENT_SORT_LABELS: Record<AttachmentSort, string> = {
+  file_name: "File name",
+  updated: "Updated",
+  created: "Created",
+};
+
+export const DEFAULT_ATTACHMENT_SORT: AttachmentSort = "updated";
+export const DEFAULT_ELEMENT_SORT: ElementSort = "name";
+
+/** Whether a stored preference is one of the attachment sorts. */
+export function isAttachmentSort(value: unknown): value is AttachmentSort {
+  return typeof value === "string" && (ATTACHMENT_SORT_KEYS as readonly string[]).includes(value);
+}
+
+/** Whether a stored preference is one of the element sorts. */
+export function isElementSort(value: unknown): value is ElementSort {
+  return typeof value === "string" && (ELEMENT_SORT_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * A holder's attachments in the order the library's sort menu asks for.
+ * Sorted here rather than by sa_listAttachments because the field holds
+ * every row of the holder already and the sort is only how they are drawn,
+ * so changing it costs no request. The sort is stable: rows that tie (two
+ * with no timestamp, or the same name) keep the order the server listed
+ * them in.
+ */
+export function sortAttachments(rows: Attachment[], sort: AttachmentSort): Attachment[] {
+  const compare: (a: Attachment, b: Attachment) => number =
+    sort === "file_name"
+      ? (a, b) => attachmentLabel(a).localeCompare(attachmentLabel(b))
+      : sort === "created"
+        ? (a, b) => newestFirst(a.createdAt, b.createdAt)
+        : (a, b) => newestFirst(a.updatedAt, b.updatedAt);
+  return [...rows].sort(compare);
+}
+
+/** Later ISO stamps first; a row without one ties with any other. */
+function newestFirst(a: string | null, b: string | null): number {
+  if (a === null || b === null) return 0;
+  return a < b ? 1 : a > b ? -1 : 0;
+}
 
 /**
  * The scene elements workflow's statuses, in the order the pill's status

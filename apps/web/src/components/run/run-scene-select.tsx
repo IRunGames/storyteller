@@ -1,8 +1,19 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Box, Button, chakra, HStack, Menu, Portal, Text, Tooltip } from "@chakra-ui/react";
-import { Check, ChevronDown, Plus } from "lucide-react";
+import {
+  Box,
+  Button,
+  chakra,
+  HStack,
+  IconButton,
+  Menu,
+  Portal,
+  Text,
+  Tooltip,
+} from "@chakra-ui/react";
+import { Check, ChevronDown, ExternalLink, Plus } from "lucide-react";
+import { scenePreviewPath } from "@/lib/scenes";
 import type { RunPlaySpace, RunScene } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { sa_listRunScenes, sa_loadRunScene } from "@/app/(app)/run/[id]/actions";
@@ -34,6 +45,13 @@ type Props = {
  * its overlay, with nothing to add or take away. Choosing it does not
  * reopen it; the scene's status chip beside this selector does, if the
  * storyteller moves it back.
+ *
+ * At the end of each scene's row, an external-link icon, as a player pill's
+ * link carries, opens the scene's preview (/preview/scene/[id]) in a new
+ * tab: the scene as the players would see
+ * it, with nothing to press, for looking something up without moving the
+ * table. It stands beside the item rather than inside it, so pressing it
+ * is not choosing the scene.
  */
 export function RunSceneSelect({ idStory, scene, hasSession, statusOptions, onLoaded }: Props) {
   const [scenes, setScenes] = useState<RunScene[] | null>(null);
@@ -75,7 +93,9 @@ export function RunSceneSelect({ idStory, scene, hasSession, statusOptions, onLo
 
   return (
     <>
-      <Box display="inline-flex" flexShrink="0">
+      {/* A little room on the left, so the selector stands apart from the
+          session's chip rather than running on from it. */}
+      <Box display="inline-flex" flexShrink="0" ms="2">
         <Menu.Root
           ids={{ trigger: triggerId }}
           positioning={{ placement: "bottom-start" }}
@@ -145,25 +165,52 @@ export function RunSceneSelect({ idStory, scene, hasSession, statusOptions, onLo
                     // other title in line with it.
                     const isCurrent = row.idStoryScene === scene?.idStoryScene;
                     return (
-                      <Menu.Item
-                        key={row.idStoryScene}
-                        value={String(row.idStoryScene)}
-                        aria-current={isCurrent ? "true" : undefined}
-                        bg={isCurrent ? "bg.muted" : undefined}
-                        fontWeight={isCurrent ? "semibold" : undefined}
-                      >
-                        <HStack justify="space-between" gap="4" w="full" minW="0">
-                          <HStack gap="2" minW="0">
-                            <chakra.span boxSize="4" flexShrink="0" color="colorPalette.fg">
-                              {isCurrent && <Check size={16} />}
-                            </chakra.span>
-                            <Text truncate>{row.title}</Text>
+                      <HStack key={row.idStoryScene} gap="1" pe="1">
+                        <Menu.Item
+                          value={String(row.idStoryScene)}
+                          flex="1"
+                          minW="0"
+                          aria-current={isCurrent ? "true" : undefined}
+                          bg={isCurrent ? "bg.muted" : undefined}
+                          fontWeight={isCurrent ? "semibold" : undefined}
+                        >
+                          <HStack justify="space-between" gap="4" w="full" minW="0">
+                            <HStack gap="2" minW="0">
+                              <chakra.span boxSize="4" flexShrink="0" color="colorPalette.fg">
+                                {isCurrent && <Check size={16} />}
+                              </chakra.span>
+                              <Text truncate>{row.title}</Text>
+                            </HStack>
+                            <Text
+                              textStyle="xs"
+                              fontWeight="normal"
+                              color="fg.muted"
+                              flexShrink="0"
+                            >
+                              {statusLabel(row.status)}
+                            </Text>
                           </HStack>
-                          <Text textStyle="xs" fontWeight="normal" color="fg.muted" flexShrink="0">
-                            {statusLabel(row.status)}
-                          </Text>
-                        </HStack>
-                      </Menu.Item>
+                        </Menu.Item>
+                        <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+                          <Tooltip.Trigger asChild>
+                            <IconButton asChild size="xs" variant="ghost" rounded="full">
+                              <a
+                                href={scenePreviewPath(row.idStoryScene)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label={`Preview ${row.title}`}
+                              >
+                                <ExternalLink />
+                              </a>
+                            </IconButton>
+                          </Tooltip.Trigger>
+                          <Portal>
+                            <Tooltip.Positioner>
+                              <Tooltip.Content>Preview in a new tab</Tooltip.Content>
+                            </Tooltip.Positioner>
+                          </Portal>
+                        </Tooltip.Root>
+                      </HStack>
                     );
                   })
                 )}

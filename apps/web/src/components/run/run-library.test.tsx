@@ -1,12 +1,13 @@
 import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
+import { useState, type ComponentProps } from "react";
 import { expect } from "expect";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import type { Attachment } from "@/lib/attachments";
-import type { ElementKind, StoryElement } from "@/lib/elements";
-import type { ElementDetail, PlayItem } from "@/lib/run";
+import type { ElementKind, ElementSort, StoryElement } from "@/lib/elements";
+import type { AttachmentSort, ElementDetail, PlayItem, RunLibrarySource } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { UserProvider } from "@/components/auth/user-provider";
 import { Toaster, toaster } from "@/components/ui/toaster";
@@ -39,6 +40,11 @@ const attachment = (
   isCover: idAttachment === 5,
   // One tag on the second, for the preview's tag list.
   tags: idAttachment === 2 ? ["map"] : [],
+  // Added a day apart in id order, the half-uploaded one last, for the
+  // Created sort; no updated stamp, so the Updated sort keeps the order the
+  // server listed them in.
+  createdAt: `2026-09-${String(Math.min(idAttachment, 30)).padStart(2, "0")}T00:00:00.000Z`,
+  updatedAt: null,
 });
 
 // Twelve ready attachments and one still uploading, so the list has more
@@ -55,8 +61,14 @@ const people: StoryElement[] = [
 
 // The scene's own attachments, apart from the story's.
 const sceneAttachments: Attachment[] = [
-  { ...attachment(70, "Docks map"), kind: "STORY_SCENE", idExternal: 15 },
-  { ...attachment(71, "Tide chart"), kind: "STORY_SCENE", idExternal: 15, isCover: true },
+  { ...attachment(70, "Docks map"), kind: "STORY_SCENE", idExternal: 15, createdAt: null },
+  {
+    ...attachment(71, "Tide chart"),
+    kind: "STORY_SCENE",
+    idExternal: 15,
+    isCover: true,
+    createdAt: null,
+  },
 ];
 
 // A file attached to the scene stays in the story's list: it is the story's.
@@ -183,6 +195,7 @@ describe("RunLibrary", () => {
     // An element's info button asks for the element and its workflow.
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
+        sa_setElementTags: mock.fn(),
         sa_getElementDetail,
         sa_setElementImage,
         sa_updateStoryElement,
@@ -230,17 +243,28 @@ describe("RunLibrary", () => {
     toaster.remove();
   });
 
+  // The table holds the tab, for the sort menu beside its heading; this
+  // stands in for it.
+  function Harness(props: Omit<ComponentProps<typeof RunLibrary>, "tab" | "onTabChange">) {
+    const [tab, setTab] = useState<RunLibrarySource>("ATTACHMENT");
+    return <RunLibrary {...props} tab={tab} onTabChange={setTab} />;
+  }
+
   const library = (
     onAdd: (item: PlayItem) => void = () => {},
     idStoryScene: number | null = 15,
     sceneOnly = false,
     locked = false,
+    attachmentSort: AttachmentSort = "updated",
+    elementSort: ElementSort = "name",
   ) => (
     <UserProvider user={user}>
       <UserPreferencesProvider preferences={{}}>
-        <RunLibrary
+        <Harness
           idStory={-4}
           idStoryScene={idStoryScene}
+          attachmentSort={attachmentSort}
+          elementSort={elementSort}
           sceneOnly={sceneOnly}
           onAdd={onAdd}
           onRemovedFromScene={onRemovedFromScene}
@@ -293,6 +317,90 @@ describe("RunLibrary", () => {
     expect(sa_listAttachments.mock.calls[0].arguments).toEqual(["STORY", -4]);
   });
 
+  it("sorts the attachments as the table asks before taking the first ten", async () => {
+    render(() => {}, 15, false, false, "created");
+
+    const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
+    await within(panel).findByText("Handout 12");
+    const labels = within(panel)
+      .getAllByRole("listitem")
+      .map((item) => within(item).getByText(/^(Handout|Half)/).textContent);
+    // Newest first: the one still uploading, then twelve down to three, the
+    // cover (five) left out as ever.
+    expect(labels).toEqual([
+      "Half uploaded",
+      "Handout 12",
+      "Handout 11",
+      "Handout 10",
+      "Handout 9",
+      "Handout 8",
+      "Handout 7",
+      "Handout 6",
+      "Handout 4",
+      "Handout 3",
+    ]);
+  });
+
+  it("asks for an element tab in the sort the table holds, for the story's and the scene's", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(() => {}, 15, false, false, "updated", "title");
+
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    await waitFor(() =>
+      expect(sa_listStoryElements.mock.calls.at(-1)?.arguments).toEqual([
+        -4,
+        "PERSON",
+        0,
+        "",
+        undefined,
+        "title",
+      ]),
+    );
+    unmount();
+
+    render(() => {}, 15, true, false, "updated", "title");
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    await waitFor(() =>
+      expect(sa_listSceneLibraryElements.mock.calls.at(-1)?.arguments).toEqual([
+        -4,
+        15,
+        "PERSON",
+        "",
+        "title",
+      ]),
+    );
+  });
+
+  it("names the previewed file at the top, and moves through the pictures with the arrow keys", async () => {
+    const user = userEvent.setup();
+    render();
+    const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
+
+    await user.click(await within(panel).findByRole("button", { name: "Preview Handout 2" }));
+    let preview = await screen.findByRole("dialog", { name: "Handout 2" });
+    expect(within(preview).getByRole("heading")).toHaveTextContent("Handout 2");
+
+    // Down to the next picture, and on; the cover (five) is not in the
+    // list, so four is followed by six.
+    await user.keyboard("{ArrowDown}");
+    preview = await screen.findByRole("dialog", { name: "Handout 3" });
+    expect(within(preview).getByRole("img", { name: "Handout 3" })).toHaveAttribute(
+      "src",
+      "https://x.test/3.png",
+    );
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    await screen.findByRole("dialog", { name: "Handout 6" });
+
+    // Back up, and no further than the first.
+    await user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}");
+    preview = await screen.findByRole("dialog", { name: "Handout 1" });
+    await user.keyboard("{ArrowUp}");
+    expect(screen.getByRole("dialog", { name: "Handout 1" })).toBe(preview);
+
+    await user.click(within(preview).getByRole("button", { name: "Close preview" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
   it("opens an attachment's picture full size, with its tags, as the library page does", async () => {
     const user = userEvent.setup();
     render();
@@ -320,6 +428,13 @@ describe("RunLibrary", () => {
 
     await u.click(plus);
     expect(plus).toHaveAttribute("aria-expanded", "true");
+    // Open, the + is a close button, and closes what it opened.
+    expect(plus).toHaveAccessibleName("Close");
+    expect(screen.queryByRole("button", { name: "New attachment" })).not.toBeInTheDocument();
+    await u.click(plus);
+    expect(within(panel).queryByRole("textbox", { name: "Link" })).not.toBeInTheDocument();
+    expect(plus).toHaveAccessibleName("New attachment");
+    await u.click(plus);
     await u.type(
       within(panel).getByRole("textbox", { name: "Link" }),
       "https://x.test/maps/harbour.png",
@@ -475,7 +590,14 @@ describe("RunLibrary", () => {
     expect(await within(panel).findByText("Dafydd")).toBeInTheDocument();
     expect(within(panel).getByText("Shell seller")).toBeInTheDocument();
     await waitFor(() =>
-      expect(sa_listStoryElements.mock.calls.at(-1)?.arguments).toEqual([-4, "PERSON", 0, "sea"]),
+      expect(sa_listStoryElements.mock.calls.at(-1)?.arguments).toEqual([
+        -4,
+        "PERSON",
+        0,
+        "sea",
+        undefined,
+        "name",
+      ]),
     );
   });
 
@@ -641,6 +763,7 @@ describe("RunLibrary", () => {
       15,
       "PERSON",
       "",
+      "name",
     ]);
     expect(sa_listStoryElements.mock.callCount()).toBe(0);
 

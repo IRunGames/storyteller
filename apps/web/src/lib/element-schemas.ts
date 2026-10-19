@@ -57,3 +57,23 @@ export type RunElementValues = z.infer<typeof runElementSchema>;
 // The library's info popover edits an element of the story whether or not
 // it is in the scene, so only the element's own status comes with its fields.
 export const runStoryElementSchema = elementSchema.extend({ status: statusKeySchema });
+
+/**
+ * One of an element's own tags as a storyteller types it in the element
+ * panel's Tags editor: trimmed, lower-cased so "Map" and "map" are one tag,
+ * and short enough to sit in a chip, as an attachment's tags are
+ * (attachmentTagSchema). No tag is set apart here: an element has no cover
+ * among its tags, that being its picture's use.
+ */
+export const elementTagSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1, "Please enter a tag.")
+  .max(40, "Keep a tag under 40 characters.");
+
+/** An element's tags, deduplicated once lower-cased; the bound keeps a crafted array small. */
+export const elementTagsSchema = z
+  .array(elementTagSchema)
+  .max(20, "That is too many tags. Remove a few first.")
+  .transform((tags) => [...new Set(tags)]);

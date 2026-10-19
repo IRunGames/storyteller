@@ -16,6 +16,7 @@ import {
   type SceneElementStatus,
 } from "@/lib/run";
 import {
+  sa_pulseSceneElement,
   sa_setSceneElementShowing,
   sa_setSceneElementShowInfo,
   sa_setSceneElementStatus,
@@ -26,6 +27,7 @@ import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { RunElementImagePopover } from "./run-element-image-popover";
 import { RunElementPanel } from "./run-element-panel";
 import { RunInfoToggle } from "./run-info-toggle";
+import { RunPictureTack } from "./run-picture-tack";
 import { RunSceneStatusMenu } from "./run-scene-status-menu";
 
 type Props = {
@@ -45,6 +47,21 @@ type Props = {
   onStatusChange: (key: string, status: string) => void;
   /** The item has been edited from its panel, or its info toggle pressed. */
   onItemChange: (item: PlayItem) => void;
+  /**
+   * Whether this is the picture the storyteller last put up on the players'
+   * table, which the thumbnail's glow and tack show. The table's state, not
+   * the item's: a pulse is not written anywhere (sa_pulseSceneElement), and
+   * one picture is up at a time, so the table keeps the one key.
+   */
+  pictureUp: boolean;
+  /** The tack was pressed: this picture goes up (true) or comes down, or goes back after a refusal. */
+  onPictureUpChange: (key: string, up: boolean) => void;
+  /**
+   * The scene is complete: the pill is there to read. Its name is plain,
+   * its info toggle only says which way it is, it has no status menu, tack
+   * or +, and its panel opens locked, with nothing that edits.
+   */
+  locked?: boolean;
 };
 
 /**
@@ -52,7 +69,11 @@ type Props = {
  * leads with its info toggle (whether the players see its description) and
  * its status menu (RunSceneStatusMenu), its name is a dropdown of the fields
  * it can show, and a chevron at its end opens the element panel
- * (RunElementPanel) in place under it. It shows its scene status: hidden
+ * (RunElementPanel) in place under it. Its thumbnail carries a tack
+ * (RunPictureTack) that puts the picture up full size on the players' table
+ * and takes it down, a pulse over the story's topic rather than anything
+ * written, with the theme's second highlight glowing round the thumbnail
+ * while it is up. It shows its scene status: hidden
  * from the players (INVISIBLE) with the theme's highlight round it as a
  * border and a glow, tapped (TAPPED) a shade dimmer, switched off (DISABLED)
  * in grey italics; the menu's icon says which either way. It has no ✕:
@@ -69,15 +90,38 @@ export function RunPlayPill({
   onRemove,
   onStatusChange,
   onItemChange,
+  pictureUp,
+  onPictureUpChange,
+  locked = false,
 }: Props) {
   const status = item.sceneStatus;
   const linked = status !== undefined && idStoryScene !== null;
+  // What may be pressed to change the link: linked, and the scene not complete.
+  const live = linked && !locked;
   const isHidden = status === SCENE_ELEMENT_HIDDEN;
   const isDisabled = status === SCENE_ELEMENT_DISABLED;
   const isTapped = status === SCENE_ELEMENT_TAPPED;
   // The column's default, for a link the page holds without having read it.
   const showInfo = item.showInfo ?? true;
   const [open, setOpen] = useState(false);
+
+  // The tack, the same way as the toggle: the glow at once, back if refused.
+  async function toggleImage() {
+    if (!linked) return;
+    const next = !pictureUp;
+    onPictureUpChange(item.key, next);
+    try {
+      const result = await sa_pulseSceneElement(idStory, idStoryScene, elementIdOf(item), {
+        action: next ? "preview.open" : "preview.close",
+      });
+      if (result.ok) return;
+      onPictureUpChange(item.key, pictureUp);
+      toaster.create({ title: result.error, type: "error" });
+    } catch {
+      onPictureUpChange(item.key, pictureUp);
+      toaster.create({ title: "That could not be sent. Try again.", type: "error" });
+    }
+  }
 
   // The status menu: the pill changes at once and goes back if the action
   // refuses.
@@ -162,31 +206,54 @@ export function RunPlayPill({
             read as a hole. */}
         {linked && (
           <HStack gap="0" flexShrink="0" me="-1.5">
-            <RunInfoToggle showInfo={showInfo} onToggle={() => void toggleInfo()} />
-            <RunSceneStatusMenu
-              label={item.label}
-              status={status}
-              onChange={(next) => void chooseStatus(next)}
+            <RunInfoToggle
+              showInfo={showInfo}
+              onToggle={live ? () => void toggleInfo() : undefined}
             />
+            {live && (
+              <RunSceneStatusMenu
+                label={item.label}
+                status={status}
+                onChange={(next) => void chooseStatus(next)}
+              />
+            )}
           </HStack>
         )}
         {item.imageUrl ? (
           // Pressed, the picture opens full size, as an attachment's does in
           // the library; its tags are the attachment's, not the element's, so
-          // the preview leaves them out.
-          <Box boxSize="12" flexShrink="0" rounded="sm" overflow="hidden">
-            <AttachmentPreview
-              url={item.imageUrl}
-              label={item.label}
-              tags={[]}
-              isCover={false}
-              showTags={false}
-            />
+          // the preview leaves them out. The frame round it carries the glow
+          // and the tack: the tack sits past the corner, which the picture's
+          // own overflow clip would cut off.
+          <Box
+            position="relative"
+            flexShrink="0"
+            boxSize="12"
+            rounded="sm"
+            boxShadow={pictureUp ? "0 0 10px 2px var(--chakra-colors-run-picture-up)" : undefined}
+            data-picture-up={pictureUp}
+          >
+            <Box boxSize="12" rounded="sm" overflow="hidden">
+              <AttachmentPreview
+                url={item.imageUrl}
+                label={item.label}
+                tags={[]}
+                isCover={false}
+                showTags={false}
+              />
+            </Box>
+            {live && (
+              <RunPictureTack
+                label={item.label}
+                pictureUp={pictureUp}
+                onToggle={() => void toggleImage()}
+              />
+            )}
           </Box>
         ) : (
           // In the picture's place, beside the status: a + to give the
           // element one from the story's or the scene's attachments.
-          linked && (
+          live && (
             <Box flexShrink="0" me="-1.5">
               <RunElementImagePopover
                 idStory={idStory}
@@ -207,8 +274,12 @@ export function RunPlayPill({
           // border and glow round the pill saying which.
           color={isDisabled ? "fg.subtle" : isHidden || isTapped ? "fg.muted" : undefined}
         >
-          {!linked || !fields ? (
-            <Text fontWeight="medium" truncate>
+          {!live || !fields ? (
+            <Text
+              fontWeight={highlighted ? "bold" : "medium"}
+              color={highlighted && !isDisabled ? "run.initialName" : undefined}
+              truncate
+            >
               {item.label}
             </Text>
           ) : (
@@ -309,6 +380,8 @@ export function RunPlayPill({
             idStoryScene={idStoryScene}
             idElement={elementIdOf(item)}
             label={item.label}
+            locked={locked}
+            canEdit={!locked}
             heading={(text) => (
               <Heading as="h3" size="sm">
                 {text}

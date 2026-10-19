@@ -235,6 +235,40 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(people[0].status).toBe(workflow[0].key);
   });
 
+  it("lists elements in whichever sort the run page's library asks for", async () => {
+    const names = async (sort: Parameters<typeof actions.sa_listStoryElements>[5]) =>
+      (await actions.sa_listStoryElements(myStory, "PERSON", 0, "", undefined, sort)).map(
+        (element) => element.name,
+      );
+    const [zara] = await db
+      .select({ id: tables.elements.idElement })
+      .from(tables.elements)
+      .where(and(eq(tables.elements.idStory, myStory), eq(tables.elements.name, "Fixture Zara")));
+    // Zara gets a title before Aldric's and an initial name he has none of,
+    // and is the one changed last.
+    await db
+      .update(tables.elements)
+      .set({ title: "Baker", initialName: "Fixture veiled woman", updatedAt: new Date() })
+      .where(eq(tables.elements.idElement, zara.id));
+    try {
+      expect(await names("name")).toEqual(["Fixture Aldric", "Fixture Zara"]);
+      expect(await names("title")).toEqual(["Fixture Zara", "Fixture Aldric"]);
+      // An element with no initial name goes last.
+      expect(await names("initial_name")).toEqual(["Fixture Zara", "Fixture Aldric"]);
+      expect(await names("updated")).toEqual(["Fixture Zara", "Fixture Aldric"]);
+      // Both were made in one statement, so the later id counts as newer.
+      expect(await names("created")).toEqual(["Fixture Aldric", "Fixture Zara"]);
+      await expect(
+        actions.sa_listStoryElements(myStory, "PERSON", 0, "", undefined, "colour" as never),
+      ).rejects.toThrow();
+    } finally {
+      await db
+        .update(tables.elements)
+        .set({ title: null, initialName: null })
+        .where(eq(tables.elements.idElement, zara.id));
+    }
+  });
+
   it("searches an element's search_text, including what the card does not show", async () => {
     const found = await actions.sa_listStoryElements(myStory, "PLACE", 0, "LANTERN");
     expect(found.map((element) => element.name)).toEqual(["Fixture vault"]);

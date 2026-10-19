@@ -20,6 +20,24 @@ export function isElementKind(value: unknown): value is ElementKind {
   return typeof value === "string" && (ELEMENT_KINDS as readonly string[]).includes(value);
 }
 
+/**
+ * What a list of elements can be sorted by: the run page's library offers
+ * each from its sort menu, and the list actions take one. The names sort
+ * A to Z with an element that has none last; the dates newest first, since
+ * what was just made or just changed is what the storyteller is after.
+ */
+export const ELEMENT_SORT_KEYS = ["name", "initial_name", "title", "created", "updated"] as const;
+export type ElementSort = (typeof ELEMENT_SORT_KEYS)[number];
+
+/** Each sort as the menu names it. */
+export const ELEMENT_SORT_LABELS: Record<ElementSort, string> = {
+  name: "Name",
+  initial_name: "Initial name",
+  title: "Title",
+  created: "Created",
+  updated: "Updated",
+};
+
 /** Elements per fetch in the Prep Work board's Elements column. */
 export const ELEMENTS_PAGE_SIZE = 10;
 

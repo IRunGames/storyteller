@@ -7,16 +7,22 @@ import type { StoryEvent } from "@/lib/realtime/events";
 import { sa_getPlayScene } from "@/app/(app)/play/[id]/actions";
 import { useStoryChannel, type ChannelState } from "./use-story-channel";
 
+/** A pulse about one element of the scene the table is on, as it came over the topic. */
+export type ScenePulseEvent = Extract<StoryEvent, { type: "scene_element.custom" }>;
+
 /**
  * The scene the players' table shows, kept up to date from the story's
  * state topic. It starts from what the page loaded, applies each message
  * as it comes (applyStoryEvent), and loads the scene afresh whenever a
  * message says more changed than it can absorb, and on every connection,
- * since a message may have gone by while it was not listening.
+ * since a message may have gone by while it was not listening. A pulse
+ * (scene_element.custom) changes nothing held; one about the scene the
+ * table is on is handed to `onPulse` for the table to act on.
  */
 export function usePlayScene(
   idStory: number,
   initial: PlayScene,
+  onPulse?: (event: ScenePulseEvent) => void,
 ): {
   scene: PlayScene;
   channel: ChannelState;
@@ -51,6 +57,13 @@ export function usePlayScene(
     if (next && number === reloads.current) setScene(next);
   }, [idStory]);
 
+  // The latest onPulse, held the way the scene is, so the channel's handler
+  // never calls a stale one.
+  const onPulseRef = useRef(onPulse);
+  useEffect(() => {
+    onPulseRef.current = onPulse;
+  });
+
   const onEvent = useCallback(
     (event: StoryEvent) => {
       const { scene: next, refetch } = applyStoryEvent(sceneRef.current, event);
@@ -58,6 +71,12 @@ export function usePlayScene(
         void reload();
       } else if (next !== sceneRef.current) {
         setScene(next);
+      }
+      if (
+        event.type === "scene_element.custom" &&
+        event.idStoryScene === sceneRef.current.scene?.idStoryScene
+      ) {
+        onPulseRef.current?.(event);
       }
     },
     [reload],

@@ -3,7 +3,12 @@ import { db } from "@/db";
 import { sceneElements } from "@/db/schema";
 import { currentScene, sceneItem } from "@/db/scene-items";
 import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
-import { toPublicElement, toPublicSceneElement, type StoryEvent } from "./events";
+import {
+  toPublicElement,
+  toPublicSceneElement,
+  type ScenePulseCustom,
+  type StoryEvent,
+} from "./events";
 import { publishStoryEvent } from "./publish";
 
 // What the storyteller's table tells the players' table after each change it
@@ -54,6 +59,31 @@ export async function publishSceneElement(
           sceneElement: toPublicSceneElement(row.link),
         };
   await publishStoryEvent(idStory, event);
+}
+
+/**
+ * A pulse about one element of the current scene (the storyteller's tack
+ * opening its picture on the players' table, say): sent as given, since
+ * nothing was written for it and there is no row to re-read. Whether the
+ * action is one the players answer is the caller's to check. Nothing when
+ * the scene is not the current one.
+ */
+export async function publishSceneElementPulse(
+  idStory: number,
+  idStoryScene: number,
+  idElement: number,
+  custom: ScenePulseCustom,
+): Promise<void> {
+  if (!(await isCurrent(idStory, idStoryScene))) return;
+  await publishStoryEvent(idStory, {
+    v: 1,
+    at: stamp(),
+    idStory,
+    type: "scene_element.custom",
+    idStoryScene,
+    idElement,
+    custom,
+  });
 }
 
 /**

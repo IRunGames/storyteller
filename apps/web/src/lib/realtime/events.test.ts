@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import { expect } from "expect";
 
 import {
+  isScenePulse,
   parseStoryEvent,
   storyEventTitle,
   toPublicElement,
@@ -44,6 +45,7 @@ const link: SceneElementRow = {
   tags: ["scene"],
   elementShowing: "initial_name",
   showInfo: true,
+  showImage: false,
   url: null,
   urlText: null,
   activityLog: [{ at: "x" }],
@@ -75,9 +77,23 @@ describe("public rows", () => {
     });
   });
 
-  it("keeps the description back while the link does not show its info", () => {
-    expect(toPublicElement(element, null, true).description).toBe("Keeps the docks.");
-    expect(toPublicElement(element, null, false).description).toBeNull();
+  it("keeps the description and the links back while the link does not show its info", () => {
+    expect(toPublicElement(element, null, true)).toMatchObject({
+      description: "Keeps the docks.",
+      url: "https://example.com/zed",
+      urlText: "Zed's ledger",
+    });
+    expect(toPublicElement(element, null, false)).toMatchObject({
+      description: null,
+      url: null,
+      urlText: null,
+    });
+    const linked = { ...link, url: "https://example.com/docks", urlText: "Here" };
+    expect(toPublicSceneElement(linked)).toMatchObject({ url: "https://example.com/docks" });
+    expect(toPublicSceneElement({ ...linked, showInfo: false })).toMatchObject({
+      url: null,
+      urlText: null,
+    });
   });
 
   it("drops the activity log from a link", () => {
@@ -90,6 +106,7 @@ describe("public rows", () => {
       showInfo: true,
       tappedAt: null,
     });
+    expect(pub).not.toHaveProperty("showImage");
   });
 });
 
@@ -105,6 +122,29 @@ describe("parseStoryEvent", () => {
     };
 
     expect(parseStoryEvent(JSON.parse(JSON.stringify(event)))).toEqual(event);
+  });
+
+  it("reads a pulse, whatever its action, and keeps what else it carries", () => {
+    const pulse = {
+      v: 1,
+      at: when.toISOString(),
+      idStory: 7,
+      type: "scene_element.custom",
+      idStoryScene: 3,
+      idElement: 5,
+      custom: { action: "preview.open" },
+    };
+    expect(parseStoryEvent(JSON.parse(JSON.stringify(pulse)))).toEqual(pulse);
+    // A later pulse may say more than this build knows; it is read, not refused.
+    const later = { ...pulse, custom: { action: "dice.roll", sides: 20 } };
+    expect(parseStoryEvent(JSON.parse(JSON.stringify(later)))).toEqual(later);
+    expect(parseStoryEvent({ ...pulse, custom: {} })).toBeNull();
+  });
+
+  it("knows which pulses this build answers", () => {
+    expect(isScenePulse("preview.open")).toBe(true);
+    expect(isScenePulse("preview.close")).toBe(true);
+    expect(isScenePulse("dice.roll")).toBe(false);
   });
 
   it("refuses a message that is not one of ours", () => {
@@ -125,6 +165,20 @@ describe("storyEventTitle", () => {
       sceneElement: toPublicSceneElement(link),
     });
     expect(title).toBe("scene_element.upserted · Zed (READY)");
+  });
+
+  it("names the element and the action of a pulse", () => {
+    expect(
+      storyEventTitle({
+        v: 1,
+        at: "",
+        idStory: 7,
+        type: "scene_element.custom",
+        idStoryScene: 3,
+        idElement: 5,
+        custom: { action: "preview.open" },
+      }),
+    ).toBe("scene_element.custom · element 5 (preview.open)");
   });
 
   it("says when the table is on no scene", () => {

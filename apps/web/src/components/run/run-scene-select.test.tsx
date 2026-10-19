@@ -126,6 +126,32 @@ describe("RunSceneSelect", () => {
     expect(sa_listRunScenes.mock.calls[0].arguments).toEqual([-4]);
   });
 
+  it("offers a preview of each scene in another tab, apart from choosing it", async () => {
+    const user = userEvent.setup();
+    render();
+
+    await user.click(screen.getByRole("button", { name: "Scene: The docks" }));
+    await waitFor(() => expect(screen.getAllByRole("menuitem")).toHaveLength(4));
+
+    const previews = screen.getAllByRole("link", { name: /^Preview / });
+    expect(previews.map((link) => link.getAttribute("aria-label"))).toEqual([
+      "Preview The docks",
+      "Preview The abbey",
+      "Preview The crossing",
+    ]);
+    expect(previews.map((link) => link.getAttribute("href"))).toEqual([
+      "/preview/scene/1",
+      "/preview/scene/2",
+      "/preview/scene/3",
+    ]);
+    for (const link of previews) expect(link).toHaveAttribute("target", "_blank");
+    // Beside the item, not in it, so the item's own name is the scene's.
+    expect(screen.getByRole("menuitem", { name: /^The abbey/ })).not.toContainElement(previews[1]);
+    await user.hover(previews[1]);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Preview in a new tab");
+    expect(sa_loadRunScene.mock.callCount()).toBe(0);
+  });
+
   it("marks the scene the table is on in the list", async () => {
     const user = userEvent.setup();
     render({ scene: scenes[1] });

@@ -107,6 +107,9 @@ export function applyStoryEvent(
       return { scene, refetch: true };
     case "session.updated":
       return { scene, refetch: false };
+    // A pulse is acted on by the table (usePlayScene hands it on), not kept.
+    case "scene_element.custom":
+      return { scene, refetch: false };
     case "scene_element.upserted": {
       if (scene.scene === null || event.sceneElement.idStoryScene !== scene.scene.idStoryScene) {
         return { scene, refetch: true };

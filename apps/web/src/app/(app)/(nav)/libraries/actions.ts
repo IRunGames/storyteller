@@ -5,11 +5,14 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
+import { elementOrderBy } from "@/db/element-order";
 import { requireUser } from "@/lib/authorize";
 import {
   ELEMENT_KINDS,
+  ELEMENT_SORT_KEYS,
   ELEMENTS_PAGE_SIZE,
   type ElementKind,
+  type ElementSort,
   type StoryElement,
 } from "@/lib/elements";
 import { likeContains } from "@/lib/filter-text";
@@ -45,6 +48,7 @@ const statusesSchema = z.array(z.string().min(1).max(64)).max(50);
 const idStorySchema = z.number().int().min(-2147483648).max(2147483647);
 
 const kindSchema = z.enum(ELEMENT_KINDS);
+const elementSortSchema = z.enum(ELEMENT_SORT_KEYS);
 
 /**
  * Whether the caller is the storyteller who created the story. The board and
@@ -191,9 +195,11 @@ export async function sa_countStoryScenes(idStory: number): Promise<number> {
 }
 
 /**
- * A page of the story's elements of one kind, by name, optionally narrowed by
+ * A page of the story's elements of one kind, by name unless another of
+ * ELEMENT_SORT_KEYS is asked for (elementOrderBy), optionally narrowed by
  * what that kind's search box holds and by the statuses still switched on
- * above it. The board gives each kind a column of its own.
+ * above it. The board gives each kind a column of its own; the run page's
+ * library is what asks for another sort.
  *
  * The search runs against elements.search_text, the generated column the
  * database builds from the element's status, names, title, description,
@@ -206,11 +212,13 @@ export async function sa_listStoryElements(
   offset: number,
   query: string = "",
   statuses?: string[],
+  sort: ElementSort = "name",
 ): Promise<StoryElement[]> {
   const user = await requireUser();
   const ofKind = kindSchema.parse(kind);
   const skip = offsetSchema.parse(offset);
   const needle = querySchema.parse(query).trim();
+  const order = elementSortSchema.parse(sort);
   // As in sa_listStoryScenes: undefined is no filter, an empty list is none.
   const shown = statuses === undefined ? undefined : statusesSchema.parse(statuses);
 
@@ -236,7 +244,7 @@ export async function sa_listStoryElements(
         shown === undefined ? undefined : inArray(elements.status, shown),
       ),
     )
-    .orderBy(asc(elements.name), asc(elements.idElement))
+    .orderBy(...elementOrderBy(order))
     .limit(ELEMENTS_PAGE_SIZE)
     .offset(skip);
 }

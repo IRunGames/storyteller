@@ -7,6 +7,15 @@ export const ERROR_BACKGROUNDS = [
   "/images/m_error.webp",
   "/images/f_error.webp",
   "/images/d_error.webp",
+  "/images/river_error.webp",
+  "/images/crash_error.webp",
+  "/images/wreck_error.webp",
+  "/images/duel_error.webp",
+  "/images/warrior_error.webp",
+  "/images/spire_error.webp",
+  "/images/impact_error.webp",
+  "/images/armada_error.webp",
+  "/images/gunner_error.webp",
 ] as const;
 
 /**

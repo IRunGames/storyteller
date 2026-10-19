@@ -21,6 +21,12 @@ type Props = {
   onStatusChange: (key: string, status: string) => void;
   /** An item has been edited from its info popover. */
   onItemChange: (item: PlayItem) => void;
+  /** The key of the item whose picture the storyteller last put up on the players' table, or null. */
+  pictureUpKey: string | null;
+  /** An item's tack was pressed: its picture goes up or comes down. */
+  onPictureUpChange: (key: string, up: boolean) => void;
+  /** The scene is complete: each pill is there to read, with nothing that changes it. */
+  locked?: boolean;
 };
 
 // Widening blurs of the background colour, the tightest repeated, so the
@@ -48,6 +54,9 @@ export function RunPlayStack({
   onRemove,
   onStatusChange,
   onItemChange,
+  pictureUpKey,
+  onPictureUpChange,
+  locked = false,
 }: Props) {
   const headingId = useId();
 
@@ -109,6 +118,9 @@ export function RunPlayStack({
                 onRemove={onRemove}
                 onStatusChange={onStatusChange}
                 onItemChange={onItemChange}
+                pictureUp={item.key === pictureUpKey}
+                onPictureUpChange={onPictureUpChange}
+                locked={locked}
               />
             </List.Item>
           ))}
