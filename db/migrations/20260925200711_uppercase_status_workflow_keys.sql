@@ -30,8 +30,10 @@ $$
         -- The transition trigger would reject OPEN arriving from open, the
         -- s_statuses trigger would reject a transition list naming keys that
         -- do not exist yet, and set_updated_at would stamp every row for a
-        -- change that is not one. All of them off for the conversion.
-        SET session_replication_role = 'replica';
+        -- change that is not one. All of them off for the conversion: each
+        -- table's user triggers as it is reached, s_statuses' below. (Not
+        -- session_replication_role: Neon keeps that for the superuser.)
+        ALTER TABLE s_statuses DISABLE TRIGGER USER;
 
         FOR tbl IN
             SELECT t.table_name, COALESCE(w.status_column_name, 'status') AS status_column
@@ -44,6 +46,7 @@ $$
                 EXECUTE format('ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
                                tbl.table_name,
                                format('%s_%s_check', tbl.table_name, tbl.status_column));
+                EXECUTE format('ALTER TABLE %I DISABLE TRIGGER USER', tbl.table_name);
 
                 EXECUTE format('UPDATE %I SET %I = upper(%I) WHERE %I <> upper(%I)',
                                tbl.table_name, tbl.status_column, tbl.status_column,
@@ -68,6 +71,8 @@ $$
                                    tbl.table_name, tbl.status_column, new_default);
                     RAISE NOTICE 'Default for %.% is now %', tbl.table_name, tbl.status_column, new_default;
                 END IF;
+
+                EXECUTE format('ALTER TABLE %I ENABLE TRIGGER USER', tbl.table_name);
             END LOOP;
 
         -- The workflow definitions: the key itself, and every key listed as a
@@ -93,7 +98,7 @@ $$
         WHERE status_key <> upper(status_key)
            OR EXISTS (SELECT 1 FROM unnest(transition_from_status_keys) AS k WHERE k <> upper(k));
 
-        SET session_replication_role = 'origin';
+        ALTER TABLE s_statuses ENABLE TRIGGER USER;
     END
 $$;
 

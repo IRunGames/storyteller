@@ -4,7 +4,9 @@ DECLARE
     row_count BIGINT;
 BEGIN
     RAISE NOTICE '[%] START SEEDING', clock_timestamp();
-    SET session_replication_role = 'replica';
+    -- Foreign keys to and from the table off, its triggers off; _seed_end
+    -- puts them back and checks every row (functions/_seed_begin.sql says why).
+    PERFORM _seed_begin('users');
 
     RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
 
@@ -57,7 +59,7 @@ BEGIN
     RAISE NOTICE '>>>    [%] Rows inserted: %', CLOCK_TIMESTAMP(), row_count;
 
     -- ------------------------------------------------------------
-    SET session_replication_role = 'origin';
+    PERFORM _seed_end('users');
 
     RAISE NOTICE '[%] DONE SEEDING', clock_timestamp();
 END $$;

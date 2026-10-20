@@ -3,10 +3,10 @@
     -- row may arrive FROM. An empty array means nothing leads to it; NULL
     -- means validate_status_transition does not check, so anything may.
     --
-    -- The seed runs with session_replication_role = 'replica', so the trigger
-    -- that checks every listed key already exists in the workflow is off and
-    -- a workflow can be inserted in a single statement whatever order its
-    -- rows are in, cycles included.
+    -- The seed runs with the table's triggers off (_seed_begin above), so the
+    -- trigger that checks every listed key already exists in the workflow is
+    -- off and a workflow can be inserted in a single statement whatever order
+    -- its rows are in, cycles included.
     --
     -- s_status_id counts down from -1 in insertion order, so a status can be
     -- added anywhere without renumbering; nothing references this key.

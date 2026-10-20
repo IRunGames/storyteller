@@ -4,17 +4,19 @@ DECLARE
     row_count BIGINT;
 BEGIN
     RAISE NOTICE '[%] START SEEDING', clock_timestamp();
-    SET session_replication_role = 'replica';
+    -- Foreign keys to and from the table off, its triggers off; _seed_end
+    -- puts them back and checks every row (functions/_seed_begin.sql says why).
+    PERFORM _seed_begin('stories');
 
     RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
 
-    -- Safe only under the session_replication_role = 'replica' set above,
-    -- which is load-bearing here rather than incidental. It disables user
-    -- triggers, so tr_ad_stories_attachments never fires and the attachments
-    -- pointing at these stories survive the delete to re-point at the rows
-    -- re-inserted below, which keep the same negative ids. Re-seed stories
-    -- outside replica mode and that trigger takes every story's pictures
-    -- with it.
+    -- Safe only because _seed_begin above took the foreign keys off stories
+    -- and switched its triggers off, which is load-bearing here rather than
+    -- incidental: tr_ad_stories_attachments never fires and no ON DELETE
+    -- CASCADE runs, so the attachments, scenes and sessions pointing at these
+    -- stories survive the delete to re-point at the rows re-inserted below,
+    -- which keep the same negative ids. Re-seed stories with the keys and the
+    -- trigger on and every story's pictures go with it.
     DELETE FROM stories WHERE id_story < 0;
 
     RAISE NOTICE '+++    [%] Seeding stories', clock_timestamp();
@@ -70,7 +72,7 @@ BEGIN
     RAISE NOTICE '>>>    [%] Rows inserted: %', CLOCK_TIMESTAMP(), row_count;
 
     -- ------------------------------------------------------------
-    SET session_replication_role = 'origin';
+    PERFORM _seed_end('stories');
 
     RAISE NOTICE '[%] DONE SEEDING', clock_timestamp();
 END $$;

@@ -48,8 +48,8 @@ Each row is: `(workflow_id, status_key, description, transition_from_status_keys
   `validate_status_transition` skips the check for a status whose list is
   NULL, so any status could move into it
 - Rows may be listed in any order and two statuses may point at each other:
-  the seed runs with `session_replication_role = 'replica'`, which turns off
-  the trigger that checks each listed key already exists, so a workflow
+  the seed runs with the table's triggers off (`_seed_begin`), which takes
+  out the trigger that checks each listed key already exists, so a workflow
   inserts in one statement
 - It helps to write the transitions **from** each status in a comment
   first, then invert them into each row's list, as the example does

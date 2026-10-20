@@ -41,6 +41,15 @@ fi
 # Get the current timestamp in UTC (YYYYMMDDHHMMSS format)
 TIMESTAMP=$(date -u +"%Y%m%d%H%M%S")
 
+# The table being seeded, from the seed_<table>.sql convention. A file named
+# otherwise gets the xxx placeholder to fill in by hand.
+TABLE_NAME="$(basename "$FILENAME" .sql)"
+if [[ "$TABLE_NAME" == seed_* ]]; then
+    TABLE_NAME="${TABLE_NAME#seed_}"
+else
+    TABLE_NAME="xxx"
+fi
+
 # Define the output migration file path
 # Migrations live flat in ./migrations, but a source file may sit in a
 # subdirectory (e.g. _tables_metatable/tr_update_updated_at.sql). Use only the
@@ -58,13 +67,16 @@ DECLARE
     row_count BIGINT;
 BEGIN
     RAISE NOTICE '[%] START SEEDING', clock_timestamp();
-    SET session_replication_role = 'replica';
+    -- Foreign keys to and from the table off, its triggers off; _seed_end
+    -- puts them back and checks every row (functions/_seed_begin.sql says why).
+    PERFORM _seed_begin('${TABLE_NAME}');
 
     RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
 
-    DELETE FROM xxx;
+    -- Name the ids this seed inserts; never clear by id < 0.
+    DELETE FROM ${TABLE_NAME} WHERE xxx IN (xxx);
 
-    RAISE NOTICE '+++    [%] Seeding xxx', clock_timestamp();
+    RAISE NOTICE '+++    [%] Seeding ${TABLE_NAME}', clock_timestamp();
 
     -- ------------------------------------------------------------
 EOF
@@ -85,7 +97,7 @@ cat <<EOF >> "$OUTPUT_FILE"
     RAISE NOTICE '>>>    [%] Rows inserted: %', CLOCK_TIMESTAMP(), row_count;
 
     -- ------------------------------------------------------------
-    SET session_replication_role = 'origin';
+    PERFORM _seed_end('${TABLE_NAME}');
 
     RAISE NOTICE '[%] DONE SEEDING', clock_timestamp();
 END \$\$;

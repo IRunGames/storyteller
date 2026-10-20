@@ -4,7 +4,9 @@ DECLARE
     row_count BIGINT;
 BEGIN
     RAISE NOTICE '[%] START SEEDING', clock_timestamp();
-    SET session_replication_role = 'replica';
+    -- Foreign keys to and from the table off, its triggers off; _seed_end
+    -- puts them back and checks every row (functions/_seed_begin.sql says why).
+    PERFORM _seed_begin('s_statuses');
 
     RAISE NOTICE '+++    [%] clearing records', clock_timestamp();
 
@@ -18,10 +20,10 @@ BEGIN
     -- row may arrive FROM. An empty array means nothing leads to it; NULL
     -- means validate_status_transition does not check, so anything may.
     --
-    -- The seed runs with session_replication_role = 'replica', so the trigger
-    -- that checks every listed key already exists in the workflow is off and
-    -- a workflow can be inserted in a single statement whatever order its
-    -- rows are in, cycles included.
+    -- The seed runs with the table's triggers off (_seed_begin above), so the
+    -- trigger that checks every listed key already exists in the workflow is
+    -- off and a workflow can be inserted in a single statement whatever order
+    -- its rows are in, cycles included.
     --
     -- s_status_id counts down from -1 in insertion order, so a status can be
     -- added anywhere without renumbering; nothing references this key.
@@ -61,7 +63,7 @@ BEGIN
     RAISE NOTICE '>>>    [%] Rows inserted: %', CLOCK_TIMESTAMP(), row_count;
 
     -- ------------------------------------------------------------
-    SET session_replication_role = 'origin';
+    PERFORM _seed_end('s_statuses');
 
     RAISE NOTICE '[%] DONE SEEDING', clock_timestamp();
 END $$;

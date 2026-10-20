@@ -45,7 +45,9 @@ Our process to seed data is the following:
 1. Edit or create a `seeds/seed_<table_name>.sql` file to define the data you want to seed (Use negative IDs for seed data).
 2. Once you're finished editing the file, from `apps/formforge/db` run `./make_seed.sh <full seed table filename>` e.g. `./make_seed.sh seed_s_statuses.sql`
 3. Edit the migration as appropriate
-   - **You either need to edit or delete the script's placeholder `DELETE FROM xxx;` to clean out the table **
+   - **Fill in the script's placeholder `DELETE FROM <table> WHERE xxx IN (xxx);`** with the ids the seed inserts
+   - The wrapper calls `_seed_begin` / `_seed_end` round the seed, which take the table's foreign keys and
+     triggers off and put them back with a check of every row; `functions/_seed_begin.sql` says why
 4. run the migrations, `bun run migrate`
 
 ```bash
