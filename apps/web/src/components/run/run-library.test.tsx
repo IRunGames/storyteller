@@ -382,6 +382,10 @@ describe("RunLibrary", () => {
     await user.click(await within(panel).findByRole("button", { name: "Preview Handout 2" }));
     let preview = await screen.findByRole("dialog", { name: "Handout 2" });
     expect(within(preview).getByRole("heading")).toHaveTextContent("Handout 2");
+    // The dialog reads the arrow keys on its content, and moves focus into
+    // itself a beat after it appears. A key pressed before then goes to the
+    // Preview button still focused behind it and does nothing, so wait.
+    await waitFor(() => expect(preview).toContainElement(document.activeElement as HTMLElement));
 
     // Down to the next picture, and on; the cover (five) is not in the
     // list, so four is followed by six.

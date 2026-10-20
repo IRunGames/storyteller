@@ -1,0 +1,91 @@
+# Deploys every push to main: test, build, migrate the Neon production branch,
+# then deploy the prebuilt output to Vercel. The order means a failing test or
+# build leaves the database untouched, and a failing migration deploys nothing.
+# Migrations are forward-only and idempotent (db/README.md), so the old code
+# running against the new schema for the few seconds between the two last
+# steps is safe.
+#
+# Secrets live in the repo's "production" GitHub environment:
+#   VERCEL_TOKEN        token scoped to the storyteller4 team
+#   VERCEL_ORG_ID       orgId from the gitignored .vercel/project.json
+#   VERCEL_PROJECT_ID   projectId from the same file
+#   NEON_DATABASE_URL   direct (non-pooled) URL of the Neon "production"
+#                       branch, with &search_path=irun appended
+name: Deploy to production
+
+on:
+  push:
+    branches: [main]
+
+# Two merges in quick succession must not migrate or deploy at the same time.
+# The second waits for the first rather than cancelling it.
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+# The job only reads the repo; the token it gets must not be able to write.
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    # The ids only tell the CLI which project to act on; the token is handed
+    # to the three vercel steps alone, below.
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # Third-party action, pinned to a commit so a moved tag cannot swap its code.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      # DATABASE_URL is deliberately not set here: the database tests skip
+      # themselves without it (apps/web/scripts/run-tests.mjs), and they must
+      # never run against production.
+      - name: Test the web app
+        working-directory: apps/web
+        run: npm test
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@64
+
+      - name: Pull production settings and env from Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build the web app
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      # db/.env is gitignored, so dbmate's settings are given here; they mirror
+      # that file. The migrations table name is not dbmate's default, and
+      # without it CI would try to re-run every migration.
+      - name: Run pending migrations against the Neon production branch
+        working-directory: db
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          DBMATE_MIGRATIONS_TABLE: _dbmate_schema_migrations
+          DBMATE_MIGRATIONS_DIR: migrations
+          DBMATE_NO_DUMP_SCHEMA: "true"
+        run: |
+          bun install --frozen-lockfile
+          bunx dbmate migrate
+          bunx dbmate status
+
+      - name: Deploy the prebuilt output to production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
