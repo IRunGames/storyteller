@@ -122,6 +122,26 @@ const scene: PlayScene = {
 // Static imports are hoisted, so the module under test can only be loaded
 // after the mocks are registered — hence the dynamic import in `before`.
 let PlayTable: typeof import("./play-table").PlayTable;
+
+// jsdom lays nothing out, so a line never overflows on its own: the widths
+// are stubbed so that only a title longer than the pill is wider than its
+// box. Restored after each use.
+function withOverflowingTitle(run: () => Promise<void>) {
+  const scroll = Object.getOwnPropertyDescriptor(Element.prototype, "scrollWidth")!;
+  const client = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!;
+  Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get: () => 100 });
+  Object.defineProperty(Element.prototype, "scrollWidth", {
+    configurable: true,
+    get(this: Element) {
+      return (this.textContent?.length ?? 0) > 30 ? 400 : 50;
+    },
+  });
+  return run().finally(() => {
+    Object.defineProperty(Element.prototype, "scrollWidth", scroll);
+    Object.defineProperty(Element.prototype, "clientWidth", client);
+  });
+}
+
 type PreferencesModule = typeof import("@/components/preferences/user-preferences-provider");
 let UserPreferencesProvider: PreferencesModule["UserPreferencesProvider"];
 
@@ -177,6 +197,9 @@ describe("PlayTable", () => {
     });
     mock.module("@/components/preferences/actions", {
       namedExports: { sa_setUserPreference },
+    });
+    mock.module("@/components/elements/actions", {
+      namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
     mock.module("@/app/(app)/play/[id]/actions", {
       namedExports: {
@@ -311,6 +334,19 @@ describe("PlayTable", () => {
     expect(screen.queryByRole("link", { name: /^Link for Nain/ })).not.toBeInTheDocument();
   });
 
+  it("gives a title that overflows the pill a tooltip of the whole of it", async () => {
+    const long = "Harbourmaster of the whole eastern shore and keeper of the lantern";
+    await withOverflowingTitle(async () => {
+      const u = userEvent.setup();
+      renderTable({}, "3. Kildealg", user, {
+        ...scene,
+        items: [{ ...zed, element: { ...zed.element, title: long } }],
+      });
+      await u.hover(screen.getByText(long));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(long);
+    });
+  });
+
   it("says when nothing is being played", () => {
     renderTable({}, null, user, {
       idStorySession: null,
@@ -431,6 +467,8 @@ describe("PlayTable", () => {
     const popover = await screen.findByRole("dialog", { name: "Zed" });
     expect(within(popover).getByText("Harbourmaster")).toBeInTheDocument();
     expect(within(popover).getByText("Keeps the docks.")).toBeInTheDocument();
+    // The element's history is the storyteller's and the preview's, not the table's.
+    expect(within(popover).queryByRole("button", { name: "History" })).toBeNull();
     await u.keyboard("{Escape}");
 
     // Readied, with its info taken back: the marker, the title and the info
@@ -550,6 +588,13 @@ describe("PlayTable", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await deliver(pulse("preview.open", 99));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens the scene's text from an info button beside its title, not a chevron", () => {
+    renderTable();
+    const button = screen.getByRole("button", { name: "Describe The docks" });
+    expect(button.querySelector("svg.lucide-info")).not.toBeNull();
+    expect(button.querySelector("svg.lucide-chevron-down")).toBeNull();
   });
 
   it("lets a player write up the scene from the chevron beside its title", async () => {
@@ -822,12 +867,22 @@ describe("PlayTable", () => {
       expect(within(info).getByText("Keeps the docks.")).toBeInTheDocument();
       expect(within(info).getByText("Owes us.")).toBeInTheDocument();
       expect(within(info).queryByRole("textbox")).toBeNull();
-      await u.keyboard("{Escape}");
+      // Closed from its own button rather than Escape: under load the
+      // popover's dismiss layer is not yet listening when Escape is pressed,
+      // and the key is lost. Gone before the next press, so that press is
+      // not taken as this popover's dismissal.
+      await u.click(
+        within(pill as HTMLElement).getByRole("button", { name: "About A hooded figure" }),
+      );
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "A hooded figure" })).not.toBeInTheDocument(),
+      );
 
       // The scene's text the same way.
       await u.click(within(space).getByRole("button", { name: "Describe The docks" }));
       const text = await screen.findByRole("dialog", { name: "The docks" });
-      expect(within(text).getByText("Fog on the water.")).toBeInTheDocument();
+      // Waited for: the panel's text lands a tick after the dialog shows.
+      expect(await within(text).findByText("Fog on the water.")).toBeInTheDocument();
       expect(within(text).queryByRole("textbox")).toBeNull();
     });
   }

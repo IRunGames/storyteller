@@ -25,6 +25,9 @@ let tellerId = "";
 let playsIn = 0;
 let strangers = 0;
 let docks = 0;
+let earlier = 0;
+let later = 0;
+let ford = 0;
 let strangersScene = 0;
 let zed = 0;
 let lantern = 0;
@@ -50,20 +53,65 @@ describe("scene preview actions", { skip: !hasDb && "DATABASE_URL is not set" },
       ])
       .returning({ id: tables.stories.idStory });
     await db.insert(tables.storyPlayers).values({ idStory: playsIn, idUser: SEED_USER });
+    // Two sittings, opened in this order, so Kildealg is the first and
+    // Lindisfarne the second.
+    const [first, second] = await db
+      .insert(tables.storySessions)
+      .values([
+        { idStory: playsIn, status: "DONE", title: "Kildealg", idCreatedByUser: tellerId },
+        { idStory: playsIn, status: "DONE", title: "Lindisfarne", idCreatedByUser: tellerId },
+      ])
+      .returning({ id: tables.storySessions.idStorySession });
 
-    [{ id: docks }, { id: strangersScene }] = await db
+    // In the first sitting the abbey was finished before the docks; the ford
+    // was the second sitting's one scene; the crossing is not played yet.
+    // Inserted in no particular order, so the ids say nothing.
+    [{ id: later }, { id: docks }, { id: ford }, { id: earlier }, { id: strangersScene }] = await db
       .insert(tables.storyScenes)
       .values([
+        { idStory: playsIn, sceneTitle: "Fixture crossing", idCreatedByUser: tellerId },
         {
           idStory: playsIn,
           sceneTitle: "Fixture docks",
           sceneDescription: "Fog on the water.",
           tags: ["scene", "elements"],
+          status: "COMPLETE",
+          idStorySession: first.id,
+          activeAt: new Date("2026-10-10T00:00:00Z"),
+          idCreatedByUser: tellerId,
+        },
+        {
+          idStory: playsIn,
+          sceneTitle: "Fixture ford",
+          status: "COMPLETE",
+          idStorySession: second.id,
+          activeAt: new Date("2026-10-08T00:00:00Z"),
+          idCreatedByUser: tellerId,
+        },
+        {
+          idStory: playsIn,
+          sceneTitle: "Fixture abbey",
+          status: "COMPLETE",
+          idStorySession: first.id,
+          activeAt: new Date("2026-10-05T00:00:00Z"),
           idCreatedByUser: tellerId,
         },
         { idStory: strangers, sceneTitle: "Fixture elsewhere", idCreatedByUser: tellerId },
       ])
       .returning({ id: tables.storyScenes.idStoryScene });
+    // When each was finished, which numbers the scenes within a sitting.
+    // Set after the insert: the workflow stamps complete_at itself as a
+    // row arrives in COMPLETE, which would make the three one moment.
+    for (const [id, day] of [
+      [docks, "2026-10-10"],
+      [ford, "2026-10-08"],
+      [earlier, "2026-10-05"],
+    ] as const) {
+      await db
+        .update(tables.storyScenes)
+        .set({ completeAt: new Date(`${day}T02:00:00Z`) })
+        .where(eq(tables.storyScenes.idStoryScene, id));
+    }
 
     [{ id: zed }, { id: lantern }] = await db
       .insert(tables.elements)
@@ -124,6 +172,43 @@ describe("scene preview actions", { skip: !hasDb && "DATABASE_URL is not set" },
     expect(preview?.scene.items.map((item) => item.element.name)).toEqual(["Fixture Zed"]);
     expect(preview?.scene.items[0].element.description).toBe("Keeps the docks.");
     expect(preview?.scene.items[0].sceneElement.tags).toEqual(["scene"]);
+  });
+
+  it("lists the story's scenes by sitting, newest first, and within one by scene, latest first, the unplayed last", async () => {
+    const atDocks = await actions.sa_getScenePreview(docks);
+    expect(atDocks?.scenes).toEqual([
+      {
+        idStoryScene: ford,
+        title: "Fixture ford",
+        status: "COMPLETE",
+        sessionHeading: "2. Lindisfarne",
+      },
+      {
+        idStoryScene: docks,
+        title: "Fixture docks",
+        status: "COMPLETE",
+        sessionHeading: "1. Kildealg",
+      },
+      {
+        idStoryScene: earlier,
+        title: "Fixture abbey",
+        status: "COMPLETE",
+        sessionHeading: "1. Kildealg",
+      },
+      { idStoryScene: later, title: "Fixture crossing", status: "PENDING", sessionHeading: null },
+    ]);
+  });
+
+  it("names the scenes either side in that same list: previous is the one below, next the one above", async () => {
+    const atDocks = await actions.sa_getScenePreview(docks);
+    expect(atDocks?.previous).toMatchObject({ idStoryScene: earlier, title: "Fixture abbey" });
+    expect(atDocks?.next).toMatchObject({ idStoryScene: ford, title: "Fixture ford" });
+    const atFord = await actions.sa_getScenePreview(ford);
+    expect(atFord?.previous).toMatchObject({ idStoryScene: docks });
+    expect(atFord?.next).toBeNull();
+    const atLater = await actions.sa_getScenePreview(later);
+    expect(atLater?.previous).toBeNull();
+    expect(atLater?.next).toMatchObject({ idStoryScene: earlier });
   });
 
   it("shows the storyteller the same", async () => {

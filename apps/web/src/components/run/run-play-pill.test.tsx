@@ -232,6 +232,25 @@ const sa_setElementTags = mock.fn(
 
 let RunPlayPill: typeof import("./run-play-pill").RunPlayPill;
 
+// jsdom lays nothing out, so a line never overflows on its own: the widths
+// are stubbed so that only a title longer than the pill is wider than its
+// box. Restored after each use.
+function withOverflowingTitle(run: () => Promise<void>) {
+  const scroll = Object.getOwnPropertyDescriptor(Element.prototype, "scrollWidth")!;
+  const client = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!;
+  Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get: () => 100 });
+  Object.defineProperty(Element.prototype, "scrollWidth", {
+    configurable: true,
+    get(this: Element) {
+      return (this.textContent?.length ?? 0) > 30 ? 400 : 50;
+    },
+  });
+  return run().finally(() => {
+    Object.defineProperty(Element.prototype, "scrollWidth", scroll);
+    Object.defineProperty(Element.prototype, "clientWidth", client);
+  });
+}
+
 describe("RunPlayPill", () => {
   before(async () => {
     mock.module("@/app/(app)/run/[id]/actions", {
@@ -261,6 +280,9 @@ describe("RunPlayPill", () => {
         sa_attachToHolder,
         sa_setAttachmentCover,
       },
+    });
+    mock.module("@/components/elements/actions", {
+      namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions, sa_setRowStatus },
@@ -464,7 +486,13 @@ describe("RunPlayPill", () => {
       "In this scene",
       "Other images",
       "In the story",
+      "History",
     ]);
+    // The history of the element's other scenes, closed, at the bottom.
+    expect(within(popover).getByRole("button", { name: "History" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     // Whether the players see the info, as a switch here, on with the pill's toggle.
     expect(within(popover).getByRole("switch", { name: "Show info to players" })).toBeChecked();
     // The stacks the element is filed under, on the heading's line, as a menu.
@@ -571,7 +599,8 @@ describe("RunPlayPill", () => {
         .getAllByRole("option")
         .map((option) => option.textContent),
     ).toEqual(["Choose a stack", "assets", "weather"]);
-    expect(within(popover).getByRole("separator")).toBeInTheDocument();
+    // A rule before Move to, as before History under it.
+    expect(within(popover).getAllByRole("separator").length).toBeGreaterThan(0);
 
     await u.selectOptions(moveTo, "weather");
 
@@ -1018,6 +1047,23 @@ describe("RunPlayPill", () => {
     expect(within(panel).getByText("scene")).toBeInTheDocument();
     expect(within(panel).queryByRole("combobox", { name: "Move to" })).toBeNull();
     expect(within(panel).queryByRole("button", { name: "Edit Dafydd" })).toBeNull();
+  });
+
+  it("gives a title that overflows the pill a tooltip of the whole of it", async () => {
+    const long = "Harbourmaster of the whole eastern shore and keeper of the lantern";
+    await withOverflowingTitle(async () => {
+      const u = userEvent.setup();
+      const { container, unmount } = render({ ...linked("READY"), detail: long });
+      await u.hover(within(container).getByText(long));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(long);
+      unmount();
+
+      // A title that fits has none.
+      const short = render(linked("READY"));
+      await u.hover(within(short.container).getByText("Shell seller"));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    });
   });
 
   it("says nothing under Other images when the link has none", async () => {

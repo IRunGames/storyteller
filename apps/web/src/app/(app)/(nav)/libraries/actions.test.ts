@@ -695,6 +695,21 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       expect(row.idStorySession).toBeNull();
     });
 
+    it("goes back where the form was opened from when told, and only to a path of this site", async () => {
+      const [{ id }] = await written();
+      const values = { title: TITLE, description: "Two guards at the door.", idStorySession: "" };
+      expect(
+        await redirectOf(actions.sa_updateStoryScene(id, values, `/preview/scene/${id}`)),
+      ).toBe(`/preview/scene/${id}`);
+      // Anywhere else is the board, as with nothing said.
+      expect(
+        await redirectOf(actions.sa_updateStoryScene(id, values, "https://evil.example")),
+      ).toBe(`/libraries/${myStory}`);
+      expect(await redirectOf(actions.sa_updateStoryScene(id, values, "//evil.example"))).toBe(
+        `/libraries/${myStory}`,
+      );
+    });
+
     it("will not edit a completed scene", async () => {
       const [{ id }] = await written();
       await db

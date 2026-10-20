@@ -51,6 +51,12 @@ type Props = {
   onCreated?: () => void;
   /** New scene only: the dialog's Cancel. */
   onCancel?: () => void;
+  /**
+   * Edit scene only: where Cancel and a save go back to when the form was
+   * opened from somewhere other than the board, such as a scene's preview.
+   * Left out, both go back to the board.
+   */
+  returnTo?: string;
 };
 
 // One form for New scene and Edit scene, as StoryForm is for stories: the
@@ -73,6 +79,7 @@ export function SceneForm({
   statusOptions = [],
   onCreated,
   onCancel,
+  returnTo,
 }: Props) {
   const [status, setStatus] = useState(scene?.status ?? null);
   // Bumped when the picker moves some of the story's attachments onto the
@@ -100,7 +107,9 @@ export function SceneForm({
 
   async function onSubmit(values: SceneValues) {
     const result = scene
-      ? await sa_updateStoryScene(scene.idStoryScene, values)
+      ? returnTo
+        ? await sa_updateStoryScene(scene.idStoryScene, values, returnTo)
+        : await sa_updateStoryScene(scene.idStoryScene, values)
       : await sa_createStoryScene(idStory, values);
     if (result.ok) {
       onCreated?.();
@@ -204,7 +213,7 @@ export function SceneForm({
             </Button>
             {scene ? (
               <Button asChild variant="ghost">
-                <NextLink href={`/libraries/${idStory}`}>Cancel</NextLink>
+                <NextLink href={returnTo ?? `/libraries/${idStory}`}>Cancel</NextLink>
               </Button>
             ) : (
               <Button type="button" variant="ghost" onClick={onCancel}>

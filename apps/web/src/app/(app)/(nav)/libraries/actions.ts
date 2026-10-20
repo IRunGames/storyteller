@@ -16,6 +16,7 @@ import {
   type StoryElement,
 } from "@/lib/elements";
 import { likeContains } from "@/lib/filter-text";
+import { safeRedirect } from "@/lib/safe-redirect";
 import { elementSchema } from "@/lib/element-schemas";
 import { sceneSchema, type SceneValues } from "@/lib/scene-schemas";
 import {
@@ -497,14 +498,17 @@ export async function sa_getStorySceneForEdit(idStoryScene: number): Promise<{
 
 /**
  * Validates and saves the edit form over a scene on a story the caller
- * created, then goes back to the story's Prep Work board. A scene in
- * SCENE_LOCKED_STATUS is refused: it has been played out, and the card
+ * created, then goes back to the story's Prep Work board, or to `returnTo`
+ * when the form was opened from somewhere else (a scene's preview): a path
+ * of this site only, anything else being the board (safeRedirect). A scene
+ * in SCENE_LOCKED_STATUS is refused: it has been played out, and the card
  * offers no edit for it. The status check is repeated in the UPDATE's WHERE,
  * so a scene completed between the read and the write is not overwritten.
  */
 export async function sa_updateStoryScene(
   idStoryScene: number,
   input: unknown,
+  returnTo?: string,
 ): Promise<SceneFormResult> {
   const user = await requireUser();
   const id = idStorySchema.parse(idStoryScene);
@@ -547,7 +551,7 @@ export async function sa_updateStoryScene(
     return formErrors([{ path: [], message: "A completed scene can no longer be edited." }]);
   }
 
-  redirect(`/libraries/${row.idStory}`);
+  redirect(safeRedirect(returnTo, `/libraries/${row.idStory}`));
 }
 
 export type ElementFormResult = SceneFormResult;

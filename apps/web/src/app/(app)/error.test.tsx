@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
 import type { CurrentUser } from "@/lib/current-user";
+import { ERROR_BACKGROUNDS } from "@/lib/error-page";
 
 const router = { push: mock.fn(), refresh: mock.fn() };
 const signOut = mock.fn(async () => ({ data: {}, error: null }));
@@ -81,6 +82,10 @@ describe("AppError", () => {
     const painted = [...container.querySelectorAll<HTMLElement>("[aria-hidden]")].find((el) =>
       el.style.backgroundImage.includes("_error.webp"),
     );
-    expect(painted?.style.backgroundImage).toMatch(/^url\("\/images\/[mfd]_error\.webp"\)$/);
+    // Whichever of the rotation was drawn; the list is the source, so a
+    // picture added to it needs nothing here.
+    expect(ERROR_BACKGROUNDS.map((path) => `url("${path}")`)).toContain(
+      painted?.style.backgroundImage,
+    );
   });
 });

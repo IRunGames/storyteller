@@ -1,6 +1,17 @@
 "use client";
 
-import { Badge, Box, Flex, Heading, HStack, List, Stack, Text } from "@chakra-ui/react";
+import type { ReactNode } from "react";
+import {
+  Badge,
+  Box,
+  Flex,
+  Heading,
+  HStack,
+  List,
+  Stack,
+  Text,
+  type HeadingProps,
+} from "@chakra-ui/react";
 import { toPlayItem, type PlayScene } from "@/lib/play-scene";
 import { elementIdOf, playStacks } from "@/lib/run";
 import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS, type SceneText } from "@/lib/scenes";
@@ -32,12 +43,35 @@ type Props = {
    * pills' info open to read, and nothing writes.
    */
   readOnly?: boolean;
+  /** Each pill's info popover ends with the element's History (a scene's preview). */
+  withHistory?: boolean;
+  /** Drawn either side of the scene's title: the preview's chevrons to the scenes before and after. */
+  titleStart?: ReactNode;
+  titleEnd?: ReactNode;
+  /**
+   * Draws the scene's title in place of the plain heading: the preview
+   * makes it a dropdown of the story's scenes. Given the title and the
+   * styling the heading carries, so it reads the same.
+   */
+  renderTitle?: (title: string, headingProps: HeadingProps) => ReactNode;
 };
 
 // The same halo the storyteller's stack headings carry, so a tag reads over
 // the scene's cover; see run-play-stack.tsx for why it is a halo and not a box.
 const HALO_COLOUR = "var(--chakra-colors-bg)";
 const HALO = [1, 1, 2, 4, 8, 12].map((px) => `0 0 ${px}px ${HALO_COLOUR}`).join(", ");
+
+// How the scene's title is set: centred over the stacks, in small caps, as
+// a scene's title is set on a page, with the halo over the cover.
+const TITLE_PROPS: HeadingProps = {
+  size: "xl",
+  minW: "0",
+  textAlign: "center",
+  fontVariant: "small-caps",
+  letterSpacing: "wide",
+  textShadow: HALO,
+  truncate: true,
+};
 
 // What the space says of each state the connection can be in short of
 // connected; connected says nothing, since live is the usual state.
@@ -51,8 +85,8 @@ const STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
 /**
  * The players' play space: the scene being played, its cover behind, and
  * its elements in the storyteller's stacks (playStacks), as read-only pills.
- * The chevron beside the title opens the scene's description and notes for
- * the players to write up (SceneTextPopover). With no session, or a session
+ * The info button beside the title opens the scene's description and notes
+ * for the players to write up (SceneTextPopover). With no session, or a session
  * on no scene yet, it says which.
  *
  * A picture the storyteller has put up from a pill's tack (the preview.open
@@ -71,6 +105,10 @@ export function PlaySpace({
   previewIdElement,
   onPreviewClose,
   readOnly = false,
+  withHistory = false,
+  titleStart,
+  titleEnd,
+  renderTitle,
 }: Props) {
   const note = STATUS_NOTES[status];
   const items = scene.items.map(toPlayItem);
@@ -116,24 +154,21 @@ export function PlaySpace({
                 Play space
               </Heading>
               <HStack flex="1" minW="0" justify="center" gap="1">
-                <Heading
-                  size="xl"
-                  minW="0"
-                  textAlign="center"
-                  fontVariant="small-caps"
-                  letterSpacing="wide"
-                  textShadow={HALO}
-                  truncate
-                >
-                  {scene.scene.title}
-                </Heading>
+                {titleStart}
+                {renderTitle ? (
+                  renderTitle(scene.scene.title, TITLE_PROPS)
+                ) : (
+                  <Heading {...TITLE_PROPS}>{scene.scene.title}</Heading>
+                )}
                 <SceneTextPopover
                   title={scene.scene.title}
                   text={scene.scene.text}
                   save={(values) => sa_setPlaySceneText(idStory, scene.scene!.idStoryScene, values)}
                   onSaved={onTextChange}
                   readOnly={lookOnly}
+                  icon="info"
                 />
+                {titleEnd}
               </HStack>
             </>
           )}
@@ -185,6 +220,7 @@ export function PlaySpace({
                           onNotesChange={onNotesChange}
                           onStatusChange={onStatusChange}
                           readOnly={lookOnly}
+                          withHistory={withHistory}
                         />
                       </List.Item>
                     ))}
@@ -208,7 +244,7 @@ export function PlaySpace({
           direction="column"
           align="center"
           justify="center"
-          bg="gray.500/35"
+          bg="blackAlpha.600"
           pointerEvents="none"
           data-testid="scene-pending-overlay"
         >
@@ -230,7 +266,7 @@ export function PlaySpace({
           inset="0"
           align="center"
           justify="center"
-          bg="gray.500/35"
+          bg="blackAlpha.600"
           pointerEvents="none"
           data-testid="scene-complete-overlay"
         >

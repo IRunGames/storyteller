@@ -15,6 +15,7 @@ import {
 } from "@/app/(app)/run/[id]/actions";
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { ElementHistory } from "@/components/elements/element-history";
 import { RunElementForm } from "./run-element-form";
 import { ElementDetailRows } from "./run-element-detail";
 import { RunSceneSection } from "./run-scene-section";
@@ -97,7 +98,8 @@ type Loaded = ElementPanelDetail & {
  * info switch, its picture and other images for this scene, and, under the
  * element's own rows, Move to. Moving its status tells the play space, so
  * the pill keeps up. The element's own status is among its own rows either
- * way.
+ * way. Last of all, History: the story's other scenes the element has been
+ * in (ElementHistory), closed until its chevron is pressed.
  *
  * The pill shows the link's picture for this scene when it has one, else
  * the element's, so a change to either here is reported as whichever the
@@ -342,6 +344,8 @@ export function RunElementPanel({
               </Field.Root>
             </>
           )}
+          <Separator />
+          <ElementHistory idStory={idStory} idElement={idElement} idStoryScene={idStoryScene} />
         </Stack>
       )}
     </Stack>

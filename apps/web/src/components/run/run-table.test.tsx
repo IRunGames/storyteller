@@ -280,6 +280,9 @@ describe("RunTable", () => {
         sa_moveSceneAttachmentsToStory: mock.fn(),
       },
     });
+    mock.module("@/components/elements/actions", {
+      namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
+    });
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
         sa_listRunScenes: async () => [],
@@ -974,7 +977,7 @@ describe("RunTable", () => {
     // The scene's text opens to read, with no form.
     await u.click(within(space).getByRole("button", { name: /^Describe / }));
     const text = await screen.findByRole("dialog", { name: scene.title });
-    expect(within(text).getByText("Fog on the water.")).toBeInTheDocument();
+    expect(await within(text).findByText("Fog on the water.")).toBeInTheDocument();
     expect(within(text).queryByRole("textbox")).toBeNull();
   });
 

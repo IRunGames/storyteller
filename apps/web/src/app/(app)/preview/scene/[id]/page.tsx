@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { requireSession } from "@/lib/require-session";
 import { ScenePreview } from "@/components/play/scene-preview";
+import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getScenePreview } from "./actions";
 
 // The same int4 range as /play/[id]; see there.
@@ -19,10 +20,23 @@ export default async function ScenePreviewPage({ params }: { params: Promise<{ i
   const id = idSchema.safeParse((await params).id);
   if (!id.success) notFound();
 
-  const preview = await sa_getScenePreview(id.data);
+  // The scene workflow names each status in the title's dropdown.
+  const [preview, statusOptions] = await Promise.all([
+    sa_getScenePreview(id.data),
+    sa_listStatusOptions("story_scenes"),
+  ]);
   if (!preview) notFound();
 
   return (
-    <ScenePreview idStory={preview.idStory} title={preview.storyTitle} scene={preview.scene} />
+    <ScenePreview
+      idStory={preview.idStory}
+      title={preview.storyTitle}
+      scene={preview.scene}
+      previous={preview.previous}
+      next={preview.next}
+      scenes={preview.scenes}
+      statusOptions={statusOptions}
+      canEdit={preview.isOwner}
+    />
   );
 }

@@ -193,6 +193,9 @@ describe("RunLibrary", () => {
       namedExports: { sa_listStoryElements },
     });
     // An element's info button asks for the element and its workflow.
+    mock.module("@/components/elements/actions", {
+      namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
+    });
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
         sa_setElementTags: mock.fn(),

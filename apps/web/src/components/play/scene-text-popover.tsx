@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { chakra, IconButton, Popover, Portal, Stack, Text, Tooltip } from "@chakra-ui/react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Info } from "lucide-react";
 import type { SceneTextValues } from "@/lib/scene-schemas";
 import type { SceneText, SetSceneTextResult } from "@/lib/scenes";
 import { toaster } from "@/components/ui/toaster";
@@ -18,6 +18,12 @@ type Props = {
   onSaved: (text: SceneText) => void;
   /** A look at the scene (/preview/scene): the text is shown as it is, with no form. */
   readOnly?: boolean;
+  /**
+   * What the button shows: the storyteller's table has a chevron, which
+   * turns over while the panel is open, as its pills' panels do; the
+   * players' table and the preview an info button, as their pills' info is.
+   */
+  icon?: "chevron" | "info";
 };
 
 /**
@@ -31,7 +37,14 @@ type Props = {
  * reason run-element-info-popover.tsx gives. Read only, the panel shows
  * the description and the notes as they are, a dash for one not written.
  */
-export function SceneTextPopover({ title, text, save, onSaved, readOnly = false }: Props) {
+export function SceneTextPopover({
+  title,
+  text,
+  save,
+  onSaved,
+  readOnly = false,
+  icon = "chevron",
+}: Props) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps
   // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
@@ -60,13 +73,17 @@ export function SceneTextPopover({ title, text, save, onSaved, readOnly = false 
               variant="ghost"
               rounded="full"
             >
-              <chakra.span
-                display="inline-flex"
-                transition="transform 0.15s"
-                transform={open ? "rotate(180deg)" : undefined}
-              >
-                <ChevronDown />
-              </chakra.span>
+              {icon === "info" ? (
+                <Info />
+              ) : (
+                <chakra.span
+                  display="inline-flex"
+                  transition="transform 0.15s"
+                  transform={open ? "rotate(180deg)" : undefined}
+                >
+                  <ChevronDown />
+                </chakra.span>
+              )}
             </IconButton>
           </Popover.Trigger>
         </Tooltip.Trigger>

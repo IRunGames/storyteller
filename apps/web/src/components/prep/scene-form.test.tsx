@@ -189,6 +189,34 @@ describe("SceneForm", () => {
     expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", "/libraries/-15");
   });
 
+  it("goes back where it was opened from, when told, on Cancel and on save", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <SceneForm
+        idStory={-15}
+        sessions={sessions}
+        scene={{
+          idStoryScene: 7,
+          status: "PENDING",
+          values: { title: "The vault", description: "", idStorySession: null },
+        }}
+        returnTo="/preview/scene/7"
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute(
+      "href",
+      "/preview/scene/7",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(sa_updateStoryScene.mock.callCount()).toBe(1));
+    expect(sa_updateStoryScene.mock.calls[0].arguments).toEqual([
+      7,
+      { title: "The vault", description: "", idStorySession: null },
+      "/preview/scene/7",
+    ]);
+  });
+
   it("moves the scene's status from a pill on the edit form, and stops saving once it is complete", async () => {
     const user = userEvent.setup();
     renderWithProviders(

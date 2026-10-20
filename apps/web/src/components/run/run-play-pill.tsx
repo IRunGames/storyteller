@@ -22,6 +22,7 @@ import {
   sa_setSceneElementStatus,
 } from "@/app/(app)/run/[id]/actions";
 import { toaster } from "@/components/ui/toaster";
+import { OverflowTooltip } from "@/components/popovers/overflow-tooltip";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { RunElementImagePopover } from "./run-element-image-popover";
@@ -340,10 +341,14 @@ export function RunPlayPill({
               </Portal>
             </Menu.Root>
           )}
+          {/* The title, with the whole of it as a tooltip when it is cut off. */}
           {item.detail && (
-            <Text fontSize="sm" color={isDisabled || isHidden ? "fg.subtle" : "fg.muted"} truncate>
+            <OverflowTooltip
+              fontSize="sm"
+              color={isDisabled || isHidden ? "fg.subtle" : "fg.muted"}
+            >
               {item.detail}
-            </Text>
+            </OverflowTooltip>
           )}
         </Stack>
         {/* The chevron at the end opens the panel under the pill, and turns

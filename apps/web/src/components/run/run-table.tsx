@@ -738,7 +738,7 @@ export function RunTable({
                 inset="0"
                 align="center"
                 justify="center"
-                bg="gray.500/35"
+                bg="blackAlpha.600"
                 pointerEvents="none"
                 data-testid="scene-complete-overlay"
               >

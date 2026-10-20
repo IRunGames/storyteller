@@ -25,6 +25,8 @@ import { sa_untapPlaySceneElement } from "@/app/(app)/play/[id]/actions";
 import { useUser } from "@/components/auth/user-provider";
 import { toaster } from "@/components/ui/toaster";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
+import { ElementHistory } from "@/components/elements/element-history";
+import { OverflowTooltip } from "@/components/popovers/overflow-tooltip";
 import { PlayElementNotesField } from "./play-element-notes-field";
 import { PlayUntapButton } from "./play-untap-button";
 
@@ -39,6 +41,8 @@ type Props = {
   onStatusChange: (idElement: number, status: string) => void;
   /** A look at the scene (/preview/scene): a tapped card has its marker alone, and the notes are read, not written. */
   readOnly?: boolean;
+  /** The info popover ends with the element's History, as on a scene's preview; the table leaves it out. */
+  withHistory?: boolean;
 };
 
 /**
@@ -83,6 +87,7 @@ export function PlayPill({
   onNotesChange,
   onStatusChange,
   readOnly = false,
+  withHistory = false,
 }: Props) {
   const user = useUser();
   const isDisabled = item.sceneStatus === SCENE_ELEMENT_DISABLED;
@@ -187,10 +192,11 @@ export function PlayPill({
         <Text fontWeight="medium" truncate>
           {item.label}
         </Text>
+        {/* The title, with the whole of it as a tooltip when it is cut off. */}
         {showInfo && item.detail && (
-          <Text fontSize="sm" color="fg.muted" truncate>
+          <OverflowTooltip fontSize="sm" color="fg.muted">
             {item.detail}
-          </Text>
+          </OverflowTooltip>
         )}
       </Stack>
       {showInfo && item.link && <PlayLinkButton label={item.label} link={item.link} />}
@@ -204,6 +210,7 @@ export function PlayPill({
           notes={item.notes ?? null}
           onNotesChange={onNotesChange}
           readOnly={readOnly}
+          history={withHistory ? { idStoryScene } : null}
         />
       )}
     </HStack>
@@ -270,6 +277,7 @@ function PlayInfoPopover({
   notes,
   onNotesChange,
   readOnly,
+  history,
 }: {
   label: string;
   title: string | null;
@@ -279,6 +287,8 @@ function PlayInfoPopover({
   notes: string | null;
   onNotesChange: (idElement: number, notes: string | null) => void;
   readOnly: boolean;
+  /** Given, the popover ends with the element's History, less the scene named. */
+  history: { idStoryScene: number } | null;
 }) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps
   // the popover from opening at the page corner (nav-theme-menu.tsx).
@@ -343,6 +353,13 @@ function PlayInfoPopover({
                     idElement={idElement}
                     notes={notes}
                     onSaved={(saved) => onNotesChange(idElement, saved)}
+                  />
+                )}
+                {history && (
+                  <ElementHistory
+                    idStory={idStory}
+                    idElement={idElement}
+                    idStoryScene={history.idStoryScene}
                   />
                 )}
               </Stack>

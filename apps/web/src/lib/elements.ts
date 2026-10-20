@@ -38,6 +38,9 @@ export const ELEMENT_SORT_LABELS: Record<ElementSort, string> = {
   updated: "Updated",
 };
 
+/** Scenes per page in the element panel's History, under its Load more. */
+export const ELEMENT_HISTORY_PAGE_SIZE = 5;
+
 /** Elements per fetch in the Prep Work board's Elements column. */
 export const ELEMENTS_PAGE_SIZE = 10;
 
