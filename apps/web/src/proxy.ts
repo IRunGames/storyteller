@@ -55,7 +55,8 @@ export default function proxy(request: NextRequest) {
 export const config = {
   // Skip /api/auth (the handler manages its own cookies), /api/cron (Vercel
   // calls it with no cookie at all, and each job checks CRON_SECRET itself,
-  // so a redirect here would stop every run), Next internals and anything
-  // that looks like a static file.
-  matcher: ["/((?!api/auth|api/cron|_next/static|_next/image|favicon.ico).*)"],
+  // so a redirect here would stop every run), the pictures in public/images
+  // (the landing page paints one behind itself for visitors with no cookie,
+  // and a redirect here would leave it blank) and Next internals.
+  matcher: ["/((?!api/auth|api/cron|images/|_next/static|_next/image|favicon.ico).*)"],
 };

@@ -83,4 +83,12 @@ describe("proxy", () => {
   it("still runs for the other API routes", () => {
     expect(unstable_doesMiddlewareMatch({ config, url: "/api/blob/upload" })).toBe(true);
   });
+
+  it("never runs for the pictures in public/images", () => {
+    // The landing page paints one of them for a visitor with no cookie; a
+    // redirect to /login here would leave the page blank behind its panel.
+    expect(unstable_doesMiddlewareMatch({ config, url: "/images/hearth_welcome.webp" })).toBe(
+      false,
+    );
+  });
 });

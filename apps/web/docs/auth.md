@@ -30,6 +30,7 @@ These are the only pages reachable without a session.
 | `/signup` | [`(auth)/signup/`](<../src/app/(auth)/signup/page.tsx>) | Signed-out only — same bounce |
 | `/api/auth/*` | [`api/auth/[...all]/route.ts`](<../src/app/api/auth/[...all]/route.ts>) | Better Auth's own handler |
 | `/api/cron/*` | [`api/cron/`](../src/app/api/cron/) | Vercel Cron only — no session, each job checks `Authorization: Bearer $CRON_SECRET` itself |
+| `/images/*` | [`public/images/`](../public/images/) | Anyone — the pictures the landing, waiting and error pages paint; the proxy skips them so a visitor with no cookie sees the landing page's |
 
 ### Private pages
 
