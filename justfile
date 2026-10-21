@@ -144,6 +144,37 @@ psql *args:
     esac
     exec "$PSQL" "$url" "$@"
 
+# The production URL lives in db/.env.production (gitignored, like db/.env):
+# a DATABASE_URL line holding the direct, non-pooled Neon connection string.
+# The dump is pg_dump's custom format, compressed, restorable in whole or by
+# table with pg_restore, e.g.
+#   pg_restore --list db/backups/production-<stamp>.dump
+#   pg_restore -d "$DATABASE_URL" -t stories db/backups/production-<stamp>.dump
+# Dump the production database to db/backups/production-<stamp>.dump
+[group('db')]
+[working-directory: 'db']
+backup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f .env.production ]; then
+        echo "db/.env.production is missing: put the direct Neon DATABASE_URL in it" >&2
+        exit 1
+    fi
+    set -a
+    source .env.production
+    set +a
+    PG_DUMP="$(command -v pg_dump || echo /Applications/Postgres.app/Contents/Versions/latest/bin/pg_dump)"
+    # The URL may carry search_path for dbmate, which libpq rejects; drop it.
+    url="$(printf '%s' "$DATABASE_URL" | sed -E \
+        -e 's/&search_path=[^&]*//g' \
+        -e 's/\?search_path=[^&]*&/?/' \
+        -e 's/\?search_path=[^&]*$//')"
+    mkdir -p backups
+    out="backups/production-$(date -u +%Y%m%d-%H%M%S).dump"
+    "$PG_DUMP" --format=custom --compress=6 --no-owner --no-privileges --file "$out" "$url"
+    tables="$("$PG_DUMP" --version >/dev/null && "${PG_DUMP%pg_dump}pg_restore" --list "$out" | grep -c ' TABLE DATA ' || true)"
+    echo "Wrote $out ($(du -h "$out" | cut -f1), $tables tables with data)"
+
 # Logging is switched back off when the tail exits, however it exits.
 # Log every statement the server runs and tail the server log (Ctrl+C to stop)
 [group('db')]

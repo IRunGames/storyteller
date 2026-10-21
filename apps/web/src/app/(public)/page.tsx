@@ -1,5 +1,5 @@
 import NextLink from "next/link";
-import { Box, Button, Center, Heading, HStack, Stack, Text } from "@chakra-ui/react";
+import { Box, Button, Flex, Heading, HStack, Stack, Text } from "@chakra-ui/react";
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { pickWelcomeBackground } from "@/lib/welcome";
 
@@ -14,7 +14,14 @@ export default function LandingPage() {
   const background = pickWelcomeBackground();
 
   return (
-    <Center position="relative" minH="100vh" px="4" py="12" bg="bg.subtle">
+    <Flex
+      position="relative"
+      minH="100vh"
+      p={{ base: "4", md: "10" }}
+      justify="start"
+      align="end"
+      bg="bg.subtle"
+    >
       {/* Fixed to the window rather than to the page, so the picture is the
           window's background: a short window that has to scroll keeps it in
           place and never shows the page colour past its end. */}
@@ -26,9 +33,11 @@ export default function LandingPage() {
         bgPos="center"
         style={{ backgroundImage: `url("${background}")` }}
       />
-      {/* A see-through panel over the picture. The colour-mode button at its
-          foot flips the theme, and since the picture hides the page colour
-          the panel is where the flip shows: a dark panel in the dark themes,
+      {/* A see-through panel in the window's bottom-left corner, over the
+          picture, so the figures in the middle of each picture stay in
+          view. The colour-mode button at its foot flips the theme, and
+          since the picture hides the page colour the panel is where the
+          flip shows: a dark panel in the dark themes,
           a frosted light one in light. Its text and buttons take the
           theme's colours as everywhere else; a forced dark palette here had
           left the button with nothing visible to do. */}
@@ -41,7 +50,7 @@ export default function LandingPage() {
         bg={{ base: "whiteAlpha.800", _dark: "blackAlpha.700" }}
         backdropFilter="blur(6px)"
       >
-        <Stack gap="8" textAlign="center" align="center">
+        <Stack gap="8" align="start">
           <Stack gap="3">
             <Heading size="4xl">Storyteller</Heading>
             <Text textStyle="lg" color="fg.muted">
@@ -62,6 +71,6 @@ export default function LandingPage() {
           <ColorModeButton />
         </Stack>
       </Box>
-    </Center>
+    </Flex>
   );
 }
