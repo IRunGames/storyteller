@@ -1,5 +1,5 @@
 import NextLink from "next/link";
-import { Box, Button, Center, Heading, HStack, Stack, Text, Theme } from "@chakra-ui/react";
+import { Box, Button, Center, Heading, HStack, Stack, Text } from "@chakra-ui/react";
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { pickWelcomeBackground } from "@/lib/welcome";
 
@@ -26,19 +26,19 @@ export default function LandingPage() {
         bgPos="center"
         style={{ backgroundImage: `url("${background}")` }}
       />
-      {/* A dark, see-through panel over the picture, the same in every theme
-          since the pictures are dark throughout. Theme forces the dark
-          palette inside it, so the buttons and the muted text take their
-          dark-mode colours even when the visitor's theme is light. */}
-      <Theme
-        appearance="dark"
-        hasBackground={false}
+      {/* A see-through panel over the picture. The colour-mode button at its
+          foot flips the theme, and since the picture hides the page colour
+          the panel is where the flip shows: a dark panel in the dark themes,
+          a frosted light one in light. Its text and buttons take the
+          theme's colours as everywhere else; a forced dark palette here had
+          left the button with nothing visible to do. */}
+      <Box
         position="relative"
         maxW="lg"
         w="full"
         p={{ base: "6", md: "10" }}
         rounded="xl"
-        bg="blackAlpha.700"
+        bg={{ base: "whiteAlpha.800", _dark: "blackAlpha.700" }}
         backdropFilter="blur(6px)"
       >
         <Stack gap="8" textAlign="center" align="center">
@@ -61,7 +61,7 @@ export default function LandingPage() {
 
           <ColorModeButton />
         </Stack>
-      </Theme>
+      </Box>
     </Center>
   );
 }
