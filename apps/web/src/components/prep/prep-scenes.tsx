@@ -113,10 +113,12 @@ export function PrepScenes({
   // Which search is the latest: a slow reply to an earlier query must not
   // land on top of the results for what the box says now.
   const searchSeq = useRef(0);
-  // The page already loaded the unfiltered first page, so an untouched box on
-  // first render asks for nothing. Every later change does, including the one
-  // back to empty.
+  // The page already loaded the first page narrowed to what the board opened
+  // with (the storyteller's last filter, or none), so until the box or the
+  // pills move away from that, the column asks for nothing. Every later
+  // change does, including one back to where it started.
   const searched = useRef(false);
+  const openedWith = useRef(`${filter.trim()}|${shownStatuses.join(",")}`);
 
   // The statuses as a string, so the effect below re-runs when the set
   // changes rather than on every render that rebuilds the array.
@@ -128,7 +130,9 @@ export function PrepScenes({
     // Nothing has been touched yet: the page already loaded the first page
     // unfiltered, with every status on, and the board has created nothing
     // here since.
-    if (!searched.current && needle === "" && everyStatus && reloadKey === 0) return;
+    if (!searched.current && `${needle}|${statusKey}` === openedWith.current && reloadKey === 0) {
+      return;
+    }
     searched.current = true;
 
     const seq = ++searchSeq.current;
@@ -149,7 +153,7 @@ export function PrepScenes({
     // shownStatuses is rebuilt on every render; statusKey is what actually
     // changed. eslint cannot see through that, hence the disable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idStory, filter, statusKey, everyStatus, reloadKey]);
+  }, [idStory, filter, statusKey, reloadKey]);
 
   function onMore() {
     const offset = scenes.length;

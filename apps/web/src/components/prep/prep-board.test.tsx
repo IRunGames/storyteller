@@ -9,6 +9,7 @@ import type { ElementKind, StoryElement } from "@/lib/elements";
 import { scenePreviewPath, type StoryScene } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import type { StoryCardData, StorySession } from "@/lib/stories";
+import type { JsonValue } from "@/lib/user-preference-schemas";
 
 const story: StoryCardData = {
   idStory: -15,
@@ -205,7 +206,16 @@ const createSession = mock.fn(async (_idStory: number, title: string) => ({
   },
 }));
 
+// The board keeps its columns in the storyteller's preferences; the action
+// behind them is mocked, and each test hands the provider the map it starts
+// from.
+const sa_setUserPreference = mock.fn(async (_input: { key: string; value: unknown }) => ({
+  ok: true as const,
+}));
+const PREFERENCE_KEY = `prep.board.${story.idStory}`;
+
 let PrepBoard: typeof import("./prep-board").PrepBoard;
+let UserPreferencesProvider: typeof import("@/components/preferences/user-preferences-provider").UserPreferencesProvider;
 
 const column = (name: string) => screen.getByRole("region", { name });
 
@@ -217,20 +227,39 @@ const filterPill = (title: string, label: string) =>
     { name: label },
   );
 
-function renderBoard() {
+function renderBoard(preferences: Record<string, JsonValue> = {}) {
   return renderWithProviders(
-    <PrepBoard
-      story={story}
-      sessions={sessions}
-      scenes={scenes}
-      elements={elements}
-      counts={{ Timeline: 88, Scenes: 12, People: 2, Places: 1, Things: 0, Other: 0, Ephemera: 0 }}
-      sessionStatusOptions={sessionStatusOptions}
-      sceneStatusOptions={sceneStatusOptions}
-      elementStatusOptions={elementStatusOptions}
-    />,
+    <UserPreferencesProvider preferences={preferences}>
+      <PrepBoard
+        story={story}
+        sessions={sessions}
+        scenes={scenes}
+        elements={elements}
+        counts={{
+          Timeline: 88,
+          Scenes: 12,
+          People: 2,
+          Places: 1,
+          Things: 0,
+          Other: 0,
+          Ephemera: 0,
+        }}
+        sessionStatusOptions={sessionStatusOptions}
+        sceneStatusOptions={sceneStatusOptions}
+        elementStatusOptions={elementStatusOptions}
+      />
+    </UserPreferencesProvider>,
   );
 }
+
+// The board waits for a pause before saving, so a save is waited for rather
+// than expected at once.
+const lastSaved = async () => {
+  await waitFor(() => expect(sa_setUserPreference.mock.callCount()).toBeGreaterThan(0), {
+    timeout: 2000,
+  });
+  return sa_setUserPreference.mock.calls.at(-1)!.arguments[0];
+};
 
 describe("PrepBoard", () => {
   before(async () => {
@@ -302,7 +331,12 @@ describe("PrepBoard", () => {
         }),
       },
     });
+    mock.module("@/components/preferences/actions", {
+      namedExports: { sa_setUserPreference },
+    });
     ({ PrepBoard } = await import("./prep-board"));
+    ({ UserPreferencesProvider } =
+      await import("@/components/preferences/user-preferences-provider"));
   });
 
   beforeEach(() => {
@@ -312,6 +346,7 @@ describe("PrepBoard", () => {
     router.refresh.mock.resetCalls();
     createScene.mock.resetCalls();
     createElement.mock.resetCalls();
+    sa_setUserPreference.mock.resetCalls();
   });
 
   it("names the page after the story in one line, with the title linking back to it", () => {
@@ -829,16 +864,18 @@ describe("PrepBoard", () => {
 
   it("offers an edit on every scene card but a completed one", () => {
     renderWithProviders(
-      <PrepBoard
-        story={story}
-        sessions={sessions}
-        scenes={[scenes[0], { ...scenes[1], status: "COMPLETE" }]}
-        elements={elements}
-        counts={{}}
-        sessionStatusOptions={sessionStatusOptions}
-        sceneStatusOptions={sceneStatusOptions}
-        elementStatusOptions={elementStatusOptions}
-      />,
+      <UserPreferencesProvider preferences={{}}>
+        <PrepBoard
+          story={story}
+          sessions={sessions}
+          scenes={[scenes[0], { ...scenes[1], status: "COMPLETE" }]}
+          elements={elements}
+          counts={{}}
+          sessionStatusOptions={sessionStatusOptions}
+          sceneStatusOptions={sceneStatusOptions}
+          elementStatusOptions={elementStatusOptions}
+        />
+      </UserPreferencesProvider>,
     );
 
     const [open, done] = within(column("Scenes")).getAllByRole("listitem");
@@ -871,5 +908,88 @@ describe("PrepBoard", () => {
     await user.click(screen.getByRole("button", { name: "Show Scenes" }));
     // Brought back at its usual width, not expanded.
     expect(column("Scenes")).toHaveAttribute("data-mode", "normal");
+  });
+
+  it("saves which columns are hidden or expanded, for this story", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    await user.click(within(column("People")).getByRole("button", { name: "Hide People" }));
+    await user.click(within(column("Scenes")).getByRole("button", { name: "Expand Scenes" }));
+
+    expect(await lastSaved()).toEqual({
+      key: PREFERENCE_KEY,
+      value: { modes: { Scenes: "expanded", People: "hidden" }, filters: {} },
+    });
+  });
+
+  it("saves what is typed into a search box once the typing stops, not once per key", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    await user.type(
+      within(column("Timeline")).getByRole("searchbox", { name: "Search Timeline" }),
+      "kild",
+    );
+
+    expect(await lastSaved()).toEqual({
+      key: PREFERENCE_KEY,
+      value: { modes: {}, filters: { Timeline: { query: "kild", off: [] } } },
+    });
+    expect(sa_setUserPreference.mock.callCount()).toBe(1);
+  });
+
+  it("saves the statuses switched off in a column", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    await user.click(filterPill("Scenes", lastScene.label));
+
+    expect(await lastSaved()).toEqual({
+      key: PREFERENCE_KEY,
+      value: { modes: {}, filters: { Scenes: { query: "", off: [lastScene.key] } } },
+    });
+  });
+
+  it("asks again once a restored filter is changed, including back to everything", async () => {
+    const user = userEvent.setup();
+    renderBoard({
+      [PREFERENCE_KEY]: { modes: {}, filters: { Scenes: { query: "", off: [firstScene.key] } } },
+    });
+
+    await user.click(filterPill("Scenes", firstScene.label));
+    await waitFor(() =>
+      expect(listScenes.mock.calls.at(-1)?.arguments[3]).toEqual(
+        sceneStatusOptions.map((option) => option.key),
+      ),
+    );
+  });
+
+  it("opens as it was left: columns, search boxes and pills", async () => {
+    renderBoard({
+      [PREFERENCE_KEY]: {
+        modes: { Places: "expanded", People: "hidden" },
+        filters: {
+          Timeline: { query: "kild", off: [] },
+          Scenes: { query: "", off: [firstScene.key] },
+        },
+      },
+    });
+
+    expect(screen.queryByRole("region", { name: "People" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show People" })).toBeInTheDocument();
+    expect(column("Places")).toHaveAttribute("data-mode", "expanded");
+    expect(
+      within(column("Timeline")).getByRole("searchbox", { name: "Search Timeline" }),
+    ).toHaveValue("kild");
+    expect(filterPill("Scenes", firstScene.label)).toHaveAttribute("aria-pressed", "false");
+    expect(filterPill("Scenes", lastScene.label)).toHaveAttribute("aria-pressed", "true");
+    // The page loaded each column's first page already narrowed to the
+    // stored filter, so no column asks the database again on opening, and
+    // opening the board is not a change, so nothing is saved either.
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(listScenes.mock.callCount()).toBe(0);
+    expect(listElements.mock.callCount()).toBe(0);
+    expect(sa_setUserPreference.mock.callCount()).toBe(0);
   });
 });

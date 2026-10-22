@@ -1,12 +1,8 @@
-import { useId, useState, type ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Heading, HStack, Spacer, Stack, Text } from "@chakra-ui/react";
 import { Maximize2, Minimize, Minimize2, Plus } from "lucide-react";
 import type { StatusOption } from "@/lib/status";
-import {
-  allSelected,
-  StatusSearch,
-  type StatusSearchValue,
-} from "@/components/status/status-search";
+import { StatusSearch, type StatusSearchValue } from "@/components/status/status-search";
 import type { PrepColumnMode } from "./prep-columns";
 import { PrepIconButton } from "./prep-icon-button";
 
@@ -38,6 +34,13 @@ type Props = {
   /** What the pills are called when they are not statuses; see StatusSearch. */
   filterLabel?: string;
   /**
+   * What the search box and the pills are narrowed to. The board holds it
+   * rather than the column, so it can be kept in the storyteller's
+   * preferences with the modes and come back on the next visit.
+   */
+  filter: StatusSearchValue;
+  onFilterChange: (next: StatusSearchValue) => void;
+  /**
    * For a column whose + opens a form in place rather than acting at once:
    * whether that form is showing. See PrepIconButton's expanded.
    */
@@ -56,9 +59,8 @@ type Props = {
   onHide: () => void;
   /**
    * The rows, given what the column is narrowed to — the words typed and the
-   * statuses still switched on — so they can narrow themselves. The column
-   * owns it because the box and the pills are its own; what it means for a
-   * row is the board's business.
+   * statuses still switched on — so they can narrow themselves. What it
+   * means for a row is the board's business.
    */
   children: (filter: StatusSearchValue) => ReactNode;
 };
@@ -78,6 +80,8 @@ export function PrepColumn({
   bordered,
   statusOptions,
   filterLabel,
+  filter,
+  onFilterChange,
   creating,
   aboveFilters,
   onCreate,
@@ -88,8 +92,6 @@ export function PrepColumn({
 }: Props) {
   const headingId = useId();
   const options = statusOptions ?? [];
-  // Every status on to begin with, so the column opens showing everything.
-  const [filter, setFilter] = useState<StatusSearchValue>(() => allSelected(options));
 
   return (
     <Stack
@@ -153,7 +155,7 @@ export function PrepColumn({
         label={title}
         options={options}
         value={filter}
-        onChange={setFilter}
+        onChange={onFilterChange}
         groupLabel={filterLabel}
       />
       {children(filter)}

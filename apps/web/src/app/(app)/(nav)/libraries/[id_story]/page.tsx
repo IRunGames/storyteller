@@ -1,9 +1,15 @@
 import { notFound } from "next/navigation";
-import { ELEMENT_KINDS, type ElementKind, type StoryElement } from "@/lib/elements";
+import type { ElementKind, StoryElement } from "@/lib/elements";
 import { PREP_SESSIONS_PAGE_SIZE } from "@/lib/stories";
 import { requireSession } from "@/lib/require-session";
 import { PrepBoard } from "@/components/prep/prep-board";
+import {
+  prepBoardPreferenceKey,
+  prepColumnQuery,
+  readPrepBoardState,
+} from "@/components/prep/prep-board-state";
 import { ELEMENT_COLUMNS } from "@/components/prep/prep-columns";
+import { sa_getUserPreferences } from "@/components/preferences/actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getStory, sa_countStorySessions, sa_listStorySessions } from "../../stories/actions";
 import {
@@ -35,26 +41,47 @@ export default async function LibraryPage({ params }: { params: Promise<{ id_sto
     story,
     sessions,
     sessionCount,
-    scenes,
     sceneCount,
     sessionStatusOptions,
     sceneStatusOptions,
     elementStatusOptions,
     elementCounts,
-    ...elementPages
+    preferences,
   ] = await Promise.all([
     sa_getStory(idStory),
     sa_listStorySessions(idStory, 0, PREP_SESSIONS_PAGE_SIZE),
     sa_countStorySessions(idStory),
-    sa_listStoryScenes(idStory, 0),
     sa_countStoryScenes(idStory),
     sa_listStatusOptions("story_sessions"),
     sa_listStatusOptions("story_scenes"),
     sa_listStatusOptions("elements"),
     sa_countStoryElements(idStory),
-    // One first page per kind, in ELEMENT_KINDS order, for the column each
-    // kind has.
-    ...ELEMENT_KINDS.map((kind) => sa_listStoryElements(idStory, kind, 0)),
+    sa_getUserPreferences(),
+  ]);
+
+  // The board opens as the storyteller left it (prep-board-state.ts), so the
+  // Scenes and element columns' first pages are asked for already narrowed
+  // to what their search boxes and pills were left on, rather than loaded
+  // whole and then searched again in the browser. This waits for the
+  // workflows above, since the stored pills are the statuses switched off
+  // and only the workflow says which are left on. The board reads the same
+  // stored value from the preferences provider, which the layout loaded
+  // from the same row, so the two agree on where each column starts. The
+  // Timeline filters the rows it holds and Attachments loads its own, so
+  // neither needs this.
+  const { filters } = readPrepBoardState(preferences[prepBoardPreferenceKey(idStory)], {
+    Scenes: sceneStatusOptions,
+    ...Object.fromEntries(ELEMENT_COLUMNS.map((column) => [column.title, elementStatusOptions])),
+  });
+  const sceneQuery = prepColumnQuery(filters.Scenes, sceneStatusOptions);
+  const [scenes, ...elementPages] = await Promise.all([
+    sa_listStoryScenes(idStory, 0, sceneQuery.query, sceneQuery.statuses),
+    // One first page per column, in ELEMENT_COLUMNS order, which is
+    // ELEMENT_KINDS order.
+    ...ELEMENT_COLUMNS.map((column) => {
+      const { query, statuses } = prepColumnQuery(filters[column.title], elementStatusOptions);
+      return sa_listStoryElements(idStory, column.kind, 0, query, statuses);
+    }),
   ]);
   // The library is the storyteller's: scenes and enemies are what the
   // players are not meant to see yet. A player gets the same not-found page
@@ -62,7 +89,7 @@ export default async function LibraryPage({ params }: { params: Promise<{ id_sto
   if (!story || !story.isOwner) notFound();
 
   const elements = Object.fromEntries(
-    ELEMENT_KINDS.map((kind, index) => [kind, elementPages[index]]),
+    ELEMENT_COLUMNS.map((column, index) => [column.kind, elementPages[index]]),
   ) as Record<ElementKind, StoryElement[]>;
 
   return (

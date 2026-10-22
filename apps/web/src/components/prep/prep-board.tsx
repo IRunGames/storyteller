@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
 import { Box, Button, Flex, Heading, HStack, Link, Stack } from "@chakra-ui/react";
@@ -12,6 +12,8 @@ import type { StoryScene } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import { PREP_SESSIONS_PAGE_SIZE, type StoryCardData, type StorySession } from "@/lib/stories";
 import { sa_createStorySession } from "@/app/(app)/(nav)/stories/actions";
+import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
+import type { StatusSearchValue } from "@/components/status/status-search";
 import { StorySessions } from "@/components/stories/story-sessions";
 import { toaster } from "@/components/ui/toaster";
 import {
@@ -21,6 +23,12 @@ import {
   type PrepColumnTitle,
 } from "./prep-columns";
 import { PrepAttachments } from "./prep-attachments";
+import {
+  prepBoardPreferenceKey,
+  readPrepBoardState,
+  writePrepBoardState,
+  type PrepBoardState,
+} from "./prep-board-state";
 import { PrepColumn } from "./prep-column";
 import { PrepCreateDialog, type PrepCreating } from "./prep-create-dialog";
 import { PrepElements } from "./prep-elements";
@@ -56,16 +64,19 @@ const COVERS_FILTER: StatusOption = {
   from: null,
 };
 
-const initialModes = Object.fromEntries(
-  PREP_COLUMNS.map((column) => [column.title, "normal"]),
-) as Record<PrepColumnTitle, PrepColumnMode>;
+// How long the board waits after the last change before saving it, so typing
+// into a search box sends one save when the storyteller pauses rather than
+// one per key.
+const SAVE_DELAY_MS = 500;
 
 // The Prep Work page's body: the story's library, laid out as columns that
 // run off the right and the bottom of the viewport. The board owns every
 // column's mode because the modes constrain each other: two columns at two
 // thirds of the width would not fit, so expanding one puts any other back,
 // and a hidden column's button lives above the board rather than in it.
-// The modes are page state only; they start over on every visit.
+// The modes and every column's search box and pills are kept in the
+// storyteller's preferences, one entry per story (prep-board-state.ts), so
+// the board comes back as it was left.
 export function PrepBoard({
   story,
   sessions,
@@ -77,7 +88,66 @@ export function PrepBoard({
   elementStatusOptions,
 }: Props) {
   const router = useRouter();
-  const [modes, setModes] = useState(initialModes);
+  const preferences = useUserPreferences();
+  const preferenceKey = prepBoardPreferenceKey(story.idStory);
+
+  // Which workflow each column's rows run through, for the status pills over
+  // its search box. Every element column runs through the same one.
+  const COLUMN_WORKFLOWS: Partial<Record<PrepColumnTitle, StatusOption[]>> = {
+    Timeline: sessionStatusOptions,
+    Scenes: sceneStatusOptions,
+    Attachments: [COVERS_FILTER],
+    ...Object.fromEntries(ELEMENT_COLUMNS.map((column) => [column.title, elementStatusOptions])),
+  };
+
+  // Read from the preferences once, when the board mounts. From then on the
+  // board's own state is what the storyteller sees, and the preference only
+  // follows it: a save the server refuses puts the old value back in the
+  // provider's map, and driving the columns from that map would undo what
+  // was just typed.
+  const [initialState] = useState(() =>
+    readPrepBoardState(preferences.get(preferenceKey), COLUMN_WORKFLOWS),
+  );
+  const [modes, setModes] = useState(initialState.modes);
+  const [filters, setFilters] = useState(initialState.filters);
+  function setFilter(title: PrepColumnTitle, filter: StatusSearchValue) {
+    setFilters((current) => ({ ...current, [title]: filter }));
+  }
+
+  // Saves the board a moment after it last changed, and at once when the
+  // storyteller leaves the page with a change still waiting. Compared as
+  // JSON against what was last saved, so mounting saves nothing and a change
+  // that is undone before the delay is up saves nothing either. The latest
+  // value and the latest set() are read through refs because the unmount
+  // cleanup is created once, on mount.
+  const pending = useRef<{ json: string; value: ReturnType<typeof writePrepBoardState> } | null>(
+    null,
+  );
+  const savedJson = useRef(JSON.stringify(writePrepBoardState(initialState, COLUMN_WORKFLOWS)));
+  const save = useRef(() => {});
+  useEffect(() => {
+    save.current = () => {
+      if (!pending.current || pending.current.json === savedJson.current) return;
+      savedJson.current = pending.current.json;
+      void preferences.set(preferenceKey, pending.current.value);
+    };
+  });
+  useEffect(() => {
+    const value = writePrepBoardState(
+      { modes, filters } satisfies PrepBoardState,
+      COLUMN_WORKFLOWS,
+    );
+    const json = JSON.stringify(value);
+    pending.current = { json, value };
+    if (json === savedJson.current) return;
+    const timer = setTimeout(() => save.current(), SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+    // COLUMN_WORKFLOWS is rebuilt on every render from props that do not
+    // change while the board is open; only the board's state is a reason to
+    // save.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modes, filters]);
+  useEffect(() => () => save.current(), []);
   // The Attachments column's + opens the link input and dropzone at the top of
   // the column, over the cards, and closes them again.
   const [addingAttachments, setAddingAttachments] = useState(false);
@@ -142,15 +212,6 @@ export function PrepBoard({
     });
   }
 
-  // Which workflow each column's rows run through, for the status pills over
-  // its search box. Every element column runs through the same one.
-  const COLUMN_WORKFLOWS: Partial<Record<PrepColumnTitle, StatusOption[]>> = {
-    Timeline: sessionStatusOptions,
-    Scenes: sceneStatusOptions,
-    Attachments: [COVERS_FILTER],
-    ...Object.fromEntries(ELEMENT_COLUMNS.map((column) => [column.title, elementStatusOptions])),
-  };
-
   const hidden = PREP_COLUMNS.filter((column) => modes[column.title] === "hidden");
   const visible = PREP_COLUMNS.filter((column) => modes[column.title] !== "hidden");
 
@@ -199,6 +260,8 @@ export function PrepBoard({
               count={shownCounts[column.title] ?? null}
               statusOptions={COLUMN_WORKFLOWS[column.title]}
               filterLabel={column.title === "Attachments" ? "Filter Attachments" : undefined}
+              filter={filters[column.title]}
+              onFilterChange={(filter) => setFilter(column.title, filter)}
               mode={mode}
               width={column.width}
               expandable={column.expandable}
