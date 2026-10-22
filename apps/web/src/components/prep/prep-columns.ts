@@ -22,7 +22,7 @@ export type ElementColumnTitle = (typeof ELEMENT_COLUMNS)[number]["title"];
  * element columns follow, one per kind.
  */
 export const PREP_COLUMNS = [
-  { title: "Timeline", singular: "session", width: "32rem", expandable: false, creatable: false },
+  { title: "Timeline", singular: "session", width: "32rem", expandable: false, creatable: true },
   { title: "Scenes", singular: "scene", width: "20rem", expandable: true, creatable: true },
   {
     title: "Attachments",

@@ -4,7 +4,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
-import { SESSIONS_PAGE_SIZE, type StorySession } from "@/lib/stories";
+import { Toaster, toaster } from "@/components/ui/toaster";
+import { SESSIONS_PAGE_SIZE, type SessionForEdit, type StorySession } from "@/lib/stories";
 
 function sessions(count: number, from = 1): StorySession[] {
   return Array.from({ length: count }, (_, i) => ({
@@ -14,6 +15,7 @@ function sessions(count: number, from = 1): StorySession[] {
     status: "DONE",
     startedAt: new Date(`2026-03-${String(20 - i).padStart(2, "0")}T19:00:00Z`),
     length: 90 + i * 30,
+    playerCount: 3,
   }));
 }
 
@@ -21,8 +23,32 @@ function sessions(count: number, from = 1): StorySession[] {
 // before the dynamic import below loads it.
 const sa_listStorySessions = mock.fn<
   (idStory: number, offset: number, limit?: number) => Promise<StorySession[]>
->(
-  async () => [],
+>(async () => []);
+
+// The storyteller's controls: the edit panel's read and save, the bin, and
+// moving a scene in or out of the session.
+const forEdit = (idStorySession: number): SessionForEdit => ({
+  idStorySession,
+  idStory: 7,
+  status: "OPEN",
+  values: { title: "Kildealg", summary: "", notes: "", lingeringQuestions: "" },
+  scenes: [
+    { idStoryScene: 40, title: "The docks", status: "ACTIVE", idStorySession },
+    { idStoryScene: 41, title: "The vault", status: "COMPLETE", idStorySession },
+    { idStoryScene: 42, title: "The abbey", status: "PENDING", idStorySession: null },
+  ],
+});
+const sa_getSessionForEdit = mock.fn(async (id: number) => forEdit(id));
+const sa_updateStorySession = mock.fn(async (_id: number, values: { title: string | null }) => ({
+  ok: true as const,
+  title: values.title,
+}));
+const sa_deleteStorySession = mock.fn(async (_id: number) => ({ ok: true as const }));
+const sa_setLiveSceneSession = mock.fn(
+  async (_story: number, _scene: number, idStorySession: number | null) => ({
+    ok: true as const,
+    idStorySession,
+  }),
 );
 
 let StorySessions: typeof import("./story-sessions").StorySessions;
@@ -30,7 +56,16 @@ let StorySessions: typeof import("./story-sessions").StorySessions;
 describe("StorySessions", () => {
   before(async () => {
     mock.module("@/app/(app)/(nav)/stories/actions", {
-      namedExports: { sa_listStorySessions, sa_getStorySession: async () => null },
+      namedExports: {
+        sa_listStorySessions,
+        sa_getStorySession: async () => null,
+        sa_getSessionForEdit,
+        sa_updateStorySession,
+        sa_deleteStorySession,
+      },
+    });
+    mock.module("@/app/(app)/scenes/[id]/live/actions", {
+      namedExports: { sa_setLiveSceneSession },
     });
     ({ StorySessions } = await import("./story-sessions"));
   });
@@ -38,6 +73,10 @@ describe("StorySessions", () => {
   beforeEach(() => {
     sa_listStorySessions.mock.resetCalls();
     sa_listStorySessions.mock.mockImplementation(async () => []);
+    sa_updateStorySession.mock.resetCalls();
+    sa_deleteStorySession.mock.resetCalls();
+    sa_setLiveSceneSession.mock.resetCalls();
+    toaster.remove();
   });
 
   it("lists each session's date and length in hours", () => {
@@ -52,36 +91,44 @@ describe("StorySessions", () => {
     expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
   });
 
-  it("adds the player count to each row when given one", () => {
+  it("shows how many came to each session, its own count, when asked to", () => {
+    const [first, second] = sessions(2);
     const { unmount } = renderWithProviders(
-      <StorySessions idStory={7} initial={sessions(2)} playerCount={3} />,
+      <StorySessions
+        idStory={7}
+        initial={[
+          { ...first, playerCount: 3 },
+          { ...second, playerCount: 1 },
+        ]}
+        showPlayers
+      />,
     );
 
     const items = screen.getAllByRole("listitem");
     expect(within(items[0]).getByText("3 players")).toBeInTheDocument();
-    expect(within(items[1]).getByText("3 players")).toBeInTheDocument();
+    expect(within(items[1]).getByText("1 player")).toBeInTheDocument();
     unmount();
 
-    renderWithProviders(<StorySessions idStory={7} initial={sessions(1)} playerCount={1} />);
-    expect(screen.getByText("1 player")).toBeInTheDocument();
+    renderWithProviders(<StorySessions idStory={7} initial={sessions(1)} />);
+    expect(screen.queryByText(/players?$/)).not.toBeInTheDocument();
   });
 
   it("keeps only the rows whose text matches the filter, and says so when none do", () => {
     const rows = [{ ...sessions(1)[0], status: "OPEN", length: null }, ...sessions(2, 2)];
     const { rerender } = renderWithProviders(
-      <StorySessions idStory={7} initial={rows} playerCount={3} filter="progress" />,
+      <StorySessions idStory={7} initial={rows} showPlayers filter="progress" />,
     );
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
     expect(screen.getByText("In progress")).toBeInTheDocument();
 
-    rerender(<StorySessions idStory={7} initial={rows} playerCount={3} filter="2 hours" />);
+    rerender(<StorySessions idStory={7} initial={rows} showPlayers filter="2 hours" />);
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
     expect(screen.getByText("2 hours")).toBeInTheDocument();
 
-    rerender(<StorySessions idStory={7} initial={rows} playerCount={3} filter="3 players" />);
+    rerender(<StorySessions idStory={7} initial={rows} showPlayers filter="3 players" />);
     expect(screen.getAllByRole("listitem")).toHaveLength(3);
 
-    rerender(<StorySessions idStory={7} initial={rows} playerCount={3} filter="nothing" />);
+    rerender(<StorySessions idStory={7} initial={rows} showPlayers filter="nothing" />);
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
     expect(screen.getByText("No matches.")).toBeInTheDocument();
   });
@@ -208,5 +255,142 @@ describe("StorySessions", () => {
     await waitFor(() => expect(sa_listStorySessions.mock.callCount()).toBe(1));
     expect(screen.getAllByRole("listitem")).toHaveLength(SESSIONS_PAGE_SIZE);
     await waitFor(() => expect(screen.getByRole("button", { name: "More" })).toBeEnabled());
+  });
+
+  describe("the storyteller's controls", () => {
+    // The first row's session as the controls name it.
+    const rowsWith = (status: string) => [{ ...sessions(1)[0], status }, ...sessions(1, 2)];
+
+    it("has none for anyone who may not manage the sessions", () => {
+      renderWithProviders(<StorySessions idStory={7} initial={sessions(1)} showTitles />);
+      expect(screen.queryByRole("button", { name: /^Edit / })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^Delete / })).not.toBeInTheDocument();
+    });
+
+    it("opens the edit panel under its row and saves the session from it", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <>
+          <StorySessions idStory={7} initial={rowsWith("OPEN")} canManage showTitles />
+          <Toaster />
+        </>,
+      );
+
+      const [first] = screen.getAllByRole("listitem");
+      const pencil = within(first).getByRole("button", { name: "Edit 1. Session 1 title" });
+      await user.click(pencil);
+      expect(pencil).toHaveAttribute("aria-expanded", "true");
+
+      const title = await within(first).findByRole("textbox", { name: /^Title/ });
+      expect(title).toHaveValue("Kildealg");
+      await user.clear(title);
+      await user.type(title, "The long night");
+      await user.click(within(first).getByRole("button", { name: "Save session" }));
+
+      await waitFor(() => expect(sa_updateStorySession.mock.callCount()).toBe(1));
+      expect(sa_updateStorySession.mock.calls[0].arguments).toEqual([
+        1,
+        { title: "The long night", summary: "", notes: "", lingeringQuestions: "" },
+      ]);
+      // Closed, and the row's heading follows the new title.
+      expect(await within(first).findByText("1. The long night")).toBeInTheDocument();
+      expect(within(first).queryByRole("textbox", { name: /^Title/ })).not.toBeInTheDocument();
+    });
+
+    it("takes a scene out of the session and puts another in, from the panel, at once", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <>
+          <StorySessions idStory={7} initial={rowsWith("OPEN")} canManage showTitles />
+          <Toaster />
+        </>,
+      );
+
+      const [first] = screen.getAllByRole("listitem");
+      await user.click(within(first).getByRole("button", { name: /^Edit / }));
+      const scenes = await within(first).findByRole("list", { name: "Scenes in this session" });
+      expect(within(scenes).getByText("The docks")).toBeInTheDocument();
+
+      // A complete scene keeps its session, so its − does nothing.
+      await user.click(
+        within(scenes).getByRole("button", { name: "A complete scene keeps its session" }),
+      );
+      expect(sa_setLiveSceneSession.mock.callCount()).toBe(0);
+
+      await user.click(
+        within(scenes).getByRole("button", { name: "Remove The docks from this session" }),
+      );
+      await waitFor(() => expect(sa_setLiveSceneSession.mock.callCount()).toBe(1));
+      expect(sa_setLiveSceneSession.mock.calls[0].arguments).toEqual([7, 40, null]);
+      await waitFor(() => expect(within(scenes).queryByText("The docks")).not.toBeInTheDocument());
+
+      await user.selectOptions(
+        within(first).getByRole("combobox", { name: "Add a scene to this session" }),
+        "The abbey",
+      );
+      await waitFor(() => expect(sa_setLiveSceneSession.mock.callCount()).toBe(2));
+      expect(sa_setLiveSceneSession.mock.calls[1].arguments).toEqual([7, 42, 1]);
+      expect(await within(scenes).findByText("The abbey")).toBeInTheDocument();
+    });
+
+    it("deletes a session once asked, and takes its row away", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <>
+          <StorySessions idStory={7} initial={rowsWith("OPEN")} canManage showTitles />
+          <Toaster />
+        </>,
+      );
+
+      await user.click(screen.getByRole("button", { name: "Delete 1. Session 1 title" }));
+      const ask = await screen.findByRole("dialog", { name: "Delete 1. Session 1 title?" });
+      // Cancel at the start, the action at the end.
+      const [cancel, remove] = within(ask).getAllByRole("button");
+      expect(cancel).toHaveTextContent("Cancel");
+      expect(remove).toHaveTextContent("Delete");
+      expect(sa_deleteStorySession.mock.callCount()).toBe(0);
+
+      await user.click(remove);
+      await waitFor(() => expect(sa_deleteStorySession.mock.calls[0]?.arguments).toEqual([1]));
+      await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+      expect(screen.queryByText("1. Session 1 title")).not.toBeInTheDocument();
+    });
+
+    it("will not delete a DONE session, and says so", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <StorySessions idStory={7} initial={rowsWith("DONE")} canManage showTitles />,
+      );
+
+      const bin = screen.getByRole("button", { name: "Delete 1. Session 1 title" });
+      expect(bin).toHaveAttribute("aria-disabled", "true");
+      await user.hover(bin);
+      expect(await screen.findByRole("tooltip")).toHaveTextContent("Cannot delete DONE sessions");
+      await user.click(bin);
+      expect(screen.queryByRole("dialog", { name: /^Delete / })).not.toBeInTheDocument();
+      expect(sa_deleteStorySession.mock.callCount()).toBe(0);
+    });
+
+    it("puts a session just made at the top, with its edit panel open", async () => {
+      const made: StorySession = {
+        ...sessions(1, 9)[0],
+        title: "Oct 22, 2026 session",
+        status: "OPEN",
+        length: null,
+        playerCount: 0,
+      };
+      const { rerender } = renderWithProviders(
+        <StorySessions idStory={7} initial={sessions(2)} canManage showTitles />,
+      );
+
+      rerender(
+        <StorySessions idStory={7} initial={sessions(2)} canManage showTitles created={made} />,
+      );
+
+      const items = screen.getAllByRole("listitem");
+      expect(items).toHaveLength(3);
+      expect(within(items[0]).getByText("9. Oct 22, 2026 session")).toBeInTheDocument();
+      expect(await within(items[0]).findByRole("textbox", { name: /^Title/ })).toBeInTheDocument();
+    });
   });
 });

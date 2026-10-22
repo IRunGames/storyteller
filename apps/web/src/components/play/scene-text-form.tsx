@@ -2,8 +2,8 @@
 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Alert, Button, Field, HStack, Stack, Textarea } from "@chakra-ui/react";
-import { sceneTextSchema, type SceneTextValues } from "@/lib/scene-schemas";
+import { Alert, Button, Field, HStack, Input, Stack, Textarea } from "@chakra-ui/react";
+import { liveSceneTextSchema, sceneTextSchema, type SceneTextValues } from "@/lib/scene-schemas";
 import type { SceneText, SetSceneTextResult } from "@/lib/scenes";
 
 type Props = {
@@ -12,34 +12,51 @@ type Props = {
   /**
    * Saves the values: the storyteller's sa_setSceneText or a player's
    * sa_setPlaySceneText, bound to the scene, as RunElementForm takes its
-   * save. The same schema runs again in the action.
+   * save. The same schema runs again in the action. The title is among the
+   * values only when the form has a Title field.
    */
-  save: (values: SceneTextValues) => Promise<SetSceneTextResult>;
-  /** The text as stored. */
-  onSaved: (text: SceneText) => void;
+  save: (values: SceneTextValues & { title?: string }) => Promise<SetSceneTextResult>;
+  /** The text as stored, and the title as stored when the form renames the scene. */
+  onSaved: (text: SceneText, title?: string) => void;
   onCancel: () => void;
+  /**
+   * The scene's title, given only where the panel renames the scene too:
+   * the live-edit page. A Title field then leads the form.
+   */
+  title?: string;
+  /** A line under the Notes label, for the live-edit page to say who else writes there. */
+  notesHint?: string;
 };
 
-const FIELDS = ["description", "notes"] as const;
+const FIELDS = ["title", "description", "notes"] as const;
 
 /**
  * The description and notes of the scene being played, edited from the
  * panel behind the scene's title at either table (SceneTextPopover). Two
- * text areas and nothing else: the title and the status have their own
- * controls, and a scene's stacks their own dialog.
+ * text areas and nothing else at the tables: the title and the status have
+ * their own controls there, and a scene's stacks their own dialog. The
+ * live-edit page has no other place to rename the scene, so it hands the
+ * form the title and a Title field leads the two.
  */
-export function SceneTextForm({ text, save, onSaved, onCancel }: Props) {
+export function SceneTextForm({ text, save, onSaved, onCancel, title, notesHint }: Props) {
+  const withTitle = title !== undefined;
   const {
     register,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<SceneTextValues>({
-    resolver: zodResolver(sceneTextSchema),
-    defaultValues: { description: text.description ?? "", notes: text.notes ?? "" },
+  } = useForm<SceneTextValues & { title?: string }>({
+    // The live schema is the tables' with a title, so either one checks
+    // the same description and notes.
+    resolver: zodResolver(withTitle ? liveSceneTextSchema : sceneTextSchema),
+    defaultValues: {
+      ...(withTitle ? { title } : {}),
+      description: text.description ?? "",
+      notes: text.notes ?? "",
+    },
   });
 
-  async function onSubmit(values: SceneTextValues) {
+  async function onSubmit(values: SceneTextValues & { title?: string }) {
     let result: SetSceneTextResult;
     try {
       result = await save(values);
@@ -48,7 +65,7 @@ export function SceneTextForm({ text, save, onSaved, onCancel }: Props) {
       return;
     }
     if (result.ok) {
-      onSaved(result.text);
+      onSaved(result.text, result.title);
       return;
     }
     for (const [field, message] of Object.entries(result.errors)) {
@@ -68,6 +85,13 @@ export function SceneTextForm({ text, save, onSaved, onCancel }: Props) {
             </Alert.Content>
           </Alert.Root>
         )}
+        {withTitle && (
+          <Field.Root required invalid={!!errors.title}>
+            <Field.Label>Title</Field.Label>
+            <Input size="sm" autoComplete="off" {...register("title")} />
+            <Field.ErrorText>{errors.title?.message}</Field.ErrorText>
+          </Field.Root>
+        )}
         <Field.Root invalid={!!errors.description}>
           <Field.Label>Description</Field.Label>
           <Textarea size="sm" rows={6} {...register("description")} />
@@ -75,6 +99,7 @@ export function SceneTextForm({ text, save, onSaved, onCancel }: Props) {
         </Field.Root>
         <Field.Root invalid={!!errors.notes}>
           <Field.Label>Notes</Field.Label>
+          {notesHint && <Field.HelperText mt="0">{notesHint}</Field.HelperText>}
           <Textarea size="sm" rows={6} {...register("notes")} />
           <Field.ErrorText>{errors.notes?.message}</Field.ErrorText>
         </Field.Root>

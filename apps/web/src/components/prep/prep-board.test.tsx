@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import type { ElementKind, StoryElement } from "@/lib/elements";
-import type { StoryScene } from "@/lib/scenes";
+import { scenePreviewPath, type StoryScene } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import type { StoryCardData, StorySession } from "@/lib/stories";
 
@@ -37,6 +37,8 @@ const sessions: StorySession[] = [
     status: "risen",
     startedAt: new Date("2026-03-20T19:00:00Z"),
     length: 150,
+    // Not the story's three: the row counts who came to this session.
+    playerCount: 4,
   },
   {
     idStorySession: 2,
@@ -45,6 +47,7 @@ const sessions: StorySession[] = [
     status: "called",
     startedAt: new Date("2026-03-13T19:00:00Z"),
     length: null,
+    playerCount: 2,
   },
 ];
 
@@ -187,6 +190,20 @@ const router = { push: mock.fn<(href: string) => void>(), refresh: mock.fn() };
 
 const createScene = mock.fn(async () => ({ ok: true as const }));
 const createElement = mock.fn(async () => ({ ok: true as const }));
+// The Timeline's +: the session as the action makes it, titled as asked.
+const createSession = mock.fn(async (_idStory: number, title: string) => ({
+  ok: true as const,
+  session: {
+    idStorySession: 9,
+    number: 3,
+    title,
+    // One of this workflow's, so the column's status pills let it through.
+    status: firstSession.key,
+    startedAt: new Date("2026-10-22T19:00:00Z"),
+    length: null,
+    playerCount: 0,
+  },
+}));
 
 let PrepBoard: typeof import("./prep-board").PrepBoard;
 
@@ -221,7 +238,12 @@ describe("PrepBoard", () => {
     // The Timeline's list imports its server action itself; mocked so the
     // board renders without a database.
     mock.module("@/app/(app)/(nav)/stories/actions", {
-      namedExports: { sa_listStorySessions: async () => [], sa_getStorySession: async () => null },
+      namedExports: {
+        sa_listStorySessions: async () => [],
+        sa_getStorySession: async () => null,
+        sa_createStorySession: createSession,
+        sa_getSessionForEdit: async () => null,
+      },
     });
     // The Attachments column loads and searches the story's attachments
     // itself and has a test file of its own; here it only has to show the
@@ -305,17 +327,13 @@ describe("PrepBoard", () => {
     );
   });
 
-  it("shows the columns in order, one per kind of element after Attachments, with a button to add one of its kind on all but the Timeline", () => {
+  it("shows the columns in order, one per kind of element after Attachments, each with a button to add one of its kind", () => {
     renderBoard();
 
     const regions = screen.getAllByRole("region");
     expect(regions.map((region) => region.getAttribute("data-column"))).toEqual(COLUMNS);
-    // A session begins at the table, through Play now, so the Timeline
-    // has nothing to add from here.
-    expect(
-      within(column("Timeline")).queryByRole("button", { name: "New session" }),
-    ).not.toBeInTheDocument();
     for (const [title, singular] of [
+      ["Timeline", "session"],
       ["Scenes", "scene"],
       ["Attachments", "attachment"],
       ["People", "person"],
@@ -330,6 +348,25 @@ describe("PrepBoard", () => {
     }
   });
 
+  it("makes a session from the Timeline's +, titled with the day, at the top with its panel open", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    await user.click(within(column("Timeline")).getByRole("button", { name: "New session" }));
+
+    await waitFor(() => expect(createSession.mock.callCount()).toBe(1));
+    const [idStory, title] = createSession.mock.calls[0].arguments;
+    expect(idStory).toBe(story.idStory);
+    // The Play button's default: the storyteller's own day.
+    expect(title).toMatch(/^[A-Z][a-z]{2} \d{1,2}, \d{4} session$/);
+    const items = within(column("Timeline")).getAllByRole("listitem");
+    expect(within(items[0]).getByText(`3. ${title}`)).toBeInTheDocument();
+    expect(within(items[0]).getByRole("button", { name: `Edit 3. ${title}` })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
   it("lists the sessions in the Timeline with date, player count and length", () => {
     renderBoard();
 
@@ -337,10 +374,11 @@ describe("PrepBoard", () => {
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText("Mar 20, 2026")).toBeInTheDocument();
     // A person and a number, as the story card shows it: the digit is what is
-    // seen, and "3 players" is the name it carries for anyone who cannot.
-    const players = within(items[0]).getByLabelText("3 players");
-    expect(players).toHaveTextContent("3");
-    expect(within(players).getByText("3 players")).toBeInTheDocument();
+    // seen, and "4 players" is the name it carries for anyone who cannot. The
+    // session's own count, as its info panel lists them, not the story's.
+    const players = within(items[0]).getByLabelText("4 players");
+    expect(players).toHaveTextContent("4");
+    expect(within(players).getByText("4 players")).toBeInTheDocument();
     expect(within(items[0]).getByText("2.5 hours")).toBeInTheDocument();
     // A session with no length yet says its status instead. The last status
     // of this workflow has nothing leading out of it, so its pill opens a
@@ -558,9 +596,12 @@ describe("PrepBoard", () => {
     expect(within(items[0]).getByText("A door of old iron.")).toBeInTheDocument();
     expect(within(items[0]).getByRole("button", { name: lastScene.label })).toBeInTheDocument();
     expect(within(items[2]).getByRole("button", { name: firstScene.label })).toBeInTheDocument();
-    // The panel behind each card is a closer look, so its button is a magnifying glass.
     const info = within(items[0]).getByRole("button", { name: "Scene info" });
-    expect(info.querySelector(".lucide-search")).toBeInTheDocument();
+    expect(info.querySelector(".lucide-info")).toBeInTheDocument();
+    // The preview opens in a tab of its own, so the board stays put.
+    const preview = within(items[0]).getByRole("link", { name: "Preview in a new tab" });
+    expect(preview).toHaveAttribute("href", scenePreviewPath(scenes[0].idStoryScene));
+    expect(preview).toHaveAttribute("target", "_blank");
   });
 
   it("names the sitting between the status and the date, with its full name behind it", async () => {
@@ -801,10 +842,11 @@ describe("PrepBoard", () => {
     );
 
     const [open, done] = within(column("Scenes")).getAllByRole("listitem");
-    expect(within(open).getByRole("link", { name: "Edit scene" })).toHaveAttribute(
-      "href",
-      `/scenes/${scenes[0].idStoryScene}/edit`,
-    );
+    const edit = within(open).getByRole("link", { name: "Edit scene" });
+    // The live-edit page, rather than the form.
+    expect(edit).toHaveAttribute("href", `/scenes/${scenes[0].idStoryScene}/live`);
+    // In a tab of its own, so the board stays where it was.
+    expect(edit).toHaveAttribute("target", "_blank");
     expect(within(done).queryByRole("link", { name: "Edit scene" })).not.toBeInTheDocument();
   });
 

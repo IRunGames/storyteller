@@ -409,6 +409,56 @@ describe("AttachmentListField", () => {
     expect(screen.getByText("No matches.")).toBeInTheDocument();
   });
 
+  it("draws a page of cards with More under them for the next, back to the first on a new search", async () => {
+    const user = userEvent.setup();
+    // Twelve links, newest first as the action orders them.
+    sa_listAttachments.mock.mockImplementation(async () =>
+      Array.from({ length: 12 }, (_, i) => ({
+        idAttachment: 100 + i,
+        kind: "STORY_SCENE" as const,
+        idExternal: SCENE_ID,
+        status: "READY" as const,
+        url: `https://example.com/${i}.jpg`,
+        isUploaded: false,
+        fileName: null,
+        isCover: false,
+        tags: [],
+      })),
+    );
+    const onCountChange = mock.fn<(count: number) => void>();
+
+    const { rerender } = renderWithProviders(
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        pageSize={5}
+        onCountChange={onCountChange}
+      />,
+    );
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(5));
+    // Every row is held and counted; only what is drawn is cut.
+    expect(onCountChange.mock.calls.at(-1)?.arguments[0]).toBe(12);
+
+    await user.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(10);
+    await user.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(12);
+    expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
+
+    // A search starts again from the first page of what it matched.
+    rerender(
+      <AttachmentListField
+        kind="STORY_SCENE"
+        idExternal={SCENE_ID}
+        pageSize={5}
+        onCountChange={onCountChange}
+        shownIds={new Set([100, 101, 102, 103, 104, 105, 106])}
+      />,
+    );
+    expect(screen.getAllByRole("listitem")).toHaveLength(5);
+    expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument();
+  });
+
   it("says there are none yet once an object with no attachments has loaded", async () => {
     renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} showEmpty />);
     expect(await screen.findByText("No attachments yet.")).toBeInTheDocument();

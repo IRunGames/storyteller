@@ -27,7 +27,7 @@ let playsIn = 0;
 let strangers = 0;
 let zed = 0;
 let strangersZed = 0;
-let sceneIds: number[] = [];
+const sceneIds: number[] = [];
 
 describe("element history actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {

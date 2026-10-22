@@ -39,6 +39,12 @@ export type RunScene = {
    * selector's list leaves them out.
    */
   text?: SceneText;
+  /**
+   * The sitting it was played in, as the Timeline heads it ("3. Kildealg"),
+   * or null for none. Carried by the selector's list, which shows it under
+   * the title.
+   */
+  sessionHeading?: string | null;
 };
 
 /**

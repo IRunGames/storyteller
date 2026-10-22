@@ -1458,8 +1458,9 @@ describe("RunTable", () => {
     const header = screen.getByRole("banner");
     expect(within(header).getByTitle("No active session")).toHaveTextContent("None");
     expect(within(header).queryByText("Open")).not.toBeInTheDocument();
-    // With no session there is no table to put a scene on.
-    expect(within(header).getByRole("button", { name: "Scene: None" })).toBeDisabled();
+    // The selector still opens, for Create new scene; its own test covers
+    // that the listed scenes cannot be chosen with no session.
+    expect(within(header).getByRole("button", { name: "Scene: None" })).toBeEnabled();
     expect(await screen.findByText("There is no active session.")).toBeInTheDocument();
   });
 });

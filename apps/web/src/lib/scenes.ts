@@ -114,9 +114,12 @@ export type SceneText = { description: string | null; notes: string | null };
 
 export const EMPTY_SCENE_TEXT: SceneText = { description: null, notes: null };
 
-/** What saving the panel hands back: the text as stored, or errors by field. */
+/**
+ * What saving the panel hands back: the text as stored, or errors by field.
+ * The live-edit page's panel renames the scene too, and has the title back.
+ */
 export type SetSceneTextResult =
-  { ok: true; text: SceneText } | { ok: false; errors: Record<string, string> };
+  { ok: true; text: SceneText; title?: string } | { ok: false; errors: Record<string, string> };
 
 /**
  * The address of a scene's preview: the scene as the players would see it,

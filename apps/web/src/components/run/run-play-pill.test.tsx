@@ -807,6 +807,25 @@ describe("RunPlayPill", () => {
     expect(within(preview).queryByText("No tags")).toBeNull();
   });
 
+  it("has no tack where there is no table to put the picture up on", () => {
+    // A scene's edit page hands the pill no tack handler.
+    renderWithProviders(
+      <RunPlayPill
+        idStory={-4}
+        idStoryScene={-15}
+        item={{ ...linked("READY"), imageUrl: "https://x.test/9.png" }}
+        stackTag="scene"
+        otherStacks={[]}
+        sceneStacks={["scene"]}
+        onRemove={() => {}}
+        onItemChange={() => {}}
+        onStatusChange={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Preview A hooded figure" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /picture to the players/ })).toBeNull();
+  });
+
   it("puts the picture up for the players from the tack over its thumbnail, and takes it down", async () => {
     const u = userEvent.setup();
     const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });

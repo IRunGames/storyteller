@@ -60,6 +60,27 @@ describe("SceneForm", () => {
         ),
       },
     });
+    // So is the elements column, which shows the run page's stacks.
+    mock.module("./scene-elements", {
+      namedExports: {
+        SceneElements: ({
+          idStoryScene,
+          initialTags,
+          initialItems,
+          locked,
+        }: {
+          idStoryScene: number;
+          initialTags: string[];
+          initialItems: unknown[];
+          locked: boolean;
+        }) => (
+          <p>
+            Elements of scene {idStoryScene} in {initialTags.join(", ")}: {initialItems.length}
+            {locked ? ", locked" : ""}
+          </p>
+        ),
+      },
+    });
     ({ SceneForm } = await import("./scene-form"));
   });
 
@@ -240,6 +261,68 @@ describe("SceneForm", () => {
     expect(sa_setRowStatus.mock.calls[0].arguments).toEqual(["story_scenes", 7, "COMPLETE"]);
     expect(await screen.findByText(/can no longer be changed/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  });
+
+  it("puts Cancel on the left and the action on the right, new and editing alike", () => {
+    // Before in the document is to the left in the button row.
+    const isBefore = (a: HTMLElement, b: HTMLElement) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+    const { unmount } = renderWithProviders(<SceneForm idStory={-15} sessions={sessions} />);
+    expect(
+      isBefore(
+        screen.getByRole("button", { name: "Cancel" }),
+        screen.getByRole("button", { name: "Create scene" }),
+      ),
+    ).toBe(true);
+    unmount();
+
+    renderWithProviders(
+      <SceneForm
+        idStory={-15}
+        sessions={sessions}
+        scene={{
+          idStoryScene: 7,
+          status: "PENDING",
+          values: { title: "The vault", description: "", idStorySession: null },
+        }}
+      />,
+    );
+    expect(
+      isBefore(
+        screen.getByRole("link", { name: "Cancel" }),
+        screen.getByRole("button", { name: "Save changes" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("hands the scene's elements to its third column, and tells it once the scene is complete", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <SceneForm
+        idStory={-15}
+        sessions={sessions}
+        statusOptions={statusOptions}
+        scene={{
+          idStoryScene: 7,
+          status: "PENDING",
+          values: { title: "The vault", description: "", idStorySession: null },
+        }}
+        elements={{ tags: ["elements", "scene"], items: [{}, {}] as never[] }}
+      />,
+    );
+    expect(screen.getByText("Elements of scene 7 in elements, scene: 2")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Pending" }));
+    await choose(user, await screen.findByRole("menuitem", { name: "Complete" }));
+    expect(
+      await screen.findByText("Elements of scene 7 in elements, scene: 2, locked"),
+    ).toBeInTheDocument();
+  });
+
+  it("has no elements column on a new scene", () => {
+    renderWithProviders(<SceneForm idStory={-15} sessions={sessions} />);
+    expect(screen.queryByText(/Elements of scene/)).not.toBeInTheDocument();
   });
 
   it("has no status pill on a new scene", () => {

@@ -6,7 +6,6 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { hasOpenSession } from "@/db/open-session";
-import { sessionNumber } from "@/db/session-number";
 import { presentCount, waitingCount } from "@/db/session-player-counts";
 import { requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
@@ -18,9 +17,12 @@ import {
   type PlayerMatch,
   type StoryCardData,
   type StoryPlayer,
+  type SessionForEdit,
   type StorySession,
   type StorySessionDetail,
+  type UpdateSessionResult,
 } from "@/lib/stories";
+import { sessionEditSchema } from "@/lib/session-schemas";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
 
 const {
@@ -31,6 +33,7 @@ const {
   storyScenes,
   storySessions,
   user: users,
+  vStorySessions,
 } = schema;
 
 // Every export here is a server action: it is the only way the Stories pages
@@ -72,6 +75,23 @@ const playerCount = sql<number>`(
 // the account menu uses (nickname, else name), and NULLIF so a nickname that
 // was blanked out does not win over the name.
 const playerName = sql<string>`coalesce(nullif(${users.nickName}, ''), ${users.name})`;
+
+// One session row as every session list shows it, read from v_story_sessions,
+// which numbers each session in its story and counts who came as the info
+// panel lists them, so the Timeline's row and the panel never disagree. A
+// view's columns are all nullable to Drizzle; these are never null for a row
+// of the table it reads, so each is typed as the table has it.
+const sessionColumns = {
+  idStorySession: sql<number>`${vStorySessions.idStorySession}`,
+  number: sql<number>`${vStorySessions.sessionNumber}`.mapWith(Number),
+  title: vStorySessions.title,
+  status: sql<string>`${vStorySessions.status}`,
+  // created_at is nullable in the schema because every audit column is,
+  // but the database always stamps it; the view type wants a Date.
+  startedAt: sql<Date>`${vStorySessions.createdAt}`.mapWith(vStorySessions.createdAt),
+  length: vStorySessions.length,
+  playerCount: sql<number>`${vStorySessions.playerCount}`.mapWith(Number),
+};
 
 // One projection shared by every list and by sa_getStory, so the card never sees
 // a shape that differs by section.
@@ -382,21 +402,12 @@ export async function sa_listStorySessions(
 
   return (
     db
-      .select({
-        idStorySession: storySessions.idStorySession,
-        number: sessionNumber(),
-        title: storySessions.title,
-        status: storySessions.status,
-        // created_at is nullable in the schema because every audit column is,
-        // but the database always stamps it; the view type wants a Date.
-        startedAt: sql<Date>`${storySessions.createdAt}`.mapWith(storySessions.createdAt),
-        length: storySessions.length,
-      })
-      .from(storySessions)
-      .where(eq(storySessions.idStory, id.data))
+      .select(sessionColumns)
+      .from(vStorySessions)
+      .where(eq(vStorySessions.idStory, id.data))
       // Sessions opened in one statement share a created_at, so the id
       // breaks the tie and a page never repeats or skips a row.
-      .orderBy(desc(storySessions.createdAt), desc(storySessions.idStorySession))
+      .orderBy(desc(vStorySessions.createdAt), desc(vStorySessions.idStorySession))
       .limit(take)
       .offset(skip)
   );
@@ -440,32 +451,29 @@ export async function sa_getStorySession(
 
   const [row] = await db
     .select({
-      idStorySession: storySessions.idStorySession,
-      startedAt: sql<Date>`${storySessions.createdAt}`.mapWith(storySessions.createdAt),
-      title: storySessions.title,
-      status: storySessions.status,
-      length: storySessions.length,
-      imageLink: attachmentUrl("STORY_SESSION", "story_sessions", "id_story_session"),
-      summary: storySessions.summary,
-      notes: storySessions.notes,
-      lingeringQuestions: storySessions.lingeringQuestions,
-      idUsers: storySessions.idUsers,
+      ...sessionColumns,
+      imageLink: attachmentUrl("STORY_SESSION", "v_story_sessions", "id_story_session"),
+      summary: vStorySessions.summary,
+      notes: vStorySessions.notes,
+      lingeringQuestions: vStorySessions.lingeringQuestions,
+      idUsers: vStorySessions.idUsers,
       idStoryteller: stories.idCreatedByUser,
-      number: sessionNumber(),
     })
-    .from(storySessions)
-    .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
-    .where(eq(storySessions.idStorySession, id.data))
+    .from(vStorySessions)
+    .innerJoin(stories, eq(stories.idStory, vStorySessions.idStory))
+    .where(eq(vStorySessions.idStorySession, id.data))
     .limit(1);
   if (!row) return null;
 
+  // Never null for a row of the table; the view's type only says it might be.
+  const idUsers = row.idUsers ?? [];
   const players =
-    row.idUsers.length === 0
+    idUsers.length === 0
       ? []
       : await db
           .select({ idUser: users.id, name: playerName, image: users.image })
           .from(users)
-          .where(inArray(users.id, row.idUsers))
+          .where(inArray(users.id, idUsers))
           .orderBy(asc(playerName));
 
   const isStoryteller = row.idStoryteller === user.id;
@@ -696,4 +704,210 @@ export async function sa_setFavorite(
   }
 
   return { isFavorite: wanted };
+}
+
+// The Timeline's session controls, for the story's storyteller alone. A
+// session that is not there and one on someone else's story are the same
+// answer, as the board's other reads give.
+
+const NOT_YOUR_SESSION = "That session is not one of your story's.";
+
+/** The session's story and status when the caller tells that story, or null. */
+async function ownedSession(
+  userId: string,
+  idStorySession: number,
+): Promise<{ idStory: number; status: string } | null> {
+  const [row] = await db
+    .select({
+      idStory: storySessions.idStory,
+      status: storySessions.status,
+      owner: stories.idCreatedByUser,
+    })
+    .from(storySessions)
+    .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
+    .where(eq(storySessions.idStorySession, idStorySession))
+    .limit(1);
+  if (!row || row.owner !== userId) return null;
+  return { idStory: row.idStory, status: row.status };
+}
+
+export type CreateSessionResult =
+  { ok: true; session: StorySession } | { ok: false; error: string };
+
+// The day's title the Timeline's + sends, held to what the column takes.
+const newSessionTitleSchema = z.string().trim().min(1).max(200);
+
+/**
+ * The Timeline's +: a new session on a story the caller tells, titled as
+ * the Play button's new session is (sa_startPlaying), with the name the
+ * browser builds from the storyteller's own day ("Oct 22, 2026 session").
+ * Unlike starting one, it does not become the story's current session and
+ * no table opens: it is written ahead from the board, so it starts
+ * SUSPENDED, waiting to be resumed from Play, where the picker offers it.
+ *
+ * It goes in with the workflow's starting status and is then moved to
+ * SUSPENDED, rather than inserted as SUSPENDED, so the workflow stamps
+ * open_at and then suspended_at as it does for a session paused at the
+ * table, and resuming it later counts the wait as paused rather than played.
+ */
+export async function sa_createStorySession(
+  idStory: number,
+  title: string,
+): Promise<CreateSessionResult> {
+  const user = await requireUser();
+  const id = idStorySchema.safeParse(idStory);
+  const name = newSessionTitleSchema.safeParse(title);
+  if (!id.success || !name.success) return { ok: false, error: "That session could not be made." };
+
+  const [story] = await db
+    .select({ owner: stories.idCreatedByUser })
+    .from(stories)
+    .where(eq(stories.idStory, id.data))
+    .limit(1);
+  if (story?.owner !== user.id) {
+    return { ok: false, error: "Only the storyteller can add sessions to this story." };
+  }
+
+  const created = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(storySessions)
+      .values({
+        idStory: id.data,
+        title: name.data,
+        idCreatedByUser: user.id,
+        idUpdatedByUser: user.id,
+      })
+      .returning({ id: storySessions.idStorySession });
+    await tx
+      .update(storySessions)
+      .set({ status: "SUSPENDED", idUpdatedByUser: user.id })
+      .where(eq(storySessions.idStorySession, row.id));
+    return row;
+  });
+
+  const [session] = await db
+    .select(sessionColumns)
+    .from(vStorySessions)
+    .where(eq(vStorySessions.idStorySession, created.id))
+    .limit(1);
+  return { ok: true, session };
+}
+
+/**
+ * A session as the Timeline's edit panel holds it, with every scene of its
+ * story and the sitting each is in, or null for one the caller does not
+ * tell. The scenes run oldest first, the order the board wrote them in.
+ */
+export async function sa_getSessionForEdit(idStorySession: number): Promise<SessionForEdit | null> {
+  const user = await requireUser();
+  const id = idStorySchema.safeParse(idStorySession);
+  if (!id.success) return null;
+
+  const [row] = await db
+    .select({
+      idStory: storySessions.idStory,
+      status: storySessions.status,
+      title: storySessions.title,
+      summary: storySessions.summary,
+      notes: storySessions.notes,
+      lingeringQuestions: storySessions.lingeringQuestions,
+      owner: stories.idCreatedByUser,
+    })
+    .from(storySessions)
+    .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
+    .where(eq(storySessions.idStorySession, id.data))
+    .limit(1);
+  if (!row || row.owner !== user.id) return null;
+
+  const scenes = await db
+    .select({
+      idStoryScene: storyScenes.idStoryScene,
+      title: storyScenes.sceneTitle,
+      status: storyScenes.status,
+      idStorySession: storyScenes.idStorySession,
+    })
+    .from(storyScenes)
+    .where(eq(storyScenes.idStory, row.idStory))
+    .orderBy(asc(storyScenes.createdAt), asc(storyScenes.idStoryScene));
+
+  return {
+    idStorySession: id.data,
+    idStory: row.idStory,
+    status: row.status,
+    values: {
+      title: row.title ?? "",
+      summary: row.summary ?? "",
+      notes: row.notes ?? "",
+      lingeringQuestions: row.lingeringQuestions ?? "",
+    },
+    scenes,
+  };
+}
+
+/**
+ * Saves the Timeline's edit panel over a session the caller tells: its
+ * title, summary, notes and lingering questions, each cleared when empty.
+ * Any status may be written up, a DONE one most of all. Field errors come
+ * back for the form, and a session that is not the caller's as `root`.
+ */
+export async function sa_updateStorySession(
+  idStorySession: number,
+  input: unknown,
+): Promise<UpdateSessionResult> {
+  const user = await requireUser();
+  const id = idStorySchema.safeParse(idStorySession);
+  if (!id.success) return { ok: false, errors: { root: NOT_YOUR_SESSION } };
+  if ((await ownedSession(user.id, id.data)) === null) {
+    return { ok: false, errors: { root: NOT_YOUR_SESSION } };
+  }
+
+  const parsed = sessionEditSchema.safeParse(input);
+  if (!parsed.success) {
+    const errors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) errors[issue.path.join(".")] ??= issue.message;
+    return { ok: false, errors };
+  }
+  const values = parsed.data;
+
+  await db
+    .update(storySessions)
+    .set({
+      title: values.title,
+      summary: values.summary || null,
+      notes: values.notes || null,
+      lingeringQuestions: values.lingeringQuestions || null,
+      idUpdatedByUser: user.id,
+    })
+    .where(eq(storySessions.idStorySession, id.data));
+  return { ok: true, title: values.title };
+}
+
+export type DeleteSessionResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * The Timeline's delete, for a session the caller tells that is not DONE: a
+ * finished session is the record of what was played, so it stays. The
+ * database lets go of what pointed at it: its scenes keep their place in
+ * the story with no sitting (story_scenes.id_story_session is ON DELETE SET
+ * NULL), the story's current session is cleared if it was this one
+ * (stories.id_story_session, the same), and who was waiting for it or at it
+ * goes with it (session_players, ON DELETE CASCADE). The DONE check is in
+ * the DELETE's WHERE too, so a session finished since the read is kept.
+ */
+export async function sa_deleteStorySession(idStorySession: number): Promise<DeleteSessionResult> {
+  const user = await requireUser();
+  const id = idStorySchema.safeParse(idStorySession);
+  if (!id.success) return { ok: false, error: NOT_YOUR_SESSION };
+
+  const session = await ownedSession(user.id, id.data);
+  if (session === null) return { ok: false, error: NOT_YOUR_SESSION };
+  const done = "A DONE session is the record of what was played, so it cannot be deleted.";
+  if (session.status === "DONE") return { ok: false, error: done };
+
+  const deleted = await db
+    .delete(storySessions)
+    .where(and(eq(storySessions.idStorySession, id.data), not(eq(storySessions.status, "DONE"))))
+    .returning({ id: storySessions.idStorySession });
+  if (deleted.length === 0) return { ok: false, error: done };
+  return { ok: true };
 }

@@ -3,25 +3,17 @@
 import { useState } from "react";
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Box,
-  Button,
-  Flex,
-  Heading,
-  HStack,
-  Link,
-  Stack,
-} from "@chakra-ui/react";
+import { Box, Button, Flex, Heading, HStack, Link, Stack } from "@chakra-ui/react";
 import { Maximize } from "lucide-react";
+import { formatDay } from "@/lib/dates";
 import type { ElementKind, StoryElement } from "@/lib/elements";
+import { newSessionTitle } from "@/lib/play";
 import type { StoryScene } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
-import {
-  PREP_SESSIONS_PAGE_SIZE,
-  type StoryCardData,
-  type StorySession,
-} from "@/lib/stories";
+import { PREP_SESSIONS_PAGE_SIZE, type StoryCardData, type StorySession } from "@/lib/stories";
+import { sa_createStorySession } from "@/app/(app)/(nav)/stories/actions";
 import { StorySessions } from "@/components/stories/story-sessions";
+import { toaster } from "@/components/ui/toaster";
 import {
   ELEMENT_COLUMNS,
   PREP_COLUMNS,
@@ -101,13 +93,33 @@ export function PrepBoard({
     setReloadKeys((current) => ({ ...current, [title]: (current[title] ?? 0) + 1 }));
     router.refresh();
   }
+  // The Timeline's + makes the session straight away, titled with the
+  // storyteller's own day as the Play button's new session is, and SUSPENDED
+  // until it is resumed from Play (sa_createStorySession). The list puts it at
+  // the top with its edit panel open, for anything more.
+  const [createdSession, setCreatedSession] = useState<StorySession | null>(null);
+  async function createSession() {
+    try {
+      const result = await sa_createStorySession(
+        story.idStory,
+        newSessionTitle(formatDay(new Date())),
+      );
+      if (!result.ok) {
+        toaster.create({ title: result.error, type: "error" });
+        return;
+      }
+      setCreatedSession(result.session);
+      router.refresh();
+    } catch {
+      toaster.create({ title: "The session could not be made. Try again.", type: "error" });
+    }
+  }
   // Where that column's adding controls are drawn: an empty box above its
   // filters, there only while they are open. The controls themselves stay
   // part of the attachments field, which owns the rows they add to and the
   // uploads in flight; it draws them into this box through a portal. A
   // callback ref into state, so the field re-renders once the box exists.
-  const [attachmentAdderSlot, setAttachmentAdderSlot] =
-    useState<HTMLDivElement | null>(null);
+  const [attachmentAdderSlot, setAttachmentAdderSlot] = useState<HTMLDivElement | null>(null);
   // The Attachments column loads its own rows in the browser, so the page has
   // no count to hand down for it; the column reports one once it has them,
   // and again as rows are added or deleted there. Null until then, which
@@ -139,12 +151,8 @@ export function PrepBoard({
     ...Object.fromEntries(ELEMENT_COLUMNS.map((column) => [column.title, elementStatusOptions])),
   };
 
-  const hidden = PREP_COLUMNS.filter(
-    (column) => modes[column.title] === "hidden",
-  );
-  const visible = PREP_COLUMNS.filter(
-    (column) => modes[column.title] !== "hidden",
-  );
+  const hidden = PREP_COLUMNS.filter((column) => modes[column.title] === "hidden");
+  const visible = PREP_COLUMNS.filter((column) => modes[column.title] !== "hidden");
 
   return (
     <Stack flex="1" gap="4" py="6">
@@ -190,25 +198,16 @@ export function PrepBoard({
               singular={column.singular}
               count={shownCounts[column.title] ?? null}
               statusOptions={COLUMN_WORKFLOWS[column.title]}
-              filterLabel={
-                column.title === "Attachments"
-                  ? "Filter Attachments"
-                  : undefined
-              }
+              filterLabel={column.title === "Attachments" ? "Filter Attachments" : undefined}
               mode={mode}
               width={column.width}
               expandable={column.expandable}
               creatable={column.creatable}
               bordered={index > 0}
-              creating={
-                column.title === "Attachments" ? addingAttachments : undefined
-              }
+              creating={column.title === "Attachments" ? addingAttachments : undefined}
               aboveFilters={
                 column.title === "Attachments" && addingAttachments ? (
-                  <Box
-                    ref={setAttachmentAdderSlot}
-                    data-testid="attachment-adder"
-                  />
+                  <Box ref={setAttachmentAdderSlot} data-testid="attachment-adder" />
                 ) : undefined
               }
               // Scenes are written on a page of their own, which comes back
@@ -221,6 +220,8 @@ export function PrepBoard({
               onCreate={() => {
                 if (column.title === "Attachments") {
                   setAddingAttachments((open) => !open);
+                } else if (column.title === "Timeline") {
+                  void createSession();
                 } else if (column.title === "Scenes") {
                   setCreating({ type: "scene" });
                 } else {
@@ -241,7 +242,9 @@ export function PrepBoard({
                       idStory={story.idStory}
                       initial={sessions}
                       pageSize={PREP_SESSIONS_PAGE_SIZE}
-                      playerCount={story.playerCount}
+                      showPlayers
+                      canManage={story.isOwner}
+                      created={createdSession}
                       filter={filter.query}
                       shownStatuses={filter.statuses}
                       statusOptions={sessionStatusOptions}

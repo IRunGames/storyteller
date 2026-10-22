@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Box, Button, HStack, List, Stack, Text } from "@chakra-ui/react";
-import { ChevronsRight } from "lucide-react";
+import { ChevronsRight, Pencil } from "lucide-react";
 import { matchesFilter } from "@/lib/filter-text";
 import { statusLabel, type StatusOption } from "@/lib/status";
 import {
@@ -18,6 +18,9 @@ import { sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { PlayerCount } from "./player-count";
 import { LocalDate } from "@/components/dates/local-date";
+import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { DeleteSessionButton } from "./delete-session-button";
+import { SessionEditPanel } from "./session-edit-panel";
 import { SessionInfoPopover } from "./session-info-popover";
 
 type Props = {
@@ -41,11 +44,22 @@ type Props = {
   /** The colour for secondary text; the story page passes the panel's. */
   mutedColor?: string;
   /**
-   * Shown on every row when given. A session does not record who attended,
-   * so the Prep Work timeline passes the story's current player count and
-   * every row reads the same until sessions keep their own.
+   * Each row shows how many came to its session, counted as the session's
+   * info panel lists them. The Prep Work timeline has the room for it.
    */
-  playerCount?: number;
+  showPlayers?: boolean;
+  /**
+   * The storyteller's controls on each row: a pencil that opens the
+   * session's edit panel in place under it (SessionEditPanel), and a bin
+   * that deletes it once asked (DeleteSessionButton). The Prep Work
+   * timeline's, for the story's owner.
+   */
+  canManage?: boolean;
+  /**
+   * A session just made from the column's +: it goes in at the top, as the
+   * newest, with its edit panel open, until the page's next load has it.
+   */
+  created?: StorySession | null;
   /**
    * What the Prep Work column's search box holds. A row stays when any of
    * its text matches: the date, the player count, the length or the status.
@@ -68,8 +82,10 @@ type Props = {
 // The list under Recent sessions on a story's page, and the Prep Work
 // timeline. The page hands over the first five; the rest come from the same
 // action on More, a page at a time. A page shorter than SESSIONS_PAGE_SIZE
-// means the well is dry, and nothing here is ever added or removed on the
-// client, so the count of rows shown is also the offset of the next page.
+// means the well is dry, and the count of rows shown is also the offset of
+// the next page. That holds for the rows the storyteller makes and deletes
+// here too: a new session is the newest, so it is first in the server's
+// order as it is here, and a deleted one leaves both lists alike.
 export function StorySessions({
   idStory,
   initial,
@@ -78,7 +94,9 @@ export function StorySessions({
   shownStatuses,
   canEditStatus = false,
   mutedColor = "fg.muted",
-  playerCount,
+  showPlayers = false,
+  canManage = false,
+  created = null,
   filter = "",
   showTitles = false,
 }: Props) {
@@ -86,6 +104,23 @@ export function StorySessions({
   const [hasMore, setHasMore] = useState(initial.length === pageSize);
   const [isLoadingMore, setLoadingMore] = useState(false);
   const [, startTransition] = useTransition();
+  // The row whose edit panel is open, by id, or null for none.
+  const [editing, setEditing] = useState<number | null>(null);
+
+  // A session made from the +: at the top with its panel open. Taken in
+  // while rendering, as React has state follow a prop that changed, rather
+  // than in an effect that would draw the list once without it. Matched by
+  // id, so one the page's own load already has goes in once.
+  const [seenCreated, setSeenCreated] = useState(created);
+  if (created !== seenCreated) {
+    setSeenCreated(created);
+    if (created) {
+      if (!sessions.some((session) => session.idStorySession === created.idStorySession)) {
+        setSessions([created, ...sessions]);
+      }
+      setEditing(created.idStorySession);
+    }
+  }
 
   function onMore() {
     const offset = sessions.length;
@@ -113,6 +148,22 @@ export function StorySessions({
     );
   }
 
+  // The panel's Save: the row's heading follows the title as stored.
+  function onSaved(idStorySession: number, title: string | null) {
+    setSessions((current) =>
+      current.map((session) =>
+        session.idStorySession === idStorySession ? { ...session, title } : session,
+      ),
+    );
+  }
+
+  function onDeleted(idStorySession: number) {
+    setSessions((current) =>
+      current.filter((session) => session.idStorySession !== idStorySession),
+    );
+    setEditing((current) => (current === idStorySession ? null : current));
+  }
+
   if (sessions.length === 0) {
     return <Text color={mutedColor}>No sessions yet.</Text>;
   }
@@ -127,7 +178,7 @@ export function StorySessions({
       date: formatLastPlayed(session.startedAt),
       // The row shows a person and a number; the words are what a search for
       // "3 players" has to match, so they stay in the text behind it.
-      players: playerCount === undefined ? null : formatPlayerCount(playerCount),
+      players: showPlayers ? formatPlayerCount(session.playerCount) : null,
       // The length is generated once the session is done. Where a pill shows
       // the status there is nothing to put in its place before then; where
       // there is no pill, the status text says why there is no length.
@@ -171,8 +222,8 @@ export function StorySessions({
                 <Text>
                   <LocalDate value={session.startedAt} />
                 </Text>
-                {playerCount !== undefined && (
-                  <PlayerCount count={playerCount} color={mutedColor} flex="none" />
+                {showPlayers && (
+                  <PlayerCount count={session.playerCount} color={mutedColor} flex="none" />
                 )}
                 {length !== null && (
                   <Text color={session.length === null ? mutedColor : undefined}>{length}</Text>
@@ -192,7 +243,39 @@ export function StorySessions({
                   color={mutedColor}
                   onStatusChanged={(status) => onStatusChanged(session.idStorySession, status)}
                 />
+                {canManage && (
+                  <HStack gap="0" flex="none">
+                    <PrepIconButton
+                      label={`Edit ${sessionHeading(session)}`}
+                      expanded={editing === session.idStorySession}
+                      onClick={() =>
+                        setEditing((current) =>
+                          current === session.idStorySession ? null : session.idStorySession,
+                        )
+                      }
+                    >
+                      <Pencil />
+                    </PrepIconButton>
+                    <DeleteSessionButton
+                      idStorySession={session.idStorySession}
+                      heading={sessionHeading(session)}
+                      status={session.status}
+                      onDeleted={() => onDeleted(session.idStorySession)}
+                    />
+                  </HStack>
+                )}
               </HStack>
+              {/* In place under its row, on a faint tint so it reads as the
+                  row's own rather than the next one. */}
+              {canManage && editing === session.idStorySession && (
+                <Box mt="2" mb="2" p="3" rounded="md" bg="bg.subtle">
+                  <SessionEditPanel
+                    idStorySession={session.idStorySession}
+                    onSaved={(title) => onSaved(session.idStorySession, title)}
+                    onClose={() => setEditing(null)}
+                  />
+                </Box>
+              )}
             </List.Item>
           ))}
         </List.Root>

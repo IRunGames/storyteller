@@ -22,9 +22,17 @@ type Props = {
   /** An item has been edited from its info popover. */
   onItemChange: (item: PlayItem) => void;
   /** The key of the item whose picture the storyteller last put up on the players' table, or null. */
-  pictureUpKey: string | null;
-  /** An item's tack was pressed: its picture goes up or comes down. */
-  onPictureUpChange: (key: string, up: boolean) => void;
+  pictureUpKey?: string | null;
+  /**
+   * An item's tack was pressed: its picture goes up or comes down. Left out
+   * away from the table, where the pills have no tack.
+   */
+  onPictureUpChange?: (key: string, up: boolean) => void;
+  /**
+   * The stack takes the width it is given rather than its own: a column of
+   * the scene's edit page, where the stacks are one under another.
+   */
+  fullWidth?: boolean;
   /** The scene is complete: each pill is there to read, with nothing that changes it. */
   locked?: boolean;
 };
@@ -54,9 +62,10 @@ export function RunPlayStack({
   onRemove,
   onStatusChange,
   onItemChange,
-  pictureUpKey,
+  pictureUpKey = null,
   onPictureUpChange,
   locked = false,
+  fullWidth = false,
 }: Props) {
   const headingId = useId();
 
@@ -67,7 +76,7 @@ export function RunPlayStack({
       gap="2"
       // 22rem, between Chakra's xs (20rem) and sm (24rem): a pill's eye, +,
       // name, info and ✕ need a little more than xs gave them.
-      w={{ base: "full", md: "22rem" }}
+      w={fullWidth ? "full" : { base: "full", md: "22rem" }}
       flexShrink="0"
     >
       {/* The tag and its + stand out from the cover by a halo in the page's
@@ -90,7 +99,9 @@ export function RunPlayStack({
         >
           {stack.title}
         </Heading>
-        {idStoryScene !== null && (
+        {/* No + on a complete scene, which takes nothing new: the action
+            would refuse it anyway. */}
+        {idStoryScene !== null && !locked && (
           <RunNewElementPopover
             idStory={idStory}
             idStoryScene={idStoryScene}

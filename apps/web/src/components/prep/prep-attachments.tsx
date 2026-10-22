@@ -5,6 +5,9 @@ import { SCENE_SEARCH_DELAY_MS } from "@/lib/scenes";
 import { sa_searchAttachments } from "@/components/uploads/actions";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
 
+// How many cards the column draws before its More button.
+const ATTACHMENTS_PAGE_SIZE = 10;
+
 type Props = {
   idStory: number;
   /** What the column's search box holds. */
@@ -31,6 +34,10 @@ type Props = {
  * matched; the field already holds every row and only narrows what it draws.
  * The column's + opens the same link input and dropzone the story page has,
  * drawn above the column's filters.
+ *
+ * Ten cards are drawn at first, with More under them for ten more, as the
+ * board's other columns page: a story's attachments run long, and every
+ * card drawn fetches its picture.
  */
 export function PrepAttachments({
   idStory,
@@ -76,6 +83,7 @@ export function PrepAttachments({
       hideCovers={!showCovers}
       showEmpty
       onCountChange={onCountChange}
+      pageSize={ATTACHMENTS_PAGE_SIZE}
     />
   );
 }

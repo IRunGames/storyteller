@@ -55,6 +55,7 @@ import { runSceneSchema, sceneTextSchema } from "@/lib/scene-schemas";
 import { SCENE_LOCKED_STATUS, type SetSceneTextResult } from "@/lib/scenes";
 import { sessionTitleSchema } from "@/lib/session-schemas";
 import { sceneStacksSchema, stacksSchema } from "@/lib/stack-schemas";
+import { sessionHeading } from "@/lib/stories";
 
 const {
   attachments,
@@ -65,6 +66,7 @@ const {
   storyScenes,
   storySessions,
   vSceneElements,
+  vStoryScenes,
 } = schema;
 
 // The same int4 range as everywhere a story or scene id comes in.
@@ -476,16 +478,53 @@ export async function sa_listRunScenes(idStory: number): Promise<RunScene[]> {
   if (!id.success) return [];
   if (!(await ownsStory(user.id, id.data))) return [];
 
-  return db
+  // The view, for the sitting each scene was played in as the Timeline
+  // numbers it, which the selector shows under the title.
+  const rows = await db
     .select({
-      idStoryScene: storyScenes.idStoryScene,
-      title: storyScenes.sceneTitle,
-      status: storyScenes.status,
+      idStoryScene: vStoryScenes.idStoryScene,
+      title: vStoryScenes.sceneTitle,
+      status: vStoryScenes.status,
+      idStorySession: vStoryScenes.idStorySession,
+      sessionNumber: vStoryScenes.sessionNumber,
+      sessionTitle: vStoryScenes.sessionTitle,
     })
-    .from(storyScenes)
-    .where(eq(storyScenes.idStory, id.data))
-    .orderBy(desc(storyScenes.updatedAt), desc(storyScenes.idStoryScene))
+    .from(vStoryScenes)
+    .where(eq(vStoryScenes.idStory, id.data))
+    .orderBy(desc(vStoryScenes.updatedAt), desc(vStoryScenes.idStoryScene))
     .limit(RUN_SCENES_LIST_SIZE);
+  return rows.map((row) => ({
+    idStoryScene: row.idStoryScene!,
+    title: row.title!,
+    status: row.status!,
+    sessionHeading:
+      row.idStorySession === null || row.sessionNumber === null
+        ? null
+        : sessionHeading({ number: row.sessionNumber, title: row.sessionTitle }),
+  }));
+}
+
+/**
+ * One scene's play space for its edit page, where its elements are shown in
+ * their stacks beside the form: the same space the table would load, read
+ * as it stands. Unlike sa_loadRunScene it needs no session and moves
+ * nothing, since editing a scene is preparation, not playing it.
+ *
+ * Empty for a scene that is not this story's or a caller who is not its
+ * storyteller, which are one answer, as sa_getRunPlaySpace gives.
+ */
+export async function sa_getScenePlaySpace(
+  idStory: number,
+  idStoryScene: number,
+): Promise<RunPlaySpace> {
+  const user = await requireUser();
+
+  const story = idSchema.safeParse(idStory);
+  const scene = idSchema.safeParse(idStoryScene);
+  if (!story.success || !scene.success) return EMPTY;
+  if ((await ownedScene(user.id, story.data, scene.data)) === null) return EMPTY;
+
+  return spaceFor(story.data, scene.data);
 }
 
 export type LoadRunSceneResult = { ok: true; space: RunPlaySpace } | { ok: false; error: string };
@@ -540,8 +579,11 @@ export type CreateRunSceneResult =
  * being played, and puts the table on it at once, ACTIVE: a scene made at
  * the table is made to be played now. It is inserted with the workflow's
  * default and then moved, so the move stamps active_at as any other does.
+ * With no session being played the scene is made all the same, in the
+ * workflow's default and in no sitting, as the board's New scene makes one,
+ * and the table shows it to be prepared; nothing is made active.
  *
- * Field errors come back for the form, and a missing session as `root`.
+ * Field errors come back for the form.
  * Throws for a story the caller does not tell, as sa_createStoryScene does:
  * the page never offers the form to anyone else.
  */
@@ -563,7 +605,6 @@ export async function sa_createRunScene(
   }
 
   const session = await playingSession(user.id, id);
-  if (session === null) return { ok: false, errors: { root: NO_SESSION } };
 
   const [created] = await db
     .insert(storyScenes)
@@ -577,8 +618,47 @@ export async function sa_createRunScene(
     })
     .returning({ idStoryScene: storyScenes.idStoryScene });
 
-  await putSessionOn(user.id, session, created.idStoryScene);
-  publishLater(() => publishSceneChanged(id));
+  if (session !== null) {
+    await putSessionOn(user.id, session, created.idStoryScene);
+    publishLater(() => publishSceneChanged(id));
+  }
+  return { ok: true, space: await spaceFor(id, created.idStoryScene) };
+}
+
+/**
+ * The same Create new scene from the live-edit page's selector, which makes
+ * the scene to be prepared rather than played: in the workflow's default
+ * and in no sitting, whether or not a session is being played, and with
+ * the session left on whatever scene it was on. The page then goes to the
+ * new scene's own live-edit page.
+ *
+ * Field errors come back for the form. Throws for a story the caller does
+ * not tell, as sa_createRunScene does.
+ */
+export async function sa_createLiveScene(
+  idStory: number,
+  input: unknown,
+): Promise<CreateRunSceneResult> {
+  const user = await requireUser();
+  const id = idSchema.parse(idStory);
+  if (!(await ownsStory(user.id, id))) {
+    throw new Error("Only the storyteller who created a story can add scenes to it");
+  }
+
+  const parsed = runSceneSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error.issues) };
+
+  const [created] = await db
+    .insert(storyScenes)
+    .values({
+      idStory: id,
+      sceneTitle: parsed.data.title,
+      sceneDescription: parsed.data.description || null,
+      idCreatedByUser: user.id,
+      idUpdatedByUser: user.id,
+    })
+    .returning({ idStoryScene: storyScenes.idStoryScene });
+
   return { ok: true, space: await spaceFor(id, created.idStoryScene) };
 }
 

@@ -178,11 +178,27 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       idStoryScene: ids[10],
       title: "Fixture listed scene 11",
       status: "PENDING",
+      sessionHeading: null,
     });
     expect(listed.map((row) => row.idStoryScene)).not.toContain(ids[0]);
     expect(listed.map((row) => row.idStoryScene)).not.toContain(theirScene);
 
     await db.delete(tables.storyScenes).where(inArray(tables.storyScenes.idStoryScene, ids));
+  });
+
+  it("names the sitting each listed scene was played in, as the Timeline heads it", async () => {
+    const session = await openSession(mine, null, "DONE");
+    const played = await sceneIn("COMPLETE", "Fixture played scene");
+    await db
+      .update(tables.storyScenes)
+      .set({ idStorySession: session })
+      .where(eq(tables.storyScenes.idStoryScene, played));
+
+    const listed = await actions.sa_listRunScenes(mine);
+    // The story's only sitting, with no title of its own.
+    expect(listed.find((row) => row.idStoryScene === played)?.sessionHeading).toBe("Session 1");
+
+    await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, played));
   });
 
   it("lists no scenes for anyone but the storyteller", async () => {
@@ -260,6 +276,32 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     });
   });
 
+  it("reads a scene's play space for its edit page without a session, and moves nothing", async () => {
+    const pending = await sceneIn("PENDING");
+
+    expect(await actions.sa_getScenePlaySpace(mine, pending)).toEqual({
+      scene: {
+        idStoryScene: pending,
+        title: "Fixture pending scene",
+        status: "PENDING",
+        text: { description: null, notes: null },
+      },
+      tags: DEFAULT_TAGS,
+      coverUrl: null,
+      inPlay: [],
+    });
+    // Only read: the scene is not made active or recorded as played.
+    expect(await sceneRow(pending)).toEqual({ status: "PENDING", idStorySession: null });
+
+    const space = await actions.sa_getScenePlaySpace(mine, scene);
+    expect(space.inPlay.map(elementIdOf)).toEqual([zed, abbey]);
+  });
+
+  it("reads no play space for another story's scene, nor for anyone but its storyteller", async () => {
+    expect(await actions.sa_getScenePlaySpace(mine, theirScene)).toEqual(EMPTY);
+    expect(await actions.sa_getScenePlaySpace(theirs, theirScene)).toEqual(EMPTY);
+  });
+
   it("creates a scene in the session, active, and loads it", async () => {
     const session = await openSession(mine, null);
 
@@ -278,18 +320,54 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(await currentSceneOf(session)).toBe(created.idStoryScene);
   });
 
-  it("refuses a new scene with no title, or with no session being played", async () => {
+  it("refuses a new scene with no title", async () => {
     await openSession(mine, null);
     expect(await actions.sa_createRunScene(mine, { title: " ", description: "" })).toEqual({
       ok: false,
       errors: { title: "Please give the scene a title." },
     });
+  });
 
-    await db.delete(tables.storySessions).where(eq(tables.storySessions.idStory, mine));
-    expect(await actions.sa_createRunScene(mine, { title: "Late", description: "" })).toEqual({
-      ok: false,
-      errors: { root: "Start a session before choosing a scene." },
+  it("creates a scene to prepare, pending and in no sitting, with no session being played", async () => {
+    const result = await actions.sa_createRunScene(mine, {
+      title: "Fixture scene made between sessions",
+      description: "",
     });
+
+    if (!result.ok) throw new Error(`refused: ${JSON.stringify(result)}`);
+    const created = result.space.scene!;
+    expect(created).toMatchObject({ status: "PENDING" });
+    expect(await sceneRow(created.idStoryScene)).toEqual({
+      status: "PENDING",
+      idStorySession: null,
+    });
+  });
+
+  it("creates a scene from the live-edit page without moving the session, playing or not", async () => {
+    const session = await openSession(mine, scene);
+
+    const result = await actions.sa_createLiveScene(mine, {
+      title: "  Fixture scene made to prepare ",
+      description: "Two guards.",
+    });
+
+    if (!result.ok) throw new Error(`refused: ${JSON.stringify(result)}`);
+    const created = result.space.scene!;
+    expect(created).toMatchObject({ title: "Fixture scene made to prepare", status: "PENDING" });
+    expect(await sceneRow(created.idStoryScene)).toEqual({
+      status: "PENDING",
+      idStorySession: null,
+    });
+    // Still on the scene it was on.
+    expect(await currentSceneOf(session)).toBe(scene);
+
+    expect(await actions.sa_createLiveScene(mine, { title: "", description: "" })).toEqual({
+      ok: false,
+      errors: { title: "Please give the scene a title." },
+    });
+    await expect(
+      actions.sa_createLiveScene(theirs, { title: "Theirs", description: "" }),
+    ).rejects.toThrow();
   });
 
   it("puts the session's current scene's tags and elements in play, by kind", async () => {

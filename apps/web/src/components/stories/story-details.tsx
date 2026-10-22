@@ -197,7 +197,7 @@ export function StoryDetails({ story, players, sessions, sessionStatusOptions }:
               idStory={story.idStory}
               initial={sessions}
               mutedColor={mutedColor}
-              playerCount={story.playerCount}
+              showPlayers
               statusOptions={sessionStatusOptions}
               canEditStatus={story.isOwner}
               showTitles

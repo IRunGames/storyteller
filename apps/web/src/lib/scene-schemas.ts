@@ -37,3 +37,9 @@ export const sceneTextSchema = z.object({
 });
 
 export type SceneTextValues = z.infer<typeof sceneTextSchema>;
+
+// The same panel on a scene's live-edit page, which renames the scene too,
+// so its title is bound as the scene forms bind it.
+export const liveSceneTextSchema = sceneTextSchema.extend({ title: sceneSchema.shape.title });
+
+export type LiveSceneTextValues = z.infer<typeof liveSceneTextSchema>;

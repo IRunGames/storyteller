@@ -1,6 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { Image, Stack, Text } from "@chakra-ui/react";
 import { formatSceneLength, type StorySceneDetail } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
@@ -18,8 +17,6 @@ type Props = {
   canEdit: boolean;
   /** The new status, once the panel's pill has moved it. */
   onStatusChanged?: (status: string) => void;
-  /** The button's icon, when not the info icon: the board's cards use a magnifying glass. */
-  icon?: ReactNode;
 };
 
 // What the info button on a scene card opens: the scene's picture, its status,
@@ -30,17 +27,10 @@ type Props = {
 //
 // The status is the one live thing in here, so the pill tells the column when
 // it moves and the panel keeps showing what the card shows.
-export function SceneInfoPopover({
-  idStoryScene,
-  statusOptions,
-  canEdit,
-  onStatusChanged,
-  icon,
-}: Props) {
+export function SceneInfoPopover({ idStoryScene, statusOptions, canEdit, onStatusChanged }: Props) {
   return (
     <InfoPopover<StorySceneDetail>
       label="Scene info"
-      icon={icon}
       load={() => sa_getStoryScene(idStoryScene)}
       missingText="This scene is no longer here."
       errorText="Could not load the scene."

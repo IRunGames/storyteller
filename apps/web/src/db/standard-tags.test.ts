@@ -19,7 +19,7 @@ let tables: DbModule["schema"];
 
 let taggedSystem = 0;
 let plainSystem = 0;
-let storyIds: number[] = [];
+const storyIds: number[] = [];
 
 describe("standard tags", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {

@@ -79,6 +79,11 @@ export type StorySession = {
    * less the time spent suspended; null until the session is done.
    */
   length: number | null;
+  /**
+   * How many came, counted as the info panel lists them: the session's user
+   * ids that still match a user.
+   */
+  playerCount: number;
 };
 
 /** What the session info popover shows for one session. */
@@ -111,6 +116,24 @@ export type StorySessionDetail = {
    */
   isStoryteller: boolean;
 };
+
+/** A session's fields as the Timeline's edit panel holds them, with the story's scenes. */
+export type SessionForEdit = {
+  idStorySession: number;
+  idStory: number;
+  status: string;
+  /** "" rather than null for each text field, as the scene form's are. */
+  values: { title: string; summary: string; notes: string; lingeringQuestions: string };
+  /**
+   * Every scene of the story, oldest first, with the sitting each is in, so
+   * the panel can list this session's and offer the rest to add.
+   */
+  scenes: (SessionScene & { idStorySession: number | null })[];
+};
+
+/** What saving the edit panel hands back: the title as stored, or errors by field. */
+export type UpdateSessionResult =
+  { ok: true; title: string | null } | { ok: false; errors: Record<string, string> };
 
 /** "3. Kildealg", or "Session 3" for a session with no title yet. */
 export function sessionHeading(session: Pick<StorySession, "number" | "title">): string {

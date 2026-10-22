@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import {
+  Box,
   Button,
   Field,
   FileUpload,
@@ -15,7 +16,7 @@ import {
   Text,
   useFileUpload,
 } from "@chakra-ui/react";
-import { Image as ImageIcon } from "lucide-react";
+import { ChevronsRight, Image as ImageIcon } from "lucide-react";
 import { useUser } from "@/components/auth/user-provider";
 import { attachmentUrlSchema } from "@/lib/attachment-schemas";
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, uploadPrefix } from "@/lib/image-uploads";
@@ -130,6 +131,16 @@ type Props = {
    * changes here too. The run page's library is the one that does.
    */
   renderRows?: (view: AttachmentRowsView) => ReactNode;
+  /**
+   * Draw this many cards at first, with a More button under them for as
+   * many again, rather than every one: the Prep Work board's column, where a
+   * story's attachments run long and each card fetches its picture. Every
+   * row is still loaded, so the search, the Covers switch and the count
+   * work over all of them; only what is drawn is cut. A new search or a
+   * flip of the switch starts again from the first page. Left out, every
+   * card is drawn.
+   */
+  pageSize?: number;
 };
 
 /** What a renderRows caller is given; see Props.renderRows. */
@@ -181,6 +192,7 @@ export function AttachmentListField({
   showEmpty = false,
   onCountChange,
   renderRows,
+  pageSize,
 }: Props) {
   const { id: userId } = useUser();
   const router = useRouter();
@@ -708,6 +720,16 @@ export function AttachmentListField({
         addedHere.current.has(row.idAttachment)) &&
       !(hideCovers && row.isCover),
   );
+  // How many of those are drawn, when the page asked for pages: back to the
+  // first whenever the search or the Covers switch changes what is drawn.
+  // Kept beside what it was counted for, and reset while rendering, as
+  // React has state follow a prop that changed.
+  const pageFor = `${shownIds === null ? "" : [...shownIds].join(",")}|${hideCovers}`;
+  const [paging, setPaging] = useState({ for: pageFor, count: pageSize ?? 0 });
+  if (pageSize !== undefined && paging.for !== pageFor) {
+    setPaging({ for: pageFor, count: pageSize });
+  }
+  const drawnRows = pageSize === undefined ? visibleRows : visibleRows.slice(0, paging.count);
 
   return (
     <Field.Root invalid={!!fieldError || !!loadError} w="full" gap="3">
@@ -761,7 +783,7 @@ export function AttachmentListField({
             gap="3"
             templateColumns="repeat(auto-fill, minmax(13rem, 1fr))"
           >
-            {visibleRows.map((row) => (
+            {drawnRows.map((row) => (
               <AttachmentCard
                 key={row.idAttachment}
                 row={row}
@@ -781,6 +803,22 @@ export function AttachmentListField({
               />
             ))}
           </Grid>
+
+          {/* The same More the board's other columns end with. */}
+          {pageSize !== undefined && drawnRows.length < visibleRows.length && (
+            <Box>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setPaging((current) => ({ ...current, count: current.count + pageSize }))
+                }
+              >
+                More
+                <ChevronsRight />
+              </Button>
+            </Box>
+          )}
         </>
       )}
 

@@ -33,6 +33,7 @@ const sessions: StorySession[] = [
     status: "DONE",
     startedAt: new Date("2026-09-01T19:00:00Z"),
     length: 180,
+    playerCount: 2,
   },
 ];
 
@@ -63,7 +64,10 @@ describe("WaitingRoom", () => {
       namedExports: { sa_setUserPreference: mock.fn() },
     });
     mock.module("@/app/(app)/(nav)/stories/actions", {
-      namedExports: { sa_listStorySessions: mock.fn(async () => []), sa_getStorySession: mock.fn() },
+      namedExports: {
+        sa_listStorySessions: mock.fn(async () => []),
+        sa_getStorySession: mock.fn(),
+      },
     });
     // The session rows' info popovers import the status actions, which would
     // otherwise load the real auth and database modules.
@@ -75,9 +79,8 @@ describe("WaitingRoom", () => {
     });
 
     ({ WaitingRoom } = await import("./waiting-room"));
-    ({ UserPreferencesProvider } = await import(
-      "@/components/preferences/user-preferences-provider"
-    ));
+    ({ UserPreferencesProvider } =
+      await import("@/components/preferences/user-preferences-provider"));
   });
 
   beforeEach(() => {

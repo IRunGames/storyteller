@@ -13,9 +13,13 @@ type Props = {
   title: string;
   text: SceneText;
   /** Saves the panel; see SceneTextForm. */
-  save: (values: SceneTextValues) => Promise<SetSceneTextResult>;
-  /** The text as stored, for the table to keep. */
-  onSaved: (text: SceneText) => void;
+  save: (values: SceneTextValues & { title?: string }) => Promise<SetSceneTextResult>;
+  /** The text as stored, for the table to keep, and the title when the panel renames the scene. */
+  onSaved: (text: SceneText, title?: string) => void;
+  /** The live-edit page: the panel renames the scene too (SceneTextForm's Title). */
+  editTitle?: boolean;
+  /** A line under Notes; see SceneTextForm. */
+  notesHint?: string;
   /** A look at the scene (/preview/scene): the text is shown as it is, with no form. */
   readOnly?: boolean;
   /**
@@ -44,6 +48,8 @@ export function SceneTextPopover({
   onSaved,
   readOnly = false,
   icon = "chevron",
+  editTitle = false,
+  notesHint,
 }: Props) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps
   // the popover from opening at the page corner (nav-theme-menu.tsx).
@@ -121,8 +127,10 @@ export function SceneTextPopover({
                 <SceneTextForm
                   text={text}
                   save={save}
-                  onSaved={(saved) => {
-                    onSaved(saved);
+                  title={editTitle ? title : undefined}
+                  notesHint={notesHint}
+                  onSaved={(saved, savedTitle) => {
+                    onSaved(saved, savedTitle);
                     setOpen(false);
                     toaster.create({ title: "Scene saved", type: "success" });
                   }}

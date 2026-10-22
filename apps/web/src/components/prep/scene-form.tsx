@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import NextLink from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,11 +8,11 @@ import {
   Alert,
   Button,
   Field,
+  Grid,
   Heading,
   HStack,
   Input,
   NativeSelect,
-  Separator,
   Stack,
   Text,
   Textarea,
@@ -20,11 +20,13 @@ import {
 import type { z } from "zod";
 import { sceneSchema, type SceneValues } from "@/lib/scene-schemas";
 import { SCENE_LOCKED_STATUS, type SceneSessionOption } from "@/lib/scenes";
+import type { PlayItem } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { sa_createStoryScene, sa_updateStoryScene } from "@/app/(app)/(nav)/libraries/actions";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
 import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
 import { StatusPill } from "@/components/status/status-pill";
+import { SceneElements } from "./scene-elements";
 
 // What the fields hold before the schema runs: the Session <select> keeps its
 // raw string, and sceneSchema's preprocess turns it into a number or null.
@@ -57,6 +59,16 @@ type Props = {
    * Left out, both go back to the board.
    */
   returnTo?: string;
+  /**
+   * Edit scene only: the scene's stacks and the elements linked to it, for
+   * the third column (sa_getScenePlaySpace).
+   */
+  elements?: { tags: string[]; items: PlayItem[] };
+  /**
+   * Edit scene only: the page has the scene's cover behind it, so each
+   * column sits on a panel of its own to be read over the picture.
+   */
+  onCover?: boolean;
 };
 
 // One form for New scene and Edit scene, as StoryForm is for stories: the
@@ -72,6 +84,10 @@ type Props = {
 // gets them once it has been created. Moving the pill to SCENE_LOCKED_STATUS
 // finishes the scene, which the edit action then refuses to save over, so
 // the form says so and Save goes quiet until it is moved back.
+//
+// Edit scene is laid out in three columns: the form, the pictures, and the
+// elements linked to the scene in their stacks (SceneElements), which
+// follow the status too, so a completed scene's stacks lock with the form.
 export function SceneForm({
   idStory,
   sessions,
@@ -80,6 +96,8 @@ export function SceneForm({
   onCreated,
   onCancel,
   returnTo,
+  elements,
+  onCover = false,
 }: Props) {
   const [status, setStatus] = useState(scene?.status ?? null);
   // Bumped when the picker moves some of the story's attachments onto the
@@ -136,24 +154,24 @@ export function SceneForm({
     }
   }
 
-  return (
-    <Stack gap="6">
-      {scene && (
-        <Stack gap="2" align="start">
-          <Heading size="2xl">Edit scene</Heading>
-          {status !== null && (
-            <StatusPill
-              table="story_scenes"
-              id={scene.idStoryScene}
-              status={status}
-              options={statusOptions}
-              canEdit
-              onChanged={setStatus}
-            />
-          )}
-        </Stack>
+  const heading = scene && (
+    <Stack gap="2" align="start">
+      <Heading size="2xl">Edit scene</Heading>
+      {status !== null && (
+        <StatusPill
+          table="story_scenes"
+          id={scene.idStoryScene}
+          status={status}
+          options={statusOptions}
+          canEdit
+          onChanged={setStatus}
+        />
       )}
+    </Stack>
+  );
 
+  const alerts = (
+    <>
       {locked && (
         <Alert.Root status="info">
           <Alert.Indicator />
@@ -174,59 +192,93 @@ export function SceneForm({
           </Alert.Content>
         </Alert.Root>
       )}
+    </>
+  );
 
-      <form onSubmit={handleSubmit(onSubmit)} noValidate>
-        <Stack gap="4">
-          <Field.Root required invalid={!!errors.title}>
-            <Field.Label>Title</Field.Label>
-            <Input autoComplete="off" {...register("title")} />
-            <Field.ErrorText>{errors.title?.message}</Field.ErrorText>
-          </Field.Root>
+  const form = (
+    <form onSubmit={handleSubmit(onSubmit)} noValidate>
+      <Stack gap="4">
+        <Field.Root required invalid={!!errors.title}>
+          <Field.Label>Title</Field.Label>
+          <Input autoComplete="off" {...register("title")} />
+          <Field.ErrorText>{errors.title?.message}</Field.ErrorText>
+        </Field.Root>
 
-          <Field.Root invalid={!!errors.description}>
-            <Field.Label>Description (optional)</Field.Label>
-            {/* A line each for what happens, the NPCs in it and anything of
-                note; the info panel keeps the line breaks. */}
-            <Textarea rows={8} {...register("description")} />
-            <Field.ErrorText>{errors.description?.message}</Field.ErrorText>
-          </Field.Root>
+        <Field.Root invalid={!!errors.description}>
+          <Field.Label>Description (optional)</Field.Label>
+          {/* A line each for what happens, the NPCs in it and anything of
+              note; the info panel keeps the line breaks. */}
+          <Textarea rows={8} {...register("description")} />
+          <Field.ErrorText>{errors.description?.message}</Field.ErrorText>
+        </Field.Root>
 
-          <Field.Root invalid={!!errors.idStorySession}>
-            <Field.Label>Session (optional)</Field.Label>
-            <NativeSelect.Root>
-              <NativeSelect.Field {...register("idStorySession")}>
-                <option value="">Not played yet</option>
-                {sessions.map((session) => (
-                  <option key={session.idStorySession} value={session.idStorySession}>
-                    {session.label}
-                  </option>
-                ))}
-              </NativeSelect.Field>
-              <NativeSelect.Indicator />
-            </NativeSelect.Root>
-            <Field.ErrorText>{errors.idStorySession?.message}</Field.ErrorText>
-          </Field.Root>
+        <Field.Root invalid={!!errors.idStorySession}>
+          <Field.Label>Session (optional)</Field.Label>
+          <NativeSelect.Root>
+            <NativeSelect.Field {...register("idStorySession")}>
+              <option value="">Not played yet</option>
+              {sessions.map((session) => (
+                <option key={session.idStorySession} value={session.idStorySession}>
+                  {session.label}
+                </option>
+              ))}
+            </NativeSelect.Field>
+            <NativeSelect.Indicator />
+          </NativeSelect.Root>
+          <Field.ErrorText>{errors.idStorySession?.message}</Field.ErrorText>
+        </Field.Root>
 
-          <HStack gap="3">
-            <Button type="submit" loading={isSubmitting || isSubmitSuccessful} disabled={locked}>
-              {scene ? "Save changes" : "Create scene"}
+        {/* Cancel at the start and the action at the end, as the element
+            form's are, on New scene and Edit scene alike. */}
+        <HStack justify="space-between" gap="3">
+          {scene ? (
+            <Button asChild variant="ghost">
+              <NextLink href={returnTo ?? `/libraries/${idStory}`}>Cancel</NextLink>
             </Button>
-            {scene ? (
-              <Button asChild variant="ghost">
-                <NextLink href={returnTo ?? `/libraries/${idStory}`}>Cancel</NextLink>
-              </Button>
-            ) : (
-              <Button type="button" variant="ghost" onClick={onCancel}>
-                Cancel
-              </Button>
-            )}
-          </HStack>
-        </Stack>
-      </form>
+          ) : (
+            <Button type="button" variant="ghost" onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+          <Button type="submit" loading={isSubmitting || isSubmitSuccessful} disabled={locked}>
+            {scene ? "Save changes" : "Create scene"}
+          </Button>
+        </HStack>
+      </Stack>
+    </form>
+  );
 
-      {scene && <Separator />}
+  // New scene: the fields alone, in the board's dialog.
+  if (!scene) {
+    return (
+      <Stack gap="6">
+        {alerts}
+        {form}
+      </Stack>
+    );
+  }
 
-      {scene && (
+  // Edit scene: three columns, the form, its pictures and the scene's
+  // elements, which stack one under another as the page narrows. At the
+  // middle width the form and the pictures share a row and the elements
+  // take the whole of the one under it, since their stacks need the room.
+  return (
+    <Grid
+      templateColumns={{
+        base: "1fr",
+        lg: "repeat(2, minmax(0, 1fr))",
+        xl: "repeat(3, minmax(0, 1fr))",
+      }}
+      gap="6"
+      alignItems="start"
+    >
+      <Column onCover={onCover}>
+        {heading}
+        {alerts}
+        {form}
+      </Column>
+
+      <Column onCover={onCover}>
         <Stack gap="2">
           <Heading as="h2" size="md">
             Pictures
@@ -246,7 +298,52 @@ export function SceneForm({
             onAttached={() => setPicturesKey((key) => key + 1)}
           />
         </Stack>
-      )}
+      </Column>
+
+      {/* No panel behind the elements, cover or not: the pills are part
+          see-through, as on the run page, so they show the cover and stand
+          apart from the opaque In this scene card inside each one. On a
+          panel the two would be the same colour. */}
+      <Column onCover={false} gridColumn={{ lg: "1 / -1", xl: "auto" }}>
+        <SceneElements
+          idStory={idStory}
+          idStoryScene={scene.idStoryScene}
+          initialTags={elements?.tags ?? []}
+          initialItems={elements?.items ?? []}
+          locked={locked}
+          onCover={onCover}
+        />
+      </Column>
+    </Grid>
+  );
+}
+
+/**
+ * One column of the edit page. Over the scene's cover it is a panel, mostly
+ * opaque and blurring what is behind it, so the fields read against any
+ * picture in any theme; on a plain page it is no box at all, since a panel
+ * there would stand out from nothing.
+ */
+function Column({
+  onCover,
+  gridColumn,
+  children,
+}: {
+  onCover: boolean;
+  gridColumn?: { lg: string; xl: string };
+  children: ReactNode;
+}) {
+  return (
+    <Stack
+      gap="6"
+      minW="0"
+      gridColumn={gridColumn}
+      p={onCover ? { base: "4", md: "6" } : undefined}
+      rounded={onCover ? "xl" : undefined}
+      bg={onCover ? "bg.panel/90" : undefined}
+      backdropFilter={onCover ? "blur(6px)" : undefined}
+    >
+      {children}
     </Stack>
   );
 }

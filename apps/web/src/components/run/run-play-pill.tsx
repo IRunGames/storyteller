@@ -54,9 +54,13 @@ type Props = {
    * the item's: a pulse is not written anywhere (sa_pulseSceneElement), and
    * one picture is up at a time, so the table keeps the one key.
    */
-  pictureUp: boolean;
-  /** The tack was pressed: this picture goes up (true) or comes down, or goes back after a refusal. */
-  onPictureUpChange: (key: string, up: boolean) => void;
+  pictureUp?: boolean;
+  /**
+   * The tack was pressed: this picture goes up (true) or comes down, or goes
+   * back after a refusal. Left out where there is no table to put it up on,
+   * such as a scene's edit page, and the thumbnail then has no tack.
+   */
+  onPictureUpChange?: (key: string, up: boolean) => void;
   /**
    * The scene is complete: the pill is there to read. Its name is plain,
    * its info toggle only says which way it is, it has no status menu, tack
@@ -91,7 +95,7 @@ export function RunPlayPill({
   onRemove,
   onStatusChange,
   onItemChange,
-  pictureUp,
+  pictureUp = false,
   onPictureUpChange,
   locked = false,
 }: Props) {
@@ -108,7 +112,7 @@ export function RunPlayPill({
 
   // The tack, the same way as the toggle: the glow at once, back if refused.
   async function toggleImage() {
-    if (!linked) return;
+    if (!linked || !onPictureUpChange) return;
     const next = !pictureUp;
     onPictureUpChange(item.key, next);
     try {
@@ -243,7 +247,7 @@ export function RunPlayPill({
                 showTags={false}
               />
             </Box>
-            {live && (
+            {live && onPictureUpChange && (
               <RunPictureTack
                 label={item.label}
                 pictureUp={pictureUp}

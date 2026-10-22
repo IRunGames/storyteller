@@ -1,15 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { and, desc, eq, exists, ne, or } from "drizzle-orm";
+import { and, desc, eq, exists, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { sessionNumber } from "@/db/session-number";
 import { requireUser } from "@/lib/authorize";
 import { formatDayUtc } from "@/lib/dates";
 import { newSessionTitle } from "@/lib/play";
 
-const { stories, storyPlayers, storySessions } = schema;
+const { stories, storyPlayers, storySessions, vStorySessions } = schema;
 
 // stories.id_story and story_sessions.id_story_session are int4; an id
 // outside that range is a query error to Postgres rather than a missing row.
@@ -41,12 +40,7 @@ export async function sa_listPlayableStories(): Promise<PlayableStory[]> {
   const playsIn = db
     .select({ one: storyPlayers.idStoryPlayer })
     .from(storyPlayers)
-    .where(
-      and(
-        eq(storyPlayers.idStory, stories.idStory),
-        eq(storyPlayers.idUser, user.id),
-      ),
-    );
+    .where(and(eq(storyPlayers.idStory, stories.idStory), eq(storyPlayers.idUser, user.id)));
 
   return (
     db
@@ -59,10 +53,7 @@ export async function sa_listPlayableStories(): Promise<PlayableStory[]> {
       })
       .from(stories)
       .where(
-        and(
-          or(eq(stories.idCreatedByUser, user.id), exists(playsIn)),
-          eq(stories.isActive, true),
-        ),
+        and(or(eq(stories.idCreatedByUser, user.id), exists(playsIn)), eq(stories.isActive, true)),
       )
       // The seed inserts its stories in one statement, so updated_at ties are
       // common; id_story breaks them the same way the card lists do.
@@ -91,24 +82,27 @@ export async function sa_listUnfinishedSessions(idStory: number): Promise<Unfini
 
   return (
     db
+      // v_story_sessions numbers each session as the Timeline does. Its
+      // columns are nullable to Drizzle but never null for a row of the
+      // table, so the ones the picker needs are typed as the table has them.
       .select({
-        idStorySession: storySessions.idStorySession,
-        number: sessionNumber(),
-        title: storySessions.title,
-        status: storySessions.status,
+        idStorySession: sql<number>`${vStorySessions.idStorySession}`,
+        number: sql<number>`${vStorySessions.sessionNumber}`.mapWith(Number),
+        title: vStorySessions.title,
+        status: sql<string>`${vStorySessions.status}`,
       })
-      .from(storySessions)
-      .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
+      .from(vStorySessions)
+      .innerJoin(stories, eq(stories.idStory, vStorySessions.idStory))
       .where(
         and(
-          eq(storySessions.idStory, id.data),
+          eq(vStorySessions.idStory, id.data),
           eq(stories.idCreatedByUser, user.id),
-          ne(storySessions.status, "DONE"),
+          ne(vStorySessions.status, "DONE"),
         ),
       )
       // Sessions opened in one statement share an updated_at, so the id
       // breaks the tie the same way the session lists do.
-      .orderBy(desc(storySessions.updatedAt), desc(storySessions.idStorySession))
+      .orderBy(desc(vStorySessions.updatedAt), desc(vStorySessions.idStorySession))
   );
 }
 

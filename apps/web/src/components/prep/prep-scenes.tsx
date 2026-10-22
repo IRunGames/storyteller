@@ -13,11 +13,12 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { ChevronsRight, Pencil, Search } from "lucide-react";
+import { ChevronsRight, Eye, Pencil } from "lucide-react";
 import {
   SCENE_LOCKED_STATUS,
   SCENE_SEARCH_DELAY_MS,
   SCENES_PAGE_SIZE,
+  scenePreviewPath,
   type StoryScene,
 } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
@@ -205,17 +206,26 @@ export function PrepScenes({
                 <HStack gap="0" flexShrink="0">
                   {/* A completed scene is the record of what was played,
                       so only one still to play, or in play, can be edited.
-                      The edit action refuses the rest as well. */}
+                      The edit action refuses the rest as well. It opens the
+                      scene's live-edit page, in a tab of its own, so the
+                      board stays where it was. */}
                   {canEdit && scene.status !== SCENE_LOCKED_STATUS && (
-                    <IconLink label="Edit scene" href={`/scenes/${scene.idStoryScene}/edit`}>
+                    <IconLink label="Edit scene" href={`/scenes/${scene.idStoryScene}/live`} newTab>
                       <Pencil />
                     </IconLink>
                   )}
+                  {/* The scene as the players' table shows it, in a tab of
+                      its own so the board stays where it is. */}
+                  <IconLink
+                    label="Preview in a new tab"
+                    href={scenePreviewPath(scene.idStoryScene)}
+                    newTab
+                  >
+                    <Eye />
+                  </IconLink>
                   {/* The card shows the first lines of what the storyteller
-                      wrote; the panel behind this button shows all of it, so
-                      the button is a magnifying glass: a closer look. */}
+                      wrote; the panel behind this button shows all of it. */}
                   <SceneInfoPopover
-                    icon={<Search />}
                     idStoryScene={scene.idStoryScene}
                     statusOptions={statusOptions}
                     canEdit={canEdit}

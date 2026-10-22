@@ -16,7 +16,7 @@ import {
 } from "@chakra-ui/react";
 import type { RunPlaySpace } from "@/lib/run";
 import { runSceneSchema, type RunSceneValues } from "@/lib/scene-schemas";
-import { sa_createRunScene } from "@/app/(app)/run/[id]/actions";
+import { sa_createRunScene, type CreateRunSceneResult } from "@/app/(app)/run/[id]/actions";
 import { toaster } from "@/components/ui/toaster";
 
 type Props = {
@@ -25,15 +25,22 @@ type Props = {
   onClose: () => void;
   /** The new scene's play space, once the table is on it. */
   onCreated: (space: RunPlaySpace) => void;
+  /**
+   * What writes the scene, when not the run page's sa_createRunScene: the
+   * live-edit page's sa_createLiveScene, which leaves the session alone.
+   */
+  create?: (idStory: number, values: RunSceneValues) => Promise<CreateRunSceneResult>;
 };
 
 /**
  * The scene selector's Create new scene: a title and a description, and the
  * table goes straight to the new scene, ACTIVE, in the session being played
- * (sa_createRunScene). The board's New scene form also asks which sitting
- * the scene belongs to; here that is the one at the table, so it does not.
+ * (sa_createRunScene), or pending and in no sitting when none is being
+ * played. The board's New scene form also asks which sitting the scene
+ * belongs to; here that is the one at the table, so it does not. The
+ * live-edit page's selector opens the same dialog with its own `create`.
  */
-export function RunNewSceneDialog({ idStory, open, onClose, onCreated }: Props) {
+export function RunNewSceneDialog({ idStory, open, onClose, onCreated, create }: Props) {
   return (
     <Dialog.Root
       open={open}
@@ -50,7 +57,14 @@ export function RunNewSceneDialog({ idStory, open, onClose, onCreated }: Props) 
               <Dialog.Title>New scene</Dialog.Title>
             </Dialog.Header>
             {/* Only drawn while open, so each opening starts a blank form. */}
-            {open && <NewSceneForm idStory={idStory} onClose={onClose} onCreated={onCreated} />}
+            {open && (
+              <NewSceneForm
+                idStory={idStory}
+                onClose={onClose}
+                onCreated={onCreated}
+                create={create}
+              />
+            )}
             <Dialog.CloseTrigger asChild>
               <CloseButton size="sm" />
             </Dialog.CloseTrigger>
@@ -61,7 +75,12 @@ export function RunNewSceneDialog({ idStory, open, onClose, onCreated }: Props) 
   );
 }
 
-function NewSceneForm({ idStory, onClose, onCreated }: Omit<Props, "open">) {
+function NewSceneForm({
+  idStory,
+  onClose,
+  onCreated,
+  create = sa_createRunScene,
+}: Omit<Props, "open">) {
   const {
     register,
     handleSubmit,
@@ -73,9 +92,9 @@ function NewSceneForm({ idStory, onClose, onCreated }: Omit<Props, "open">) {
   });
 
   async function onSubmit(values: RunSceneValues) {
-    let result: Awaited<ReturnType<typeof sa_createRunScene>>;
+    let result: CreateRunSceneResult;
     try {
-      result = await sa_createRunScene(idStory, values);
+      result = await create(idStory, values);
     } catch {
       setError("root", { message: "Could not create the scene. Please try again." });
       return;

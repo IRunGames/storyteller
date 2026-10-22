@@ -339,6 +339,32 @@ export const vStoryScenes = pgView("v_story_scenes", {
   sessionNumber: bigint("session_number", { mode: "number" }),
 }).existing();
 
+// A session with which session of its story it was and how many came, as
+// db/views/v_story_sessions.sql works them out: every list of sessions reads
+// from here, so the Timeline, its info panel and the Play page's picker number
+// and count them alike. The session's own columns, as far as the app reads
+// them, then the two the view adds.
+//
+// .existing() because dbmate builds it; Drizzle only selects from it.
+export const vStorySessions = pgView("v_story_sessions", {
+  idStorySession: integer("id_story_session"),
+  idStory: integer("id_story"),
+  status: varchar("status"),
+  length: integer("length"),
+  title: text("title"),
+  notes: text("notes"),
+  summary: text("summary"),
+  lingeringQuestions: text("lingering_questions"),
+  idStoryScene: integer("id_story_scene"),
+  idUsers: uuid("id_users").array(),
+  createdAt: timestamp("created_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
+  // 1 for the story's first session, in the order they were opened.
+  sessionNumber: bigint("session_number", { mode: "number" }),
+  // The users in id_users that are still users.
+  playerCount: bigint("player_count", { mode: "number" }),
+}).existing();
+
 // The status-workflow metatables, seeded in db/seeds. A workflow is a named
 // set of statuses and the moves between them; the database builds the CHECK
 // constraint, the <status>_at columns and the transition trigger on every

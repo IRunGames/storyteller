@@ -17,7 +17,7 @@ const options: StatusOption[] = [
 const scenes: RunScene[] = [
   { idStoryScene: 1, title: "The docks", status: "ACTIVE" },
   { idStoryScene: 2, title: "The abbey", status: "PENDING" },
-  { idStoryScene: 3, title: "The crossing", status: "COMPLETE" },
+  { idStoryScene: 3, title: "The crossing", status: "COMPLETE", sessionHeading: "3. Kildealg" },
 ];
 
 const spaceFor = (scene: RunScene): RunPlaySpace => ({
@@ -80,6 +80,7 @@ describe("RunSceneSelect", () => {
   function render(
     { hasSession = true, scene = scenes[0] as RunScene | null } = {},
     onLoaded: (space: RunPlaySpace) => void = () => {},
+    overrides: Pick<Parameters<typeof RunSceneSelect>[0], "onChoose" | "create"> = {},
   ) {
     return renderWithProviders(
       <>
@@ -89,6 +90,7 @@ describe("RunSceneSelect", () => {
           hasSession={hasSession}
           statusOptions={options}
           onLoaded={onLoaded}
+          {...overrides}
         />
         <Toaster />
       </>,
@@ -105,9 +107,24 @@ describe("RunSceneSelect", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent("The docks");
   });
 
-  it("is shut while no session is being played", () => {
-    render({ hasSession: false, scene: null });
-    expect(screen.getByRole("button", { name: "Scene: None" })).toBeDisabled();
+  it("with no session being played, lists the scenes without letting one be chosen, but makes a new one", async () => {
+    const user = userEvent.setup();
+    const onLoaded = mock.fn<(space: RunPlaySpace) => void>();
+    render({ hasSession: false, scene: null }, onLoaded);
+
+    await user.click(screen.getByRole("button", { name: "Scene: None" }));
+    const docks = await screen.findByRole("menuitem", { name: /The docks/ });
+    expect(docks).toHaveAttribute("data-disabled");
+    expect(screen.getByRole("menuitem", { name: "Create new scene" })).not.toHaveAttribute(
+      "data-disabled",
+    );
+
+    await choose(user, "Create new scene");
+    const dialog = await screen.findByRole("dialog", { name: "New scene" });
+    await user.type(within(dialog).getByRole("textbox", { name: /^Title/ }), "Between sessions");
+    await user.click(within(dialog).getByRole("button", { name: "Create scene" }));
+    await waitFor(() => expect(onLoaded.mock.callCount()).toBe(1));
+    expect(sa_loadRunScene.mock.callCount()).toBe(0);
   });
 
   it("offers Create new scene first, then the recent scenes with their status", async () => {
@@ -121,7 +138,8 @@ describe("RunSceneSelect", () => {
       "Create new scene",
       "The docksActive",
       "The abbeyPending",
-      "The crossingComplete",
+      // The sitting it was played in, under its title.
+      "The crossing3. KildealgComplete",
     ]);
     expect(sa_listRunScenes.mock.calls[0].arguments).toEqual([-4]);
   });
@@ -216,5 +234,30 @@ describe("RunSceneSelect", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "New scene" })).not.toBeInTheDocument(),
     );
+  });
+
+  it("hands a chosen scene and a new one to the page's own handlers instead, session or not", async () => {
+    const user = userEvent.setup();
+    const onChoose = mock.fn<(scene: RunScene) => void>();
+    const create = mock.fn(async (_idStory: number, values: { title: string }) => ({
+      ok: true as const,
+      space: spaceFor({ idStoryScene: 10, title: values.title, status: "PENDING" }),
+    }));
+    const onLoaded = mock.fn<(space: RunPlaySpace) => void>();
+    render({ hasSession: false }, onLoaded, { onChoose, create });
+
+    await user.click(screen.getByRole("button", { name: "Scene: The docks" }));
+    await choose(user, /The abbey/);
+    expect(onChoose.mock.calls[0].arguments[0].idStoryScene).toBe(2);
+    expect(sa_loadRunScene.mock.callCount()).toBe(0);
+
+    await user.click(screen.getByRole("button", { name: "Scene: The docks" }));
+    await choose(user, "Create new scene");
+    const dialog = await screen.findByRole("dialog", { name: "New scene" });
+    await user.type(within(dialog).getByRole("textbox", { name: /^Title/ }), "To prepare");
+    await user.click(within(dialog).getByRole("button", { name: "Create scene" }));
+    await waitFor(() => expect(onLoaded.mock.callCount()).toBe(1));
+    expect(create.mock.calls[0].arguments).toEqual([-4, { title: "To prepare", description: "" }]);
+    expect(sa_createRunScene.mock.callCount()).toBe(0);
   });
 });

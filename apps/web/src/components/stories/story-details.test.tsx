@@ -45,6 +45,7 @@ const sessions: StorySession[] = [
     status: "LAST",
     startedAt: new Date("2026-03-20T19:00:00Z"),
     length: 150,
+    playerCount: 2,
   },
   {
     idStorySession: 2,
@@ -53,6 +54,7 @@ const sessions: StorySession[] = [
     status: "FIRST",
     startedAt: new Date("2026-03-13T19:00:00Z"),
     length: 60,
+    playerCount: 2,
   },
 ];
 
