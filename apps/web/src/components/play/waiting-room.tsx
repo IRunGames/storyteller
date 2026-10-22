@@ -1,18 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Box,
   Button,
   ClientOnly,
-  Container,
   Heading,
   HStack,
+  IconButton,
+  Portal,
   Skeleton,
   Stack,
   Text,
+  Tooltip,
 } from "@chakra-ui/react";
-import { Clock, LogOut, Users } from "lucide-react";
+import { ChevronDown, ChevronUp, Clock, LogOut, Users } from "lucide-react";
 import {
   formatWaited,
   formatWaitingCount,
@@ -77,6 +80,10 @@ export function WaitingRoom({ story, initial, sessions, background }: Props) {
   const staying = useRef(true);
   const [pendingLeave, setPendingLeave] = useState<URL | null>(null);
   const [isLeaving, setLeaving] = useState(false);
+  // The sessions so far start open, as they always showed; the chevron folds
+  // them away to leave more of the picture.
+  const sessionsId = useId();
+  const [showSessions, setShowSessions] = useState(true);
 
   async function leaveTo(to: URL) {
     setLeaving(true);
@@ -133,8 +140,11 @@ export function WaitingRoom({ story, initial, sessions, background }: Props) {
   }, [idStory]);
 
   return (
-    <PlayCover title={story.title} imageUrl={background}>
-      <Container maxW="3xl" w="full" py={{ base: "6", md: "8" }}>
+    // In the bottom-left corner rather than the middle, as the landing page's
+    // panel is, so the figures in the middle of each waiting picture stay in
+    // view.
+    <PlayCover title={story.title} imageUrl={background} placement="bottomStart">
+      <Box maxW="3xl" w="full" p={{ base: "4", md: "10" }}>
         <Stack
           gap="6"
           p={{ base: "5", md: "8" }}
@@ -151,8 +161,8 @@ export function WaitingRoom({ story, initial, sessions, background }: Props) {
               {story.title}
             </Heading>
             <Text color="fg.muted">
-              The storyteller has not opened the table yet. You will be taken to it as soon as
-              they do.
+              The storyteller has not opened the table yet. You will be taken to it as soon as they
+              do.
             </Text>
           </Stack>
 
@@ -184,13 +194,46 @@ export function WaitingRoom({ story, initial, sessions, background }: Props) {
           </HStack>
 
           <Stack as="section" aria-labelledby="waiting-sessions-heading" gap="3">
-            <Heading id="waiting-sessions-heading" as="h2" size="md">
-              Sessions so far
-            </Heading>
-            <StorySessions idStory={idStory} initial={sessions} showTitles />
+            <HStack gap="2" align="center">
+              <Heading id="waiting-sessions-heading" as="h2" size="md">
+                Sessions so far
+              </Heading>
+              <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+                <Tooltip.Trigger asChild>
+                  {/* A disclosure, as the story page's Attachments chevron
+                      is: aria-expanded and aria-controls, a name that stays
+                      the same either way, and the chevron pointing the way
+                      the list will move. */}
+                  <IconButton
+                    aria-label="Show sessions so far"
+                    aria-expanded={showSessions}
+                    aria-controls={sessionsId}
+                    variant="ghost"
+                    size="sm"
+                    rounded="full"
+                    onClick={() => setShowSessions((open) => !open)}
+                  >
+                    {showSessions ? <ChevronUp /> : <ChevronDown />}
+                  </IconButton>
+                </Tooltip.Trigger>
+                <Portal>
+                  <Tooltip.Positioner>
+                    <Tooltip.Content>
+                      {showSessions ? "Hide sessions so far" : "Show sessions so far"}
+                    </Tooltip.Content>
+                  </Tooltip.Positioner>
+                </Portal>
+              </Tooltip.Root>
+            </HStack>
+            {/* Hidden rather than unmounted, so folding the list away and
+                back keeps the pages already loaded instead of fetching them
+                again. */}
+            <Box id={sessionsId} hidden={!showSessions}>
+              <StorySessions idStory={idStory} initial={sessions} showTitles />
+            </Box>
           </Stack>
         </Stack>
-      </Container>
+      </Box>
       <LeaveWaitingRoomDialog
         title={story.title}
         open={pendingLeave !== null}

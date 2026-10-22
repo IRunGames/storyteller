@@ -10,6 +10,11 @@ type Props = {
   title: string;
   /** The story's cover, or null for the plain page background. */
   imageUrl: string | null;
+  /**
+   * Where what is placed on the cover sits: in the middle, or in the
+   * bottom-left corner, out of the way of the picture's middle.
+   */
+  placement?: "center" | "bottomStart";
   children?: ReactNode;
 };
 
@@ -18,7 +23,7 @@ type Props = {
 // The cover sits on its own layer under a scrim, so what is placed over it
 // keeps its own panel colours and reads the same on a bright cover, a dark
 // one, or none.
-export function PlayCover({ title, imageUrl, children }: Props) {
+export function PlayCover({ title, imageUrl, placement = "center", children }: Props) {
   return (
     <Flex direction="column" minH="100vh">
       <PlayHeader title={title} />
@@ -37,9 +42,15 @@ export function PlayCover({ title, imageUrl, children }: Props) {
           </>
         )}
         {/* Whatever is placed on the cover sits in the middle of it, both
-            ways. A flex item rather than a fixed height, so a card taller than
-            the window still grows and the page scrolls to it. */}
-        <Flex position="relative" flex="1" align="center" justify="center">
+            ways, or in its bottom-left corner. A flex item rather than a fixed
+            height, so a card taller than the window still grows and the page
+            scrolls to it. */}
+        <Flex
+          position="relative"
+          flex="1"
+          align={placement === "center" ? "center" : "end"}
+          justify={placement === "center" ? "center" : "start"}
+        >
           {children}
         </Flex>
       </Flex>

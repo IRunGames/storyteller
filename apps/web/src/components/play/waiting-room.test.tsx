@@ -129,6 +129,23 @@ describe("WaitingRoom", () => {
     expect(section).toHaveTextContent("2. The Drowned Gate");
   });
 
+  it("folds the sessions so far away with the chevron beside their heading, and back", async () => {
+    const actor = userEvent.setup();
+    render();
+
+    const section = screen.getByRole("region", { name: "Sessions so far" });
+    const toggle = within(section).getByRole("button", { name: "Show sessions so far" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(section).getByText(/The Drowned Gate/)).toBeVisible();
+
+    await actor.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(section).getByText(/The Drowned Gate/)).not.toBeVisible();
+
+    await actor.click(toggle);
+    expect(within(section).getByText(/The Drowned Gate/)).toBeVisible();
+  });
+
   it("keeps its place with a heartbeat and leaves on unmount", async () => {
     const { unmount } = render();
     await waitFor(() => expect(sa_waitForSession.mock.callCount()).toBeGreaterThan(0));
