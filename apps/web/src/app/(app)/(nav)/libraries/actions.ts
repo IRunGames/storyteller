@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { elementOrderBy } from "@/db/element-order";
+import { currentScene } from "@/db/scene-items";
 import { requireUser } from "@/lib/authorize";
 import {
   ELEMENT_KINDS,
@@ -27,7 +28,7 @@ import {
   type StorySceneDetail,
 } from "@/lib/scenes";
 import { publishLater } from "@/lib/realtime/publish";
-import { publishElementChanged } from "@/lib/realtime/publish-scene";
+import { publishElementChanged, publishSceneChanged } from "@/lib/realtime/publish-scene";
 import { sessionHeading } from "@/lib/stories";
 
 const { elements, stories, storyPlayers, storyScenes, storySessions, vStoryScenes } = schema;
@@ -552,6 +553,44 @@ export async function sa_updateStoryScene(
   }
 
   redirect(safeRedirect(returnTo, `/libraries/${row.idStory}`));
+}
+
+export type DeleteSceneResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * The board's Delete on a scene card: removes the scene from its story,
+ * completed or not. A completed scene is the record of what was played, but
+ * it is the storyteller's to take out; the card asks them first. The database
+ * does the rest: a session that was on it is left on no scene
+ * (story_sessions.id_story_scene is ON DELETE SET NULL), its links to
+ * elements go (scene_elements.id_story_scene is ON DELETE CASCADE) while the
+ * elements stay, and its uses of attachments go by trigger
+ * (tr_ad_story_scenes_attachment_uses) while the files stay the story's.
+ *
+ * Refused for a scene that is not there or is on someone else's story,
+ * alike, as sa_getStorySceneForEdit answers both with null.
+ */
+export async function sa_deleteStoryScene(idStoryScene: number): Promise<DeleteSceneResult> {
+  const user = await requireUser();
+  const id = idStorySchema.safeParse(idStoryScene);
+  const gone = "That scene is not one of your story's.";
+  if (!id.success) return { ok: false, error: gone };
+
+  const [row] = await db
+    .select({ idStory: storyScenes.idStory, owner: stories.idCreatedByUser })
+    .from(storyScenes)
+    .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
+    .where(eq(storyScenes.idStoryScene, id.data))
+    .limit(1);
+  if (!row || row.owner !== user.id) return { ok: false, error: gone };
+
+  // Asked before the delete, since afterwards the session no longer names
+  // the scene: a table playing it is told to reload onto no scene, and a
+  // table elsewhere is told nothing, as with any other change to preparation.
+  const wasCurrent = (await currentScene(row.idStory))?.idStoryScene === id.data;
+  await db.delete(storyScenes).where(eq(storyScenes.idStoryScene, id.data));
+  if (wasCurrent) publishLater(() => publishSceneChanged(row.idStory));
+  return { ok: true };
 }
 
 export type ElementFormResult = SceneFormResult;

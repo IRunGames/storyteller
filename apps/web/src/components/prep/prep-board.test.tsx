@@ -318,6 +318,7 @@ describe("PrepBoard", () => {
         sa_listSceneSessionOptions: async () => [{ idStorySession: 3, label: "2. Kildealg" }],
         sa_createStoryScene: createScene,
         sa_updateStoryScene: async () => ({ ok: false, errors: {} }),
+        sa_deleteStoryScene: async () => ({ ok: true }),
         sa_createElement: createElement,
         sa_updateElement: async () => ({ ok: false, errors: {} }),
       },
@@ -637,6 +638,24 @@ describe("PrepBoard", () => {
     const preview = within(items[0]).getByRole("link", { name: "Preview in a new tab" });
     expect(preview).toHaveAttribute("href", scenePreviewPath(scenes[0].idStoryScene));
     expect(preview).toHaveAttribute("target", "_blank");
+  });
+
+  it("deletes a scene from its card after asking, and drops it from the column", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    const items = within(column("Scenes")).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    await user.click(within(items[2]).getByRole("button", { name: "Delete scene" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete The arrival?" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(within(column("Scenes")).queryByText("The arrival")).not.toBeInTheDocument();
+    });
+    expect(within(column("Scenes")).getAllByRole("listitem")).toHaveLength(2);
+    // The heading's count comes back with the page.
+    expect(router.refresh.mock.callCount()).toBe(1);
   });
 
   it("names the sitting between the status and the date, with its full name behind it", async () => {

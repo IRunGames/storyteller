@@ -924,4 +924,131 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       ]);
     });
   });
+
+  describe("deleting scenes", () => {
+    const TITLE = "Fixture scene to delete";
+
+    async function stillThere(id: number) {
+      return db
+        .select({ id: tables.storyScenes.idStoryScene })
+        .from(tables.storyScenes)
+        .where(eq(tables.storyScenes.idStoryScene, id));
+    }
+
+    after(async () => {
+      await db.delete(tables.storyScenes).where(eq(tables.storyScenes.sceneTitle, TITLE));
+    });
+
+    it("deletes a completed scene, blanking the session that was on it and taking its links and picture uses", async () => {
+      const [scene] = await db
+        .insert(tables.storyScenes)
+        .values({ idStory: myStory, sceneTitle: TITLE, idCreatedByUser: SEED_USER })
+        .returning({ id: tables.storyScenes.idStoryScene });
+      await db
+        .update(tables.storyScenes)
+        .set({ status: SCENE_LOCKED_STATUS })
+        .where(eq(tables.storyScenes.idStoryScene, scene.id));
+      const [session] = await db
+        .insert(tables.storySessions)
+        .values({ idStory: myStory, idStoryScene: scene.id, idCreatedByUser: SEED_USER })
+        .returning({ id: tables.storySessions.idStorySession });
+      const [element] = await db
+        .insert(tables.elements)
+        .values({ idStory: myStory, kind: "THING", name: TITLE, idCreatedByUser: SEED_USER })
+        .returning({ id: tables.elements.idElement });
+      await db
+        .insert(tables.sceneElements)
+        .values({ idStoryScene: scene.id, idElement: element.id, idCreatedByUser: SEED_USER });
+      const [picture] = await db
+        .insert(tables.attachments)
+        .values({ idStory: myStory, status: "READY", url: "https://x.test/s.png" })
+        .returning({ id: tables.attachments.idAttachment });
+      await db.insert(tables.attachmentUses).values({
+        idAttachment: picture.id,
+        kind: "STORY_SCENE",
+        idExternal: scene.id,
+        idCreatedByUser: SEED_USER,
+      });
+
+      try {
+        expect(await actions.sa_deleteStoryScene(scene.id)).toEqual({ ok: true });
+        expect(await stillThere(scene.id)).toEqual([]);
+
+        // The session stays, with no scene.
+        const [after] = await db
+          .select({ idStoryScene: tables.storySessions.idStoryScene })
+          .from(tables.storySessions)
+          .where(eq(tables.storySessions.idStorySession, session.id));
+        expect(after).toEqual({ idStoryScene: null });
+
+        // The element stays the story's; only its link to the scene went.
+        const links = await db
+          .select({ id: tables.sceneElements.idSceneElement })
+          .from(tables.sceneElements)
+          .where(eq(tables.sceneElements.idElement, element.id));
+        expect(links).toEqual([]);
+        const elementsLeft = await db
+          .select({ id: tables.elements.idElement })
+          .from(tables.elements)
+          .where(eq(tables.elements.idElement, element.id));
+        expect(elementsLeft).toEqual([{ id: element.id }]);
+
+        // The file stays the story's; only the scene's use of it went.
+        const uses = await db
+          .select({ id: tables.attachmentUses.idAttachmentUse })
+          .from(tables.attachmentUses)
+          .where(
+            and(
+              eq(tables.attachmentUses.kind, "STORY_SCENE"),
+              eq(tables.attachmentUses.idExternal, scene.id),
+            ),
+          );
+        expect(uses).toEqual([]);
+
+        // Gone already.
+        expect(await actions.sa_deleteStoryScene(scene.id)).toEqual({
+          ok: false,
+          error: "That scene is not one of your story's.",
+        });
+      } finally {
+        await db
+          .delete(tables.storySessions)
+          .where(eq(tables.storySessions.idStorySession, session.id));
+        await db.delete(tables.elements).where(eq(tables.elements.idElement, element.id));
+        await db.delete(tables.attachments).where(eq(tables.attachments.idAttachment, picture.id));
+      }
+    });
+
+    it("deletes nobody else's scene", async () => {
+      const [theirs] = await db
+        .insert(tables.storyScenes)
+        .values({ idStory: theirStory, sceneTitle: TITLE, idCreatedByUser: otherUserId })
+        .returning({ id: tables.storyScenes.idStoryScene });
+
+      expect(await actions.sa_deleteStoryScene(theirs.id)).toEqual({
+        ok: false,
+        error: "That scene is not one of your story's.",
+      });
+      expect(await stillThere(theirs.id)).toEqual([{ id: theirs.id }]);
+    });
+
+    // What deleting leans on: a session's current scene goes blank and a
+    // scene's element links go with it (its picture uses go by trigger, not
+    // by key). Nothing else points at story_scenes; a new key that does
+    // should say here what it does.
+    it("blanks a session's scene and cascades a scene's element links", async () => {
+      const keys = await db.execute<{ from_table: string; col: string; on_delete: string }>(sql`
+        select c.conrelid::regclass::text as from_table, a.attname as col,
+               c.confdeltype as on_delete
+        from pg_constraint c
+        join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
+        where c.contype = 'f'
+          and c.confrelid = 'story_scenes'::regclass
+        order by 1, 2`);
+      expect(keys.rows).toEqual([
+        { from_table: "scene_elements", col: "id_story_scene", on_delete: "c" },
+        { from_table: "story_sessions", col: "id_story_scene", on_delete: "n" },
+      ]);
+    });
+  });
 });

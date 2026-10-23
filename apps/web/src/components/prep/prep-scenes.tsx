@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   Box,
   Button,
@@ -26,6 +27,7 @@ import { sa_listStoryScenes } from "@/app/(app)/(nav)/libraries/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { LocalDate } from "@/components/dates/local-date";
 import { IconLink } from "@/components/links/icon-link";
+import { DeleteSceneButton } from "./delete-scene-button";
 import { SceneInfoPopover } from "./scene-info-popover";
 
 type Props = {
@@ -104,6 +106,7 @@ export function PrepScenes({
   canEdit,
   reloadKey = 0,
 }: Props) {
+  const router = useRouter();
   const [scenes, setScenes] = useState(initial);
   const [hasMore, setHasMore] = useState(initial.length === SCENES_PAGE_SIZE);
   const [isLoadingMore, setLoadingMore] = useState(false);
@@ -183,6 +186,14 @@ export function PrepScenes({
     );
   }
 
+  // A deleted scene leaves the list at once; the refresh brings the
+  // heading's count, and the Timeline's idea of which scene a session is
+  // on, back from the page.
+  function onDeleted(idStoryScene: number) {
+    setScenes((current) => current.filter((scene) => scene.idStoryScene !== idStoryScene));
+    router.refresh();
+  }
+
   if (scenes.length === 0) {
     const untouched = filter.trim() === "" && everyStatus;
     return (
@@ -235,6 +246,18 @@ export function PrepScenes({
                     canEdit={canEdit}
                     onStatusChanged={(status) => onStatusChanged(scene.idStoryScene, status)}
                   />
+                  {/* Last, apart from the ones that open something. Any
+                      scene can go, a completed one included; the dialog
+                      asks harder for that. */}
+                  {canEdit && (
+                    <DeleteSceneButton
+                      idStoryScene={scene.idStoryScene}
+                      title={scene.title}
+                      complete={scene.status === SCENE_LOCKED_STATUS}
+                      sessionHeading={scene.sessionHeading}
+                      onDeleted={() => onDeleted(scene.idStoryScene)}
+                    />
+                  )}
                 </HStack>
               </HStack>
 

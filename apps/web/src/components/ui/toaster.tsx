@@ -9,10 +9,21 @@ import {
   createToaster,
 } from "@chakra-ui/react"
 
-export const toaster = createToaster({
+const store = createToaster({
   placement: "bottom-end",
   pauseOnPageIdle: true,
 })
+
+// Zag shows a success toast for 2s, too quick to read one that names what
+// was saved or deleted, and everything else for 5s. createToaster takes one
+// duration for every type, so success gets its 3s here, in create, unless the
+// call names a duration of its own. The store's success() helper calls its
+// own create and skips this; the app only uses create.
+export const toaster: typeof store = {
+  ...store,
+  create: (data) =>
+    store.create({ ...(data.type === "success" && { duration: 3000 }), ...data }),
+}
 
 export const Toaster = () => {
   return (
