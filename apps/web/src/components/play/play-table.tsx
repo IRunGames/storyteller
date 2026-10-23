@@ -7,6 +7,8 @@ import { useUser } from "@/components/auth/user-provider";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { canSeeDiagnostics } from "@/lib/diagnostics";
 import type { PlayScene } from "@/lib/play-scene";
+import type { StorySession } from "@/lib/stories";
+import { StoryPlayingBox } from "@/components/stories/story-playing-box";
 import { PlayCharacterSpace } from "./play-character-space";
 import { PlayChat } from "./play-chat";
 import { PlayDiagnostics } from "./play-diagnostics";
@@ -53,9 +55,18 @@ type Props = {
   initialScene: PlayScene;
   /** The story's cover, for the play space when the scene has none; see PlaySpace. */
   storyCoverUrl: string | null;
+  /** The first page of the story's sessions, for the story's box on no scene. */
+  sessions: StorySession[];
 };
 
-export function PlayTable({ idStory, title, session, initialScene, storyCoverUrl }: Props) {
+export function PlayTable({
+  idStory,
+  title,
+  session,
+  initialScene,
+  storyCoverUrl,
+  sessions,
+}: Props) {
   const user = useUser();
   const preferences = useUserPreferences();
   const [previewIdElement, setPreviewIdElement] = useState<number | null>(null);
@@ -127,6 +138,17 @@ export function PlayTable({ idStory, title, session, initialScene, storyCoverUrl
             idStory={idStory}
             scene={scene}
             fallbackCoverUrl={storyCoverUrl}
+            // The storyteller's box from the run table, without the pencils
+            // and bins: only the story's owner manages its sessions, and the
+            // owner is sent to /run rather than here.
+            noSceneBox={
+              <StoryPlayingBox
+                idStory={idStory}
+                title={title}
+                sessions={sessions}
+                canManage={false}
+              />
+            }
             status={channel.status}
             onTextChange={setSceneText}
             onNotesChange={setElementNotes}

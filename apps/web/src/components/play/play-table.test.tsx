@@ -10,6 +10,7 @@ import { UserProvider } from "@/components/auth/user-provider";
 import { chatLog } from "@/lib/chat-log";
 import type { CurrentUser } from "@/lib/current-user";
 import { EMPTY_PLAY_SCENE, type PlayScene } from "@/lib/play-scene";
+import type { StorySession } from "@/lib/stories";
 import type { StoryEvent } from "@/lib/realtime/events";
 import type { SetElementNotesResult, UntapSceneElementResult } from "@/app/(app)/play/[id]/actions";
 
@@ -147,6 +148,20 @@ let UserPreferencesProvider: PreferencesModule["UserPreferencesProvider"];
 
 // The table reads the user and the preference map from the providers
 // (app)/layout.tsx mounts, as the menu bar does.
+// The story's sessions, for the list in the box the play space shows on no
+// scene.
+const storySessions: StorySession[] = [
+  {
+    idStorySession: 2,
+    number: 3,
+    title: "Kildealg",
+    status: "OPEN",
+    startedAt: new Date("2026-10-20T19:00:00Z"),
+    length: null,
+    playerCount: 2,
+  },
+];
+
 // Both panels open, for the tests about what is in them.
 const OPEN = { "play.showChat": true, "play.showCharacter": true };
 
@@ -166,6 +181,7 @@ function renderTable(
           session={session}
           initialScene={initialScene}
           storyCoverUrl={storyCoverUrl}
+          sessions={storySessions}
         />
         <Toaster />
       </UserPreferencesProvider>
@@ -263,6 +279,29 @@ describe("PlayTable", () => {
     expect(screen.getByTestId("play-space-cover")).toHaveStyle({
       backgroundImage: 'url("https://x.test/story.png")',
     });
+  });
+
+  it("with no scene, shows the story's box with its sessions folded away and nothing to manage", async () => {
+    const actor = userEvent.setup();
+    // A session on no scene yet.
+    renderTable({}, "3. Kildealg", user, { ...EMPTY_PLAY_SCENE, idStorySession: 2 });
+    const space = screen.getByRole("region", { name: "Play space" });
+    expect(within(space).queryByText(/has not chosen a scene/)).not.toBeInTheDocument();
+
+    const box = screen.getByTestId("story-playing-box");
+    expect(within(box).getByRole("heading", { name: "Playing Psychoneira" })).toBeInTheDocument();
+    const sessions = within(box).getByRole("region", { name: "Sessions" });
+    expect(within(sessions).getByText("3. Kildealg")).not.toBeVisible();
+    await actor.click(within(sessions).getByRole("button", { name: "Show sessions" }));
+    expect(within(sessions).getByText("3. Kildealg")).toBeVisible();
+    // Only the story's owner manages its sessions, and the owner is at /run.
+    expect(within(sessions).queryByRole("button", { name: /^Delete / })).not.toBeInTheDocument();
+    expect(within(sessions).queryByRole("button", { name: /^Edit / })).not.toBeInTheDocument();
+  });
+
+  it("shows no story box while the table is on a scene", () => {
+    renderTable();
+    expect(screen.queryByTestId("story-playing-box")).not.toBeInTheDocument();
   });
 
   it("links the Storyteller name in its header to the home page", () => {

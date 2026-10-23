@@ -18,6 +18,7 @@ import {
   type RunSession,
 } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
+import type { StorySession } from "@/lib/stories";
 
 const user: CurrentUser = {
   id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
@@ -213,6 +214,29 @@ const sa_setSceneText = mock.fn(
 // Where the table sends the storyteller once the session is paused or ended.
 const push = mock.fn((_href: string) => {});
 
+// The story's sessions, for the list in the box the play space shows on no
+// scene.
+const storySessions: StorySession[] = [
+  {
+    idStorySession: -30,
+    number: 3,
+    title: "Kildealg",
+    status: "OPEN",
+    startedAt: new Date("2026-10-20T19:00:00Z"),
+    length: null,
+    playerCount: 2,
+  },
+  {
+    idStorySession: -29,
+    number: 2,
+    title: "The Drowned Gate",
+    status: "DONE",
+    startedAt: new Date("2026-10-13T19:00:00Z"),
+    length: 180,
+    playerCount: 3,
+  },
+];
+
 const kildealg: RunSession = { idStorySession: -30, number: 3, title: "Kildealg", status: "OPEN" };
 // The session workflow, as the chip beside the title reads it.
 // Read as transitions FROM each status, as the seed declares them: open
@@ -238,6 +262,7 @@ function renderTable(
   initialSpace: RunPlaySpace = EMPTY_PLAY_SPACE,
   who: CurrentUser = user,
   storyCoverUrl: string | null = null,
+  isOwner = true,
 ) {
   return renderWithProviders(
     <UserProvider user={who}>
@@ -246,6 +271,8 @@ function renderTable(
           idStory={-4}
           title="Psychoneira"
           storyCoverUrl={storyCoverUrl}
+          isOwner={isOwner}
+          sessions={storySessions}
           session={session}
           initialSpace={initialSpace}
           sceneStatusOptions={sceneStatusOptions}
@@ -503,19 +530,22 @@ describe("RunTable", () => {
     const u = userEvent.setup();
     renderTable();
     const space = screen.getByRole("region", { name: "Play space" });
-    const stack = within(space).getByRole("region", { name: "Default" });
-    expect(within(stack).getByText("Nothing here yet.")).toBeInTheDocument();
-    expect(within(space).getByRole("heading", { name: "Play space" })).not.toHaveStyle({
+    // Nothing brought in yet: no empty Default stack, and the heading is for
+    // a screen reader only.
+    expect(within(space).queryByRole("region", { name: "Default" })).not.toBeInTheDocument();
+    expect(within(space).queryByText("Nothing here yet.")).not.toBeInTheDocument();
+    expect(within(space).getByRole("heading", { name: "Play space" })).toHaveStyle({
       position: "absolute",
     });
-    // No scene to make an element in.
-    expect(within(stack).queryByRole("button", { name: /^New element/ })).not.toBeInTheDocument();
 
     await u.click(screen.getByRole("tab", { name: "People" }));
     const add = await screen.findByRole("button", { name: "Add Dafydd to the play space" });
     await u.click(add);
     await u.click(add);
 
+    const stack = within(space).getByRole("region", { name: "Default" });
+    // No scene to make an element in.
+    expect(within(stack).queryByRole("button", { name: /^New element/ })).not.toBeInTheDocument();
     const items = within(stack).getAllByRole("listitem");
     expect(items).toHaveLength(1);
     expect(items[0]).toHaveTextContent("Dafydd");
@@ -526,6 +556,45 @@ describe("RunTable", () => {
     // Pills have no ✕; taking an element out is the info popover's −,
     // which needs a scene.
     expect(within(space).queryByRole("button", { name: /^Remove / })).not.toBeInTheDocument();
+  });
+
+  it("with no scene, says what is playing in a box with the sessions folded away", async () => {
+    const u = userEvent.setup();
+    renderTable();
+    const box = screen.getByTestId("story-playing-box");
+    expect(within(box).getByRole("heading", { name: "Playing Psychoneira" })).toBeInTheDocument();
+
+    const sessions = within(box).getByRole("region", { name: "Sessions" });
+    const toggle = within(sessions).getByRole("button", { name: "Show sessions" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(sessions).getByText("3. Kildealg")).not.toBeVisible();
+
+    await u.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(sessions).getByText("3. Kildealg")).toBeVisible();
+    expect(within(sessions).getByText("2. The Drowned Gate")).toBeVisible();
+    // The owner's pencil and bin, as on the library's Timeline.
+    expect(
+      within(sessions).getByRole("button", { name: "Delete 2. The Drowned Gate" }),
+    ).toBeInTheDocument();
+    expect(within(sessions).getAllByRole("button", { name: /^Edit / }).length).toBeGreaterThan(0);
+  });
+
+  it("leaves the pencils and bins off the sessions list for anyone but the owner", async () => {
+    const u = userEvent.setup();
+    renderTable({}, kildealg, EMPTY_PLAY_SPACE, user, null, false);
+    const sessions = within(screen.getByTestId("story-playing-box")).getByRole("region", {
+      name: "Sessions",
+    });
+    await u.click(within(sessions).getByRole("button", { name: "Show sessions" }));
+    expect(within(sessions).getByText("3. Kildealg")).toBeVisible();
+    expect(within(sessions).queryByRole("button", { name: /^Delete / })).not.toBeInTheDocument();
+    expect(within(sessions).queryByRole("button", { name: /^Edit / })).not.toBeInTheDocument();
+  });
+
+  it("shows no story box once the table is on a scene", () => {
+    renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay: [] });
+    expect(screen.queryByTestId("story-playing-box")).not.toBeInTheDocument();
   });
 
   it("keeps one picture up at a time: the tack on a second pill takes the first down", async () => {

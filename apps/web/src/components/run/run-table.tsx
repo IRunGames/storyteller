@@ -38,7 +38,7 @@ import {
 import type { StatusOption } from "@/lib/status";
 import { EMPTY_SCENE_TEXT, SCENE_LOCKED_STATUS } from "@/lib/scenes";
 import type { StackRename } from "@/lib/stack-schemas";
-import { cssUrlValue, sessionHeading } from "@/lib/stories";
+import { cssUrlValue, sessionHeading, type StorySession } from "@/lib/stories";
 import {
   sa_getRunPlaySpace,
   sa_linkSceneElement,
@@ -58,6 +58,7 @@ import { useStoryChannel } from "@/components/play/use-story-channel";
 import { RunLibrary } from "./run-library";
 import { RunLibrarySortMenu } from "./run-library-sort-menu";
 import { RunPlayStack } from "./run-play-stack";
+import { StoryPlayingBox } from "@/components/stories/story-playing-box";
 import { RunSceneSelect } from "./run-scene-select";
 import { RunSessionTitle } from "./run-session-title";
 import { RunStackSelect } from "./run-stack-select";
@@ -92,6 +93,13 @@ type Props = {
    * or on one without a cover of its own.
    */
   storyCoverUrl: string | null;
+  /** The viewer is the story's owner, for the sessions list's pencils and bins. */
+  isOwner: boolean;
+  /**
+   * The first page of the story's sessions, for the list in the box the play
+   * space shows while it is on no scene (StoryPlayingBox).
+   */
+  sessions: StorySession[];
   /** The session being played, or null when there is none. */
   session: RunSession | null;
   /** The scene the table opens on, and what the play space holds for it. */
@@ -132,6 +140,8 @@ export function RunTable({
   idStory,
   title,
   storyCoverUrl,
+  isOwner,
+  sessions,
   session,
   initialSpace,
   sceneStatusOptions,
@@ -682,8 +692,10 @@ export function RunTable({
                   opens its description and notes after. The region's own
                   heading stays for a screen reader, which names the region
                   by it. */}
+              {/* With no scene there is nothing to title: the story's box
+                  in the lower left says what is being played instead. */}
               {scene === null ? (
-                <Heading id="play-space-heading" size="sm">
+                <Heading id="play-space-heading" srOnly>
                   Play space
                 </Heading>
               ) : (
@@ -724,23 +736,29 @@ export function RunTable({
               )}
               {/* space-between: the first stack against the left edge and
                   the rest spread across the width. */}
+              {/* With no scene and nothing brought in, an empty Default
+                  stack would only say "Nothing here yet", so the space
+                  is left to the cover and the story's box. Something the
+                  library adds with no scene still shows, in its stack. */}
               <Flex gap="3" wrap="wrap" align="flex-start" justify="space-between">
-                {playStacks(tags, inPlay).map((stack) => (
-                  <RunPlayStack
-                    key={stack.title}
-                    idStory={idStory}
-                    stack={stack}
-                    sceneTags={tags}
-                    idStoryScene={scene?.idStoryScene ?? null}
-                    onCreated={put}
-                    onRemove={remove}
-                    onStatusChange={setStatus}
-                    onItemChange={replace}
-                    pictureUpKey={pictureUpKey}
-                    onPictureUpChange={setPictureUp}
-                    locked={isComplete}
-                  />
-                ))}
+                {(scene !== null || inPlay.length > 0 ? playStacks(tags, inPlay) : []).map(
+                  (stack) => (
+                    <RunPlayStack
+                      key={stack.title}
+                      idStory={idStory}
+                      stack={stack}
+                      sceneTags={tags}
+                      idStoryScene={scene?.idStoryScene ?? null}
+                      onCreated={put}
+                      onRemove={remove}
+                      onStatusChange={setStatus}
+                      onItemChange={replace}
+                      pictureUpKey={pictureUpKey}
+                      onPictureUpChange={setPictureUp}
+                      locked={isComplete}
+                    />
+                  ),
+                )}
               </Flex>
             </Stack>
             {/* Over the stacks, saying so, but letting the pointer through:
@@ -784,6 +802,17 @@ export function RunTable({
                   </Text>
                 </Flex>
               )
+            )}
+            {/* After the overlays, so it stays above a SUSPENDED one and
+                its chevron, pencils and bins keep working. */}
+            {scene === null && (
+              <StoryPlayingBox
+                idStory={idStory}
+                title={title}
+                sessions={sessions}
+                sessionStatusOptions={sessionStatusOptions}
+                canManage={isOwner}
+              />
             )}
           </Box>
 

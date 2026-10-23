@@ -102,7 +102,9 @@ export function SessionDetail({
       {detail.imageLink && (
         // Decoration beside a heading that already names the session, so
         // the alt is empty and the image reads as presentation.
-        <Image src={detail.imageLink} alt="" rounded="md" w="full" maxH="40" objectFit="cover" />
+        // Shown whole, at the panel's width and its own height, rather than
+        // cropped to a strip: the panel scrolls when it runs long.
+        <Image src={detail.imageLink} alt="" rounded="md" w="full" h="auto" />
       )}
 
       {/* The status, as a menu for the storyteller only, then the length

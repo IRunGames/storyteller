@@ -72,7 +72,9 @@ export function SceneDetail({
       {detail.imageLink && (
         // Decoration beside a heading that already names the scene, so
         // the alt is empty and it reads as presentation.
-        <Image src={detail.imageLink} alt="" rounded="md" w="full" maxH="40" objectFit="cover" />
+        // Shown whole, at the panel's width and its own height, rather than
+        // cropped to a strip: the panel scrolls when it runs long.
+        <Image src={detail.imageLink} alt="" rounded="md" w="full" h="auto" />
       )}
 
       <Stack gap="2" align="start">

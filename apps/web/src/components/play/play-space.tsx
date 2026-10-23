@@ -61,6 +61,12 @@ type Props = {
    * styling the heading carries, so it reads the same.
    */
   renderTitle?: (title: string, headingProps: HeadingProps) => ReactNode;
+  /**
+   * Drawn over the space while it is on no scene, in place of saying so: the
+   * players' table passes the story's box (StoryPlayingBox), as the
+   * storyteller's table shows it.
+   */
+  noSceneBox?: ReactNode;
 };
 
 // The same halo the storyteller's stack headings carry, so a tag reads over
@@ -117,6 +123,7 @@ export function PlaySpace({
   titleStart,
   titleEnd,
   renderTitle,
+  noSceneBox,
 }: Props) {
   const note = STATUS_NOTES[status];
   const items = scene.items.map(toPlayItem);
@@ -153,8 +160,10 @@ export function PlaySpace({
           {/* The scene's title is what the space is about; the region keeps
               its own name for a screen reader. Centred over the stacks, in
               small caps, as a scene's title is set on a page. */}
+          {/* With no scene and the story's box to show, the box says what
+              is being played, so the heading is for a screen reader only. */}
           {scene.scene === null ? (
-            <Heading id="play-space-heading" size="sm">
+            <Heading id="play-space-heading" size="sm" srOnly={noSceneBox !== undefined}>
               Play space
             </Heading>
           ) : (
@@ -191,7 +200,9 @@ export function PlaySpace({
         {scene.idStorySession === null && !readOnly ? (
           <Text color="fg.muted">No session is being played.</Text>
         ) : scene.scene === null ? (
-          <Text color="fg.muted">The storyteller has not chosen a scene yet.</Text>
+          noSceneBox === undefined && (
+            <Text color="fg.muted">The storyteller has not chosen a scene yet.</Text>
+          )
         ) : (
           <Flex gap="3" wrap="wrap" align="flex-start" justify="space-between">
             {playStacks(scene.tags, items).map((stack) => (
@@ -301,6 +312,7 @@ export function PlaySpace({
           showTags={false}
         />
       )}
+      {scene.scene === null && noSceneBox}
     </Box>
   );
 }

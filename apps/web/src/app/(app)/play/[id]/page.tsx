@@ -2,11 +2,11 @@ import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 import { requireSession } from "@/lib/require-session";
 import { isUnplayable } from "@/lib/play";
-import { sessionHeading } from "@/lib/stories";
+import { PREP_SESSIONS_PAGE_SIZE, sessionHeading } from "@/lib/stories";
 import { PlayCover } from "@/components/play/play-cover";
 import { PlayTable } from "@/components/play/play-table";
 import { StoryUnavailableDialog } from "@/components/play/story-unavailable-dialog";
-import { sa_getStorySession } from "@/app/(app)/(nav)/stories/actions";
+import { sa_getStorySession, sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
 import { EMPTY_PLAY_SCENE } from "@/lib/play-scene";
 import { sa_getPlayScene, sa_getPlayStory, sa_joinSession } from "./actions";
 
@@ -57,11 +57,14 @@ export default async function PlayTablePage({ params }: { params: Promise<{ id: 
   // story page lists it; with none, it says so.
   // The scene is loaded here so the table shows it on first paint, and kept
   // up to date by the table itself from the story's MQTT topic.
-  const [session, scene] = await Promise.all([
+  // The first page of the story's sessions is for the box the play space
+  // shows while it is on no scene, as at the storyteller's table.
+  const [session, scene, sessions] = await Promise.all([
     story.hasOpenSession && story.idStorySession !== null
       ? sa_getStorySession(story.idStorySession)
       : null,
     sa_getPlayScene(story.idStory),
+    sa_listStorySessions(story.idStory, 0, PREP_SESSIONS_PAGE_SIZE),
   ]);
 
   return (
@@ -69,6 +72,7 @@ export default async function PlayTablePage({ params }: { params: Promise<{ id: 
       idStory={story.idStory}
       title={story.title}
       storyCoverUrl={story.imageUrl}
+      sessions={sessions}
       session={session ? sessionHeading(session) : null}
       initialScene={scene ?? EMPTY_PLAY_SCENE}
     />

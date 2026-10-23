@@ -5,7 +5,8 @@ import { isUnplayable } from "@/lib/play";
 import { PlayCover } from "@/components/play/play-cover";
 import { StoryUnavailableDialog } from "@/components/play/story-unavailable-dialog";
 import { RunTable } from "@/components/run/run-table";
-import { sa_getStorySession } from "@/app/(app)/(nav)/stories/actions";
+import { PREP_SESSIONS_PAGE_SIZE } from "@/lib/stories";
+import { sa_getStorySession, sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getPlayStory } from "@/app/(app)/play/[id]/actions";
 import { sa_getRunPlaySpace } from "./actions";
@@ -48,12 +49,16 @@ export default async function RunTablePage({ params }: { params: Promise<{ id: s
   // paused: a pause is a break at the table, and the session chip is where
   // it is resumed, so a reload during one must keep the chip. Only an ended
   // session leaves the table with none.
-  const [currentSession, initialSpace, sceneStatusOptions, sessionStatusOptions] =
+  //
+  // The first page of the story's sessions is for the box the play space
+  // shows while it is on no scene, the library's Timeline folded away.
+  const [currentSession, initialSpace, sceneStatusOptions, sessionStatusOptions, sessions] =
     await Promise.all([
       story.idStorySession !== null ? sa_getStorySession(story.idStorySession) : null,
       sa_getRunPlaySpace(story.idStory),
       sa_listStatusOptions("story_scenes"),
       sa_listStatusOptions("story_sessions"),
+      sa_listStorySessions(story.idStory, 0, PREP_SESSIONS_PAGE_SIZE),
     ]);
   const session = currentSession?.status === "DONE" ? null : currentSession;
 
@@ -62,6 +67,8 @@ export default async function RunTablePage({ params }: { params: Promise<{ id: s
       idStory={story.idStory}
       title={story.title}
       storyCoverUrl={story.imageUrl}
+      isOwner={story.isOwner}
+      sessions={sessions}
       session={
         session
           ? {
