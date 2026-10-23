@@ -1,5 +1,13 @@
 import NextLink from "next/link";
-import { Box, Button, Flex, Heading, HStack, Stack, Text } from "@chakra-ui/react";
+import {
+  Box,
+  Button,
+  Flex,
+  Heading,
+  HStack,
+  Stack,
+  Text,
+} from "@chakra-ui/react";
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { pickWelcomeBackground } from "@/lib/welcome";
 
@@ -54,8 +62,8 @@ export default function LandingPage() {
           <Stack gap="3">
             <Heading size="4xl">Storyteller</Heading>
             <Text textStyle="lg" color="fg.muted">
-              Real-time collaborative storytelling. Gather a table, share a world, and write the
-              next chapter together.
+              Real-time collaborative storytelling. Gather a table, share a
+              world, and tell the next chapter together, scene-by-scene.
             </Text>
           </Stack>
 
