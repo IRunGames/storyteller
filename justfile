@@ -156,7 +156,13 @@ psql *args:
 backup:
     #!/usr/bin/env bash
     set -euo pipefail
-    log() { printf '%s -- %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
+    log() { printf '%s\n\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
+    # Color only when printing to a terminal, so piped or logged output stays plain.
+    if [ -t 1 ]; then
+        cyan=$'\e[36m' magenta=$'\e[35m' green=$'\e[32m' reset=$'\e[0m'
+    else
+        cyan='' magenta='' green='' reset=''
+    fi
     if [ ! -f .env.production ]; then
         log "db/.env.production is missing: put the direct Neon DATABASE_URL in it" >&2
         exit 1
@@ -174,13 +180,13 @@ backup:
     out="backups/production-$(date -u +%Y%m%d-%H%M%S).dump"
     # host[:port]/dbname, with the credentials and query string left out.
     src="$(printf '%s' "$url" | sed -E -e 's#^[^@]*@##' -e 's#\?.*$##')"
-    log "Backing up $src to db/$out"
-    log "Dumping with $("$PG_DUMP" --version) from $PG_DUMP (this is the slow part)"
+    log "Backing up ${cyan}$src${reset} to ${magenta}db/$out${reset}"
+    log "Dumping with $("$PG_DUMP" --version)"$'\n\t\t'"from $PG_DUMP"
     SECONDS=0
     "$PG_DUMP" --format=custom --compress=6 --no-owner --no-privileges --file "$out" "$url"
     log "Dump finished in ${SECONDS}s; counting tables in the archive"
     tables="$("$PG_DUMP" --version >/dev/null && "${PG_DUMP%pg_dump}pg_restore" --list "$out" | grep -c ' TABLE DATA ' || true)"
-    log "Wrote $out ($(du -h "$out" | cut -f1), $tables tables with data)"
+    log "Wrote ${magenta}db/$out${reset} (${green}$(du -h "$out" | cut -f1)${reset}, ${green}$tables tables with data${reset})"
 
 # Logging is switched back off when the tail exits, however it exits.
 # Log every statement the server runs and tail the server log (Ctrl+C to stop)
