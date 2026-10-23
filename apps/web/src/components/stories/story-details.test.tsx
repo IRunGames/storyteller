@@ -1,6 +1,7 @@
 import { before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import type { StatusOption } from "@/lib/status";
@@ -60,6 +61,17 @@ const sessions: StorySession[] = [
 
 let StoryDetails: typeof import("./story-details").StoryDetails;
 
+// What the Play popover asks for and does: one session to carry on with, and
+// a start that comes back refused, since the real one redirects.
+const sa_listUnfinishedSessions = mock.fn(async (_idStory: number) => [
+  { idStorySession: 7, number: 3, title: "Kildealg", status: "SUSPENDED" },
+]);
+const sa_startPlaying = mock.fn(
+  async (_idStory: number, _idSession: number | null, _title: string) => ({
+    error: "Refused for the test.",
+  }),
+);
+
 const section = (name: string) => screen.getByRole("region", { name });
 
 describe("StoryDetails", () => {
@@ -90,6 +102,9 @@ describe("StoryDetails", () => {
           </p>
         ),
       },
+    });
+    mock.module("@/app/(app)/(nav)/play/actions", {
+      namedExports: { sa_listUnfinishedSessions, sa_startPlaying },
     });
     ({ StoryDetails } = await import("./story-details"));
   });
@@ -202,7 +217,8 @@ describe("StoryDetails", () => {
     expect(screen.queryByRole("link", { name: "Edit story" })).not.toBeInTheDocument();
   });
 
-  it("offers the storyteller of an active story a Play now button beside Recent sessions", () => {
+  it("offers the storyteller of an active story the card's Play, which asks which session", async () => {
+    const user = userEvent.setup();
     renderWithProviders(
       <StoryDetails
         story={{ ...story, isOwner: true }}
@@ -212,11 +228,29 @@ describe("StoryDetails", () => {
       />,
     );
 
-    const link = within(section("Recent sessions")).getByRole("link", { name: "Play now" });
-    expect(link).toHaveAttribute("href", "/play/-15");
+    // A button, not a link straight to the table.
+    expect(screen.queryByRole("link", { name: "Play" })).not.toBeInTheDocument();
+    await user.click(within(section("Recent sessions")).getByRole("button", { name: "Play" }));
+
+    const ask = await screen.findByRole("dialog", { name: "Play Vampire" });
+    await waitFor(() => expect(sa_listUnfinishedSessions.mock.calls[0]?.arguments).toEqual([-15]));
+    const select = within(ask).getByRole("combobox", { name: "Session" });
+    // On the session most recently touched, with a new one on offer.
+    await waitFor(() => expect(select).toHaveValue("7"));
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Create new session", "3. Kildealg · Suspended"]);
+
+    await user.selectOptions(select, "");
+    await user.click(within(ask).getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(sa_startPlaying.mock.callCount()).toBe(1));
+    expect(sa_startPlaying.mock.calls[0].arguments.slice(0, 2)).toEqual([-15, null]);
+    expect(await within(ask).findByRole("alert")).toHaveTextContent("Refused for the test.");
   });
 
-  it("shows no Play now button to anyone but the storyteller, or on an inactive story", () => {
+  it("shows no Play button to anyone but the storyteller, or on an inactive story", () => {
     const { unmount } = renderWithProviders(
       <StoryDetails
         story={story}
@@ -225,7 +259,7 @@ describe("StoryDetails", () => {
         sessionStatusOptions={sessionStatusOptions}
       />,
     );
-    expect(screen.queryByRole("link", { name: "Play now" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Play" })).not.toBeInTheDocument();
     unmount();
 
     renderWithProviders(
@@ -236,7 +270,7 @@ describe("StoryDetails", () => {
         sessionStatusOptions={sessionStatusOptions}
       />,
     );
-    expect(screen.queryByRole("link", { name: "Play now" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Play" })).not.toBeInTheDocument();
   });
 
   it("offers the storyteller an Invite Players button beside the Players heading", () => {

@@ -99,9 +99,7 @@ describe("StoryForm", () => {
     await user.type(screen.getByLabelText(/Title/), "Embers Leap");
     await user.click(screen.getByRole("button", { name: "Create story" }));
 
-    expect(
-      await screen.findByText("Keep the summary under 4000 characters."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Keep the summary under 4000 characters.")).toBeInTheDocument();
   });
 
   it("starts from the story's values when editing, and saves through the update action", async () => {

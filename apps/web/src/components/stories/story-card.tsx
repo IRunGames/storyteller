@@ -16,17 +16,11 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import {
-  SUMMARY_PREVIEW_CHARS,
-  cssUrlValue,
-  systemLabel,
-  type StoryCardData,
-} from "@/lib/stories";
+import { SUMMARY_PREVIEW_CHARS, cssUrlValue, systemLabel, type StoryCardData } from "@/lib/stories";
 import { BookOpen, Heart } from "lucide-react";
 import { LocalDate } from "@/components/dates/local-date";
 import { PlayerCount } from "./player-count";
-import { StoryPlayButton } from "./story-play-button";
-import { StoryPlayPopover } from "./story-play-popover";
+import { PlayButton } from "./story-play-button";
 
 type Props = {
   story: StoryCardData;
@@ -47,12 +41,11 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
   // One string for the accessible name and the tooltip, so they never drift.
   const favoriteLabel = story.isFavorite ? "Remove from Favorites" : "Add to Favorites";
 
-  // Players in the waiting room, as the storyteller sees them: on Play, and
-  // as the outline round the card. Only the owner's card shows it, because
-  // Play is theirs, and an outline a player could not account for would only
-  // puzzle them. An inactive story has no Play to put the count on.
+  // Players in the waiting room, as the storyteller sees them: as the
+  // outline round the card (Play counts them itself; see PlayButton). Only
+  // the owner's card shows it, because an outline a player could not account
+  // for would only puzzle them. An inactive story has no table to wait at.
   const waiting = story.isOwner && story.isActive ? story.waitingCount : 0;
-  const waitingText = `${waiting} ${waiting === 1 ? "player" : "players"} waiting`;
   // A session is being played at the table: the card glows, for the
   // storyteller and the players alike, so a story in play stands out on the
   // home page and the stories page without anyone reading the counts. A
@@ -60,7 +53,8 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
   const live = story.hasOpenSession && story.isActive;
   // In the theme's highlight, as the waiting outline is; wider on hover,
   // where every other card takes a shadow.
-  const glow = (spread: number) => `0 0 ${spread * 6}px ${spread}px var(--chakra-colors-play-accent)`;
+  const glow = (spread: number) =>
+    `0 0 ${spread * 6}px ${spread}px var(--chakra-colors-play-accent)`;
 
   return (
     <LinkBox
@@ -103,9 +97,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         bgSize="cover"
         bgPos="center"
         style={
-          story.imageUrl
-            ? { backgroundImage: `url("${cssUrlValue(story.imageUrl)}")` }
-            : undefined
+          story.imageUrl ? { backgroundImage: `url("${cssUrlValue(story.imageUrl)}")` } : undefined
         }
       />
       {/* Scrim: dark at the bottom for the date, lighter but present at the top
@@ -180,7 +172,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         )}
 
         {/* Bottom row: on the left an Inactive pill for a retired story,
-            else Play for everyone (StoryPlayButton), with the Library button
+            else Play for everyone (PlayButton), with the Library button
             beside either for the owner; the player count in the middle; the
             date on the right. A grid with equal outer
             columns keeps the count centred whatever the sides hold, and
@@ -205,24 +197,10 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
               <Badge size="sm" variant="solid" colorPalette="gray">
                 Inactive
               </Badge>
-            ) : story.isOwner ? (
-              // The storyteller chooses the session first; see the popover.
-              <StoryPlayPopover
-                idStory={story.idStory}
-                title={story.title}
-                count={waiting > 0 ? waiting : null}
-                label={waiting > 0 ? `Play, ${waitingText}` : "Play"}
-                tooltip={waiting > 0 ? `Start playing · ${waiting} waiting` : "Start playing"}
-              />
             ) : (
-              // A player's Play is there whether or not a session is on, and
-              // is highlighted when there is someone to join: the players at
-              // the table while a session is on, or the others already
-              // waiting for one. Plain only when it would be an empty room.
-              <StoryPlayButton
-                idStory={story.idStory}
-                {...playerPlay(story)}
-              />
+              // Play, as everywhere: the storyteller's opens the session
+              // popover, a player's goes to the table.
+              <PlayButton story={story} />
             )}
             {story.isOwner && (
               <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
@@ -286,31 +264,31 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         // click handler enforces it instead.
         <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
           <Tooltip.Trigger asChild>
-        <IconButton
-          type="button"
-          aria-label={favoriteLabel}
-          aria-pressed={story.isFavorite}
-          variant="ghost"
-          size="sm"
-          rounded="full"
-          position="absolute"
-          top="2"
-          right="2"
-          zIndex="1"
-          color={story.isFavorite ? "red.300" : "whiteAlpha.900"}
-          bg="blackAlpha.400"
-          _hover={{ bg: "blackAlpha.600" }}
-          aria-disabled={favoritePending}
-          opacity={favoritePending ? "0.6" : undefined}
-          cursor={favoritePending ? "not-allowed" : undefined}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (favoritePending) return;
-            onToggleFavorite(story, !story.isFavorite);
-          }}
-        >
-          <Heart size={22} fill={story.isFavorite ? "currentColor" : "none"} />
-        </IconButton>
+            <IconButton
+              type="button"
+              aria-label={favoriteLabel}
+              aria-pressed={story.isFavorite}
+              variant="ghost"
+              size="sm"
+              rounded="full"
+              position="absolute"
+              top="2"
+              right="2"
+              zIndex="1"
+              color={story.isFavorite ? "red.300" : "whiteAlpha.900"}
+              bg="blackAlpha.400"
+              _hover={{ bg: "blackAlpha.600" }}
+              aria-disabled={favoritePending}
+              opacity={favoritePending ? "0.6" : undefined}
+              cursor={favoritePending ? "not-allowed" : undefined}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (favoritePending) return;
+                onToggleFavorite(story, !story.isFavorite);
+              }}
+            >
+              <Heart size={22} fill={story.isFavorite ? "currentColor" : "none"} />
+            </IconButton>
           </Tooltip.Trigger>
           <Portal>
             <Tooltip.Positioner>
@@ -321,26 +299,4 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
       )}
     </LinkBox>
   );
-}
-
-// What a player's Play shows: the count it is highlighted with, or null for
-// the plain button, with the name and tooltip that say what the count is.
-function playerPlay(story: StoryCardData): { count: number | null; label: string; tooltip: string } {
-  if (story.hasOpenSession) {
-    const n = story.presentCount;
-    return {
-      count: n,
-      label: `Play, ${n} ${n === 1 ? "player" : "players"} at the table`,
-      tooltip: `Session in progress · ${n} at the table`,
-    };
-  }
-  if (story.waitingCount > 0) {
-    const n = story.waitingCount;
-    return {
-      count: n,
-      label: `Play, ${n} ${n === 1 ? "player" : "players"} waiting`,
-      tooltip: `${n} waiting for the storyteller`,
-    };
-  }
-  return { count: null, label: "Play", tooltip: "Go to the table" };
 }

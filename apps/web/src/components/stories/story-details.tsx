@@ -2,7 +2,6 @@ import { useId } from "react";
 import NextLink from "next/link";
 import {
   Box,
-  Button,
   Container,
   Heading,
   HStack,
@@ -12,7 +11,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { BookOpen, Pencil, Play } from "lucide-react";
+import { BookOpen, Pencil } from "lucide-react";
 import {
   cssUrlValue,
   systemLabel,
@@ -23,6 +22,7 @@ import {
 import { LocalDate } from "@/components/dates/local-date";
 import { StoryAttachments } from "./story-attachments";
 import { StoryPlayers } from "./story-players";
+import { PlayButton } from "./story-play-button";
 import type { StatusOption } from "@/lib/status";
 import { StorySessions } from "./story-sessions";
 
@@ -179,15 +179,11 @@ export function StoryDetails({ story, players, sessions, sessionStatusOptions }:
                 Recent sessions
               </Heading>
               {story.isOwner && story.isActive && (
-                // The card's Play button, with its label spelled out since
-                // there is room here, and under the same rule: only the
-                // storyteller opens the table, and not for a retired story.
-                <Button asChild size="sm" rounded="full">
-                  <NextLink href={`/play/${story.idStory}`}>
-                    <Play size={16} />
-                    Play now
-                  </NextLink>
-                </Button>
+                // The card's Play, under the card's rule: only the
+                // storyteller opens the table here, and not for a retired
+                // story. Its popover asks which session first, so the table
+                // never opens with none.
+                <PlayButton story={story} />
               )}
             </HStack>
             {/* The same row the Prep Work timeline draws: the session's

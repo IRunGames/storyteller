@@ -1,16 +1,19 @@
 import { before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
-import type { UnfinishedSession } from "@/app/(app)/(nav)/play/actions";
+import type { PlayableStory, UnfinishedSession } from "@/app/(app)/(nav)/play/actions";
 
 let PlayPicker: typeof import("./play-picker").PlayPicker;
 
-const stories = [
-  { idStory: 7, title: "Something Wicked", isOwner: true },
-  { idStory: 9, title: "The Devil's Spine", isOwner: false },
+const counts = { hasOpenSession: false, waitingCount: 0, presentCount: 0 };
+const stories: PlayableStory[] = [
+  { idStory: 7, title: "Something Wicked", isOwner: true, ...counts },
+  { idStory: 9, title: "The Devil's Spine", isOwner: false, ...counts },
+  // Two players waiting for the storyteller, for Play's count and glow.
+  { idStory: 11, title: "Ashes", isOwner: true, ...counts, waitingCount: 2 },
 ];
 
 const unfinished: UnfinishedSession[] = [
@@ -60,66 +63,47 @@ describe("PlayPicker", () => {
     expect(play.querySelector(".lucide-play")).toBeInTheDocument();
   });
 
-  it("offers the storyteller a new session or one not yet done", async () => {
+  it("opens the storyteller's session popover from Play, as a story card does", async () => {
     const user = userEvent.setup();
     renderWithProviders(<PlayPicker stories={stories} />);
 
     await user.selectOptions(screen.getByRole("combobox", { name: "My Story..." }), "7");
+    // No Session select on the page any more: the popover holds it.
+    expect(screen.queryByRole("combobox", { name: "Session" })).not.toBeInTheDocument();
+    const play = screen.getByRole("button", { name: "Play" });
+    expect(play).toBeEnabled();
+    expect(play).toHaveTextContent(/^Play$/);
 
-    const session = screen.getByRole("combobox", { name: "Session" });
-    expect(session).toHaveValue("");
-    expect(screen.getByRole("option", { name: "Create new session" })).toHaveValue("");
-    expect(
-      await screen.findByRole("option", { name: "4. The Drowned Gate · Suspended" }),
-    ).toHaveValue("31");
-    expect(screen.getByRole("option", { name: "Session 3 · In progress" })).toHaveValue("30");
+    await user.click(play);
+    const ask = await screen.findByRole("dialog", { name: "Play Something Wicked" });
     expect(sa_listUnfinishedSessions.mock.calls[0].arguments).toEqual([7]);
-  });
+    const session = within(ask).getByRole("combobox", { name: "Session" });
+    // On the session most recently touched, as the card's popover starts.
+    await waitFor(() => expect(session).toHaveValue("31"));
+    expect(within(ask).getByRole("option", { name: "Session 3 · In progress" })).toHaveValue("30");
 
-  it("holds Play until the sessions have loaded", async () => {
-    let finish: (list: UnfinishedSession[]) => void = () => {};
-    sa_listUnfinishedSessions.mock.mockImplementation(
-      () => new Promise((resolve) => (finish = resolve)),
-    );
-    const user = userEvent.setup();
-    renderWithProviders(<PlayPicker stories={stories} />);
-
-    await user.selectOptions(screen.getByRole("combobox", { name: "My Story..." }), "7");
-    expect(screen.getByRole("button", { name: "Play" })).toBeDisabled();
-
-    finish(unfinished);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Play" })).toBeEnabled());
-  });
-
-  it("starts the chosen session, or a new one by default", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<PlayPicker stories={stories} />);
-    await user.selectOptions(screen.getByRole("combobox", { name: "My Story..." }), "7");
-    await screen.findByRole("option", { name: "4. The Drowned Gate · Suspended" });
-
-    await user.click(screen.getByRole("button", { name: "Play" }));
+    await user.selectOptions(session, "");
+    await user.click(within(ask).getByRole("button", { name: "Start" }));
     // Titled with the browser's own day.
     const today = new Intl.DateTimeFormat("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
     }).format(new Date());
-    expect(sa_startPlaying.mock.calls[0].arguments).toEqual([7, null, `${today} session`]);
-
-    await user.selectOptions(screen.getByRole("combobox", { name: "Session" }), "31");
-    await user.click(screen.getByRole("button", { name: "Play" }));
-    expect(sa_startPlaying.mock.calls[1].arguments.slice(0, 2)).toEqual([7, 31]);
+    await waitFor(() =>
+      expect(sa_startPlaying.mock.calls[0]?.arguments).toEqual([7, null, `${today} session`]),
+    );
+    expect(await within(ask).findByRole("alert")).toHaveTextContent("Refused.");
   });
 
-  it("keeps a refusal on the page", async () => {
+  it("counts and glows for a story with players waiting", async () => {
     const user = userEvent.setup();
     renderWithProviders(<PlayPicker stories={stories} />);
-    await user.selectOptions(screen.getByRole("combobox", { name: "My Story..." }), "7");
-    await screen.findByRole("option", { name: "4. The Drowned Gate · Suspended" });
 
-    await user.click(screen.getByRole("button", { name: "Play" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("Refused.");
+    await user.selectOptions(screen.getByRole("combobox", { name: "My Story..." }), "11");
+    const play = screen.getByRole("button", { name: "Play, 2 players waiting" });
+    expect(play).toHaveTextContent("Play (2)");
+    expect(play.style.boxShadow || getComputedStyle(play).boxShadow).not.toBe("");
   });
 
   it("links a player straight to the table, with no session to choose", async () => {
@@ -128,7 +112,6 @@ describe("PlayPicker", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "My Story..." }), "9");
 
-    expect(screen.queryByRole("combobox", { name: "Session" })).not.toBeInTheDocument();
     const play = screen.getByRole("link", { name: "Play" });
     expect(play).toHaveAttribute("href", "/play/9");
     expect(play.querySelector(".lucide-play")).toBeInTheDocument();
@@ -139,9 +122,6 @@ describe("PlayPicker", () => {
     renderWithProviders(<PlayPicker stories={[]} />);
 
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "start one" })).toHaveAttribute(
-      "href",
-      "/stories/new",
-    );
+    expect(screen.getByRole("link", { name: "start one" })).toHaveAttribute("href", "/stories/new");
   });
 });

@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { and, desc, eq, exists, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { hasOpenSession } from "@/db/open-session";
+import { presentCount, waitingCount } from "@/db/session-player-counts";
 import { requireUser } from "@/lib/authorize";
 import { formatDayUtc } from "@/lib/dates";
 import { newSessionTitle } from "@/lib/play";
@@ -22,8 +24,12 @@ const titleSchema = z.string().trim().min(1).max(200);
 export type PlayableStory = {
   idStory: number;
   title: string;
-  /** The caller tells this story, so the picker offers its sessions. */
+  /** The caller tells this story, so Play opens the session popover. */
   isOwner: boolean;
+  /** Who is at its table, for the Play button's count and glow, as on a card. */
+  hasOpenSession: boolean;
+  waitingCount: number;
+  presentCount: number;
 };
 
 /**
@@ -50,6 +56,12 @@ export async function sa_listPlayableStories(): Promise<PlayableStory[]> {
         // NULL = userId is NULL in SQL, and Boolean(null) is false, so a
         // story with no recorded creator has no owner rather than an error.
         isOwner: eq(stories.idCreatedByUser, user.id).mapWith(Boolean),
+        // The same counts a story card's Play shows, worked out the same way
+        // (cardColumns in stories/actions.ts): everyone waiting but the
+        // caller, and everyone present at an open session.
+        hasOpenSession,
+        waitingCount: waitingCount(stories.idStory, user.id),
+        presentCount: presentCount(),
       })
       .from(stories)
       .where(

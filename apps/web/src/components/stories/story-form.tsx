@@ -197,11 +197,7 @@ export function StoryForm({ systems, story }: Props) {
             )}
           />
 
-          <Button
-            type="submit"
-            loading={isSubmitting || isSubmitSuccessful}
-            alignSelf="flex-start"
-          >
+          <Button type="submit" loading={isSubmitting || isSubmitSuccessful} alignSelf="flex-start">
             {story ? "Save changes" : "Create story"}
           </Button>
         </Stack>

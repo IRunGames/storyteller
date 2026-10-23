@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, type ReactElement } from "react";
 import {
   Alert,
   Button,
@@ -20,22 +20,23 @@ import {
   sa_startPlaying,
   type UnfinishedSession,
 } from "@/app/(app)/(nav)/play/actions";
-import { PlayButtonFace } from "./story-play-button";
 
 type Props = {
   idStory: number;
   title: string;
-  /** As on PlayButtonFace: the waiting count, or null for the plain button. */
-  count: number | null;
-  label: string;
   tooltip: string;
+  /**
+   * The button that opens the popover: PlayButton's face. It must take the
+   * trigger's props and ref, as Chakra's Button does.
+   */
+  children: ReactElement;
 };
 
 // The value of "Create new session" in the select; a session's is its id.
 const NEW = "";
 
 /**
- * The storyteller's Play on a story card. Rather than going straight to the
+ * The storyteller's Play, wherever PlayButton draws it. Rather than going straight to the
  * table, it asks which session to play: a popover with the Session select
  * the Play page has, and one button that opens the table on it through
  * sa_startPlaying. The select starts on the session most recently touched
@@ -48,7 +49,7 @@ const NEW = "";
  * a board of cards would otherwise ask for every story's sessions to show a
  * popover that is rarely opened.
  */
-export function StoryPlayPopover({ idStory, title, count, label, tooltip }: Props) {
+export function StoryPlayPopover({ idStory, title, tooltip, children }: Props) {
   // One id for both machines' trigger, so the popover positions itself
   // against the same button the tooltip does (docs/standards.md).
   const triggerId = useId();
@@ -113,9 +114,7 @@ export function StoryPlayPopover({ idStory, title, count, label, tooltip }: Prop
         disabled={open}
       >
         <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <PlayButtonFace count={count} label={label} />
-          </Popover.Trigger>
+          <Popover.Trigger asChild>{children}</Popover.Trigger>
         </Tooltip.Trigger>
         <Portal>
           <Tooltip.Positioner>

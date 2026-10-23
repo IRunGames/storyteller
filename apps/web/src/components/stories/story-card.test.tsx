@@ -294,8 +294,8 @@ describe("StoryCard", () => {
 
     const play = screen.getByRole("link", { name: "Play" });
     expect(play).toHaveAttribute("href", "/play/-13");
-    // Plain: the icon alone, no count.
-    expect(play.textContent).toBe("");
+    // Plain: the word, with no count and no glow.
+    expect(play).toHaveTextContent(/^Play$/);
     await user.hover(play);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Go to the table");
   });
@@ -345,7 +345,7 @@ describe("StoryCard", () => {
     expect(screen.getByRole("link", { name: "Play, 3 players at the table" })).toBeInTheDocument();
   });
 
-  it("counts one player at the table in the singular, and none as zero", () => {
+  it("counts one player at the table in the singular, and shows no count for none", () => {
     renderWithProviders(<StoryCard story={{ ...story, hasOpenSession: true, presentCount: 1 }} />);
     expect(screen.getByRole("link", { name: "Play, 1 player at the table" })).toHaveTextContent(
       "(1)",
@@ -354,8 +354,9 @@ describe("StoryCard", () => {
     renderWithProviders(
       <StoryCard story={{ ...story, idStory: -14, hasOpenSession: true, presentCount: 0 }} />,
     );
+    // An open session with nobody at it yet still glows, but has no count.
     expect(screen.getByRole("link", { name: "Play, 0 players at the table" })).toHaveTextContent(
-      "(0)",
+      /^Play$/,
     );
   });
 
@@ -428,11 +429,13 @@ describe("StoryCard", () => {
     });
   });
 
-  it("keeps the owner's Play about waiting players even while a session is open", () => {
+  it("counts the players at the table on the owner's Play while a session is open", () => {
     renderWithProviders(
       <StoryCard story={{ ...story, isOwner: true, hasOpenSession: true, presentCount: 4 }} />,
     );
-    expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Play, 4 players at the table" })).toHaveTextContent(
+      "Play (4)",
+    );
   });
 
   it("shows no Play on an inactive story", () => {

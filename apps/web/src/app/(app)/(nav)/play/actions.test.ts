@@ -142,7 +142,7 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     for (const id of [...fillerIds, owns, playsIn]) expect(ids).toContain(id);
   });
 
-  it("carries only what a picker needs, newest first", async () => {
+  it("carries what the picker and its Play need, newest first", async () => {
     const stories = await actions.sa_listPlayableStories();
     const ids = stories.map((s) => s.idStory);
 
@@ -150,6 +150,10 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       idStory: expect.any(Number),
       title: expect.any(String),
       isOwner: expect.any(Boolean),
+      // Play's count and glow, as on a story card.
+      hasOpenSession: expect.any(Boolean),
+      waitingCount: expect.any(Number),
+      presentCount: expect.any(Number),
     });
     expect(stories.find((s) => s.idStory === owns)?.isOwner).toBe(true);
     expect(stories.find((s) => s.idStory === playsIn)?.isOwner).toBe(false);
