@@ -116,6 +116,34 @@ async function playingSession(userId: string, idStory: number): Promise<number |
   return row?.idStorySession ?? null;
 }
 
+/**
+ * The story's current session as the table shows it: being played or paused,
+ * at a story the caller tells. Null when the story is someone else's, has no
+ * current session, or that session has ended. Only for reading what the
+ * table shows: a write checks playingSession, since nothing changes at a
+ * paused table.
+ */
+async function shownSession(
+  userId: string,
+  idStory: number,
+): Promise<{ idStorySession: number; isPlaying: boolean } | null> {
+  const [row] = await db
+    .select({ idStorySession: storySessions.idStorySession, status: storySessions.status })
+    .from(stories)
+    .innerJoin(storySessions, eq(storySessions.idStorySession, stories.idStorySession))
+    .where(
+      and(
+        eq(stories.idStory, idStory),
+        eq(stories.idCreatedByUser, userId),
+        inArray(storySessions.status, [...PLAYING, "SUSPENDED"]),
+      ),
+    )
+    .limit(1);
+  return row
+    ? { idStorySession: row.idStorySession, isPlaying: PLAYING.includes(row.status) }
+    : null;
+}
+
 /** Whether the caller is the storyteller who created the story. */
 async function ownsStory(userId: string, idStory: number): Promise<boolean> {
   const [row] = await db
@@ -416,11 +444,11 @@ export async function sa_setSessionTitle(
  * they prepared for this moment rather than an empty space.
  *
  * The scene is the current session's id_story_scene, reached through the
- * story's pointer to that session, and only while the session is being
- * played: a paused or finished session has no table to put anything on.
- * With no such session the space starts empty.
+ * story's pointer to that session, while the session is being played or
+ * paused: a pause is a break at the table, which stays on its scene. A
+ * finished session, or none, starts the space empty.
  *
- * A session on no scene is put on the story's ACTIVE scene, if it has one,
+ * A session being played on no scene is put on the story's ACTIVE scene, if it has one,
  * the way choosing it from the header would (putSessionOn), so a table
  * opened on a story with a scene in play lands on that scene rather than
  * on nothing. With more than one, the most recently touched is taken, which
@@ -436,8 +464,11 @@ export async function sa_getRunPlaySpace(idStory: number): Promise<RunPlaySpace>
   const id = idSchema.safeParse(idStory);
   if (!id.success) return EMPTY;
 
-  const session = await playingSession(user.id, id.data);
-  if (session === null) return EMPTY;
+  // A paused session still shows the scene it was on, so a reload during
+  // the break opens on it; see shownSession.
+  const shown = await shownSession(user.id, id.data);
+  if (shown === null) return EMPTY;
+  const session = shown.idStorySession;
 
   const [row] = await db
     .select({ idStoryScene: storySessions.idStoryScene })
@@ -449,6 +480,9 @@ export async function sa_getRunPlaySpace(idStory: number): Promise<RunPlaySpace>
     // does for a session's scene.
     return spaceFor(id.data, row.idStoryScene);
   }
+  // Putting the session on the active scene below is a write, which a
+  // paused session does not take.
+  if (!shown.isPlaying) return EMPTY;
 
   const [active] = await db
     .select({ idStoryScene: storyScenes.idStoryScene })

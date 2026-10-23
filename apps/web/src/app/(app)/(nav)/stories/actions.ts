@@ -885,14 +885,13 @@ export async function sa_updateStorySession(
 export type DeleteSessionResult = { ok: true } | { ok: false; error: string };
 
 /**
- * The Timeline's delete, for a session the caller tells that is not DONE: a
- * finished session is the record of what was played, so it stays. The
+ * The Timeline's delete, for any session of a story the caller tells,
+ * finished ones included; the bin asks first and says what is lost. The
  * database lets go of what pointed at it: its scenes keep their place in
  * the story with no sitting (story_scenes.id_story_session is ON DELETE SET
  * NULL), the story's current session is cleared if it was this one
  * (stories.id_story_session, the same), and who was waiting for it or at it
- * goes with it (session_players, ON DELETE CASCADE). The DONE check is in
- * the DELETE's WHERE too, so a session finished since the read is kept.
+ * goes with it (session_players, ON DELETE CASCADE).
  */
 export async function sa_deleteStorySession(idStorySession: number): Promise<DeleteSessionResult> {
   const user = await requireUser();
@@ -901,13 +900,7 @@ export async function sa_deleteStorySession(idStorySession: number): Promise<Del
 
   const session = await ownedSession(user.id, id.data);
   if (session === null) return { ok: false, error: NOT_YOUR_SESSION };
-  const done = "A DONE session is the record of what was played, so it cannot be deleted.";
-  if (session.status === "DONE") return { ok: false, error: done };
 
-  const deleted = await db
-    .delete(storySessions)
-    .where(and(eq(storySessions.idStorySession, id.data), not(eq(storySessions.status, "DONE"))))
-    .returning({ id: storySessions.idStorySession });
-  if (deleted.length === 0) return { ok: false, error: done };
+  await db.delete(storySessions).where(eq(storySessions.idStorySession, id.data));
   return { ok: true };
 }

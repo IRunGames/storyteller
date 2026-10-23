@@ -452,10 +452,20 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(await sceneRow(newer)).toEqual({ status: "ACTIVE", idStorySession: null });
   });
 
-  it("starts empty when no session is being played", async () => {
+  it("starts empty with no session, or an ended one", async () => {
     expect(await actions.sa_getRunPlaySpace(mine)).toEqual(EMPTY);
+    await openSession(mine, scene, "DONE");
+    expect(await actions.sa_getRunPlaySpace(mine)).toEqual(EMPTY);
+  });
+
+  it("keeps a paused session on its scene, but puts a paused session on no scene onto none", async () => {
     await openSession(mine, scene, "SUSPENDED");
+    expect((await actions.sa_getRunPlaySpace(mine)).scene?.idStoryScene).toBe(scene);
+
+    const session = await openSession(mine, null, "SUSPENDED");
+    await sceneIn("ACTIVE", "Fixture active scene during a pause");
     expect(await actions.sa_getRunPlaySpace(mine)).toEqual(EMPTY);
+    expect(await currentSceneOf(session)).toBeNull();
   });
 
   it("gives nothing to anyone but the storyteller, and nothing for an unusable id", async () => {

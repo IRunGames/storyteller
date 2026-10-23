@@ -259,7 +259,6 @@ export function StorySessions({
                     <DeleteSessionButton
                       idStorySession={session.idStorySession}
                       heading={sessionHeading(session)}
-                      status={session.status}
                       onDeleted={() => onDeleted(session.idStorySession)}
                     />
                   </HStack>

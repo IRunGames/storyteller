@@ -19,28 +19,23 @@ type Props = {
   idStorySession: number;
   /** "3. Kildealg", to name the button per row and the question. */
   heading: string;
-  /** The session's status: a DONE one cannot be deleted. */
-  status: string;
   /** The session is gone, so the row can go too. */
   onDeleted: () => void;
 };
 
 /**
  * A Timeline row's bin, and the popover that asks before it deletes, as an
- * attachment card's does: the session cannot be brought back. Its scenes
- * stay in the story with no sitting, which the question says.
- *
- * A DONE session is the record of what was played, so its bin is
- * aria-disabled rather than disabled, keeping it focusable for the tooltip
- * that says why (story-card.tsx does the same), and it opens nothing.
+ * attachment card's does: the session cannot be brought back. The question
+ * says what goes with it, since a finished session can be deleted too and
+ * may carry a sitting's worth of history: its scenes stay in the story but
+ * lose their link to it, and the record of who came to it goes.
  */
-export function DeleteSessionButton({ idStorySession, heading, status, onDeleted }: Props) {
+export function DeleteSessionButton({ idStorySession, heading, onDeleted }: Props) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps
   // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [open, setOpen] = useState(false);
   const [isDeleting, setDeleting] = useState(false);
-  const done = status === "DONE";
 
   async function remove() {
     setDeleting(true);
@@ -63,7 +58,7 @@ export function DeleteSessionButton({ idStorySession, heading, status, onDeleted
   return (
     <Popover.Root
       open={open}
-      onOpenChange={(details) => setOpen(details.open && !done)}
+      onOpenChange={(details) => setOpen(details.open)}
       ids={{ trigger: triggerId }}
       positioning={{ placement: "top-end" }}
     >
@@ -74,11 +69,8 @@ export function DeleteSessionButton({ idStorySession, heading, status, onDeleted
               size="xs"
               variant="ghost"
               rounded="full"
-              colorPalette={done ? undefined : "red"}
+              colorPalette="red"
               aria-label={`Delete ${heading}`}
-              aria-disabled={done || undefined}
-              opacity={done ? 0.4 : undefined}
-              cursor={done ? "not-allowed" : undefined}
             >
               <Trash2 />
             </IconButton>
@@ -86,9 +78,7 @@ export function DeleteSessionButton({ idStorySession, heading, status, onDeleted
         </Tooltip.Trigger>
         <Portal>
           <Tooltip.Positioner>
-            <Tooltip.Content>
-              {done ? "Cannot delete DONE sessions" : "Delete session"}
-            </Tooltip.Content>
+            <Tooltip.Content>Delete session</Tooltip.Content>
           </Tooltip.Positioner>
         </Portal>
       </Tooltip.Root>
@@ -102,7 +92,10 @@ export function DeleteSessionButton({ idStorySession, heading, status, onDeleted
             <Popover.Body>
               <Stack gap="3">
                 <Text fontSize="sm">
-                  This permanently deletes the session. Its scenes stay in the story, in no session.
+                  This permanently deletes the session and the record of who came to it. Its scenes
+                  stay in the story, but each loses its link to this session.
+                </Text>
+                <Text fontSize="sm" fontWeight="medium">
                   It cannot be undone.
                 </Text>
                 {/* Cancel at the start and the action at the end, as the

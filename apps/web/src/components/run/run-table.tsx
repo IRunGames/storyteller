@@ -83,14 +83,15 @@ const DIAGNOSTICS_ID = "run-panel-diagnostics";
 // message. The channel is opened for the diagnostics panel alone.
 const ignoreEvent = () => {};
 
-// The session statuses in which there is a table to run: the same two
-// hasOpenSession counts (db/open-session.ts).
-const PLAYING = ["OPEN", "RESUMED"];
-
 type Props = {
   idStory: number;
   /** The story being run, shown in the header. */
   title: string;
+  /**
+   * The story's cover, behind the play space while the table is on no scene
+   * or on one without a cover of its own.
+   */
+  storyCoverUrl: string | null;
   /** The session being played, or null when there is none. */
   session: RunSession | null;
   /** The scene the table opens on, and what the play space holds for it. */
@@ -130,6 +131,7 @@ type Props = {
 export function RunTable({
   idStory,
   title,
+  storyCoverUrl,
   session,
   initialSpace,
   sceneStatusOptions,
@@ -164,6 +166,11 @@ export function RunTable({
   // A complete scene is the record of what was played: nothing goes into it
   // or comes out of it (the actions refuse too), and the play space says so.
   const isComplete = scene?.status === SCENE_LOCKED_STATUS;
+  // What is behind the play space: the scene's cover, or the story's when
+  // there is no scene or the scene has none, so the space is never bare
+  // while the story has a picture. coverUrl stays the scene's alone, since
+  // the library's Cover buttons set and clear it.
+  const shownCoverUrl = coverUrl ?? storyCoverUrl;
 
   const loadSpace = (space: RunPlaySpace) => {
     setScene(space.scene);
@@ -194,9 +201,16 @@ export function RunTable({
   // raising it twice.
   const toldNoSession = useRef(false);
   useEffect(() => {
-    if (session !== null || toldNoSession.current) return;
-    toldNoSession.current = true;
-    toaster.create({ title: "There is no active session.", type: "error" });
+    if (toldNoSession.current) return;
+    if (session === null) {
+      toldNoSession.current = true;
+      toaster.create({ title: "There is no active session.", type: "error" });
+    } else if (session.status === "SUSPENDED") {
+      // A table opened on a pause: the session is there to resume from the
+      // chip, so it is named as paused rather than missing.
+      toldNoSession.current = true;
+      toaster.create({ title: "This session is suspended.", type: "info" });
+    }
   }, [session]);
 
   const showLibrary = preferences.get<boolean>(SHOW_LIBRARY, true);
@@ -401,10 +415,11 @@ export function RunTable({
         afterSession={
           <HStack gap="1" flexShrink="0">
             {/* The session's status as a chip beside its title, and the
-                way to pause or end it. Either asks first, since it takes
-                the table down: with the session no longer being played
-                there is nothing to run, so the storyteller goes back to the
-                story's page, where a paused session is resumed from. */}
+                way to pause, resume or end it. Pausing keeps the storyteller
+                at the table: a pause is a break in play, and the same chip
+                resumes it. Ending asks first and takes the table down, since
+                an ended session has nothing left to run, so the storyteller
+                goes back to the story's page. */}
             {session && sessionStatus !== null && (
               <StatusPill
                 table="story_sessions"
@@ -423,16 +438,16 @@ export function RunTable({
                   }
                   if (next === "SUSPENDED") {
                     return {
-                      title: "Pause this session?",
-                      body: "The table closes until the session is resumed from the story's page.",
-                      confirmLabel: "Pause session",
+                      title: "Suspend this session?",
+                      body: "Play stops for a break. The table stays open, and this menu resumes the session.",
+                      confirmLabel: "Suspend session",
                     };
                   }
                   return null;
                 }}
                 onChanged={(status) => {
                   setSessionStatus(status);
-                  if (!PLAYING.includes(status)) router.push(`/home/${idStory}`);
+                  if (status === "DONE") router.push(`/stories/${idStory}`);
                 }}
               />
             )}
@@ -645,7 +660,7 @@ export function RunTable({
             flex="1"
             minH="0"
           >
-            {coverUrl && (
+            {shownCoverUrl && (
               <>
                 <Box
                   aria-hidden
@@ -654,7 +669,7 @@ export function RunTable({
                   inset="0"
                   bgSize="cover"
                   bgPos="center"
-                  style={{ backgroundImage: `url("${cssUrlValue(coverUrl)}")` }}
+                  style={{ backgroundImage: `url("${cssUrlValue(shownCoverUrl)}")` }}
                 />
                 <Box aria-hidden position="absolute" inset="0" bg="blackAlpha.400" />
               </>
@@ -732,20 +747,43 @@ export function RunTable({
                 the pills' panels and the scene's text are still there to
                 read, and the pills themselves (locked) offer nothing that
                 changes the scene. */}
-            {isComplete && (
+            {/* A suspended session says so in the same way, pale where the
+                complete scene is dark, so the two read as different things.
+                It takes the complete scene's place rather than stacking on
+                it: the break in play is the more recent news. Nothing at the
+                table changes while it is up (the actions refuse a paused
+                session), and the chip that resumes it is in the header,
+                outside the overlay. */}
+            {sessionStatus === "SUSPENDED" ? (
               <Flex
                 position="absolute"
                 inset="0"
                 align="center"
                 justify="center"
-                bg="blackAlpha.600"
+                bg="whiteAlpha.500"
                 pointerEvents="none"
-                data-testid="scene-complete-overlay"
+                data-testid="session-suspended-overlay"
               >
-                <Text fontSize="5xl" fontWeight="bold" letterSpacing="widest" color="white">
-                  COMPLETE
+                <Text fontSize="5xl" fontWeight="bold" letterSpacing="widest" color="gray.900">
+                  SUSPENDED
                 </Text>
               </Flex>
+            ) : (
+              isComplete && (
+                <Flex
+                  position="absolute"
+                  inset="0"
+                  align="center"
+                  justify="center"
+                  bg="blackAlpha.600"
+                  pointerEvents="none"
+                  data-testid="scene-complete-overlay"
+                >
+                  <Text fontSize="5xl" fontWeight="bold" letterSpacing="widest" color="white">
+                    COMPLETE
+                  </Text>
+                </Flex>
+              )
             )}
           </Box>
 

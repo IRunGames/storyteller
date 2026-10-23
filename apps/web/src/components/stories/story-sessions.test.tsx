@@ -356,19 +356,27 @@ describe("StorySessions", () => {
       expect(screen.queryByText("1. Session 1 title")).not.toBeInTheDocument();
     });
 
-    it("will not delete a DONE session, and says so", async () => {
+    it("deletes a DONE session once asked, saying its scenes lose their link to it", async () => {
       const user = userEvent.setup();
       renderWithProviders(
-        <StorySessions idStory={7} initial={rowsWith("DONE")} canManage showTitles />,
+        <>
+          <StorySessions idStory={7} initial={rowsWith("DONE")} canManage showTitles />
+          <Toaster />
+        </>,
       );
 
       const bin = screen.getByRole("button", { name: "Delete 1. Session 1 title" });
-      expect(bin).toHaveAttribute("aria-disabled", "true");
-      await user.hover(bin);
-      expect(await screen.findByRole("tooltip")).toHaveTextContent("Cannot delete DONE sessions");
+      expect(bin).not.toHaveAttribute("aria-disabled");
       await user.click(bin);
-      expect(screen.queryByRole("dialog", { name: /^Delete / })).not.toBeInTheDocument();
+      const ask = await screen.findByRole("dialog", { name: "Delete 1. Session 1 title?" });
+      expect(ask).toHaveTextContent("each loses its link to this session");
+      expect(ask).toHaveTextContent("the record of who came to it");
+      expect(ask).toHaveTextContent("It cannot be undone.");
       expect(sa_deleteStorySession.mock.callCount()).toBe(0);
+
+      await user.click(within(ask).getByRole("button", { name: "Delete" }));
+      await waitFor(() => expect(sa_deleteStorySession.mock.calls[0]?.arguments).toEqual([1]));
+      await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
     });
 
     it("puts a session just made at the top, with its edit panel open", async () => {

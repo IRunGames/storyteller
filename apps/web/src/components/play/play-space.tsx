@@ -25,6 +25,13 @@ import type { ChannelStatus } from "./use-story-channel";
 type Props = {
   idStory: number;
   scene: PlayScene;
+  /**
+   * Behind the space when there is no scene or the scene has no cover: the
+   * players' table passes the story's cover, so the space is never bare
+   * while the story has a picture. Left out, a scene without a cover shows
+   * none.
+   */
+  fallbackCoverUrl?: string | null;
   /** Where the live connection stands; the space says so only when it is not connected. */
   status: ChannelStatus;
   /** The scene's description and notes have been saved from the title's panel. */
@@ -98,6 +105,7 @@ const STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
 export function PlaySpace({
   idStory,
   scene,
+  fallbackCoverUrl = null,
   status,
   onTextChange,
   onNotesChange,
@@ -118,6 +126,7 @@ export function PlaySpace({
   const held =
     scene.scene?.status === SCENE_PENDING_STATUS || scene.scene?.status === SCENE_LOCKED_STATUS;
   const lookOnly = readOnly || held;
+  const coverUrl = scene.coverUrl ?? fallbackCoverUrl;
   const shown =
     previewIdElement === null
       ? null
@@ -125,7 +134,7 @@ export function PlaySpace({
 
   return (
     <Box as="section" aria-labelledby="play-space-heading" position="relative" flex="1" minH="0">
-      {scene.coverUrl && (
+      {coverUrl && (
         <>
           <Box
             aria-hidden
@@ -134,7 +143,7 @@ export function PlaySpace({
             inset="0"
             bgSize="cover"
             bgPos="center"
-            style={{ backgroundImage: `url("${cssUrlValue(scene.coverUrl)}")` }}
+            style={{ backgroundImage: `url("${cssUrlValue(coverUrl)}")` }}
           />
           <Box aria-hidden position="absolute" inset="0" bg="blackAlpha.400" />
         </>

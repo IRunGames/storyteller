@@ -90,6 +90,7 @@ const sa_detachFromHolder = mock.fn(async (_kind: string, _holder: number, ids: 
   detached: ids,
 }));
 const sa_searchAttachments = mock.fn(async (_kind: string, _id: number, _q: string) => [3, 7]);
+const sa_deleteAttachment = mock.fn(async (_id: number) => {});
 const sa_createAttachment = mock.fn(async (_input: unknown) => ({
   idAttachment: 50,
   status: "READY",
@@ -175,7 +176,7 @@ describe("RunLibrary", () => {
         sa_listAttachments,
         sa_searchAttachments,
         sa_createAttachment,
-        sa_deleteAttachment: mock.fn(),
+        sa_deleteAttachment,
         sa_markAttachmentError: mock.fn(),
         sa_markAttachmentReady: mock.fn(),
         sa_retryAttachment: mock.fn(),
@@ -223,6 +224,7 @@ describe("RunLibrary", () => {
 
   beforeEach(() => {
     sa_listAttachments.mock.resetCalls();
+    sa_deleteAttachment.mock.resetCalls();
     sa_searchAttachments.mock.resetCalls();
     sa_listStoryElements.mock.resetCalls();
     sa_getElementDetail.mock.resetCalls();
@@ -318,6 +320,32 @@ describe("RunLibrary", () => {
     expect(within(panel).queryByText("Handout 12")).not.toBeInTheDocument();
     expect(within(panel).queryByText("Half uploaded")).not.toBeInTheDocument();
     expect(sa_listAttachments.mock.calls[0].arguments).toEqual(["STORY", -4]);
+  });
+
+  it("offers a failed upload a delete button, and nothing else that would act on it", async () => {
+    const user = userEvent.setup();
+    const failed: Attachment = { ...attachment(98, "Broken upload", null), status: "ERROR" };
+    sa_listAttachments.mock.mockImplementation(async (kind: string) =>
+      kind === "STORY" ? [failed, ...attachments] : kind === "STORY_SCENE" ? sceneAttachments : [],
+    );
+    try {
+      render();
+
+      const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
+      const row = (await within(panel).findByText("Broken upload")).closest("li")!;
+      expect(within(row).queryByRole("button", { name: /to the scene$/ })).not.toBeInTheDocument();
+      // A ready attachment has no delete button here.
+      const ready = within(panel).getByText("Handout 1").closest("li")!;
+      expect(within(ready).queryByRole("button", { name: /^Delete / })).not.toBeInTheDocument();
+
+      await user.click(within(row).getByRole("button", { name: "Delete Broken upload" }));
+      await waitFor(() => expect(sa_deleteAttachment.mock.calls[0]?.arguments).toEqual([98]));
+      expect(within(panel).queryByText("Broken upload")).not.toBeInTheDocument();
+    } finally {
+      sa_listAttachments.mock.mockImplementation(async (kind: string) =>
+        kind === "STORY_SCENE" ? sceneAttachments : kind === "STORY" ? attachments : [],
+      );
+    }
   });
 
   it("sorts the attachments as the table asks before taking the first ten", async () => {

@@ -51,9 +51,11 @@ type Props = {
   session: string | null;
   /** The scene as the page loaded it; the table keeps it up to date from there. */
   initialScene: PlayScene;
+  /** The story's cover, for the play space when the scene has none; see PlaySpace. */
+  storyCoverUrl: string | null;
 };
 
-export function PlayTable({ idStory, title, session, initialScene }: Props) {
+export function PlayTable({ idStory, title, session, initialScene, storyCoverUrl }: Props) {
   const user = useUser();
   const preferences = useUserPreferences();
   const [previewIdElement, setPreviewIdElement] = useState<number | null>(null);
@@ -124,6 +126,7 @@ export function PlayTable({ idStory, title, session, initialScene }: Props) {
           <PlaySpace
             idStory={idStory}
             scene={scene}
+            fallbackCoverUrl={storyCoverUrl}
             status={channel.status}
             onTextChange={setSceneText}
             onNotesChange={setElementNotes}

@@ -68,6 +68,7 @@ export default async function PlayTablePage({ params }: { params: Promise<{ id: 
     <PlayTable
       idStory={story.idStory}
       title={story.title}
+      storyCoverUrl={story.imageUrl}
       session={session ? sessionHeading(session) : null}
       initialScene={scene ?? EMPTY_PLAY_SCENE}
     />

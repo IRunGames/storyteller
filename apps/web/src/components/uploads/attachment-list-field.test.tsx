@@ -9,13 +9,14 @@
 // entry than the one mock.module's ESM-based interception patches. upload is
 // monkey-patched on the shared require-cached module object instead, and
 // restored in after().
-import { after, before, beforeEach, describe, it, mock } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { createRequire } from "node:module";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
+import { Toaster, toaster } from "@/components/ui/toaster";
 
 const requireHere = createRequire(__filename);
 
@@ -147,6 +148,10 @@ describe("AttachmentListField", () => {
     router.refresh.mock.resetCalls();
     sa_setAttachmentTags.mock.resetCalls();
     sa_setAttachmentTags.mock.mockImplementation(async () => {});
+  });
+
+  afterEach(() => {
+    toaster.remove();
   });
 
   /** Presses the one card's bin button and confirms in the popover it opens. */
@@ -598,18 +603,21 @@ describe("AttachmentListField", () => {
     expect(await screen.findByRole("img")).toHaveAttribute("src", URL_A);
   });
 
-  it("marks a failed upload as an error inline, leaving the other attachments untouched", async () => {
+  it("toasts a failed upload and deletes its row, leaving the other attachments untouched", async () => {
     const user = userEvent.setup();
     const onChange = mock.fn<(ids: number[]) => void>();
     upload.mock.mockImplementation(async () => ({ url: URL_A }));
 
     const { container } = renderWithProviders(
-      <AttachmentListField
-        kind="STORY_SCENE"
-        idExternal={SCENE_ID}
-        value={[]}
-        onChange={onChange}
-      />,
+      <>
+        <AttachmentListField
+          kind="STORY_SCENE"
+          idExternal={SCENE_ID}
+          value={[]}
+          onChange={onChange}
+        />
+        <Toaster />
+      </>,
     );
     await user.upload(fileInput(container), imageFile("good.jpg"));
     await waitFor(() => expect(sa_markAttachmentReady.mock.callCount()).toBe(1));
@@ -619,14 +627,53 @@ describe("AttachmentListField", () => {
     });
     await user.upload(fileInput(container), imageFile("bad.jpg"));
 
-    await waitFor(() => expect(sa_markAttachmentError.mock.callCount()).toBe(1));
-    expect(sa_markAttachmentError.mock.calls[0].arguments[0]).toBe(2);
-    expect(await screen.findByText(/could not be uploaded/i)).toBeInTheDocument();
+    expect(await screen.findByText("bad.jpg could not be uploaded.")).toBeInTheDocument();
+    await waitFor(() => expect(sa_deleteAttachment.mock.callCount()).toBe(1));
+    expect(sa_deleteAttachment.mock.calls[0].arguments[0]).toBe(2);
+    expect(sa_markAttachmentError.mock.callCount()).toBe(0);
 
-    // The first, successful attachment must still be intact.
+    // The failed row is gone and the first, successful attachment is intact.
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
     expect(screen.getByRole("img")).toHaveAttribute("src", URL_A);
-    // Newest first: the second file's row went in front of the first's.
-    expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([2, 1]);
+    expect(onChange.mock.calls.at(-1)?.arguments[0]).toEqual([1]);
+  });
+
+  it("lets the same file be picked again after its upload failed", async () => {
+    const user = userEvent.setup();
+    upload.mock.mockImplementation(async () => {
+      throw new Error("network");
+    });
+
+    const { container } = renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} />,
+    );
+    const file = imageFile("cat.jpg");
+    await user.upload(fileInput(container), file);
+    await waitFor(() => expect(sa_deleteAttachment.mock.callCount()).toBe(1));
+
+    upload.mock.mockImplementation(async () => ({ url: URL_A }));
+    await user.upload(fileInput(container), file);
+    await waitFor(() => expect(sa_markAttachmentReady.mock.callCount()).toBe(1));
+    expect(sa_createAttachment.mock.callCount()).toBe(2);
+  });
+
+  it("keeps a failed upload as an error row when its delete is refused", async () => {
+    const user = userEvent.setup();
+    upload.mock.mockImplementation(async () => {
+      throw new Error("network");
+    });
+    sa_deleteAttachment.mock.mockImplementation(async () => {
+      throw new Error("refused");
+    });
+
+    const { container } = renderWithProviders(
+      <AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} value={[]} />,
+    );
+    await user.upload(fileInput(container), imageFile("bad.jpg"));
+
+    expect(await screen.findByText(/could not be uploaded/i)).toBeInTheDocument();
+    expect(sa_markAttachmentError.mock.calls[0].arguments[0]).toBe(1);
+    expect(screen.getByRole("button", { name: /^remove /i })).toBeInTheDocument();
   });
 
   it("renders a Retry button on an ERROR row that calls sa_retryAttachment and re-uploads", async () => {
@@ -634,6 +681,11 @@ describe("AttachmentListField", () => {
     const onChange = mock.fn<(ids: number[]) => void>();
     upload.mock.mockImplementation(async () => {
       throw new Error("network");
+    });
+    // A failed upload's row is deleted; it stays, as ERROR with Retry, only
+    // when that delete is refused.
+    sa_deleteAttachment.mock.mockImplementation(async () => {
+      throw new Error("refused");
     });
 
     const { container } = renderWithProviders(

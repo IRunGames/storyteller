@@ -15,7 +15,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { ArrowLeft, ArrowRight, Plus, Search, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, Search, Trash2, X } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import { ELEMENT_SEARCH_DELAY_MS, type ElementSort } from "@/lib/elements";
 import {
@@ -440,7 +440,7 @@ function RunAttachments({
       showAdd={showAdd}
       shownIds={matchedIds}
       hideCovers={kind === "STORY"}
-      renderRows={({ rows, hasLoaded, setTags, setCover }) => {
+      renderRows={({ rows, hasLoaded, setTags, setCover, remove }) => {
         const shown = sortAttachments(rows, sort).slice(0, RUN_LIST_SIZE);
         const byKey = new Map(shown.map((row) => [`ATTACHMENT:${row.idAttachment}`, row]));
 
@@ -564,6 +564,18 @@ function RunAttachments({
                     onTagsChange={(tags) => setTags(row.idAttachment, tags)}
                     onCoverChange={(isCover) => changeCover(row, isCover)}
                   />
+                  {/* A failed upload holds no file and does nothing at the
+                      table, so its one move is out of the list. No question
+                      asked, unlike the card's bin: there is nothing in it to
+                      lose. */}
+                  {row.status === "ERROR" && (
+                    <PrepIconButton
+                      label={`Delete ${item.label}`}
+                      onClick={() => void remove(row.idAttachment)}
+                    >
+                      <Trash2 />
+                    </PrepIconButton>
+                  )}
                   {row.status === "READY" && (
                     <AttachmentCoverButton
                       compact

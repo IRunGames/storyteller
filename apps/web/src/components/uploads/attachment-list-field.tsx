@@ -30,6 +30,7 @@ import {
   sa_setAttachmentCover,
   sa_setAttachmentTags,
 } from "./actions";
+import { toaster } from "@/components/ui/toaster";
 import { AttachmentCard } from "./attachment-card";
 import type { Attachment, AttachmentKind } from "@/lib/attachments";
 
@@ -152,6 +153,11 @@ export type AttachmentRowsView = {
   setTags: (idAttachment: number, tags: string[]) => Promise<boolean>;
   /** As the card's Cover button calls it; resolves false on a refusal. */
   setCover: (idAttachment: number, isCover: boolean) => Promise<boolean>;
+  /**
+   * As the card's bin calls it: the row goes at once and comes back, with
+   * the field's error, if the delete is refused.
+   */
+  remove: (idAttachment: number) => Promise<void>;
 };
 
 function rejectionMessage(rejection: { errors: string[] } | undefined): string {
@@ -429,18 +435,52 @@ export function AttachmentListField({
       updateRow(id, { status: "READY", url: blob.url });
     } catch {
       if (!isCurrentAttempt(id, ticket)) return;
+      await discardFailedUpload(id, file);
+    }
+  }
+
+  /**
+   * A failed upload says so in a toast and its row goes, rather than staying
+   * in the list as an ERROR card: the row holds no file, so there is nothing
+   * in it to keep, and a stuck card was all the storyteller was left with.
+   * The file is released from both ledgers, so picking it again starts a
+   * fresh upload.
+   *
+   * Taken off screen first and recorded in removedIds, as handleRemove does,
+   * so a list fetch landing meanwhile cannot bring it back. Only if the
+   * delete itself is refused does the row come back, as ERROR, where its
+   * Retry and remove buttons are.
+   */
+  async function discardFailedUpload(id: number, file: File) {
+    const index = rowsRef.current.findIndex((row) => row.idAttachment === id);
+    if (index === -1) return;
+    const failedRow = rowsRef.current[index];
+
+    toaster.create({ title: `${file.name} could not be uploaded.`, type: "error" });
+    removedIds.current.add(id);
+    ticketsByAttachment.current.delete(id);
+    filesByAttachment.current.delete(id);
+    startedFiles.current.delete(file);
+    fileUpload.deleteFile(file);
+    commit(rowsRef.current.filter((row) => row.idAttachment !== id));
+
+    try {
+      await sa_deleteAttachment(id);
+    } catch {
+      removedIds.current.delete(id);
+      filesByAttachment.current.set(id, file);
       try {
         await sa_markAttachmentError(id);
       } catch {
-        // Swallowed deliberately: the upload has already failed, and the one
-        // thing the user needs is the ERROR row below with its Retry button.
-        // Rethrowing (or awaiting this unguarded) would skip that update and
-        // leave the row saying UPLOADING for ever, which is the one state
-        // with nothing the user can do about it. The row's server-side
-        // status stays UPLOADING until the retry or the sweep corrects it.
+        // Swallowed deliberately: the row comes back as ERROR below either
+        // way, with its remove button. The server-side status stays
+        // UPLOADING until a retry or the sweep corrects it.
       }
-      if (!isCurrentAttempt(id, ticket)) return;
-      updateRow(id, { status: "ERROR" });
+      if (!rowsRef.current.some((row) => row.idAttachment === id)) {
+        const restored = [...rowsRef.current];
+        restored.splice(Math.min(index, restored.length), 0, { ...failedRow, status: "ERROR" });
+        commit(restored);
+      }
     }
   }
 
@@ -765,6 +805,7 @@ export function AttachmentListField({
           hasLoaded,
           setTags: handleTags,
           setCover: handleCover,
+          remove: handleRemove,
         })
       ) : (
         <>

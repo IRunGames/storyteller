@@ -237,6 +237,7 @@ function renderTable(
   session: RunSession | null = kildealg,
   initialSpace: RunPlaySpace = EMPTY_PLAY_SPACE,
   who: CurrentUser = user,
+  storyCoverUrl: string | null = null,
 ) {
   return renderWithProviders(
     <UserProvider user={who}>
@@ -244,6 +245,7 @@ function renderTable(
         <RunTable
           idStory={-4}
           title="Psychoneira"
+          storyCoverUrl={storyCoverUrl}
           session={session}
           initialSpace={initialSpace}
           sceneStatusOptions={sceneStatusOptions}
@@ -1371,6 +1373,39 @@ describe("RunTable", () => {
     });
   });
 
+  it("shows the story's cover behind the play space when there is no scene", () => {
+    renderTable({}, kildealg, EMPTY_PLAY_SPACE, user, "https://x.test/story.png");
+
+    expect(screen.getByTestId("play-space-cover")).toHaveStyle({
+      backgroundImage: 'url("https://x.test/story.png")',
+    });
+  });
+
+  it("shows the story's cover for a scene without one, and the scene's own over it", () => {
+    const { unmount } = renderTable(
+      {},
+      kildealg,
+      { scene, tags: ["scene"], coverUrl: null, inPlay: [] },
+      user,
+      "https://x.test/story.png",
+    );
+    expect(screen.getByTestId("play-space-cover")).toHaveStyle({
+      backgroundImage: 'url("https://x.test/story.png")',
+    });
+    unmount();
+
+    renderTable(
+      {},
+      kildealg,
+      { scene, tags: ["scene"], coverUrl: "https://x.test/docks.png", inPlay: [] },
+      user,
+      "https://x.test/story.png",
+    );
+    expect(screen.getByTestId("play-space-cover")).toHaveStyle({
+      backgroundImage: 'url("https://x.test/docks.png")',
+    });
+  });
+
   it("opens the scene's description and notes from the chevron beside its title, and saves them", async () => {
     const u = userEvent.setup();
     sa_setSceneText.mock.resetCalls();
@@ -1418,7 +1453,7 @@ describe("RunTable", () => {
     ).toHaveValue("The ferryman was already dead.");
   });
 
-  it("pauses the session from its chip once asked, and goes back to the story's page", async () => {
+  it("pauses the session from its chip once asked and stays at the table, and ends it to the story's page", async () => {
     const u = userEvent.setup();
     push.mock.resetCalls();
     sa_setRowStatus.mock.resetCalls();
@@ -1434,22 +1469,57 @@ describe("RunTable", () => {
     expect(items.map((item) => item.textContent)).toEqual(["Suspended", "Done"]);
     await choose(u, items[0]);
 
-    const ask = await screen.findByRole("dialog", { name: "Pause this session?" });
-    expect(ask).toHaveTextContent("resumed from the story's page");
+    const ask = await screen.findByRole("dialog", { name: "Suspend this session?" });
+    expect(ask).toHaveTextContent("The table stays open");
     expect(sa_setRowStatus.mock.callCount()).toBe(0);
     await u.click(within(ask).getByRole("button", { name: "Cancel" }));
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Pause this session?" })).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole("dialog", { name: "Suspend this session?" }),
+      ).not.toBeInTheDocument(),
     );
-    expect(push.mock.callCount()).toBe(0);
+    expect(sa_setRowStatus.mock.callCount()).toBe(0);
 
+    // Paused, the table stays where it is, and the chip offers the resume.
     await u.click(chip);
+    await choose(u, await screen.findByRole("menuitem", { name: "Suspended" }));
+    const pause = await screen.findByRole("dialog", { name: "Suspend this session?" });
+    await u.click(within(pause).getByRole("button", { name: "Suspend session" }));
+    await waitFor(() => expect(sa_setRowStatus.mock.callCount()).toBe(1));
+    expect(sa_setRowStatus.mock.calls[0].arguments).toEqual(["story_sessions", -30, "SUSPENDED"]);
+    const paused = await within(header).findByRole("button", { name: "Suspended" });
+    expect(screen.getByTestId("session-suspended-overlay")).toHaveTextContent("SUSPENDED");
+    expect(push.mock.callCount()).toBe(0);
+    expect(screen.getByRole("region", { name: "Play space" })).toBeInTheDocument();
+    await u.click(paused);
+    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
+      "Resumed",
+      "Done",
+    ]);
+    await choose(u, await screen.findByRole("menuitem", { name: "Resumed" }));
+    await waitFor(() => expect(sa_setRowStatus.mock.callCount()).toBe(2));
+    expect(push.mock.callCount()).toBe(0);
+    const resumed = await within(header).findByRole("button", { name: "Resumed" });
+    // Resuming lifts the overlay.
+    expect(screen.queryByTestId("session-suspended-overlay")).not.toBeInTheDocument();
+
+    await u.click(resumed);
     await choose(u, await screen.findByRole("menuitem", { name: "Done" }));
     const end = await screen.findByRole("dialog", { name: "End this session?" });
     await u.click(within(end).getByRole("button", { name: "End session" }));
-    await waitFor(() => expect(sa_setRowStatus.mock.callCount()).toBe(1));
-    expect(sa_setRowStatus.mock.calls[0].arguments).toEqual(["story_sessions", -30, "DONE"]);
-    await waitFor(() => expect(push.mock.calls[0]?.arguments).toEqual(["/home/-4"]));
+    await waitFor(() => expect(sa_setRowStatus.mock.callCount()).toBe(3));
+    expect(sa_setRowStatus.mock.calls[2].arguments).toEqual(["story_sessions", -30, "DONE"]);
+    await waitFor(() => expect(push.mock.calls[0]?.arguments).toEqual(["/stories/-4"]));
+  });
+
+  it("opens on a paused session with its chip to resume from, and says it is paused", async () => {
+    renderTable({}, { ...kildealg, status: "SUSPENDED" });
+
+    const header = screen.getByRole("banner");
+    expect(within(header).getByRole("button", { name: "Suspended" })).toBeInTheDocument();
+    expect(await screen.findByText("This session is suspended.")).toBeInTheDocument();
+    expect(screen.getByTestId("session-suspended-overlay")).toHaveTextContent("SUSPENDED");
+    expect(screen.queryByText("There is no active session.")).not.toBeInTheDocument();
   });
 
   it("tells the storyteller when no session is being played", async () => {

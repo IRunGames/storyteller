@@ -9,7 +9,7 @@ import { Toaster, toaster } from "@/components/ui/toaster";
 import { UserProvider } from "@/components/auth/user-provider";
 import { chatLog } from "@/lib/chat-log";
 import type { CurrentUser } from "@/lib/current-user";
-import type { PlayScene } from "@/lib/play-scene";
+import { EMPTY_PLAY_SCENE, type PlayScene } from "@/lib/play-scene";
 import type { StoryEvent } from "@/lib/realtime/events";
 import type { SetElementNotesResult, UntapSceneElementResult } from "@/app/(app)/play/[id]/actions";
 
@@ -155,11 +155,18 @@ function renderTable(
   session: string | null = "3. Kildealg",
   who: CurrentUser = user,
   initialScene: PlayScene = scene,
+  storyCoverUrl: string | null = null,
 ) {
   return renderWithProviders(
     <UserProvider user={who}>
       <UserPreferencesProvider preferences={preferences}>
-        <PlayTable idStory={7} title="Psychoneira" session={session} initialScene={initialScene} />
+        <PlayTable
+          idStory={7}
+          title="Psychoneira"
+          session={session}
+          initialScene={initialScene}
+          storyCoverUrl={storyCoverUrl}
+        />
         <Toaster />
       </UserPreferencesProvider>
     </UserProvider>,
@@ -230,6 +237,32 @@ describe("PlayTable", () => {
 
   afterEach(() => {
     toaster.remove();
+  });
+
+  it("shows the story's cover behind the play space while the scene has none of its own", () => {
+    const { unmount } = renderTable({}, "3. Kildealg", user, scene, "https://x.test/story.png");
+    expect(screen.getByTestId("play-space-cover")).toHaveStyle({
+      backgroundImage: 'url("https://x.test/story.png")',
+    });
+    unmount();
+
+    renderTable(
+      {},
+      "3. Kildealg",
+      user,
+      { ...scene, coverUrl: "https://x.test/docks.png" },
+      "https://x.test/story.png",
+    );
+    expect(screen.getByTestId("play-space-cover")).toHaveStyle({
+      backgroundImage: 'url("https://x.test/docks.png")',
+    });
+  });
+
+  it("shows the story's cover when the session is on no scene", () => {
+    renderTable({}, "3. Kildealg", user, EMPTY_PLAY_SCENE, "https://x.test/story.png");
+    expect(screen.getByTestId("play-space-cover")).toHaveStyle({
+      backgroundImage: 'url("https://x.test/story.png")',
+    });
   });
 
   it("links the Storyteller name in its header to the home page", () => {

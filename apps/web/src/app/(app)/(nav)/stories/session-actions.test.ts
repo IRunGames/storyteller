@@ -197,11 +197,7 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     ).toEqual({ ok: false, errors: { root: "That session is not one of your story's." } });
   });
 
-  it("keeps a DONE session, and someone else's", async () => {
-    expect(await actions.sa_deleteStorySession(done)).toEqual({
-      ok: false,
-      error: "A DONE session is the record of what was played, so it cannot be deleted.",
-    });
+  it("keeps someone else's session", async () => {
     expect(await actions.sa_deleteStorySession(theirSession)).toEqual({
       ok: false,
       error: "That session is not one of your story's.",
@@ -209,8 +205,17 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     const left = await db
       .select({ id: tables.storySessions.idStorySession })
       .from(tables.storySessions)
-      .where(inArray(tables.storySessions.idStorySession, [done, theirSession]));
-    expect(left).toHaveLength(2);
+      .where(eq(tables.storySessions.idStorySession, theirSession));
+    expect(left).toHaveLength(1);
+  });
+
+  it("deletes a DONE session of the caller's story", async () => {
+    expect(await actions.sa_deleteStorySession(done)).toEqual({ ok: true });
+    const gone = await db
+      .select({ id: tables.storySessions.idStorySession })
+      .from(tables.storySessions)
+      .where(eq(tables.storySessions.idStorySession, done));
+    expect(gone).toEqual([]);
   });
 
   it("deletes a session that is not DONE, leaving its scenes in the story in no session", async () => {
