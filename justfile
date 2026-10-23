@@ -156,8 +156,9 @@ psql *args:
 backup:
     #!/usr/bin/env bash
     set -euo pipefail
+    log() { printf '%s -- %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
     if [ ! -f .env.production ]; then
-        echo "db/.env.production is missing: put the direct Neon DATABASE_URL in it" >&2
+        log "db/.env.production is missing: put the direct Neon DATABASE_URL in it" >&2
         exit 1
     fi
     set -a
@@ -171,9 +172,15 @@ backup:
         -e 's/\?search_path=[^&]*$//')"
     mkdir -p backups
     out="backups/production-$(date -u +%Y%m%d-%H%M%S).dump"
+    # host[:port]/dbname, with the credentials and query string left out.
+    src="$(printf '%s' "$url" | sed -E -e 's#^[^@]*@##' -e 's#\?.*$##')"
+    log "Backing up $src to db/$out"
+    log "Dumping with $("$PG_DUMP" --version) from $PG_DUMP (this is the slow part)"
+    SECONDS=0
     "$PG_DUMP" --format=custom --compress=6 --no-owner --no-privileges --file "$out" "$url"
+    log "Dump finished in ${SECONDS}s; counting tables in the archive"
     tables="$("$PG_DUMP" --version >/dev/null && "${PG_DUMP%pg_dump}pg_restore" --list "$out" | grep -c ' TABLE DATA ' || true)"
-    echo "Wrote $out ($(du -h "$out" | cut -f1), $tables tables with data)"
+    log "Wrote $out ($(du -h "$out" | cut -f1), $tables tables with data)"
 
 # Logging is switched back off when the tail exits, however it exits.
 # Log every statement the server runs and tail the server log (Ctrl+C to stop)
