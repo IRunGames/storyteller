@@ -259,13 +259,6 @@ export const storySessions = pgTable("story_sessions", {
   // sitting ran, this is only the current one, as stories.idStorySession is
   // for sessions.
   idStoryScene: integer("id_story_scene"),
-  // Who came, as user ids. An array, not a join table: attendance is a note
-  // the storyteller takes, and nothing points at it. No foreign key either,
-  // since an array cannot carry one.
-  idUsers: uuid("id_users")
-    .array()
-    .notNull()
-    .default(sql`'{}'::uuid[]`),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -356,12 +349,11 @@ export const vStorySessions = pgView("v_story_sessions", {
   summary: text("summary"),
   lingeringQuestions: text("lingering_questions"),
   idStoryScene: integer("id_story_scene"),
-  idUsers: uuid("id_users").array(),
   createdAt: timestamp("created_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
   // 1 for the story's first session, in the order they were opened.
   sessionNumber: bigint("session_number", { mode: "number" }),
-  // The users in id_users that are still users.
+  // The players who came, counted from session_players.
   playerCount: bigint("player_count", { mode: "number" }),
 }).existing();
 

@@ -55,8 +55,6 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       ])
       .returning({ id: tables.stories.idStory });
 
-    // Who came to the open session: the storyteller, the other user, and an
-    // id no user has, which the info panel leaves out and so must the count.
     [{ id: open }, { id: done }, { id: theirSession }] = await db
       .insert(tables.storySessions)
       .values([
@@ -64,13 +62,25 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
           idStory: mine,
           status: "OPEN",
           title: "Fixture open",
-          idUsers: [SEED_USER, otherUserId, "00000000-0000-7000-8000-000000000000"],
           idCreatedByUser: SEED_USER,
         },
         { idStory: mine, status: "DONE", idCreatedByUser: SEED_USER },
         { idStory: theirs, status: "OPEN", idCreatedByUser: otherUserId },
       ])
       .returning({ id: tables.storySessions.idStorySession });
+
+    // Who came to the open session, as the live table records it: a
+    // session_players row each, attached to the session and PRESENT, which
+    // stamps present_at. They go with the story in after (ON DELETE CASCADE).
+    await db.insert(tables.sessionPlayers).values(
+      [SEED_USER, otherUserId].map((idUser) => ({
+        idStory: mine,
+        idStorySession: open,
+        status: "PRESENT",
+        idCreatedByUser: idUser,
+        idUpdatedByUser: idUser,
+      })),
+    );
 
     [{ id: scene }] = await db
       .insert(tables.storyScenes)

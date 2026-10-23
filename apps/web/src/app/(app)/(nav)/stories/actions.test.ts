@@ -487,9 +487,20 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         summary: "What happened.",
         notes: "Private.",
         lingeringQuestions: "Why?",
-        idUsers: [otherUserId, SEED_USER],
       })
       .where(eq(tables.storySessions.idStorySession, openSessionId));
+    // Who came, as the live table records it: a session_players row each,
+    // PRESENT at the session. They go with the session when the story's
+    // fixtures are cleared (ON DELETE CASCADE).
+    await db.insert(tables.sessionPlayers).values(
+      [otherUserId, SEED_USER].map((idUser) => ({
+        idStory: storyA,
+        idStorySession: openSessionId,
+        status: "PRESENT",
+        idCreatedByUser: idUser,
+        idUpdatedByUser: idUser,
+      })),
+    );
     // The sitting's picture is an attachments row now, not a column of its
     // own, so the fixture attaches one the way the uploader would.
     const [picture] = await db
@@ -553,6 +564,9 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       expect(await actions.sa_getStorySession(2 ** 30)).toBeNull();
     } finally {
       await db.delete(tables.attachments).where(eq(tables.attachments.idAttachment, picture.id));
+      await db
+        .delete(tables.sessionPlayers)
+        .where(eq(tables.sessionPlayers.idStorySession, openSessionId));
     }
   });
 

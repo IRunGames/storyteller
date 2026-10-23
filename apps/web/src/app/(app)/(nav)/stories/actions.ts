@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq, exists, ilike, inArray, not, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, ilike, inArray, isNotNull, not, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
@@ -32,6 +32,7 @@ const {
   storyFavorites,
   storyScenes,
   storySessions,
+  sessionPlayers,
   user: users,
   vStorySessions,
 } = schema;
@@ -456,7 +457,6 @@ export async function sa_getStorySession(
       summary: vStorySessions.summary,
       notes: vStorySessions.notes,
       lingeringQuestions: vStorySessions.lingeringQuestions,
-      idUsers: vStorySessions.idUsers,
       idStoryteller: stories.idCreatedByUser,
     })
     .from(vStorySessions)
@@ -465,16 +465,21 @@ export async function sa_getStorySession(
     .limit(1);
   if (!row) return null;
 
-  // Never null for a row of the table; the view's type only says it might be.
-  const idUsers = row.idUsers ?? [];
-  const players =
-    idUsers.length === 0
-      ? []
-      : await db
-          .select({ idUser: users.id, name: playerName, image: users.image })
-          .from(users)
-          .where(inArray(users.id, idUsers))
-          .orderBy(asc(playerName));
+  // Who came: the session's session_players rows that reached the table,
+  // the same ones v_story_sessions counts, so the panel lists exactly the
+  // number the row shows. The inner join to users leaves out a player who is
+  // no longer one, as the count does.
+  const players = await db
+    .select({ idUser: users.id, name: playerName, image: users.image })
+    .from(sessionPlayers)
+    .innerJoin(users, eq(users.id, sessionPlayers.idCreatedByUser))
+    .where(
+      and(
+        eq(sessionPlayers.idStorySession, row.idStorySession),
+        isNotNull(sessionPlayers.presentAt),
+      ),
+    )
+    .orderBy(asc(playerName));
 
   const isStoryteller = row.idStoryteller === user.id;
 
