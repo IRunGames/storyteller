@@ -19,6 +19,7 @@ const story: StoryCardData = {
   isFavorite: false,
   isOwner: false,
   isActive: true,
+  isLookingForPlayers: false,
   storytellerName: "Paul Stafford",
   hasOpenSession: false,
   playerCount: 3,

@@ -19,6 +19,7 @@ function stories(count: number, from = 1): StoryCardData[] {
     isFavorite: true,
     isOwner: false,
     isActive: true,
+    isLookingForPlayers: false,
     storytellerName: null,
     hasOpenSession: false,
     playerCount: 0,

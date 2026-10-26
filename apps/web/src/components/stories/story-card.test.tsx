@@ -35,6 +35,7 @@ const story: StoryCardData = {
   isFavorite: false,
   isOwner: false,
   isActive: true,
+  isLookingForPlayers: false,
   storytellerName: "Pol",
   hasOpenSession: false,
   playerCount: 2,

@@ -113,6 +113,7 @@ function cardColumns(userId: string) {
     // no recorded creator has no owner rather than an error.
     isOwner: eq(stories.idCreatedByUser, userId).mapWith(Boolean),
     isActive: stories.isActive,
+    isLookingForPlayers: stories.isLookingForPlayers,
     // Null when the left join found no creator row.
     storytellerName: sql<string | null>`${playerName}`,
     hasOpenSession,
@@ -315,6 +316,87 @@ export async function sa_removeStoryPlayer(
   });
 
   return { ok: true };
+}
+
+export type JoinStoryResult = { ok: true; player: StoryPlayer } | { ok: false; error: string };
+
+/**
+ * The story page's Join: the caller takes a seat at a story that is looking
+ * for players, without waiting for an invitation. The story must be looking,
+ * active and not archived, as the Looking for Players list requires, and not
+ * the caller's own (a storyteller has no seat at their own table); a caller
+ * already seated is not seated twice. All of that is one INSERT ... SELECT,
+ * so a story that stops looking between the page loading and the click is
+ * refused rather than joined. The seat comes back as the Players list shows
+ * it, so the page can add it at once.
+ */
+export async function sa_joinStory(idStory: number): Promise<JoinStoryResult> {
+  const user = await requireUser();
+  const closed = "This story is not open for you to join.";
+  const id = idStorySchema.safeParse(idStory);
+  if (!id.success) return { ok: false, error: closed };
+
+  const seated = db
+    .select({ one: storyPlayers.idStoryPlayer })
+    .from(storyPlayers)
+    .where(and(eq(storyPlayers.idStory, stories.idStory), eq(storyPlayers.idUser, user.id)));
+  // Written out for the reason sa_addStoryPlayers gives; the user id is cast
+  // for the same reason its story id is.
+  const inserted = await db.execute<{ id_user: string }>(sql`
+    insert into ${storyPlayers} (id_story, id_user)
+    select ${stories.idStory}, ${user.id}::uuid
+    from ${stories}
+    where ${and(
+      eq(stories.idStory, id.data),
+      eq(stories.isLookingForPlayers, true),
+      eq(stories.isActive, true),
+      notArchived,
+      sql`${stories.idCreatedByUser} is distinct from ${user.id}`,
+      not(exists(seated)),
+    )}
+    returning ${storyPlayers.idUser}
+  `);
+  if (inserted.rows.length === 0) return { ok: false, error: closed };
+
+  const [player] = await db
+    .select({ idUser: users.id, name: playerName, image: users.image })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1);
+  return { ok: true, player };
+}
+
+export type LeaveStoryResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * The story page's Leave game: the caller gives up their own seat at a story.
+ * Their favorite of it goes too, for the reason sa_removeStoryPlayer gives.
+ * Getting back in takes another invitation from the storyteller.
+ *
+ * Only the caller's own row is touched, so this needs no owner check; a
+ * story they have no seat at (their own included, since the storyteller has
+ * none) is refused rather than reported as left. Both deletes are one
+ * transaction, and the favorite is only taken once a seat was found.
+ */
+export async function sa_leaveStory(idStory: number): Promise<LeaveStoryResult> {
+  const user = await requireUser();
+  const notSeated = "You are not a player of this story.";
+  const id = idStorySchema.safeParse(idStory);
+  if (!id.success) return { ok: false, error: notSeated };
+
+  const left = await db.transaction(async (tx) => {
+    const seats = await tx
+      .delete(storyPlayers)
+      .where(and(eq(storyPlayers.idStory, id.data), eq(storyPlayers.idUser, user.id)))
+      .returning({ id: storyPlayers.idStoryPlayer });
+    if (seats.length === 0) return false;
+    await tx
+      .delete(storyFavorites)
+      .where(and(eq(storyFavorites.idStory, id.data), eq(storyFavorites.idUser, user.id)));
+    return true;
+  });
+
+  return left ? { ok: true } : { ok: false, error: notSeated };
 }
 
 /**

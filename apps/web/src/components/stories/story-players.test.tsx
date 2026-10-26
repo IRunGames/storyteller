@@ -3,7 +3,23 @@ import { expect } from "expect";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { renderWithProviders } from "@/test/render";
+import type { ReactElement } from "react";
+import { renderWithProviders as renderBare } from "@/test/render";
+import { UserProvider } from "@/components/auth/user-provider";
+import type { CurrentUser } from "@/lib/current-user";
+
+// The list marks the viewer's own seat, so it reads the signed-in user.
+// Someone who is not in it unless a case seats them.
+const viewer: CurrentUser = {
+  id: "u-viewer",
+  name: "Viewer",
+  email: "viewer@example.test",
+  image: null,
+  nickName: null,
+  idUserType: -1,
+};
+const renderWithProviders = (ui: ReactElement, who: CurrentUser = viewer) =>
+  renderBare(<UserProvider user={who}>{ui}</UserProvider>);
 import type { PlayerMatch, StoryPlayer } from "@/lib/stories";
 
 const players: StoryPlayer[] = [
@@ -29,13 +45,29 @@ const sa_removeStoryPlayer = mock.fn<(idStory: number, idUser: string) => Promis
   async () => ({ ok: true }),
 );
 
+const sa_leaveStory = mock.fn<(idStory: number) => Promise<{ ok: boolean }>>(async () => ({
+  ok: true,
+}));
+const sa_joinStory = mock.fn<(idStory: number) => Promise<{ ok: true; player: StoryPlayer }>>(
+  async () => ({ ok: true, player: { idUser: "u-viewer", name: "Viewer", image: null } }),
+);
+const router = { refresh: mock.fn<() => void>() };
+
 let StoryPlayers: typeof import("./story-players").StoryPlayers;
 
 describe("StoryPlayers", () => {
   before(async () => {
     mock.module("@/app/(app)/(nav)/stories/actions", {
-      namedExports: { sa_searchPlayers, sa_addStoryPlayers, sa_removeStoryPlayer },
+      namedExports: {
+        sa_searchPlayers,
+        sa_addStoryPlayers,
+        sa_removeStoryPlayer,
+        sa_leaveStory,
+        sa_joinStory,
+      },
     });
+    // The leave button refreshes the page once the seat is given up.
+    mock.module("next/navigation", { namedExports: { useRouter: () => router } });
     ({ StoryPlayers } = await import("./story-players"));
   });
 
@@ -43,6 +75,7 @@ describe("StoryPlayers", () => {
     sa_searchPlayers.mock.resetCalls();
     sa_addStoryPlayers.mock.resetCalls();
     sa_removeStoryPlayer.mock.resetCalls();
+    sa_leaveStory.mock.resetCalls();
   });
 
   it("carries the section heading under the id it is given", () => {
@@ -135,5 +168,92 @@ describe("StoryPlayers", () => {
     });
     // The rest keep their seats.
     expect(screen.getByText(players[1].name)).toBeInTheDocument();
+  });
+
+  describe("the viewer's own seat", () => {
+    // The viewer is PaulKhash, the first player.
+    const me: CurrentUser = {
+      id: "u1",
+      name: "Paul Khash",
+      email: "paul@example.test",
+      image: null,
+      nickName: "PaulKhash",
+      idUserType: -1,
+    };
+
+    it("says Me! in place of their name, with their picture and a way to leave", () => {
+      renderWithProviders(
+        <StoryPlayers idStory={7} headingId="h" initial={players} isOwner={false} />,
+        me,
+      );
+
+      const items = screen.getAllByRole("listitem");
+      expect(within(items[0]).getByText("Me!")).toBeInTheDocument();
+      expect(within(items[0]).queryByText("PaulKhash")).not.toBeInTheDocument();
+      expect(within(items[0]).getByRole("button", { name: "Leave game" })).toBeInTheDocument();
+      // Everyone else keeps their name, and no way to leave on their behalf.
+      expect(within(items[1]).getByText("Pol")).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "Leave game" })).toHaveLength(1);
+    });
+
+    it("drops their seat from the list once they have left", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <StoryPlayers idStory={7} headingId="h" initial={players} isOwner={false} />,
+        me,
+      );
+
+      await user.click(screen.getByRole("button", { name: "Leave game" }));
+      const popover = await screen.findByRole("dialog", { name: "Leave this game?" });
+      await user.click(within(popover).getByRole("button", { name: "Leave" }));
+
+      await waitFor(() => expect(screen.queryByText("Me!")).not.toBeInTheDocument());
+      expect(sa_leaveStory.mock.calls[0].arguments).toEqual([7]);
+      expect(screen.getByText("Pol")).toBeInTheDocument();
+    });
+  });
+
+  describe("Join", () => {
+    it("is offered beside the heading while the story is open, to someone without a seat", () => {
+      renderWithProviders(
+        <StoryPlayers idStory={7} headingId="h" initial={players} isOwner={false} isOpenToJoin />,
+      );
+      expect(screen.getByRole("button", { name: "Join" })).toBeInTheDocument();
+    });
+
+    it("is not offered when the story is not open, to its storyteller, or to a player already seated", () => {
+      const { unmount } = renderWithProviders(
+        <StoryPlayers idStory={7} headingId="h" initial={players} isOwner={false} />,
+      );
+      expect(screen.queryByRole("button", { name: "Join" })).not.toBeInTheDocument();
+      unmount();
+
+      const owner = renderWithProviders(
+        <StoryPlayers idStory={7} headingId="h" initial={players} isOwner isOpenToJoin />,
+      );
+      expect(screen.queryByRole("button", { name: "Join" })).not.toBeInTheDocument();
+      owner.unmount();
+
+      // The viewer is already PaulKhash's seat.
+      renderWithProviders(
+        <StoryPlayers idStory={7} headingId="h" initial={players} isOwner={false} isOpenToJoin />,
+        { ...viewer, id: "u1" },
+      );
+      expect(screen.queryByRole("button", { name: "Join" })).not.toBeInTheDocument();
+    });
+
+    it("seats the viewer as Me!, with Leave game in place of Join", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <StoryPlayers idStory={7} headingId="h" initial={players} isOwner={false} isOpenToJoin />,
+      );
+
+      await user.click(screen.getByRole("button", { name: "Join" }));
+
+      expect(await screen.findByText("Me!")).toBeInTheDocument();
+      expect(screen.getAllByRole("listitem")).toHaveLength(3);
+      expect(screen.getByRole("button", { name: "Leave game" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Join" })).not.toBeInTheDocument();
+    });
   });
 });

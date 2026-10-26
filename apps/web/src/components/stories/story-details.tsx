@@ -169,6 +169,7 @@ export function StoryDetails({ story, players, sessions, sessionStatusOptions }:
               headingId={playersId}
               initial={players}
               isOwner={story.isOwner}
+              isOpenToJoin={story.isLookingForPlayers && story.isActive}
               mutedColor={mutedColor}
             />
           </Stack>

@@ -975,6 +975,124 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       );
   });
 
+  it("lets a player leave a story, taking their favorite of it, and only theirs", async () => {
+    // A story of its own: the shared fixtures seat and favorite the seed user
+    // on stories that other cases count on.
+    const [story] = await db
+      .insert(tables.stories)
+      .values({ title: "Fixture story to leave", idCreatedByUser: otherUserId })
+      .returning({ id: tables.stories.idStory });
+    try {
+      await db.insert(tables.storyPlayers).values([
+        { idStory: story.id, idUser: SEED_USER },
+        { idStory: story.id, idUser: otherUserId },
+      ]);
+      await db.insert(tables.storyFavorites).values([
+        { idStory: story.id, idUser: SEED_USER },
+        { idStory: story.id, idUser: otherUserId },
+      ]);
+
+      expect(await actions.sa_leaveStory(story.id)).toEqual({ ok: true });
+
+      const seats = await db
+        .select({ idUser: tables.storyPlayers.idUser })
+        .from(tables.storyPlayers)
+        .where(eq(tables.storyPlayers.idStory, story.id));
+      expect(seats).toEqual([{ idUser: otherUserId }]);
+      const favorites = await db
+        .select({ idUser: tables.storyFavorites.idUser })
+        .from(tables.storyFavorites)
+        .where(eq(tables.storyFavorites.idStory, story.id));
+      expect(favorites).toEqual([{ idUser: otherUserId }]);
+
+      // Gone already, so there is no seat to leave.
+      expect(await actions.sa_leaveStory(story.id)).toEqual({
+        ok: false,
+        error: "You are not a player of this story.",
+      });
+    } finally {
+      await db.delete(tables.storyFavorites).where(eq(tables.storyFavorites.idStory, story.id));
+      await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, story.id));
+      await db.delete(tables.stories).where(eq(tables.stories.idStory, story.id));
+    }
+  });
+
+  it("will not let anyone leave a story they have no seat at, their own included", async () => {
+    // storyD is the seed user's own: the storyteller has no seat to leave.
+    expect(await actions.sa_leaveStory(storyD)).toEqual({
+      ok: false,
+      error: "You are not a player of this story.",
+    });
+    expect(await actions.sa_leaveStory(Number.MAX_SAFE_INTEGER)).toEqual({
+      ok: false,
+      error: "You are not a player of this story.",
+    });
+  });
+
+  it("lets anyone join a story that is looking for players, once", async () => {
+    const [story] = await db
+      .insert(tables.stories)
+      .values({
+        title: "Fixture story to join",
+        isLookingForPlayers: true,
+        idCreatedByUser: otherUserId,
+      })
+      .returning({ id: tables.stories.idStory });
+    try {
+      expect((await actions.sa_getStory(story.id))?.isLookingForPlayers).toBe(true);
+
+      const joined = await actions.sa_joinStory(story.id);
+      // The seat as the list shows it, so the page can add it at once.
+      expect(joined).toMatchObject({ ok: true, player: { idUser: SEED_USER } });
+
+      // Already seated: refused, and no second seat.
+      expect(await actions.sa_joinStory(story.id)).toEqual({
+        ok: false,
+        error: "This story is not open for you to join.",
+      });
+      const seats = await db
+        .select({ idUser: tables.storyPlayers.idUser })
+        .from(tables.storyPlayers)
+        .where(eq(tables.storyPlayers.idStory, story.id));
+      expect(seats).toEqual([{ idUser: SEED_USER }]);
+    } finally {
+      await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, story.id));
+      await db.delete(tables.stories).where(eq(tables.stories.idStory, story.id));
+    }
+  });
+
+  it("will not seat anyone at a story that is not looking, retired, or their own", async () => {
+    const stories = await db
+      .insert(tables.stories)
+      .values([
+        { title: "Fixture not looking", idCreatedByUser: otherUserId },
+        {
+          title: "Fixture looking but retired",
+          isLookingForPlayers: true,
+          isActive: false,
+          idCreatedByUser: otherUserId,
+        },
+        { title: "Fixture own and looking", isLookingForPlayers: true, idCreatedByUser: SEED_USER },
+      ])
+      .returning({ id: tables.stories.idStory });
+    const ids = stories.map((story) => story.id);
+    try {
+      for (const id of [...ids, Number.MAX_SAFE_INTEGER]) {
+        expect(await actions.sa_joinStory(id)).toEqual({
+          ok: false,
+          error: "This story is not open for you to join.",
+        });
+      }
+      const seats = await db
+        .select()
+        .from(tables.storyPlayers)
+        .where(inArray(tables.storyPlayers.idStory, ids));
+      expect(seats).toEqual([]);
+    } finally {
+      await db.delete(tables.stories).where(inArray(tables.stories.idStory, ids));
+    }
+  });
+
   it("removing someone who is not seated is not an error", async () => {
     expect(await actions.sa_removeStoryPlayer(storyD, otherUserId)).toEqual({ ok: true });
   });

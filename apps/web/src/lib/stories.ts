@@ -23,6 +23,8 @@ export type StoryCardData = {
   isOwner: boolean;
   /** False for a story the storyteller has retired; hidden from My Stories by default. */
   isActive: boolean;
+  /** The storyteller has opened the story to new players; the story page offers Join. */
+  isLookingForPlayers: boolean;
   /**
    * How the storyteller is known: their nickname, else their name. Null when
    * the story has no recorded creator. The card shows it only when the viewer

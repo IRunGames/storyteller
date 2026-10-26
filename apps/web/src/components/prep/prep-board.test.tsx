@@ -23,6 +23,7 @@ const story: StoryCardData = {
   isFavorite: false,
   isOwner: true,
   isActive: true,
+  isLookingForPlayers: false,
   storytellerName: null,
   hasOpenSession: false,
   playerCount: 3,

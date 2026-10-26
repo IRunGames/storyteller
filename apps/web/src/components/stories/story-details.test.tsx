@@ -3,7 +3,23 @@ import { expect } from "expect";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { renderWithProviders } from "@/test/render";
+import type { ReactElement } from "react";
+import { renderWithProviders as renderBare } from "@/test/render";
+import { UserProvider } from "@/components/auth/user-provider";
+import type { CurrentUser } from "@/lib/current-user";
+
+// The list marks the viewer's own seat, so it reads the signed-in user.
+// Someone who is not in it unless a case seats them.
+const viewer: CurrentUser = {
+  id: "u-viewer",
+  name: "Viewer",
+  email: "viewer@example.test",
+  image: null,
+  nickName: null,
+  idUserType: -1,
+};
+const renderWithProviders = (ui: ReactElement, who: CurrentUser = viewer) =>
+  renderBare(<UserProvider user={who}>{ui}</UserProvider>);
 import type { StatusOption } from "@/lib/status";
 import type { StoryCardData, StoryPlayer, StorySession } from "@/lib/stories";
 
@@ -19,6 +35,7 @@ const story: StoryCardData = {
   isFavorite: false,
   isOwner: false,
   isActive: true,
+  isLookingForPlayers: false,
   storytellerName: "PalmDave",
   hasOpenSession: false,
   playerCount: 2,
