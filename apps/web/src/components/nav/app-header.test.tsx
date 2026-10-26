@@ -16,9 +16,10 @@ const router = {
 
 let pathname = "/stories";
 
-const signOut = mock.fn<() => Promise<{ data: object; error: null }>>(
-  async () => ({ data: {}, error: null }),
-);
+const signOut = mock.fn<() => Promise<{ data: object; error: null }>>(async () => ({
+  data: {},
+  error: null,
+}));
 
 const user: CurrentUser = {
   id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
@@ -32,16 +33,16 @@ const user: CurrentUser = {
 // The popover imports its server action itself, so the whole actions module
 // is mocked rather than handed in as a prop.
 type SubmitFeedback = import("@/components/feedback/actions").SubmitFeedbackResult;
-const sa_submitFeedback = mock.fn<(values: unknown) => Promise<SubmitFeedback>>(
-  async () => ({ ok: true }),
-);
+const sa_submitFeedback = mock.fn<(values: unknown) => Promise<SubmitFeedback>>(async () => ({
+  ok: true,
+}));
 
 // The theme menu records the chosen theme through the preferences provider,
 // which imports this action itself.
 type SetPreference = import("@/components/preferences/actions").SetUserPreferenceResult;
-const sa_setUserPreference = mock.fn<(input: unknown) => Promise<SetPreference>>(
-  async () => ({ ok: true }),
-);
+const sa_setUserPreference = mock.fn<(input: unknown) => Promise<SetPreference>>(async () => ({
+  ok: true,
+}));
 
 // Static imports are hoisted, so the module under test can only be loaded
 // after the mocks are registered — hence the dynamic import in `before`.
@@ -72,9 +73,8 @@ describe("AppHeader", () => {
     mock.module("@/components/preferences/actions", { namedExports: { sa_setUserPreference } });
 
     ({ AppHeader } = await import("./app-header"));
-    ({ UserPreferencesProvider } = await import(
-      "@/components/preferences/user-preferences-provider"
-    ));
+    ({ UserPreferencesProvider } =
+      await import("@/components/preferences/user-preferences-provider"));
   });
 
   beforeEach(() => {
@@ -142,9 +142,7 @@ describe("AppHeader", () => {
     // focus that arrives in the same frame.
     await waitFor(() => expect(menu).toHaveFocus());
     await u.keyboard("{Escape}");
-    await waitFor(() =>
-      expect(chevron.querySelector(".lucide-chevron-down")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(chevron.querySelector(".lucide-chevron-down")).toBeInTheDocument());
     expect(chevron.querySelector(".lucide-chevron-up")).not.toBeInTheDocument();
   });
 
@@ -189,9 +187,7 @@ describe("AppHeader", () => {
 
     pathname = "/stories";
     renderHeader();
-    expect(screen.getByRole("link", { name: "Storyteller" })).not.toHaveAttribute(
-      "aria-current",
-    );
+    expect(screen.getByRole("link", { name: "Storyteller" })).not.toHaveAttribute("aria-current");
   });
 
   it("stays pinned to the top while the page scrolls under it", () => {
@@ -248,9 +244,7 @@ describe("AppHeader", () => {
 
     await u.click(light);
 
-    await waitFor(() =>
-      expect(document.documentElement).toHaveClass("light"),
-    );
+    await waitFor(() => expect(document.documentElement).toHaveClass("light"));
   });
 
   it("shows each theme's icon beside its name in the menu", async () => {
@@ -418,15 +412,14 @@ describe("AppHeader", () => {
   });
 
   describe("the Cause error item", () => {
-    const nodeEnv = process.env.NODE_ENV;
-    // `process.env` is typed read-only for NODE_ENV; the tests need to flip it.
-    const env = process.env as Record<string, string | undefined>;
+    const environment = process.env.NEXT_PUBLIC_ENVIRONMENT;
     afterEach(() => {
-      env.NODE_ENV = nodeEnv;
+      if (environment === undefined) delete process.env.NEXT_PUBLIC_ENVIRONMENT;
+      else process.env.NEXT_PUBLIC_ENVIRONMENT = environment;
     });
 
-    it("is not on the account menu outside development", async () => {
-      env.NODE_ENV = "production";
+    it("is not on the account menu in production", async () => {
+      process.env.NEXT_PUBLIC_ENVIRONMENT = "PRODUCTION";
       const u = userEvent.setup();
       renderHeader();
 
@@ -434,10 +427,13 @@ describe("AppHeader", () => {
       await screen.findByRole("menuitem", { name: "Profile" });
 
       expect(screen.queryByRole("menuitem", { name: "Cause error" })).not.toBeInTheDocument();
+      // A player in production has nothing in that section, so there is
+      // only the divider above Logout.
+      expect(screen.getAllByRole("separator")).toHaveLength(1);
     });
 
-    it("throws to the error page in development", async () => {
-      env.NODE_ENV = "development";
+    it("throws to the error page below production", async () => {
+      process.env.NEXT_PUBLIC_ENVIRONMENT = "STAGING";
       // The app's error.tsx is the boundary in the app; a plain one stands in.
       class Boundary extends Component<{ children: ReactNode }, { error: Error | null }> {
         state = { error: null as Error | null };
@@ -463,6 +459,7 @@ describe("AppHeader", () => {
 
       await u.click(screen.getByRole("button", { name: "Account menu" }));
       const item = await screen.findByRole("menuitem", { name: "Cause error" });
+      expect(item.querySelector(".lucide-circle-alert")).toBeInTheDocument();
       // Highlight before clicking, for the reason given in the logout test.
       let step = 0;
       await waitFor(async () => {
@@ -476,6 +473,74 @@ describe("AppHeader", () => {
         "Caught: Cause error, chosen from the account menu.",
       );
       consoleError.mock.restore();
+    });
+  });
+
+  describe("the environment and version items", () => {
+    const saved = {
+      environment: process.env.NEXT_PUBLIC_ENVIRONMENT,
+      builtAt: process.env.NEXT_PUBLIC_BUILT_AT,
+    };
+    afterEach(() => {
+      for (const [key, value] of [
+        ["NEXT_PUBLIC_ENVIRONMENT", saved.environment],
+        ["NEXT_PUBLIC_BUILT_AT", saved.builtAt],
+      ] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+
+    it("shows a storyteller the environment and the build time, below Cause error", async () => {
+      process.env.NEXT_PUBLIC_ENVIRONMENT = "TEST";
+      process.env.NEXT_PUBLIC_BUILT_AT = "2026-10-23T21:38:23.753Z";
+      const u = userEvent.setup();
+      renderHeader({ ...user, idUserType: -2 });
+
+      await u.click(screen.getByRole("button", { name: "Account menu" }));
+      const environment = await screen.findByRole("menuitem", { name: "Environment" });
+      const version = screen.getByRole("menuitem", { name: "Version" });
+      expect(environment.querySelector(".lucide-wrench")).toBeInTheDocument();
+      expect(version.querySelector(".lucide-house")).toBeInTheDocument();
+
+      const names = screen.getAllByRole("menuitem").map((item) => item.textContent);
+      expect(names).toEqual(["Profile", "Cause error", "Environment", "Version", "Logout"]);
+      expect(screen.getAllByRole("separator")).toHaveLength(2);
+
+      await u.hover(within(environment).getByText("Environment"));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent("TEST");
+      await u.unhover(within(environment).getByText("Environment"));
+      await u.hover(within(version).getByText("Version"));
+      await waitFor(() =>
+        expect(screen.getByRole("tooltip")).toHaveTextContent("2026-10-23T21:38:23.753Z"),
+      );
+    });
+
+    it("keeps them from a player", async () => {
+      process.env.NEXT_PUBLIC_ENVIRONMENT = "TEST";
+      const u = userEvent.setup();
+      renderHeader({ ...user, idUserType: -1 });
+
+      await u.click(screen.getByRole("button", { name: "Account menu" }));
+      await screen.findByRole("menuitem", { name: "Profile" });
+      expect(screen.queryByRole("menuitem", { name: "Environment" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "Version" })).not.toBeInTheDocument();
+      // Cause error still has its section below production.
+      expect(screen.getByRole("menuitem", { name: "Cause error" })).toBeInTheDocument();
+      expect(screen.getAllByRole("separator")).toHaveLength(2);
+    });
+
+    it("shows a storyteller the section in production, without Cause error", async () => {
+      process.env.NEXT_PUBLIC_ENVIRONMENT = "PRODUCTION";
+      const u = userEvent.setup();
+      renderHeader({ ...user, idUserType: -100 });
+
+      await u.click(screen.getByRole("button", { name: "Account menu" }));
+      const environment = await screen.findByRole("menuitem", { name: "Environment" });
+      await u.hover(within(environment).getByText("Environment"));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent("PRODUCTION");
+      expect(screen.queryByRole("menuitem", { name: "Cause error" })).not.toBeInTheDocument();
+      expect(screen.getAllByRole("separator")).toHaveLength(2);
     });
   });
 
@@ -521,7 +586,9 @@ describe("AppHeader", () => {
         </UserProvider>,
       );
       await u.click(screen.getByRole("button", { name: "Give feedback" }));
-      const dialog = await screen.findByRole("dialog", { name: "How is this page working for you?" });
+      const dialog = await screen.findByRole("dialog", {
+        name: "How is this page working for you?",
+      });
       return { u, dialog };
     }
 
