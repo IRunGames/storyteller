@@ -60,6 +60,10 @@ jobs:
       - name: Install Vercel CLI
         run: npm install -g vercel@64
 
+      # This brings NEXT_PUBLIC_ENVIRONMENT, which must be PRODUCTION in the
+      # Vercel project's Production env; without it the build below stops
+      # (apps/web/next.config.ts). NEXT_PUBLIC_BUILT_AT needs nothing here:
+      # next.config.ts stamps it when the build loads the config.
       - name: Pull production settings and env from Vercel
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
