@@ -27,6 +27,16 @@ const detail: StorySceneDetail = {
   sessionHeading: "3. Kildealg",
   startedAt: new Date("2026-09-12T12:00:00Z"),
   isStoryteller: true,
+  elements: [
+    {
+      idSceneElement: -21,
+      kind: "PERSON",
+      label: "Dirdenach",
+      detail: null,
+      description: null,
+      status: "FIRST",
+    },
+  ],
 };
 
 let ScenePageDetail: typeof import("./scene-page-detail").ScenePageDetail;
@@ -55,8 +65,17 @@ describe("ScenePageDetail", () => {
     ({ ScenePageDetail } = await import("./scene-page-detail"));
   });
 
+  it("carries the scene's elements fold", () => {
+    renderWithProviders(
+      <ScenePageDetail initial={detail} statusOptions={options} elementStatusOptions={options} />,
+    );
+    expect(screen.getByRole("button", { name: "Elements (1)" })).toBeInTheDocument();
+  });
+
   it("gives the storyteller the status menu and the attachment picker", () => {
-    renderWithProviders(<ScenePageDetail initial={detail} statusOptions={options} />);
+    renderWithProviders(
+      <ScenePageDetail initial={detail} statusOptions={options} elementStatusOptions={options} />,
+    );
 
     expect(screen.getByRole("heading", { name: detail.title })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Second" })).toBeInTheDocument();
@@ -65,7 +84,11 @@ describe("ScenePageDetail", () => {
 
   it("shows a player the scene with neither", () => {
     renderWithProviders(
-      <ScenePageDetail initial={{ ...detail, isStoryteller: false }} statusOptions={options} />,
+      <ScenePageDetail
+        initial={{ ...detail, isStoryteller: false }}
+        statusOptions={options}
+        elementStatusOptions={options}
+      />,
     );
 
     expect(screen.getByRole("heading", { name: detail.title })).toBeInTheDocument();

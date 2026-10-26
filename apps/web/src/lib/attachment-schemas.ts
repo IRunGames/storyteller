@@ -18,7 +18,7 @@ export const attachmentKindSchema = z.enum([
 ]);
 
 /** The holders the story's pictures are attached to; see AttachHolderKind. */
-export const attachHolderKindSchema = z.enum(["STORY_SCENE", "SCENE_ELEMENT"]);
+export const attachHolderKindSchema = z.enum(["STORY_SESSION", "STORY_SCENE", "SCENE_ELEMENT"]);
 
 // A create form only ever collects a handful of ids; a bound keeps a crafted
 // array from turning a claim into a full-table scan, the same reasoning

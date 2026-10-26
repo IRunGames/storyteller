@@ -20,13 +20,17 @@ export type AttachmentKind =
 
 /**
  * The holders that pictures are attached to out of the story's pool by the
- * story attachment picker and the run page's library: a scene, or an
- * element's link to one.
+ * story attachment picker and the run page's library: a session (for its
+ * cover, from its edit panel), a scene, or an element's link to one.
  */
-export type AttachHolderKind = Extract<AttachmentKind, "STORY_SCENE" | "SCENE_ELEMENT">;
+export type AttachHolderKind = Extract<
+  AttachmentKind,
+  "STORY_SESSION" | "STORY_SCENE" | "SCENE_ELEMENT"
+>;
 
 /** What a holder is called where an action speaks of it: "no longer be used by the scene". */
 export const ATTACH_HOLDER_NOUNS: Record<AttachHolderKind, string> = {
+  STORY_SESSION: "session",
   STORY_SCENE: "scene",
   SCENE_ELEMENT: "element",
 };

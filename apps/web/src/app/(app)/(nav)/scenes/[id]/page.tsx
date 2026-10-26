@@ -19,15 +19,20 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
   // Number() alone would not do.
   if (!/^-?\d+$/.test(id)) notFound();
 
-  const [detail, statusOptions] = await Promise.all([
+  const [detail, statusOptions, elementStatusOptions] = await Promise.all([
     sa_getStoryScene(Number(id)),
     sa_listStatusOptions("story_scenes"),
+    sa_listStatusOptions("scene_elements"),
   ]);
   if (!detail) notFound();
 
   return (
     <Container maxW="lg" py="8">
-      <ScenePageDetail initial={detail} statusOptions={statusOptions} />
+      <ScenePageDetail
+        initial={detail}
+        statusOptions={statusOptions}
+        elementStatusOptions={elementStatusOptions}
+      />
     </Container>
   );
 }

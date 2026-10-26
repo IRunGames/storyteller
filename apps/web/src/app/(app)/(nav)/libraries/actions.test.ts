@@ -377,6 +377,136 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     }
   });
 
+  describe("a scene's elements", () => {
+    // Three elements linked to a scene: one hidden from the players, one
+    // whose description is held back, and one showing its first-meeting
+    // name. Made on each story, so the storyteller's view and a player's can
+    // both be read.
+    async function linkThree(idStory: number, owner: string) {
+      const [scene] = await db
+        .insert(tables.storyScenes)
+        .values({ idStory, sceneTitle: "Fixture scene with elements", idCreatedByUser: owner })
+        .returning({ id: tables.storyScenes.idStoryScene });
+      const [hidden, heldBack, stranger] = await db
+        .insert(tables.elements)
+        .values([
+          {
+            idStory,
+            kind: "PERSON",
+            name: "Fixture Assassin",
+            description: "Waiting in the rafters.",
+            idCreatedByUser: owner,
+          },
+          {
+            idStory,
+            kind: "THING",
+            name: "Fixture Ledger",
+            title: "The guild's accounts",
+            description: "Two sets of books.",
+            idCreatedByUser: owner,
+          },
+          {
+            idStory,
+            kind: "PERSON",
+            initialName: "A hooded woman",
+            name: "Fixture Morwen",
+            title: "Queen in exile",
+            description: "Grey cloak, silver ring.",
+            idCreatedByUser: owner,
+          },
+        ])
+        .returning({ id: tables.elements.idElement });
+      await db.insert(tables.sceneElements).values([
+        {
+          idStoryScene: scene.id,
+          idElement: hidden.id,
+          status: "INVISIBLE",
+          elementShowing: "name",
+          idCreatedByUser: owner,
+        },
+        {
+          idStoryScene: scene.id,
+          idElement: heldBack.id,
+          elementShowing: "name",
+          showInfo: false,
+          idCreatedByUser: owner,
+        },
+        {
+          idStoryScene: scene.id,
+          idElement: stranger.id,
+          elementShowing: "initial_name",
+          idCreatedByUser: owner,
+        },
+      ]);
+      return { idScene: scene.id, idElements: [hidden.id, heldBack.id, stranger.id] };
+    }
+
+    // Everything linkThree made, so the element lists and counts the other
+    // tests read are left as they were.
+    async function unlink({ idScene, idElements }: Awaited<ReturnType<typeof linkThree>>) {
+      await db.delete(tables.sceneElements).where(eq(tables.sceneElements.idStoryScene, idScene));
+      await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, idScene));
+      await db.delete(tables.elements).where(inArray(tables.elements.idElement, idElements));
+    }
+
+    it("gives the storyteller every element in the scene, by kind, as written", async () => {
+      const made = await linkThree(myStory, SEED_USER);
+      try {
+        const detail = await actions.sa_getStoryScene(made.idScene);
+        expect(detail?.elements).toEqual([
+          expect.objectContaining({
+            kind: "PERSON",
+            label: "Fixture Assassin",
+            detail: null,
+            description: "Waiting in the rafters.",
+            status: "INVISIBLE",
+          }),
+          expect.objectContaining({
+            kind: "PERSON",
+            label: "Fixture Morwen",
+            detail: "Queen in exile",
+            description: "Grey cloak, silver ring.",
+            status: "READY",
+          }),
+          expect.objectContaining({
+            kind: "THING",
+            label: "Fixture Ledger",
+            detail: "The guild's accounts",
+            description: "Two sets of books.",
+            status: "READY",
+          }),
+        ]);
+      } finally {
+        await unlink(made);
+      }
+    });
+
+    it("gives a player only what the table shows them", async () => {
+      const made = await linkThree(theirStory, otherUserId);
+      await db.insert(tables.storyPlayers).values({ idStory: theirStory, idUser: SEED_USER });
+      try {
+        const detail = await actions.sa_getStoryScene(made.idScene);
+        // No hidden element, the name the table shows rather than the true
+        // one, and no description the storyteller is keeping back.
+        expect(detail?.elements).toEqual([
+          expect.objectContaining({
+            label: "A hooded woman",
+            detail: "Queen in exile",
+            description: "Grey cloak, silver ring.",
+          }),
+          expect.objectContaining({
+            label: "Fixture Ledger",
+            detail: "The guild's accounts",
+            description: null,
+          }),
+        ]);
+      } finally {
+        await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, theirStory));
+        await unlink(made);
+      }
+    });
+  });
+
   it("orders by the sitting, then through the workflow, with unplayed scenes first", async () => {
     // Two sittings, the second touched more recently than the first.
     const sessions = await db

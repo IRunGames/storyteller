@@ -9,13 +9,15 @@ import { SceneDetail } from "./scene-info-popover";
 type Props = {
   initial: StorySceneDetail;
   statusOptions: StatusOption[];
+  /** The scene_elements workflow, for the pills in the Elements fold. */
+  elementStatusOptions: StatusOption[];
 };
 
 // The scene's own page: its heading and the popover's body, holding the
 // detail in state so the pill's move shows without a reload. The story's
 // players can open it too; whether the pill is a menu and the attachment
 // picker shows is the detail's isStoryteller.
-export function ScenePageDetail({ initial, statusOptions }: Props) {
+export function ScenePageDetail({ initial, statusOptions, elementStatusOptions }: Props) {
   const [detail, setDetail] = useState(initial);
   return (
     <Stack gap="6">
@@ -25,6 +27,7 @@ export function ScenePageDetail({ initial, statusOptions }: Props) {
       <SceneDetail
         detail={detail}
         statusOptions={statusOptions}
+        elementStatusOptions={elementStatusOptions}
         canEdit={detail.isStoryteller}
         onStatusChanged={(status) => setDetail((current) => ({ ...current, status }))}
       />

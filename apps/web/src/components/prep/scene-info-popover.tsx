@@ -1,9 +1,11 @@
 "use client";
 
-import { Image, Stack, Text } from "@chakra-ui/react";
-import { formatSceneLength, type StorySceneDetail } from "@/lib/scenes";
+import { Accordion, HStack, Image, List, Stack, Text } from "@chakra-ui/react";
+import { ELEMENT_KIND_LABELS, type ElementKind } from "@/lib/elements";
+import { formatSceneLength, type SceneElementInfo, type StorySceneDetail } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import { sa_getStoryScene } from "@/app/(app)/(nav)/libraries/actions";
+import { sa_listStatusOptions } from "@/components/status/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { InfoPopover } from "@/components/popovers/info-popover";
 import { LocalDate } from "@/components/dates/local-date";
@@ -20,18 +22,26 @@ type Props = {
 };
 
 // What the info button on a scene card opens: the scene's picture, its status,
-// the sitting it was played in, and everything the storyteller wrote about it
+// the sitting it was played in, everything the storyteller wrote about it
 // — the NPCs in it and anything of note, which the card can only show the
-// opening of. InfoPopover owns the button, the panel and the fetch; the
+// opening of — and the elements linked to it, folded away. InfoPopover owns the button, the panel and the fetch; the
 // button beside the heading opens the same detail on /scenes/[id].
 //
 // The status is the one live thing in here, so the pill tells the column when
 // it moves and the panel keeps showing what the card shows.
 export function SceneInfoPopover({ idStoryScene, statusOptions, canEdit, onStatusChanged }: Props) {
   return (
-    <InfoPopover<StorySceneDetail>
+    <InfoPopover<SceneInfo>
       label="Scene info"
-      load={() => sa_getStoryScene(idStoryScene)}
+      // The scene_elements workflow comes with the scene, so the Elements
+      // fold's pills are drawn from the first render rather than after.
+      load={async () => {
+        const [detail, elementStatusOptions] = await Promise.all([
+          sa_getStoryScene(idStoryScene),
+          sa_listStatusOptions("scene_elements"),
+        ]);
+        return detail && { ...detail, elementStatusOptions };
+      }}
       missingText="This scene is no longer here."
       errorText="Could not load the scene."
       heading={(detail) => detail?.title ?? "Scene"}
@@ -41,6 +51,7 @@ export function SceneInfoPopover({ idStoryScene, statusOptions, canEdit, onStatu
         <SceneDetail
           detail={detail}
           statusOptions={statusOptions}
+          elementStatusOptions={detail.elementStatusOptions}
           canEdit={canEdit}
           onStatusChanged={(status) => {
             setDetail((current) => (current ? { ...current, status } : current));
@@ -52,6 +63,9 @@ export function SceneInfoPopover({ idStoryScene, statusOptions, canEdit, onStatu
   );
 }
 
+/** The scene as the popover loads it: the detail, and the workflow its elements' pills use. */
+type SceneInfo = StorySceneDetail & { elementStatusOptions: StatusOption[] };
+
 /**
  * The body of a scene's panel, shared by the popover and the scene's own page:
  * everything but the heading, which each of them draws in its own way.
@@ -59,11 +73,14 @@ export function SceneInfoPopover({ idStoryScene, statusOptions, canEdit, onStatu
 export function SceneDetail({
   detail,
   statusOptions,
+  elementStatusOptions,
   canEdit,
   onStatusChanged,
 }: {
   detail: StorySceneDetail;
   statusOptions: StatusOption[];
+  /** The scene_elements workflow, for the pills in the Elements fold. */
+  elementStatusOptions: StatusOption[];
   canEdit: boolean;
   onStatusChanged: (status: string) => void;
 }) {
@@ -119,6 +136,10 @@ export function SceneDetail({
         </Text>
       )}
 
+      {detail.elements.length > 0 && (
+        <SceneElementsFold elements={detail.elements} statusOptions={elementStatusOptions} />
+      )}
+
       {/* The storyteller can bring the story's own attachments onto the
           scene from here; nobody else sees the fold. */}
       {canEdit && (
@@ -128,5 +149,71 @@ export function SceneDetail({
         />
       )}
     </Stack>
+  );
+}
+
+/**
+ * The scene's elements, folded away as the session panel folds its scenes:
+ * the panel is read for the scene's own text first. Each shows its status in
+ * this scene, read only, since the run page is where a scene's elements are
+ * moved, and whatever of it the action sent: everything for the
+ * storyteller, what the players' table shows for a player.
+ */
+function SceneElementsFold({
+  elements,
+  statusOptions,
+}: {
+  elements: SceneElementInfo[];
+  statusOptions: StatusOption[];
+}) {
+  return (
+    <Accordion.Root collapsible size="sm" variant="enclosed">
+      <Accordion.Item value="elements">
+        <Accordion.ItemTrigger>
+          <Text flex="1" textStyle="sm">
+            Elements ({elements.length})
+          </Text>
+          <Accordion.ItemIndicator />
+        </Accordion.ItemTrigger>
+        <Accordion.ItemContent>
+          <Accordion.ItemBody>
+            <List.Root listStyleType="none" gap="3" aria-label="Elements in this scene">
+              {elements.map((element) => (
+                <List.Item key={element.idSceneElement}>
+                  <Stack gap="1">
+                    <HStack justify="space-between" align="start" gap="2">
+                      <Stack gap="0" minW="0">
+                        <Text textStyle="sm" fontWeight="medium">
+                          {element.label}
+                        </Text>
+                        {element.detail && (
+                          <Text textStyle="xs" color="fg.muted">
+                            {element.detail}
+                          </Text>
+                        )}
+                      </Stack>
+                      <StatusPill
+                        table="scene_elements"
+                        id={element.idSceneElement}
+                        status={element.status}
+                        options={statusOptions}
+                      />
+                    </HStack>
+                    <Text textStyle="xs" color="fg.muted">
+                      {ELEMENT_KIND_LABELS[element.kind as ElementKind] ?? element.kind}
+                    </Text>
+                    {element.description && (
+                      <Text textStyle="sm" whiteSpace="pre-line">
+                        {element.description}
+                      </Text>
+                    )}
+                  </Stack>
+                </List.Item>
+              ))}
+            </List.Root>
+          </Accordion.ItemBody>
+        </Accordion.ItemContent>
+      </Accordion.Item>
+    </Accordion.Root>
   );
 }

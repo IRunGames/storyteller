@@ -85,6 +85,7 @@ const sa_getStoryScene = mock.fn(async (idStoryScene: number) => ({
   sessionNumber: 3,
   sessionHeading: "3. Kildealg",
   startedAt: null,
+  elements: [],
 }));
 
 let SessionInfoPopover: typeof import("./session-info-popover").SessionInfoPopover;

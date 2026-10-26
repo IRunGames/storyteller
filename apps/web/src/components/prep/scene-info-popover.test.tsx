@@ -35,6 +35,24 @@ const detail: StorySceneDetail = {
   // Noon UTC, so the day is the same in whatever zone the tests run in.
   startedAt: new Date("2026-09-12T12:00:00Z"),
   isStoryteller: true,
+  elements: [
+    {
+      idSceneElement: -21,
+      kind: "PERSON",
+      label: "Dirdenach",
+      detail: "The marked wizard",
+      description: "Sigils inked over brow and throat.",
+      status: "FIRST",
+    },
+    {
+      idSceneElement: -22,
+      kind: "THING",
+      label: "The shell tray",
+      detail: null,
+      description: null,
+      status: "SECOND",
+    },
+  ],
 };
 
 const sa_getStoryScene = mock.fn<(id: number) => Promise<StorySceneDetail | null>>(
@@ -97,6 +115,37 @@ describe("SceneInfoPopover", () => {
     expect(within(dialog).getByText(/Dafydd, the shell and pearl seller/)).toBeInTheDocument();
   });
 
+  it("folds away the scene's elements, each with its status in the scene and its details", async () => {
+    const user = userEvent.setup();
+    render();
+    const { dialog } = await open(user);
+
+    const fold = await within(dialog).findByRole("button", { name: "Elements (2)" });
+    expect(fold).toHaveAttribute("aria-expanded", "false");
+    await user.click(fold);
+
+    const list = await within(dialog).findByRole("list", { name: "Elements in this scene" });
+    const [wizard, tray] = within(list).getAllByRole("listitem");
+    expect(within(wizard).getByText("Dirdenach")).toBeInTheDocument();
+    expect(within(wizard).getByText("The marked wizard")).toBeInTheDocument();
+    expect(within(wizard).getByText("Person")).toBeInTheDocument();
+    expect(within(wizard).getByText("First")).toBeInTheDocument();
+    expect(within(wizard).getByText("Sigils inked over brow and throat.")).toBeInTheDocument();
+    // Shown, not moved: the run page is where a scene's elements change.
+    expect(within(wizard).queryByRole("button", { name: "First" })).not.toBeInTheDocument();
+    expect(within(tray).getByText("The shell tray")).toBeInTheDocument();
+    expect(within(tray).getByText("Second")).toBeInTheDocument();
+  });
+
+  it("leaves the elements fold out for a scene with none", async () => {
+    sa_getStoryScene.mock.mockImplementation(async () => ({ ...detail, elements: [] }));
+    render();
+    const { dialog } = await open();
+
+    await within(dialog).findByText(/^3\. Kildealg/);
+    expect(within(dialog).queryByRole("button", { name: /^Elements/ })).not.toBeInTheDocument();
+  });
+
   it("says a scene has not been played rather than naming no sitting", async () => {
     sa_getStoryScene.mock.mockImplementation(async () => ({
       ...detail,
@@ -125,6 +174,8 @@ describe("SceneInfoPopover", () => {
   });
 
   it("shows the status without a menu to anyone who does not own the story", async () => {
+    // No elements, whose pills would carry the same status names.
+    sa_getStoryScene.mock.mockImplementation(async () => ({ ...detail, elements: [] }));
     render(false);
     const { dialog } = await open();
 

@@ -7,6 +7,7 @@ import {
   Alert,
   Button,
   Field,
+  Heading,
   HStack,
   Input,
   List,
@@ -16,7 +17,7 @@ import {
   Text,
   Textarea,
 } from "@chakra-ui/react";
-import { Minus } from "lucide-react";
+import { Minus, Plus } from "lucide-react";
 import {
   sessionEditSchema,
   type SessionEditInput,
@@ -28,6 +29,8 @@ import { sa_getSessionForEdit, sa_updateStorySession } from "@/app/(app)/(nav)/s
 import { sa_setLiveSceneSession } from "@/app/(app)/scenes/[id]/live/actions";
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { AttachmentListField } from "@/components/uploads/attachment-list-field";
+import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
 
 type Props = {
   idStorySession: number;
@@ -44,7 +47,13 @@ const FIELDS = ["title", "summary", "notes", "lingeringQuestions"] as const;
  * together (sa_updateStorySession), with Cancel at the start and Save at the
  * end. Read as it opens, so it starts from the session as stored.
  *
- * Under the fields, the scenes played in the session: each with a − that
+ * Under the fields, the session's cover image: a new upload or link, from
+ * the link input and dropzone its + opens, or one of the story's pictures
+ * from the fold under them, which stays in view; made the cover with the
+ * Cover button on its card. These are saved as they are added, as a scene's
+ * pictures are on its edit page, so Cancel does not take them back.
+ *
+ * Under those, the scenes played in the session: each with a − that
  * takes it out of the session, and a select of the story's other scenes to
  * put one in. Those take effect at once, as the live-edit page's session
  * select does (sa_setLiveSceneSession), rather than waiting for Save. A
@@ -117,6 +126,12 @@ function SessionEditForm({
     resolver: zodResolver(sessionEditSchema),
     defaultValues: session.values,
   });
+  // Bumped when the picker gives the session some of the story's pictures,
+  // so the field lists them: it reads its rows once, as it mounts.
+  const [picturesKey, setPicturesKey] = useState(0);
+  // The + beside Cover image shows the link input and dropzone, and hides
+  // them again, as the board's Attachments column does.
+  const [isAdding, setIsAdding] = useState(false);
 
   async function onSubmit(values: SessionEditValues) {
     let result: Awaited<ReturnType<typeof sa_updateStorySession>>;
@@ -193,6 +208,36 @@ function SessionEditForm({
           <Textarea size="sm" rows={3} {...register("lingeringQuestions")} />
           <Field.ErrorText>{errors.lingeringQuestions?.message}</Field.ErrorText>
         </Field.Root>
+
+        <Stack gap="2">
+          <HStack gap="1" justify="space-between">
+            <Heading as="h3" textStyle="sm" fontWeight="medium">
+              Cover image
+            </Heading>
+            <PrepIconButton
+              label="Add a cover image"
+              expanded={isAdding}
+              onClick={() => setIsAdding((open) => !open)}
+            >
+              <Plus />
+            </PrepIconButton>
+          </HStack>
+          <Text textStyle="xs" color="fg.muted">
+            Saved as soon as they are added. Press Cover on the one the session shows.
+          </Text>
+          <AttachmentListField
+            key={picturesKey}
+            kind="STORY_SESSION"
+            idExternal={session.idStorySession}
+            showAdd={isAdding}
+            showEmpty
+          />
+          <StoryAttachmentPicker
+            idStory={session.idStory}
+            holder={{ kind: "STORY_SESSION", idExternal: session.idStorySession }}
+            onAttached={() => setPicturesKey((key) => key + 1)}
+          />
+        </Stack>
 
         <Stack gap="2">
           <Text textStyle="sm" fontWeight="medium">

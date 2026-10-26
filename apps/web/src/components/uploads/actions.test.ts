@@ -685,6 +685,69 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     });
   });
 
+  describe("the story's pictures, attached to a session", () => {
+    // A story with a session, and a session on OTHER_USER's story, all the
+    // test's own, so nothing seeded is ever touched.
+    const title = "Fixture — session cover";
+    let idStory = 0;
+    let idSession = 0;
+    let theirSession = 0;
+
+    before(async () => {
+      await db.delete(tables.stories).where(eq(tables.stories.title, title));
+      [{ idStory }] = await db
+        .insert(tables.stories)
+        .values({ title, idCreatedByUser: SEED_USER, idUpdatedByUser: SEED_USER })
+        .returning({ idStory: tables.stories.idStory });
+      [{ id: idSession }] = await db
+        .insert(tables.storySessions)
+        .values({ idStory, idCreatedByUser: SEED_USER })
+        .returning({ id: tables.storySessions.idStorySession });
+      [{ id: theirSession }] = await db
+        .insert(tables.storySessions)
+        .values({ idStory: OTHER_STORY_ID, idCreatedByUser: OTHER_USER })
+        .returning({ id: tables.storySessions.idStorySession });
+    });
+
+    after(async () => {
+      await db
+        .delete(tables.storySessions)
+        .where(eq(tables.storySessions.idStorySession, theirSession));
+      await db.delete(tables.stories).where(eq(tables.stories.idStory, idStory));
+    });
+
+    const onStory = (url: string) =>
+      insertAttachment({ idStory, status: "READY", url, idCreatedByUser: SEED_USER });
+
+    it("attaches the story's pictures to the session, and makes one its only cover", async () => {
+      const { id: first } = await onStory("https://example.com/session-first.jpg");
+      const { id: second } = await onStory("https://example.com/session-second.jpg");
+
+      expect(await actions.sa_attachToHolder("STORY_SESSION", idSession, [first, second])).toEqual({
+        ok: true,
+        attached: expect.arrayContaining([first, second]),
+      });
+      await actions.sa_setAttachmentCover("STORY_SESSION", idSession, first, true);
+      await actions.sa_setAttachmentCover("STORY_SESSION", idSession, second, true);
+
+      const rows = await actions.sa_listAttachments("STORY_SESSION", idSession);
+      expect(rows.filter((row) => row.isCover).map((row) => row.idAttachment)).toEqual([second]);
+      // Still the story's, in the story's list.
+      const pool = (await actions.sa_listAttachments("STORY", idStory)).map(
+        (row) => row.idAttachment,
+      );
+      expect(pool).toEqual(expect.arrayContaining([first, second]));
+    });
+
+    it("refuses a session on a story the caller does not own", async () => {
+      const { id } = await onStory("https://example.com/session-refused.jpg");
+      await expect(actions.sa_attachToHolder("STORY_SESSION", theirSession, [id])).rejects.toThrow(
+        "You do not have access to that story.",
+      );
+      expect(await usesOf(id)).toEqual([]);
+    });
+  });
+
   describe("an element's pictures for one scene", () => {
     // A story with a scene and an element linked to it, the test's own.
     const title = "Fixture — scene element pictures";

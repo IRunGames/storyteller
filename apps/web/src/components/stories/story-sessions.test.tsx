@@ -51,6 +51,9 @@ const sa_setLiveSceneSession = mock.fn(
   }),
 );
 
+// Counts the stand-in field's mounts, so a test can see it remount.
+let pictureLoads = 0;
+
 let StorySessions: typeof import("./story-sessions").StorySessions;
 
 describe("StorySessions", () => {
@@ -66,6 +69,43 @@ describe("StorySessions", () => {
     });
     mock.module("@/app/(app)/scenes/[id]/live/actions", {
       namedExports: { sa_setLiveSceneSession },
+    });
+    // The panel's cover pictures are the scene form's two pieces, each with
+    // a test file of its own; these stand-ins show which holder each was
+    // given, and let the picker report an attach.
+    mock.module("@/components/uploads/attachment-list-field", {
+      namedExports: {
+        AttachmentListField: ({
+          kind,
+          idExternal,
+          showAdd,
+        }: {
+          kind: string;
+          idExternal: number;
+          showAdd?: boolean;
+        }) => (
+          <p>
+            Pictures of {kind} {idExternal} (load {++pictureLoads}){showAdd ? ", adding" : ""}
+          </p>
+        ),
+      },
+    });
+    mock.module("@/components/uploads/story-attachment-picker", {
+      namedExports: {
+        StoryAttachmentPicker: ({
+          idStory,
+          holder,
+          onAttached,
+        }: {
+          idStory: number;
+          holder: { kind: string; idExternal: number };
+          onAttached?: (ids: number[]) => void;
+        }) => (
+          <button type="button" onClick={() => onAttached?.([99])}>
+            Pick from story {idStory} for {holder.kind} {holder.idExternal}
+          </button>
+        ),
+      },
     });
     ({ StorySessions } = await import("./story-sessions"));
   });
@@ -331,6 +371,40 @@ describe("StorySessions", () => {
       await waitFor(() => expect(sa_setLiveSceneSession.mock.callCount()).toBe(2));
       expect(sa_setLiveSceneSession.mock.calls[1].arguments).toEqual([7, 42, 1]);
       expect(await within(scenes).findByText("The abbey")).toBeInTheDocument();
+    });
+
+    it("offers the session's cover from an upload, a link or the story's pictures", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <StorySessions idStory={7} initial={rowsWith("OPEN")} canManage showTitles />,
+      );
+
+      const [first] = screen.getAllByRole("listitem");
+      await user.click(within(first).getByRole("button", { name: /^Edit / }));
+      expect(
+        await within(first).findByRole("heading", { name: "Cover image" }),
+      ).toBeInTheDocument();
+      const field = () => within(first).getByText(/^Pictures of STORY_SESSION 1 /);
+      // The link input and dropzone wait for the +; the story's pictures do not.
+      expect(field()).not.toHaveTextContent("adding");
+      const add = within(first).getByRole("button", { name: "Add a cover image" });
+      expect(add).toHaveAttribute("aria-expanded", "false");
+      await user.click(add);
+      expect(add).toHaveAttribute("aria-expanded", "true");
+      expect(field()).toHaveTextContent("adding");
+      await user.click(add);
+      expect(field()).not.toHaveTextContent("adding");
+
+      // What the picker attaches shows in the field, which loads again.
+      const before = within(first).getByText(/^Pictures of STORY_SESSION 1 /).textContent;
+      await user.click(
+        within(first).getByRole("button", { name: "Pick from story 7 for STORY_SESSION 1" }),
+      );
+      await waitFor(() =>
+        expect(within(first).getByText(/^Pictures of STORY_SESSION 1 /).textContent).not.toBe(
+          before,
+        ),
+      );
     });
 
     it("deletes a session once asked, and takes its row away", async () => {

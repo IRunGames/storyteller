@@ -66,6 +66,30 @@ export type StorySceneDetail = StoryScene & {
    * the status is theirs to move and the story's attachments theirs to add.
    */
   isStoryteller: boolean;
+  /**
+   * The elements linked to the scene, in the play space's order. The
+   * storyteller gets every one as written; a player gets only what the
+   * players' table shows (see SceneElementInfo).
+   */
+  elements: SceneElementInfo[];
+};
+
+/**
+ * One element in a scene's info panel, with its status in the scene
+ * (scene_elements). For a player it is cut to what the players' table
+ * shows: no INVISIBLE link at all, the name the link shows rather than the
+ * true one, and the description only while the link's show_info allows it.
+ * The cutting is the action's, so nothing held back reaches the browser.
+ */
+export type SceneElementInfo = {
+  idSceneElement: number;
+  kind: string;
+  /** The true name for the storyteller; the name the link shows for a player. */
+  label: string;
+  /** The title, when there is one and the label is not already it. */
+  detail: string | null;
+  description: string | null;
+  status: string;
 };
 
 /** One scene as a session's info panel lists it. */

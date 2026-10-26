@@ -599,7 +599,8 @@ export type AttachAsCoverResult = { ok: true; url: string } | { ok: false; error
 /**
  * A change to a scene element's pictures is told to the players' table,
  * whose pill shows the link's cover; a scene's pictures are the storyteller's
- * backdrop and library, which the players do not follow.
+ * backdrop and library, and a session's cover is read when its popover
+ * opens, so the players follow neither.
  */
 function tellPlayers(idStory: number, kind: AttachHolderKind, idExternal: number): void {
   if (kind === "SCENE_ELEMENT") {
@@ -610,8 +611,8 @@ function tellPlayers(idStory: number, kind: AttachHolderKind, idExternal: number
 /**
  * Gives a holder some of its story's pictures: the story attachment picker's
  * Add button and the arrow beside a story picture in the run page's
- * library. The holder is a scene, or an element's link to one (the element
- * panel's Other images). Each becomes a use of the holder's, so it joins
+ * library. The holder is a session (its edit panel's cover), a scene, or an
+ * element's link to one (the element panel's Other images). Each becomes a use of the holder's, so it joins
  * the holder's list; it stays the story's, in the story's list, since a
  * file is the story's whether or not a holder shows it.
  *

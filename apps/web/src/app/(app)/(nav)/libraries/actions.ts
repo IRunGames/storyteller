@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { elementOrderBy } from "@/db/element-order";
-import { currentScene } from "@/db/scene-items";
+import { currentScene, sceneItems, type SceneItemRow } from "@/db/scene-items";
 import { requireUser } from "@/lib/authorize";
 import {
   ELEMENT_KINDS,
@@ -23,10 +23,17 @@ import { sceneSchema, type SceneValues } from "@/lib/scene-schemas";
 import {
   SCENE_LOCKED_STATUS,
   SCENES_PAGE_SIZE,
+  type SceneElementInfo,
   type SceneSessionOption,
   type StoryScene,
   type StorySceneDetail,
 } from "@/lib/scenes";
+import {
+  DEFAULT_ELEMENT_SHOWING,
+  isElementShowing,
+  pillText,
+  SCENE_ELEMENT_HIDDEN,
+} from "@/lib/run";
 import { publishLater } from "@/lib/realtime/publish";
 import { publishElementChanged, publishSceneChanged } from "@/lib/realtime/publish-scene";
 import { sessionHeading } from "@/lib/stories";
@@ -342,7 +349,39 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
     idStory: row.idStory!,
     ...sessionOf(row),
     isStoryteller,
+    elements: (
+      await sceneItems(row.idStory!, row.idStoryScene!, isStoryteller ? [] : [SCENE_ELEMENT_HIDDEN])
+    ).map((item) => sceneElementInfo(item, isStoryteller)),
   };
+}
+
+/**
+ * An element of the scene as its info panel shows it (SceneElementInfo):
+ * as written for the storyteller, and as the players' table labels it for a
+ * player, the way toPlayItem does, with the description only while the
+ * link's show_info allows it.
+ */
+function sceneElementInfo(
+  { element, link }: SceneItemRow,
+  isStoryteller: boolean,
+): SceneElementInfo {
+  const base = { idSceneElement: link.idSceneElement, kind: element.kind, status: link.status };
+  if (isStoryteller) {
+    return {
+      ...base,
+      label: element.name,
+      detail: element.title || null,
+      description: element.description,
+    };
+  }
+  const showing = isElementShowing(link.elementShowing)
+    ? link.elementShowing
+    : DEFAULT_ELEMENT_SHOWING;
+  const { label, detail } = pillText(
+    { initial_name: element.initialName, name: element.name, title: element.title },
+    showing,
+  );
+  return { ...base, label, detail, description: link.showInfo ? element.description : null };
 }
 
 /**

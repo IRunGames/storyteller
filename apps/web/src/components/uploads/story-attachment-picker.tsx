@@ -22,7 +22,7 @@ import { sa_attachToHolder, sa_listAttachments, sa_searchAttachments } from "./a
 type Props = {
   /** The story whose own attachments are offered. */
   idStory: number;
-  /** What they are added to: a scene, or an element's link to one. */
+  /** What they are added to: a session, a scene, or an element's link to one. */
   holder: { kind: AttachHolderKind; idExternal: number };
   /** The ids now attached, once they are, so a list of the scene's can reload. */
   onAttached?: (ids: number[]) => void;
@@ -44,8 +44,8 @@ const pickable = (rows: Attachment[]) =>
 
 /**
  * A fold that offers a story's own attachments to one of its holders: a
- * scene, on the prep board, or an element's link to a scene, in the run
- * page's element panel. Closed to begin with unless `defaultOpen`, and
+ * session, in its edit panel, a scene, on the prep board, or an element's
+ * link to a scene, in the run page's element panel. Closed to begin with unless `defaultOpen`, and
  * nothing is fetched until it is first opened: most visits to a scene never
  * want it.
  *
