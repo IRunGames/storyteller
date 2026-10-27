@@ -1,10 +1,10 @@
 // Integration test against the real database. Skipped when DATABASE_URL is
-// unset so `just test` stays green offline. Relies on db/seeds/seed_stories.sql
-// having been applied: the seed user owns 14 stories.
+// unset so `just test` stays green offline. Reads a few seeded stories and
+// systems (db/seeds) but writes none of them.
 //
 // The seed alone cannot tell a working query from `return []`: story_players,
 // story_favorites and "looking for players" are all empty in it. So `before`
-// inserts a second user and three stories of its own — a story the seed user only
+// inserts a second user and three stories of its own — a story the test user only
 // PLAYS in, a story it merely favorites, and a flagged-but-inactive story — and
 // `after` deletes them again. Every fixture id is positive and left to the
 // database default, so it can never collide with the seed's negative ids.
@@ -15,17 +15,18 @@ import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { loadEnvConfig } from "@next/env";
 
 import { initialStatus, pausePair, terminalStatus } from "@/test/workflow";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
-// A story seeded as the seed user's own. Story -1 was the one the seeds
-// made for it until 2026-10-15, when it was renumbered off the seeds to go
-// to production; the cases that need a seeded story of theirs use this one.
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "stories-actions@example.test";
+let testUser = "";
+// A seeded story, only ever read here: the id fetches its own story.
 const SEEDED_STORY = -3;
 const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
@@ -44,11 +45,11 @@ type DbModule = typeof import("@/db");
 let db: DbModule["db"];
 let tables: DbModule["schema"];
 
-const TITLE_A = "Fixture A — other's story, seed user plays in it, LFP, active";
-const TITLE_B = "Fixture B — other's story, seed user only favorites it";
+const TITLE_A = "Fixture A — other's story, test user plays in it, LFP, active";
+const TITLE_B = "Fixture B — other's story, test user only favorites it";
 const TITLE_C = "Fixture C — other's story, LFP but inactive";
-const TITLE_D = "Fixture D — seed user's own story, inactive";
-const TITLE_E = "Fixture E — seed user's own story, archived, and favorited by them";
+const TITLE_D = "Fixture D — test user's own story, inactive";
+const TITLE_E = "Fixture E — test user's own story, archived, and favorited by them";
 
 let otherUserId = "";
 let storyA = 0;
@@ -64,6 +65,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     actions = await import("./actions");
 
     const workflow = await (
@@ -100,13 +102,13 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
           isLookingForPlayers: true,
           isActive: false,
         },
-        { title: TITLE_D, idCreatedByUser: SEED_USER, isActive: false },
+        { title: TITLE_D, idCreatedByUser: testUser, isActive: false },
         {
           title: TITLE_E,
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
           isActive: false,
           isArchived: true,
-          idArchivedByUser: SEED_USER,
+          idArchivedByUser: testUser,
         },
       ])
       .returning({ idStory: tables.stories.idStory, title: tables.stories.title });
@@ -123,17 +125,17 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     storyE = idFor(TITLE_E);
     fixtureStoryIds = [storyA, storyB, storyC, storyD, storyE];
 
-    // The seed user plays in A but does not own it: this is the only row that
+    // The test user plays in A but does not own it: this is the only row that
     // exercises the exists(plays-in) branch of sa_listMyStories.
-    await db.insert(tables.storyPlayers).values({ idStory: storyA, idUser: SEED_USER });
+    await db.insert(tables.storyPlayers).values({ idStory: storyA, idUser: testUser });
 
-    // The seed user favorites B; the OTHER user favorites A. A must never
-    // reach the seed user's favorites, which is what pins the idUser predicate.
-    // E is archived and favorited by the seed user, so it pins that an
+    // The test user favorites B; the OTHER user favorites A. A must never
+    // reach the test user's favorites, which is what pins the idUser predicate.
+    // E is archived and favorited by the test user, so it pins that an
     // archived story is off both sections of the Stories page.
     await db.insert(tables.storyFavorites).values([
-      { idStory: storyB, idUser: SEED_USER },
-      { idStory: storyE, idUser: SEED_USER },
+      { idStory: storyB, idUser: testUser },
+      { idStory: storyE, idUser: testUser },
       { idStory: storyA, idUser: otherUserId },
     ]);
 
@@ -224,21 +226,41 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
 
     // Otherwise the process lingers until the pool's idle timeout.
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 
-  it("lists the seed user's stories newest-updated first, ten at a time", async () => {
-    // Half the seed stories are inactive, so ask for all of them here.
-    const first = await actions.sa_listMyStories(0, true);
-    const second = await actions.sa_listMyStories(10, true);
+  it("lists the caller's stories newest-updated first, ten at a time", async () => {
+    // Eleven more of the test user's own, on top of D (inactive, so ask for
+    // all) and A, which it plays in: thirteen, so a second page.
+    const extra = await db
+      .insert(tables.stories)
+      .values(
+        Array.from({ length: 11 }, (_, i) => ({
+          title: `Fixture page filler ${i + 1}`,
+          idCreatedByUser: testUser,
+        })),
+      )
+      .returning({ idStory: tables.stories.idStory });
+    try {
+      const first = await actions.sa_listMyStories(0, true);
+      const second = await actions.sa_listMyStories(10, true);
 
-    expect(first).toHaveLength(10);
-    expect(second.length).toBeGreaterThanOrEqual(4);
-    expect(first.map((s) => s.idStory)).not.toContain(second[0].idStory);
-    expect(first[0]).toMatchObject({
-      title: expect.any(String),
-      lastPlayed: expect.any(Date),
-    });
+      expect(first).toHaveLength(10);
+      expect(second).toHaveLength(3);
+      expect(first.map((s) => s.idStory)).not.toContain(second[0].idStory);
+      expect(first[0]).toMatchObject({
+        title: expect.any(String),
+        lastPlayed: expect.any(Date),
+      });
+    } finally {
+      await db.delete(tables.stories).where(
+        inArray(
+          tables.stories.idStory,
+          extra.map((row) => row.idStory),
+        ),
+      );
+    }
   });
 
   it("includes a story the user only plays in, and not one they neither own nor play", async () => {
@@ -251,10 +273,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("counts who is waiting on a card, leaving out the viewer", async () => {
-    // Both waiting for story A: the viewer (the seed user) and one other.
+    // Both waiting for story A: the viewer (the test user) and one other.
     // Rows cascade away with the fixture stories in after().
     await db.insert(tables.sessionPlayers).values([
-      { idStory: storyA, idCreatedByUser: SEED_USER },
+      { idStory: storyA, idCreatedByUser: testUser },
       { idStory: storyA, idCreatedByUser: otherUserId },
     ]);
     try {
@@ -267,7 +289,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   it("joins the system onto each card", async () => {
     // Read straight from sa_getStory, which builds the same card as the
     // lists, rather than by paging My Stories for it: the suites that run
-    // alongside this one add and touch the seed user's stories, so which
+    // alongside this one add and touch the test user's stories, so which
     // page a seed story sits on can change between one page and the next.
     // -13 is The Devil's Spine in seeds/seed_stories.sql.
     const numenera = await actions.sa_getStory(-13);
@@ -316,15 +338,21 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("lists a story's players by display name, in the order they joined", async () => {
-    // Vampire (-15) seats PaulKhash and Pol in db/seeds/seed_story_players.sql,
-    // with one joined_at between them, so the name breaks the tie. Pol is the
-    // seed user, who has no nickname, so their name is used.
-    const players = await actions.sa_listStoryPlayers(-15);
-
-    expect(players).toEqual([
-      { idUser: expect.any(String), name: "PaulKhash", image: null },
-      { idUser: SEED_USER, name: "Pol", image: null },
+    // Both seated on D at one joined_at, so the name breaks the tie: the
+    // other user by their nickname, the test user, who has none, by name.
+    const joinedAt = new Date();
+    await db.insert(tables.storyPlayers).values([
+      { idStory: storyD, idUser: testUser, joinedAt },
+      { idStory: storyD, idUser: otherUserId, joinedAt },
     ]);
+    try {
+      expect(await actions.sa_listStoryPlayers(storyD)).toEqual([
+        { idUser: otherUserId, name: "Other", image: null },
+        { idUser: testUser, name: "Test User", image: null },
+      ]);
+    } finally {
+      await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, storyD));
+    }
   });
 
   it("returns no players for a story without any, or with an unusable id", async () => {
@@ -334,7 +362,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("finds players by name, nickname or email, ten at most, case blind", async () => {
-    // D is the seed user's own story, so they may search for players for it.
+    // D is the test user's own story, so they may search for players for it.
     const byNick = await actions.sa_searchPlayers(storyD, "HERMIONE");
     expect(byNick).toEqual([
       {
@@ -360,8 +388,8 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     expect(await actions.sa_searchPlayers(storyD, "")).toEqual([]);
     expect(await actions.sa_searchPlayers(storyD, "   ")).toEqual([]);
 
-    // The seed user is Pol, the storyteller of D: they cannot invite themselves.
-    expect(await actions.sa_searchPlayers(storyD, "Pol")).toEqual([]);
+    // The test user is the storyteller of D: they cannot invite themselves.
+    expect(await actions.sa_searchPlayers(storyD, TEST_USER_EMAIL)).toEqual([]);
 
     // PaulKhash already plays in Vampire (-15). D has nobody seated, so from
     // D they match; from Vampire they would not, but Vampire belongs to
@@ -407,7 +435,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("will not seat the storyteller, an unknown user, or more than ten at once", async () => {
-    expect(await actions.sa_addStoryPlayers(storyD, [SEED_USER])).toEqual([]);
+    expect(await actions.sa_addStoryPlayers(storyD, [testUser])).toEqual([]);
     expect(
       await actions.sa_addStoryPlayers(storyD, ["00000000-0000-7000-8000-0000000000ff"]),
     ).toEqual([]);
@@ -493,7 +521,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     // PRESENT at the session. They go with the session when the story's
     // fixtures are cleared (ON DELETE CASCADE).
     await db.insert(tables.sessionPlayers).values(
-      [otherUserId, SEED_USER].map((idUser) => ({
+      [otherUserId, testUser].map((idUser) => ({
         idStory: storyA,
         idStorySession: openSessionId,
         status: "PRESENT",
@@ -539,7 +567,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         notes: null,
         lingeringQuestions: null,
       });
-      expect(detail?.players.map((p) => p.idUser).sort()).toEqual([otherUserId, SEED_USER].sort());
+      expect(detail?.players.map((p) => p.idUser).sort()).toEqual([otherUserId, testUser].sort());
       expect(detail?.players.find((p) => p.idUser === otherUserId)?.name).toBe("Other");
 
       // The five past sessions were opened after it, in one statement, so the
@@ -595,7 +623,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("hands the storyteller their story's values for the edit form, and nobody else", async () => {
-    // D is the seed user's own story; A is the other user's, though the seed
+    // D is the test user's own story; A is the other user's, though the seed
     // user plays in it, which is what pins the check to the creator.
     expect(await actions.sa_getStoryForEdit(storyD)).toEqual({
       title: TITLE_D,
@@ -628,9 +656,9 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .select({ idUpdatedByUser: tables.stories.idUpdatedByUser })
       .from(tables.stories)
       .where(eq(tables.stories.idStory, storyD));
-    expect(row.idUpdatedByUser).toBe(SEED_USER);
+    expect(row.idUpdatedByUser).toBe(testUser);
 
-    // A is the other user's; the seed user plays in it, which is exactly
+    // A is the other user's; the test user plays in it, which is exactly
     // what must not be enough.
     await expect(actions.sa_updateStory(storyA, values)).rejects.toThrow(
       "Only the storyteller who created a story can edit it",
@@ -672,7 +700,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       isLookingForPlayers: false,
       isArchived: true,
       archivedAt: expect.any(Date),
-      idArchivedByUser: SEED_USER,
+      idArchivedByUser: testUser,
     });
 
     // Unarchiving posts the boxes as the form left them, inactive here so
@@ -720,11 +748,21 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       ...(await actions.sa_listMyStories(0, true)),
       ...(await actions.sa_listMyStories(10, true)),
     ];
-    // Vampire seats two in db/seeds/seed_story_players.sql; the seed user is
-    // fixture A's only player. Story -1 is the owner's real story, whose
-    // players change with play, so it is not counted here.
-    expect(all.find((s) => s.idStory === -15)?.playerCount).toBe(2);
+    // The test user is fixture A's only player.
     expect(all.find((s) => s.idStory === storyA)?.playerCount).toBe(1);
+
+    // A second seat on A is counted.
+    await db.insert(tables.storyPlayers).values({ idStory: storyA, idUser: otherUserId });
+    try {
+      const again = await actions.sa_listMyStories(0, true);
+      expect(again.find((s) => s.idStory === storyA)?.playerCount).toBe(2);
+    } finally {
+      await db
+        .delete(tables.storyPlayers)
+        .where(
+          and(eq(tables.storyPlayers.idStory, storyA), eq(tables.storyPlayers.idUser, otherUserId)),
+        );
+    }
   });
 
   it("hides the caller's inactive stories unless asked to show them", async () => {
@@ -760,15 +798,15 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("marks each card with whether the caller owns it", async () => {
-    const mine = [...(await actions.sa_listMyStories(0)), ...(await actions.sa_listMyStories(10))];
-    expect(mine.find((s) => s.idStory === SEEDED_STORY)?.isOwner).toBe(true); // seed user created it
+    const mine = await actions.sa_listMyStories(0, true);
+    expect(mine.find((s) => s.idStory === storyD)?.isOwner).toBe(true); // created it
     expect(mine.find((s) => s.idStory === storyA)?.isOwner).toBe(false); // only plays in it
   });
 
   it("names each card's storyteller, preferring their nickname", async () => {
-    const mine = [...(await actions.sa_listMyStories(0)), ...(await actions.sa_listMyStories(10))];
+    const mine = await actions.sa_listMyStories(0, true);
     expect(mine.find((s) => s.idStory === storyA)?.storytellerName).toBe("Other"); // nickname set
-    expect(mine.find((s) => s.idStory === SEEDED_STORY)?.storytellerName).toBe("Pol"); // seed user has none
+    expect(mine.find((s) => s.idStory === storyD)?.storytellerName).toBe("Test User"); // none
 
     // The favorites list builds its joins separately, so it is checked too.
     const favorites = await actions.sa_listFavoriteStories(0);
@@ -800,7 +838,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("gives the storyteller the sitting's scenes, in the order they were played", async () => {
-    // On storyD, which the seed user owns: scenes are the storyteller's, and
+    // On storyD, which the test user owns: scenes are the storyteller's, and
     // the caller is only the storyteller of their own stories.
     const [session] = await db
       .insert(tables.storySessions)
@@ -832,7 +870,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .where(eq(tables.storyScenes.idStoryScene, idOf("Scene written first")));
 
     const detail = await actions.sa_getStorySession(session.id);
-    // The seed user's own story, so the session's pill is theirs to move.
+    // The test user's own story, so the session's pill is theirs to move.
     expect(detail?.isStoryteller).toBe(true);
     expect(detail?.scenes.map((scene) => scene.title)).toEqual([
       "Scene written second",
@@ -864,7 +902,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .values({ idStory: storyA, idStorySession: openSessionId, sceneTitle: "Hidden scene" })
       .returning({ id: tables.storyScenes.idStoryScene });
 
-    // storyA belongs to the other user, so the seed user reading this session
+    // storyA belongs to the other user, so the test user reading this session
     // is a visitor: the scenes are prep, like the notes, and stay behind.
     const detail = await actions.sa_getStorySession(openSessionId);
     expect(detail?.notes).toBeNull();
@@ -876,7 +914,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("takes a player off a story and their favorite of it with them", async () => {
-    // storyD is the seed user's own, so they are its storyteller. Seat the
+    // storyD is the test user's own, so they are its storyteller. Seat the
     // other user on it and let them favorite it.
     await db.insert(tables.storyPlayers).values({ idStory: storyD, idUser: otherUserId });
     await db.insert(tables.storyFavorites).values({ idStory: storyD, idUser: otherUserId });
@@ -908,10 +946,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     // favorite of a different story by the one being removed.
     await db.insert(tables.storyPlayers).values([
       { idStory: storyD, idUser: otherUserId },
-      { idStory: storyD, idUser: SEED_USER },
+      { idStory: storyD, idUser: testUser },
     ]);
     await db.insert(tables.storyFavorites).values([
-      { idStory: storyD, idUser: SEED_USER },
+      { idStory: storyD, idUser: testUser },
       { idStory: storyE, idUser: otherUserId },
     ]);
 
@@ -925,10 +963,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .where(
         and(
           eq(tables.storyPlayers.idStory, storyD),
-          inArray(tables.storyPlayers.idUser, [otherUserId, SEED_USER]),
+          inArray(tables.storyPlayers.idUser, [otherUserId, testUser]),
         ),
       );
-    expect(seats).toEqual([{ idUser: SEED_USER }]);
+    expect(seats).toEqual([{ idUser: testUser }]);
     // The other player's favorite of this story, and the removed player's
     // favorite of another, both survive; only the removed player's favorite
     // of this story goes. Asked row by row, because the fixtures in `before`
@@ -945,7 +983,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
             ),
           )
       ).length;
-    expect(await favorite(storyD, SEED_USER)).toBe(1);
+    expect(await favorite(storyD, testUser)).toBe(1);
     expect(await favorite(storyE, otherUserId)).toBe(1);
     expect(await favorite(storyD, otherUserId)).toBe(0);
 
@@ -954,10 +992,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .where(
         and(
           eq(tables.storyPlayers.idStory, storyD),
-          inArray(tables.storyPlayers.idUser, [otherUserId, SEED_USER]),
+          inArray(tables.storyPlayers.idUser, [otherUserId, testUser]),
         ),
       );
-    // Only the two this case added: storyE is favorited by the seed user in
+    // Only the two this case added: storyE is favorited by the test user in
     // `before`, and other cases rely on that.
     await db
       .delete(tables.storyFavorites)
@@ -965,7 +1003,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         or(
           and(
             eq(tables.storyFavorites.idStory, storyD),
-            eq(tables.storyFavorites.idUser, SEED_USER),
+            eq(tables.storyFavorites.idUser, testUser),
           ),
           and(
             eq(tables.storyFavorites.idStory, storyE),
@@ -976,7 +1014,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("lets a player leave a story, taking their favorite of it, and only theirs", async () => {
-    // A story of its own: the shared fixtures seat and favorite the seed user
+    // A story of its own: the shared fixtures seat and favorite the test user
     // on stories that other cases count on.
     const [story] = await db
       .insert(tables.stories)
@@ -984,11 +1022,11 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .returning({ id: tables.stories.idStory });
     try {
       await db.insert(tables.storyPlayers).values([
-        { idStory: story.id, idUser: SEED_USER },
+        { idStory: story.id, idUser: testUser },
         { idStory: story.id, idUser: otherUserId },
       ]);
       await db.insert(tables.storyFavorites).values([
-        { idStory: story.id, idUser: SEED_USER },
+        { idStory: story.id, idUser: testUser },
         { idStory: story.id, idUser: otherUserId },
       ]);
 
@@ -1018,7 +1056,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("will not let anyone leave a story they have no seat at, their own included", async () => {
-    // storyD is the seed user's own: the storyteller has no seat to leave.
+    // storyD is the test user's own: the storyteller has no seat to leave.
     expect(await actions.sa_leaveStory(storyD)).toEqual({
       ok: false,
       error: "You are not a player of this story.",
@@ -1043,7 +1081,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
 
       const joined = await actions.sa_joinStory(story.id);
       // The seat as the list shows it, so the page can add it at once.
-      expect(joined).toMatchObject({ ok: true, player: { idUser: SEED_USER } });
+      expect(joined).toMatchObject({ ok: true, player: { idUser: testUser } });
 
       // Already seated: refused, and no second seat.
       expect(await actions.sa_joinStory(story.id)).toEqual({
@@ -1054,7 +1092,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         .select({ idUser: tables.storyPlayers.idUser })
         .from(tables.storyPlayers)
         .where(eq(tables.storyPlayers.idStory, story.id));
-      expect(seats).toEqual([{ idUser: SEED_USER }]);
+      expect(seats).toEqual([{ idUser: testUser }]);
     } finally {
       await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, story.id));
       await db.delete(tables.stories).where(eq(tables.stories.idStory, story.id));
@@ -1072,7 +1110,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
           isActive: false,
           idCreatedByUser: otherUserId,
         },
-        { title: "Fixture own and looking", isLookingForPlayers: true, idCreatedByUser: SEED_USER },
+        { title: "Fixture own and looking", isLookingForPlayers: true, idCreatedByUser: testUser },
       ])
       .returning({ id: tables.stories.idStory });
     const ids = stories.map((story) => story.id);
@@ -1098,11 +1136,11 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("refuses a story the caller did not create, and the storyteller themselves", async () => {
-    // storyA belongs to the other user, and the seed user only plays in it.
-    await expect(actions.sa_removeStoryPlayer(storyA, SEED_USER)).rejects.toThrow();
+    // storyA belongs to the other user, and the test user only plays in it.
+    await expect(actions.sa_removeStoryPlayer(storyA, testUser)).rejects.toThrow();
 
     // The storyteller has no story_players row to take away.
-    const refusal = await actions.sa_removeStoryPlayer(storyD, SEED_USER);
+    const refusal = await actions.sa_removeStoryPlayer(storyD, testUser);
     expect(refusal.ok).toBe(false);
 
     // And an id that is not a user at all.
@@ -1126,8 +1164,8 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         ].map((values) => ({
           idStory: storyD,
           status: "READY",
-          idCreatedByUser: SEED_USER,
-          idUpdatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
+          idUpdatedByUser: testUser,
           ...values,
         })),
       )
@@ -1141,8 +1179,8 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         kind: "STORY",
         idExternal: storyD,
         tags: ["cover"],
-        idCreatedByUser: SEED_USER,
-        idUpdatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
+        idUpdatedByUser: testUser,
       });
     await useOf(coverId);
 
@@ -1162,8 +1200,8 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
           idStory: storyD,
           status: "ERROR",
           url: "https://x.test/failed.jpg",
-          idCreatedByUser: SEED_USER,
-          idUpdatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
+          idUpdatedByUser: testUser,
         })
         .returning({ id: tables.attachments.idAttachment });
       ids.push(failed.id);
@@ -1200,7 +1238,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         })
         .from(tables.stories)
         .where(eq(tables.stories.title, title));
-      expect(created.idCreatedByUser).toBe(SEED_USER);
+      expect(created.idCreatedByUser).toBe(testUser);
       expect((thrown as { digest?: string }).digest).toContain(`;/stories/${created.idStory};`);
     } finally {
       // By title rather than by an id captured mid-test, so a failure before

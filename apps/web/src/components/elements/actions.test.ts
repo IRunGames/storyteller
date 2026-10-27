@@ -1,19 +1,22 @@
 // Integration test against the real database, skipped when DATABASE_URL is
 // unset so `just test` stays green offline. `before` makes a story a second
-// user tells and the seed user plays in, with one element linked to seven
+// user tells and the test user plays in, with one element linked to seven
 // scenes played at different times, one of the links hidden, and a
 // stranger's story with a scene of its own.
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "components-elements-actions@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
-let caller = SEED_USER;
+let caller = "";
 const getSession = mock.fn(async () => ({ user: { id: caller } }));
 
 let actions: typeof import("./actions");
@@ -33,6 +36,8 @@ describe("element history actions", { skip: !hasDb && "DATABASE_URL is not set" 
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    caller = testUser;
     actions = await import("./actions");
 
     await db
@@ -51,7 +56,7 @@ describe("element history actions", { skip: !hasDb && "DATABASE_URL is not set" 
         { title: "Element history fixture — strangers", idCreatedByUser: tellerId },
       ])
       .returning({ id: tables.stories.idStory });
-    await db.insert(tables.storyPlayers).values({ idStory: playsIn, idUser: SEED_USER });
+    await db.insert(tables.storyPlayers).values({ idStory: playsIn, idUser: testUser });
 
     const [session] = await db
       .insert(tables.storySessions)
@@ -100,7 +105,7 @@ describe("element history actions", { skip: !hasDb && "DATABASE_URL is not set" 
   });
 
   beforeEach(() => {
-    caller = SEED_USER;
+    caller = testUser;
   });
 
   after(async () => {
@@ -112,6 +117,7 @@ describe("element history actions", { skip: !hasDb && "DATABASE_URL is not set" 
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, [playsIn, strangers]));
     }
     if (tellerId) await db.delete(tables.user).where(eq(tables.user.id, tellerId));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 

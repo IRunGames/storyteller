@@ -9,10 +9,13 @@ import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 
 import type { StoryEvent } from "./events";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "lib-realtime-publish-scene@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
 const publishStoryEvent = mock.fn(async (_idStory: number, _event: StoryEvent) => {});
@@ -35,18 +38,19 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
     mock.module("./publish", { namedExports: { publishStoryEvent, publishLater: () => {} } });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     helpers = await import("./publish-scene");
 
     [{ id: story }] = await db
       .insert(tables.stories)
-      .values({ title: "Publish scene fixture", idCreatedByUser: SEED_USER })
+      .values({ title: "Publish scene fixture", idCreatedByUser: testUser })
       .returning({ id: tables.stories.idStory });
 
     [{ id: docks }, { id: abbey }] = await db
       .insert(tables.storyScenes)
       .values([
-        { idStory: story, sceneTitle: "Fixture docks", idCreatedByUser: SEED_USER },
-        { idStory: story, sceneTitle: "Fixture abbey", idCreatedByUser: SEED_USER },
+        { idStory: story, sceneTitle: "Fixture docks", idCreatedByUser: testUser },
+        { idStory: story, sceneTitle: "Fixture abbey", idCreatedByUser: testUser },
       ])
       .returning({ id: tables.storyScenes.idStoryScene });
 
@@ -58,15 +62,15 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
           kind: "PERSON",
           name: "Fixture Zed",
           notes: "The villain",
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
         },
-        { idStory: story, kind: "THING", name: "Fixture Lantern", idCreatedByUser: SEED_USER },
+        { idStory: story, kind: "THING", name: "Fixture Lantern", idCreatedByUser: testUser },
       ])
       .returning({ id: tables.elements.idElement });
 
     await db.insert(tables.sceneElements).values([
-      { idStoryScene: docks, idElement: zed, tags: ["scene"], idCreatedByUser: SEED_USER },
-      { idStoryScene: abbey, idElement: lantern, idCreatedByUser: SEED_USER },
+      { idStoryScene: docks, idElement: zed, tags: ["scene"], idCreatedByUser: testUser },
+      { idStoryScene: abbey, idElement: lantern, idCreatedByUser: testUser },
     ]);
   });
 
@@ -82,13 +86,14 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   after(async () => {
     if (!db) return;
     if (story) await db.delete(tables.stories).where(eq(tables.stories.idStory, story));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 
   async function play(idStoryScene: number | null, status = "OPEN") {
     const [session] = await db
       .insert(tables.storySessions)
-      .values({ idStory: story, status, idStoryScene, idCreatedByUser: SEED_USER })
+      .values({ idStory: story, status, idStoryScene, idCreatedByUser: testUser })
       .returning({ id: tables.storySessions.idStorySession });
     await db
       .update(tables.stories)

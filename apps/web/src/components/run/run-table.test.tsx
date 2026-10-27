@@ -353,9 +353,10 @@ describe("RunTable", () => {
       namedExports: {
         sa_getStoryChannel,
         sa_getPlayScene: mock.fn(),
-        sa_listChats: mock.fn(async () => ({ chats: [], hasPrevious: false })),
+        sa_listChats: mock.fn(async () => ({ chats: [], hasPrevious: false, atTable: 0 })),
         sa_postChat: mock.fn(),
         sa_editChat: mock.fn(),
+        sa_deleteChat: mock.fn(),
       },
     });
     mock.module("mqtt", { defaultExport: { connect } });
@@ -548,6 +549,7 @@ describe("RunTable", () => {
               createdAt: "2026-10-26T20:05:00.000Z",
               color: null,
               picture: null,
+              roll: null,
             },
           }),
         ),

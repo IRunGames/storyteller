@@ -1,5 +1,6 @@
 import { and, eq, gt, isNull, sql, type SQLWrapper } from "drizzle-orm";
 
+import { db } from "./index";
 import { sessionPlayers, stories } from "./schema";
 import { WAITING_STALE_SECONDS } from "@/lib/play";
 
@@ -42,7 +43,9 @@ export function waitingCount(idStory: SQLWrapper, excludeUserId?: string) {
  * a stories row. Zero between sessions, when the pointer is null and so
  * matches nothing. PRESENT has no heartbeat to go stale on yet, so a player
  * who closed the table without leaving is still counted until something
- * moves them on.
+ * moves them on. Whatever does move a player into or out of PRESENT must
+ * also publish the table's new count (publishTableCount), as sa_joinSession
+ * does, or the table chat's header falls behind.
  */
 export function presentCount() {
   return sql<number>`(
@@ -52,4 +55,21 @@ export function presentCount() {
       eq(sessionPlayers.status, "PRESENT"),
     )}
   )`.mapWith(Number);
+}
+
+/**
+ * How many are at a story's table, as the table chat's header shows it: the
+ * players present (presentCount) and the storyteller. Zero while no session
+ * is being played, since there is no table to be at.
+ */
+export async function atTableCount(idStory: number): Promise<number> {
+  const [row] = await db
+    .select({
+      present: presentCount(),
+      playing: sql<boolean>`${stories.idStorySession} is not null`,
+    })
+    .from(stories)
+    .where(eq(stories.idStory, idStory))
+    .limit(1);
+  return row?.playing ? row.present + 1 : 0;
 }

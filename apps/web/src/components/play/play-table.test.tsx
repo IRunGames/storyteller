@@ -64,6 +64,7 @@ const sa_untapPlaySceneElement = mock.fn(
 const sa_listChats = mock.fn(async (_idStory: number, _before?: number) => ({
   chats: [] as PublicChat[],
   hasPrevious: false,
+  atTable: 3,
 }));
 const sa_setPlayElementNotes = mock.fn(
   async (_story: number, _element: number, notes: string): Promise<SetElementNotesResult> => ({
@@ -171,7 +172,7 @@ const storySessions: StorySession[] = [
 const OPEN = { "play.showChat": true, "play.showCharacter": true };
 
 function renderTable(
-  preferences: Record<string, boolean> = {},
+  preferences: Record<string, boolean | string> = {},
   session: string | null = "3. Kildealg",
   who: CurrentUser = user,
   initialScene: PlayScene = scene,
@@ -252,6 +253,7 @@ describe("PlayTable", () => {
           },
         })),
         sa_editChat: mock.fn(),
+        sa_deleteChat: mock.fn(),
       },
     });
     mock.module("mqtt", { defaultExport: { connect } });
@@ -492,6 +494,7 @@ describe("PlayTable", () => {
         createdAt: "2026-10-26T20:05:00.000Z",
         color: null,
         picture: null,
+        roll: null,
       },
     });
 
@@ -516,6 +519,58 @@ describe("PlayTable", () => {
     expect(within(chat).getByText("Line 1")).toBeInTheDocument();
     expect(within(chat).getAllByText("Line 2")).toHaveLength(1);
     expect(within(banner).getByRole("button", { name: "Chat" })).toBeInTheDocument();
+  });
+
+  it("draws the chat as an overlay: a box in the corner, and each new line over the table", async () => {
+    const u = userEvent.setup();
+    renderTable({ "play.showChat": true });
+    await connected();
+    await waitFor(() => expect(sa_listChats.mock.callCount()).toBeGreaterThan(0));
+
+    // The panel's picker moves the chat out of the panel and remembers it.
+    const panel = screen.getByRole("region", { name: "Table Chat" });
+    await u.click(within(panel).getByRole("button", { name: "Overlay chat" }));
+    expect(sa_setUserPreference.mock.calls[0].arguments[0]).toEqual({
+      key: "chat.layout",
+      value: "overlay",
+    });
+    expect(screen.queryByRole("heading", { name: "Table Chat" })).not.toBeInTheDocument();
+    const box = screen.getByRole("region", { name: "Table Chat" });
+    expect(within(box).getByRole("textbox", { name: "Message" })).toBeInTheDocument();
+    expect(within(box).getByRole("button", { name: "Overlay chat" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await act(async () => {
+      client.emit(
+        "message",
+        "story/7/chat",
+        new TextEncoder().encode(
+          JSON.stringify({
+            v: 1,
+            at: "2026-10-26T20:05:00.000Z",
+            idStory: 7,
+            type: "chat.posted",
+            chat: {
+              idChat: 41,
+              idStoryScene: 3,
+              idUser: "someone-else",
+              from: "Harry",
+              text: "Over the table.",
+              isSystem: false,
+              isEdited: false,
+              createdAt: "2026-10-26T20:05:00.000Z",
+              color: null,
+              picture: null,
+              roll: null,
+            },
+          }),
+        ),
+      );
+    });
+    expect(await screen.findByText("Over the table.")).toBeInTheDocument();
+    expect(within(box).queryByText("Over the table.")).not.toBeInTheDocument();
   });
 
   it("adds, changes and removes elements as messages arrive", async () => {
@@ -850,6 +905,9 @@ describe("PlayTable", () => {
     const pill = screen.getByText("A hooded figure").closest("[data-scene-status]") as HTMLElement;
     await u.click(within(pill).getByRole("button", { name: "About A hooded figure" }));
     const popover = await screen.findByRole("dialog", { name: "A hooded figure" });
+    // The popover takes focus a moment after it opens; typing before then
+    // loses what is typed to it.
+    await waitFor(() => expect(popover).toHaveFocus());
     const notes = within(popover).getByRole("textbox", { name: "Notes" });
     expect(notes).toHaveValue("");
     // Nothing to save until the notes differ from what is held.
@@ -888,6 +946,9 @@ describe("PlayTable", () => {
     const pill = screen.getByText("A hooded figure").closest("[data-scene-status]") as HTMLElement;
     await u.click(within(pill).getByRole("button", { name: "About A hooded figure" }));
     const popover = await screen.findByRole("dialog", { name: "A hooded figure" });
+    // The popover takes focus a moment after it opens; typing before then
+    // loses what is typed to it.
+    await waitFor(() => expect(popover).toHaveFocus());
     const notes = within(popover).getByRole("textbox", { name: "Notes" });
     await u.type(notes, "Too long, in principle.");
     await u.click(within(popover).getByRole("button", { name: "Save notes" }));
@@ -1152,27 +1213,24 @@ describe("PlayTable", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a sample conversation until the first message, then only real ones", async () => {
+  it("shows no lines until the first message, and counts who is at the table", async () => {
     const person = userEvent.setup();
     renderTable(OPEN);
     const chat = screen.getByRole("region", { name: "Table Chat" });
-    expect(within(chat).getByText("Sample conversation")).toBeInTheDocument();
-    expect(within(chat).getByText("4 online")).toBeInTheDocument();
-    expect(
-      within(chat).getByLabelText("Rolled 2d6 for Spot the box: 10, success"),
-    ).toBeInTheDocument();
+    expect(within(chat).queryByRole("article")).not.toBeInTheDocument();
+    expect(await within(chat).findByText("3 at the table")).toBeInTheDocument();
 
     await person.type(within(chat).getByRole("textbox", { name: "Message" }), "Hello{Enter}");
 
     expect(await within(chat).findByText("Hello")).toBeInTheDocument();
-    expect(within(chat).queryByText("Sample conversation")).not.toBeInTheDocument();
     expect(within(chat).getByText("Paul Stafford")).toBeInTheDocument();
     expect(within(chat).getAllByRole("article")).toHaveLength(1);
   });
 
-  it("offers Roll as coming soon", () => {
+  it("offers Send in place of Roll", () => {
     renderTable(OPEN);
-    expect(screen.getByRole("button", { name: "Roll" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Roll" })).not.toBeInTheDocument();
   });
 
   it("names the story in the header, after the app's name", () => {

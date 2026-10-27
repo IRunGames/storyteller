@@ -1,21 +1,24 @@
 // Integration test against the real database, skipped when DATABASE_URL is
 // unset so `just test` stays green offline. `before` inserts a second user and
-// the stories each branch needs: one the second user tells and the seed user
-// plays in, one the seed user owns but switched off, one they own but
+// the stories each branch needs: one the second user tells and the test user
+// plays in, one the test user owns but switched off, one they own but
 // archived, and a stranger's. Fixture ids are positive and left to the
 // database default, so they never collide with the seed's negative ids.
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "play-id-actions@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
 // Who the actions think is asking; each test that changes it sets it back.
-let caller = SEED_USER;
+let caller = "";
 const getSession = mock.fn(async () => ({ user: { id: caller } }));
 // Writing a scene up tells every table it changed, and notes on an element
 // send the element again; mocked so the tests see them reached for, and so
@@ -29,7 +32,17 @@ const publishSceneElement = mock.fn(
 // The chat's lines go out over the broker after the action answers; run
 // at once here, and caught, so the tests see what was sent.
 const publishChat = mock.fn(async (_idStory: number, _chat: unknown, _type?: string) => {});
+const publishChatDeleted = mock.fn(async (_idStory: number, _idChat: number) => {});
+const publishTableCount = mock.fn(async (_idStory: number, _atTable: number) => {});
 const publishLater = (work: () => Promise<void>) => void work();
+
+// publishLater runs its work at once but does not wait on it, and the head
+// count reads the database before publishing, so a test waits for the call.
+async function waitForCall(fn: { mock: { callCount(): number } }, count = 1) {
+  for (let i = 0; i < 50 && fn.mock.callCount() < count; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 let actions: typeof import("./actions");
 
@@ -51,8 +64,12 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     mock.module("@/lib/realtime/publish-scene", {
       namedExports: { publishSceneChanged, publishElementChanged, publishSceneElement },
     });
-    mock.module("@/lib/realtime/publish", { namedExports: { publishChat, publishLater } });
+    mock.module("@/lib/realtime/publish", {
+      namedExports: { publishChat, publishChatDeleted, publishLater, publishTableCount },
+    });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    caller = testUser;
     actions = await import("./actions");
 
     // A rerun after a crash would trip the unique email.
@@ -81,8 +98,8 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       .insert(tables.stories)
       .values([
         { title: "Play table fixture — plays in", idCreatedByUser: otherUserId },
-        { title: "Play table fixture — inactive", idCreatedByUser: SEED_USER, isActive: false },
-        { title: "Play table fixture — archived", idCreatedByUser: SEED_USER, isArchived: true },
+        { title: "Play table fixture — inactive", idCreatedByUser: testUser, isActive: false },
+        { title: "Play table fixture — archived", idCreatedByUser: testUser, isArchived: true },
         { title: "Play table fixture — stranger", idCreatedByUser: otherUserId },
       ])
       .returning({ idStory: tables.stories.idStory });
@@ -90,13 +107,13 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     fixtureStoryIds = inserted.map((row) => row.idStory);
 
     await db.insert(tables.storyPlayers).values([
-      { idStory: playsIn, idUser: SEED_USER },
+      { idStory: playsIn, idUser: testUser },
       { idStory: playsIn, idUser: secondPlayerId },
     ]);
   });
 
   beforeEach(async () => {
-    caller = SEED_USER;
+    caller = testUser;
     // Deleting the sessions clears the story's pointer (ON DELETE SET NULL)
     // and their session_players rows (CASCADE); waiting rows have no
     // session, so they go by story.
@@ -118,6 +135,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     }
     if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
     if (secondPlayerId) await db.delete(tables.user).where(eq(tables.user.id, secondPlayerId));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 
@@ -133,7 +151,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     return session.id;
   }
 
-  // The seed user's rows at the played-in story, oldest first.
+  // The test user's rows at the played-in story, oldest first.
   async function myRows() {
     return db
       .select({
@@ -145,7 +163,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       .where(
         and(
           eq(tables.sessionPlayers.idStory, playsIn),
-          eq(tables.sessionPlayers.idCreatedByUser, SEED_USER),
+          eq(tables.sessionPlayers.idCreatedByUser, testUser),
         ),
       )
       .orderBy(tables.sessionPlayers.idSessionPlayer);
@@ -257,7 +275,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect((await actions.sa_waitForSession(playsIn))?.waitingCount).toBe(1);
       expect((await myRows())[0].status).toBe("WAITING");
 
-      caller = SEED_USER;
+      caller = testUser;
       const back = await actions.sa_waitForSession(playsIn);
       expect(Date.now() - back!.waitingSince.getTime()).toBeLessThan(60_000);
       expect(back!.waitingCount).toBe(2);
@@ -300,6 +318,21 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
   });
 
   describe("sa_joinSession", () => {
+    it("tells every table how many are now at it: the players seated and the storyteller", async () => {
+      publishTableCount.mock.resetCalls();
+      await openSession(playsIn, "OPEN");
+
+      await actions.sa_joinSession(playsIn);
+      await waitForCall(publishTableCount);
+      expect(publishTableCount.mock.calls[0].arguments).toEqual([playsIn, 2]);
+      expect((await actions.sa_listChats(playsIn)).atTable).toBe(2);
+
+      caller = secondPlayerId;
+      await actions.sa_joinSession(playsIn);
+      await waitForCall(publishTableCount, 2);
+      expect(publishTableCount.mock.calls[1].arguments).toEqual([playsIn, 3]);
+    });
+
     it("attaches the waiting row to the open session as PRESENT", async () => {
       await actions.sa_waitForSession(playsIn);
       const idSession = await openSession(playsIn, "OPEN");
@@ -439,7 +472,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
             .where(eq(tables.storyScenes.idStoryScene, docks))
         )[0];
 
-      // The seed user plays in the story.
+      // The test user plays in the story.
       expect(
         await actions.sa_setPlaySceneText(playsIn, docks, {
           description: " Fog on the water. ",
@@ -527,7 +560,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         expect(log.length).toBeGreaterThan(before);
         expect(log[log.length - 1]).toMatchObject({
           activityCategory: "untap_log",
-          userId: SEED_USER,
+          userId: testUser,
           activityData: { previousStatus: "TAPPED", status: "READY" },
         });
         expect(typeof log[log.length - 1].activityData.userName).toBe("string");
@@ -544,7 +577,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         expect(said).toMatchObject({
           idStoryScene: docks,
           isSystem: true,
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
         });
         expect(said.chatText).toMatch(/ untapped Play fixture Zed$/);
 
@@ -633,7 +666,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         expect(log).toHaveLength(before + 1);
         expect(log[before]).toMatchObject({
           activityCategory: "notes_change_log",
-          userId: SEED_USER,
+          userId: testUser,
           activityData: { previousNotes: "The villain", notes: "Owes the harbourmaster." },
         });
         expect(typeof log[before].activityData.userName).toBe("string");
@@ -684,7 +717,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
           notes: "Drowned, 1842",
         });
       } finally {
-        caller = SEED_USER;
+        caller = testUser;
         await db
           .update(tables.elements)
           .set({ notes: "The villain" })
@@ -781,7 +814,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
           ok: true,
           chat: {
             idStoryScene: docks,
-            idUser: SEED_USER,
+            idUser: testUser,
             text: "Fog again.",
             isSystem: false,
             isEdited: false,
@@ -842,7 +875,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         await db.insert(tables.chats).values({
           idStory: playsIn,
           chatText: "Long ago",
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
           createdAt: new Date("2020-01-01T00:00:00Z"),
         });
 
@@ -857,7 +890,11 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         await actions.sa_postChat(playsIn, "Between scenes");
         expect(await texts()).toEqual(["Between scenes"]);
 
-        expect(await actions.sa_listChats(stranger)).toEqual({ chats: [], hasPrevious: false });
+        expect(await actions.sa_listChats(stranger)).toEqual({
+          chats: [],
+          hasPrevious: false,
+          atTable: 0,
+        });
       });
 
       it("opens on the last hundred lines and pages back through the rest", async () => {
@@ -869,7 +906,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
             idStory: playsIn,
             idStoryScene: docks,
             chatText: `Line ${i}`,
-            idCreatedByUser: SEED_USER,
+            idCreatedByUser: testUser,
             createdAt: new Date(start + i * 1000),
           })),
         );
@@ -896,6 +933,82 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         expect(third.hasPrevious).toBe(false);
       });
 
+      it("rolls on the server, saying the total and what it was for, with the dice", async () => {
+        await onScene(docks);
+        const result = await actions.sa_postChat(playsIn, "/roll 2d4+2 for initiative");
+        if (!result.ok) throw new Error(result.error);
+        const { roll } = result.chat;
+        expect(roll).toMatchObject({ notation: "2d4+2", label: "for initiative" });
+        expect(roll!.dice).toHaveLength(2);
+        const sum = roll!.dice.reduce((total, die) => total + die.value, 0);
+        expect(roll!.total).toBe(sum + 2);
+        expect(result.chat.text).toBe(`${roll!.total} for initiative`);
+        expect(publishChat.mock.calls[0].arguments).toEqual([playsIn, result.chat]);
+
+        // Read back from the row, as the chat opens on it.
+        const [held] = (await actions.sa_listChats(playsIn)).chats;
+        expect(held).toEqual(result.chat);
+
+        // A roll is what was rolled: not even its sender rewrites it.
+        expect(await actions.sa_editChat(playsIn, result.chat.idChat, "20 for initiative")).toEqual(
+          { ok: false, error: "That is not a line of yours." },
+        );
+      });
+
+      it("refuses a command there is not, or a roll that cannot be made, saving nothing", async () => {
+        await onScene(docks);
+        expect(await actions.sa_postChat(playsIn, "/shout Hello")).toEqual({
+          ok: false,
+          error: "There is no /shout. Try /roll 2d6+1 for initiative.",
+        });
+        expect(await actions.sa_postChat(playsIn, "/roll banana")).toEqual({
+          ok: false,
+          error: "Start with the dice: /roll 2d6+1 for initiative.",
+        });
+        expect(await actions.sa_postChat(playsIn, "/roll 2d6kq ")).toEqual({
+          ok: false,
+          error: "That is not a roll I can read. Try /roll 2d6+1.",
+        });
+        expect(await actions.sa_postChat(playsIn, "/roll 500d6")).toEqual({
+          ok: false,
+          error: "Keep a roll to 100 dice of up to 1000 sides each.",
+        });
+        expect(
+          await db.select().from(tables.chats).where(eq(tables.chats.idStory, playsIn)),
+        ).toEqual([]);
+        expect(publishChat.mock.callCount()).toBe(0);
+      });
+
+      it("lets the sender alone take back a line of theirs, and tells every table", async () => {
+        await onScene(docks);
+        const said = await actions.sa_postChat(playsIn, "Oops");
+        const rolled = await actions.sa_postChat(playsIn, "/roll 1d6 damage");
+        if (!said.ok || !rolled.ok) throw new Error("not said");
+        publishChatDeleted.mock.resetCalls();
+        const notYours = { ok: false, error: "That is not a line of yours." };
+
+        caller = secondPlayerId;
+        expect(await actions.sa_deleteChat(playsIn, said.chat.idChat)).toEqual(notYours);
+        caller = testUser;
+        // A roll stands: its dice are what was rolled.
+        expect(await actions.sa_deleteChat(playsIn, rolled.chat.idChat)).toEqual(notYours);
+        expect(await actions.sa_deleteChat(stranger, said.chat.idChat)).toEqual({
+          ok: false,
+          error: "You are not at this story's table.",
+        });
+        expect(publishChatDeleted.mock.callCount()).toBe(0);
+
+        expect(await actions.sa_deleteChat(playsIn, said.chat.idChat)).toEqual({
+          ok: true,
+          idChat: said.chat.idChat,
+        });
+        expect(publishChatDeleted.mock.calls[0].arguments).toEqual([playsIn, said.chat.idChat]);
+        const texts = (await actions.sa_listChats(playsIn)).chats.map((chat) => chat.text);
+        expect(texts).toEqual([rolled.chat.text]);
+        // Gone is gone: a second try finds nothing of theirs.
+        expect(await actions.sa_deleteChat(playsIn, said.chat.idChat)).toEqual(notYours);
+      });
+
       it("lets the sender alone rewrite a line of theirs, marking it edited", async () => {
         await onScene(docks);
         const said = await actions.sa_postChat(playsIn, "Fog");
@@ -917,14 +1030,14 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         const notYours = { ok: false, error: "That is not a line of yours." };
         caller = secondPlayerId;
         expect(await actions.sa_editChat(playsIn, id, "Mine now")).toEqual(notYours);
-        caller = SEED_USER;
+        caller = testUser;
         const [system] = await db
           .insert(tables.chats)
           .values({
             idStory: playsIn,
             chatText: "Entering Play fixture docks",
             isSystem: true,
-            idCreatedByUser: SEED_USER,
+            idCreatedByUser: testUser,
           })
           .returning({ id: tables.chats.idChat });
         expect(await actions.sa_editChat(playsIn, system.id, "Leaving")).toEqual(notYours);

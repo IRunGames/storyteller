@@ -14,6 +14,7 @@ const chat: PublicChat = {
   createdAt: "2026-10-26T20:05:00.000Z",
   color: null,
   picture: null,
+  roll: null,
 };
 
 const posted: ChatEvent = {
@@ -31,9 +32,44 @@ describe("parseChatEvent", () => {
     expect(parseChatEvent(edited)).toEqual(edited);
   });
 
+  it("takes a line that carries a roll", () => {
+    const rolled = {
+      ...posted,
+      chat: {
+        ...chat,
+        text: "6 for initiative",
+        roll: {
+          notation: "2d4+2",
+          label: "initiative",
+          total: 6,
+          dice: [
+            { value: 3, dropped: false },
+            { value: 1, dropped: false },
+          ],
+          detail: "2d4+2: [3, 1]+2 = 6",
+        },
+      },
+    };
+    expect(parseChatEvent(rolled)).toEqual(rolled);
+    expect(parseChatEvent({ ...rolled, chat: { ...rolled.chat, roll: { total: 6 } } })).toBeNull();
+  });
+
+  it("takes a line taken back, by its id", () => {
+    const deleted: ChatEvent = { v: 1, at: posted.at, idStory: 7, type: "chat.deleted", idChat: 4 };
+    expect(parseChatEvent(deleted)).toEqual(deleted);
+    expect(chatEventTitle(deleted)).toBe("chat.deleted · 4");
+  });
+
+  it("takes how many are at the table", () => {
+    const count: ChatEvent = { v: 1, at: posted.at, idStory: 7, type: "table.count", atTable: 3 };
+    expect(parseChatEvent(count)).toEqual(count);
+    expect(chatEventTitle(count)).toBe("table.count · 3");
+    expect(parseChatEvent({ ...count, atTable: "3" })).toBeNull();
+  });
+
   it("turns away anything that is not one of ours", () => {
     expect(parseChatEvent("hello")).toBeNull();
-    expect(parseChatEvent({ ...posted, type: "chat.deleted" })).toBeNull();
+    expect(parseChatEvent({ ...posted, type: "chat.burned" })).toBeNull();
     expect(parseChatEvent({ ...posted, chat: { ...chat, idChat: "4" } })).toBeNull();
   });
 });

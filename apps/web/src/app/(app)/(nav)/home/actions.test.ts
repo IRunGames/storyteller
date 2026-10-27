@@ -7,18 +7,21 @@
 // and `after` deletes them again (their news_reads rows go with them, by
 // cascade). Fixture ids are positive, from the identity column, so they can
 // never collide with the seed's negative ones. Nothing here ever marks a seed
-// item read for the seed user: that would hide it on the real home page.
+// item read for the test user: that would hide it on the real home page.
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "home-actions@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
@@ -42,6 +45,7 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     actions = await import("./actions");
 
     const now = Date.now();
@@ -64,7 +68,12 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
           startsAt: new Date(now - 2 * DAY),
           expiresAt: new Date(now - DAY),
         },
-        { title: TITLE_ARCHIVED, body: "archived", startsAt: new Date(now - HOUR), isArchived: true },
+        {
+          title: TITLE_ARCHIVED,
+          body: "archived",
+          startsAt: new Date(now - HOUR),
+          isArchived: true,
+        },
       ])
       .returning({ idNews: tables.news.idNews, title: tables.news.title });
     fixtureIds = inserted.map((row) => row.idNews);
@@ -79,7 +88,9 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
 
   after(async () => {
     if (!db) return;
-    if (fixtureIds.length) await db.delete(tables.news).where(inArray(tables.news.idNews, fixtureIds));
+    if (fixtureIds.length)
+      await db.delete(tables.news).where(inArray(tables.news.idNews, fixtureIds));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 
@@ -94,7 +105,7 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     expect(titles).not.toContain(TITLE_ARCHIVED);
 
     // The live fixture is the most recent start of all, so it leads. The seed
-    // items are not asserted on: the seed user is also the developer's
+    // items are not asserted on: the test user is also the developer's
     // account, and opening the home page marks them read for real.
     expect(titles[0]).toBe(TITLE_LIVE);
     const starts = items.map((item) => item.startsAt.getTime());
@@ -107,7 +118,7 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   });
 
   it("leaves out an item the caller has read, even though it is live", async () => {
-    await db.insert(tables.newsReads).values({ idNews: liveId, idUser: SEED_USER });
+    await db.insert(tables.newsReads).values({ idNews: liveId, idUser: testUser });
 
     const titles = (await actions.sa_listNews()).map((item) => item.title);
     expect(titles).not.toContain(TITLE_LIVE);
@@ -128,7 +139,7 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       .select({ idUser: tables.newsReads.idUser, by: tables.newsReads.idCreatedByUser })
       .from(tables.newsReads)
       .where(eq(tables.newsReads.idNews, unreadId));
-    expect(rows).toEqual([{ idUser: SEED_USER, by: SEED_USER }]);
+    expect(rows).toEqual([{ idUser: testUser, by: testUser }]);
   });
 
   it("refuses an id outside the int4 range", async () => {

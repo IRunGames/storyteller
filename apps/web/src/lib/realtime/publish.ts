@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { storyChatTopic, storyStateTopic } from "./topics";
 import type { StoryEvent } from "./events";
-import type { ChatEvent, ChatEventType, PublicChat } from "./chat-events";
+import type { ChatEvent, ChatLineEventType, PublicChat } from "./chat-events";
 
 // Publishing to EMQX from the server. The broker's REST API is used rather
 // than an MQTT client: a server action runs in a function that may be gone a
@@ -80,9 +80,39 @@ export async function publishStoryEvent(idStory: number, event: StoryEvent): Pro
 export async function publishChat(
   idStory: number,
   chat: PublicChat,
-  type: ChatEventType = "chat.posted",
+  type: ChatLineEventType = "chat.posted",
 ): Promise<void> {
   const event: ChatEvent = { v: 1, at: new Date().toISOString(), idStory, type, chat };
+  await publishOnTopic(storyChatTopic(idStory), event);
+}
+
+/**
+ * Publishes that a line was taken back (chat.deleted), so every table drops
+ * it; see publishOnTopic.
+ */
+export async function publishChatDeleted(idStory: number, idChat: number): Promise<void> {
+  const event: ChatEvent = {
+    v: 1,
+    at: new Date().toISOString(),
+    idStory,
+    type: "chat.deleted",
+    idChat,
+  };
+  await publishOnTopic(storyChatTopic(idStory), event);
+}
+
+/**
+ * Publishes how many are at the story's table on its chat topic
+ * (table.count), for the chat's header; see publishOnTopic.
+ */
+export async function publishTableCount(idStory: number, atTable: number): Promise<void> {
+  const event: ChatEvent = {
+    v: 1,
+    at: new Date().toISOString(),
+    idStory,
+    type: "table.count",
+    atTable,
+  };
   await publishOnTopic(storyChatTopic(idStory), event);
 }
 

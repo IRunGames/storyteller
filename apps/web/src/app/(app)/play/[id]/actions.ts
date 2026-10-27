@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { hasOpenSession } from "@/db/open-session";
-import { waitingCount } from "@/db/session-player-counts";
+import { atTableCount, waitingCount } from "@/db/session-player-counts";
 import { currentScene, sceneItems } from "@/db/scene-items";
 import { chatById, insertChat, listChats, type ChatPage } from "@/db/chats";
 import { requireUser } from "@/lib/authorize";
@@ -16,7 +16,12 @@ import {
   type WaitingRoomState,
 } from "@/lib/play";
 import { EMPTY_PLAY_SCENE, type PlayScene } from "@/lib/play-scene";
-import { publishChat, publishLater } from "@/lib/realtime/publish";
+import {
+  publishChat,
+  publishChatDeleted,
+  publishLater,
+  publishTableCount,
+} from "@/lib/realtime/publish";
 import {
   publishElementChanged,
   publishSceneChanged,
@@ -29,6 +34,9 @@ import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
 import { storyChatTopic, storyStateTopic } from "@/lib/realtime/topics";
 import type { PublicChat } from "@/lib/realtime/chat-events";
 import { chatTextSchema } from "@/lib/chat-schemas";
+import { parseChatCommand } from "@/lib/chat-commands";
+import { rollDice } from "@/lib/dice";
+import { rollText } from "@/lib/roll";
 import { SCENE_ELEMENT_HIDDEN, SCENE_ELEMENT_SHOWN, SCENE_ELEMENT_TAPPED } from "@/lib/run";
 
 const { stories, storyPlayers, sessionPlayers, storyScenes, elements, sceneElements, chats } =
@@ -276,6 +284,8 @@ export async function sa_joinSession(idStory: number): Promise<void> {
       })
       .onConflictDoNothing();
   });
+  // A player sat down, so every table's chat header counts them.
+  publishLater(async () => publishTableCount(story.idStory, await atTableCount(story.idStory)));
 }
 
 /**
@@ -631,7 +641,10 @@ export async function sa_getStoryChannel(idStory: number): Promise<StoryChannel 
   };
 }
 
-const EMPTY_CHAT_PAGE: ChatPage = { chats: [], hasPrevious: false };
+/** A page of the chat, and how many are at the table: the players seated and the storyteller. */
+export type ChatLoad = ChatPage & { atTable: number };
+
+const EMPTY_CHAT_PAGE: ChatLoad = { chats: [], hasPrevious: false, atTable: 0 };
 
 /**
  * The table chat as it opens: the last CHAT_PAGE_SIZE lines of the scene
@@ -641,7 +654,7 @@ const EMPTY_CHAT_PAGE: ChatPage = { chats: [], hasPrevious: false };
  * and nothing while no session is being played, since the chat is the
  * table's and there is no table.
  */
-export async function sa_listChats(idStory: number, before?: number): Promise<ChatPage> {
+export async function sa_listChats(idStory: number, before?: number): Promise<ChatLoad> {
   const user = await requireUser();
   const story = await loadPlayStory(user.id, idStory);
   if (!story) return EMPTY_CHAT_PAGE;
@@ -650,7 +663,11 @@ export async function sa_listChats(idStory: number, before?: number): Promise<Ch
 
   const current = await currentScene(story.idStory);
   if (current === null) return EMPTY_CHAT_PAGE;
-  return listChats(story.idStory, current, cursor?.data);
+  const [page, atTable] = await Promise.all([
+    listChats(story.idStory, current, cursor?.data),
+    atTableCount(story.idStory),
+  ]);
+  return { ...page, atTable };
 }
 
 export type ChatResult = { ok: true; chat: PublicChat } | { ok: false; error: string };
@@ -663,6 +680,12 @@ const NOT_YOUR_LINE = "That is not a line of yours.";
  * players, saved against the scene the session is on (taken here, not from
  * the client) and sent to every table, the sender's own included. Refused
  * for anyone else, and while no session is being played.
+ *
+ * A line starting with "/" is a command (lib/chat-commands.ts), never said
+ * as it was typed: /roll rolls here, on the server, so nobody can send a
+ * result of their own, and the line says the total and what it was for
+ * ("6 for initiative") with the dice beside it. A command there is not, or
+ * a roll that cannot be made, is refused and nothing is saved.
  */
 export async function sa_postChat(idStory: number, text: unknown): Promise<ChatResult> {
   const user = await requireUser();
@@ -672,15 +695,21 @@ export async function sa_postChat(idStory: number, text: unknown): Promise<ChatR
   const parsed = chatTextSchema.safeParse(text);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message };
 
+  const command = parseChatCommand(parsed.data);
+  if (command && !command.ok) return { ok: false, error: command.error };
+  const rolled = command ? rollDice(command.notation, command.label) : null;
+  if (rolled && !rolled.ok) return { ok: false, error: rolled.error };
+
   const current = await currentScene(story.idStory);
   if (current === null) return { ok: false, error: NO_SESSION };
 
   const chat = await insertChat({
     idStory: story.idStory,
     idStoryScene: current.idStoryScene,
-    text: parsed.data,
+    text: rolled ? rollText(rolled.roll) : parsed.data,
     isSystem: false,
     userId: user.id,
+    roll: rolled?.roll,
   });
   publishLater(() => publishChat(story.idStory, chat));
   return { ok: true, chat };
@@ -689,7 +718,8 @@ export async function sa_postChat(idStory: number, text: unknown): Promise<ChatR
 /**
  * A line the caller said, put right in place: the text replaced and the
  * line marked edited, then sent to every table again. Only the sender's own
- * lines, and never one the table put there itself. No session is needed,
+ * lines, and never one the table put there itself or a roll, whose dice
+ * are what was rolled. No session is needed,
  * so a line can still be corrected once the scene has moved on. Text that
  * comes back the same is no edit, and the line is answered as it stands.
  */
@@ -712,6 +742,7 @@ export async function sa_editChat(
     eq(chats.idStory, story.idStory),
     eq(chats.idCreatedByUser, user.id),
     eq(chats.isSystem, false),
+    isNull(chats.roll),
   );
   const [held] = await db.select({ text: chats.chatText }).from(chats).where(mine).limit(1);
   if (!held) return { ok: false, error: NOT_YOUR_LINE };
@@ -728,4 +759,37 @@ export async function sa_editChat(
     publishLater(() => publishChat(story.idStory, chat, "chat.edited"));
   }
   return { ok: true, chat };
+}
+
+export type DeleteChatResult = { ok: true; idChat: number } | { ok: false; error: string };
+
+/**
+ * A line the caller said, taken back: the row is deleted and every table is
+ * told to drop it. The same lines sa_editChat may rewrite, and no others:
+ * the sender's own, never one the table put there itself, and never a roll,
+ * whose dice are what was rolled. No session is needed, as for an edit.
+ */
+export async function sa_deleteChat(idStory: number, idChat: number): Promise<DeleteChatResult> {
+  const user = await requireUser();
+  const story = await loadPlayStory(user.id, idStory);
+  if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
+  const id = idStorySchema.safeParse(idChat);
+  if (!id.success) return { ok: false, error: NOT_YOUR_LINE };
+
+  const deleted = await db
+    .delete(chats)
+    .where(
+      and(
+        eq(chats.idChat, id.data),
+        eq(chats.idStory, story.idStory),
+        eq(chats.idCreatedByUser, user.id),
+        eq(chats.isSystem, false),
+        isNull(chats.roll),
+      ),
+    )
+    .returning({ idChat: chats.idChat });
+  if (deleted.length === 0) return { ok: false, error: NOT_YOUR_LINE };
+
+  publishLater(() => publishChatDeleted(story.idStory, id.data));
+  return { ok: true, idChat: id.data };
 }

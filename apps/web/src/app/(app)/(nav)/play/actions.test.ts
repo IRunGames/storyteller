@@ -10,13 +10,16 @@ import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 import { PAGE_SIZE } from "@/lib/stories";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "play-actions@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
@@ -24,10 +27,10 @@ type DbModule = typeof import("@/db");
 let db: DbModule["db"];
 let tables: DbModule["schema"];
 
-const TITLE_PLAYS_IN = "Play fixture — other's story, seed user plays in it";
-const TITLE_OWNS = "Play fixture — seed user's own active story";
-const TITLE_OWNS_INACTIVE = "Play fixture — seed user's own retired story";
-const TITLE_STRANGER = "Play fixture — other's story, seed user not involved";
+const TITLE_PLAYS_IN = "Play fixture — other's story, test user plays in it";
+const TITLE_OWNS = "Play fixture — test user's own active story";
+const TITLE_OWNS_INACTIVE = "Play fixture — test user's own retired story";
+const TITLE_STRANGER = "Play fixture — other's story, test user not involved";
 
 let otherUserId = "";
 let playsIn = 0;
@@ -41,6 +44,7 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     actions = await import("./actions");
 
     const [otherUser] = await db
@@ -60,10 +64,10 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
           idCreatedByUser: otherUserId,
           isActive: true,
         },
-        { title: TITLE_OWNS, idCreatedByUser: SEED_USER, isActive: true },
+        { title: TITLE_OWNS, idCreatedByUser: testUser, isActive: true },
         {
           title: TITLE_OWNS_INACTIVE,
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
           isActive: false,
         },
         {
@@ -97,7 +101,7 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       .values(
         Array.from({ length: PAGE_SIZE }, (_, i) => ({
           title: `Play fixture — filler ${i + 1}`,
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
           isActive: true,
         })),
       )
@@ -105,9 +109,7 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     fillerIds = fillers.map((row) => row.idStory);
     fixtureStoryIds = [playsIn, owns, ownsInactive, stranger, ...fillerIds];
 
-    await db
-      .insert(tables.storyPlayers)
-      .values({ idStory: playsIn, idUser: SEED_USER });
+    await db.insert(tables.storyPlayers).values({ idStory: playsIn, idUser: testUser });
   });
 
   after(async () => {
@@ -116,12 +118,10 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       await db
         .delete(tables.storyPlayers)
         .where(inArray(tables.storyPlayers.idStory, fixtureStoryIds));
-      await db
-        .delete(tables.stories)
-        .where(inArray(tables.stories.idStory, fixtureStoryIds));
+      await db.delete(tables.stories).where(inArray(tables.stories.idStory, fixtureStoryIds));
     }
-    if (otherUserId)
-      await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
+    if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 
@@ -157,12 +157,9 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     });
     expect(stories.find((s) => s.idStory === owns)?.isOwner).toBe(true);
     expect(stories.find((s) => s.idStory === playsIn)?.isOwner).toBe(false);
-    // Relative order only: the stories suite runs alongside this one and
-    // inserts fixtures of its own, so nothing here can claim the top slot.
     // Both fixtures were inserted in one statement and share updated_at, so
-    // the later id leads; both come before every seed story, all negative.
+    // the later id leads.
     expect(ids.indexOf(owns)).toBeLessThan(ids.indexOf(playsIn));
-    expect(ids.indexOf(playsIn)).toBeLessThan(ids.findIndex((id) => id < 0));
   });
 
   describe("sessions", () => {
@@ -178,7 +175,7 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     async function addSession(idStory: number, status: string) {
       const [row] = await db
         .insert(tables.storySessions)
-        .values({ idStory, idCreatedByUser: SEED_USER })
+        .values({ idStory, idCreatedByUser: testUser })
         .returning({ id: tables.storySessions.idStorySession });
       // Each status is reached through the workflow, so walk it there.
       if (status !== "OPEN") {
@@ -234,7 +231,9 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     });
 
     it("lists nothing for a story the caller only plays in", async () => {
-      await db.insert(tables.storySessions).values({ idStory: playsIn, idCreatedByUser: otherUserId });
+      await db
+        .insert(tables.storySessions)
+        .values({ idStory: playsIn, idCreatedByUser: otherUserId });
       expect(await actions.sa_listUnfinishedSessions(playsIn)).toEqual([]);
     });
 

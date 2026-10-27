@@ -5,8 +5,7 @@ import { useUser } from "@/components/auth/user-provider";
 import { toaster } from "@/components/ui/toaster";
 import { mergeChatEntries, toChatEntry, type ChatEntry } from "@/lib/chat";
 import type { ChatEvent, PublicChat } from "@/lib/realtime/chat-events";
-import type { ChatPage } from "@/db/chats";
-import { sa_listChats } from "@/app/(app)/play/[id]/actions";
+import { sa_listChats, type ChatLoad } from "@/app/(app)/play/[id]/actions";
 
 /** The table chat as a table holds it; what the chat panel draws and the Chat toggle counts. */
 export type StoryChat = {
@@ -23,8 +22,14 @@ export type StoryChat = {
   refresh: () => Promise<void>;
   /** A line as an action answered with it: said, or edited. */
   merge: (chat: PublicChat) => void;
+  /** Drops a line its sender took back. */
+  remove: (idChat: number) => void;
   /** Lines said by others since the panel was last open. */
   unread: number;
+  /** How many are at the table: the players seated and the storyteller; 0 with no session. */
+  atTable: number;
+  /** Whether the first page has come in, so a line held after it is one said since. */
+  loaded: boolean;
 };
 
 /**
@@ -40,6 +45,13 @@ export type StoryChat = {
  * `isOpen` is whether the panel is showing: while it is not, each new line
  * said by someone else counts toward `unread`, which goes back to nothing
  * as the panel opens.
+ *
+ * A line taken back (chat.deleted, or the viewer's own delete) is dropped
+ * and remembered, so a copy of it still on its way, from a load that began
+ * before the delete, does not bring it back.
+ *
+ * It also holds how many are at the table, which comes with every load and
+ * on the chat topic whenever someone sits down (table.count).
  */
 export function useStoryChat(idStory: number, isOpen: boolean): StoryChat {
   const user = useUser();
@@ -47,10 +59,14 @@ export function useStoryChat(idStory: number, isOpen: boolean): StoryChat {
   const [hasPrevious, setHasPrevious] = useState(false);
   const [loadingPrevious, setLoadingPrevious] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [atTable, setAtTable] = useState(0);
+  const [loaded, setLoaded] = useState(false);
   // Every line held, by id, kept as each merge happens rather than after the
   // render it causes, so two copies of one line arriving together are known
   // for one line and counted once.
   const known = useRef(new Set<number>());
+  // Every line taken back, so a late copy of one is not merged in again.
+  const removed = useRef(new Set<number>());
 
   // A new story under the same table starts its chat afresh. Set during
   // render, the way React asks for state that follows a prop, as
@@ -61,6 +77,8 @@ export function useStoryChat(idStory: number, isOpen: boolean): StoryChat {
     setEntries([]);
     setHasPrevious(false);
     setUnread(0);
+    setAtTable(0);
+    setLoaded(false);
   }
   // Opening the panel reads what came in, the same way.
   if (isOpen && unread !== 0) setUnread(0);
@@ -75,22 +93,31 @@ export function useStoryChat(idStory: number, isOpen: boolean): StoryChat {
     isOpenRef.current = isOpen;
   });
   // Whether the first page has said if there are older lines.
-  const loaded = useRef(false);
+  const firstPage = useRef(false);
 
-  const mergeAll = useCallback((chats: PublicChat[]) => {
+  const mergeAll = useCallback((incoming: PublicChat[]) => {
+    const chats = incoming.filter((chat) => !removed.current.has(chat.idChat));
     for (const chat of chats) known.current.add(chat.idChat);
     setEntries((current) => mergeChatEntries(current, chats.map(toChatEntry)));
   }, []);
 
+  const remove = useCallback((idChat: number) => {
+    removed.current.add(idChat);
+    setEntries((current) => current.filter((entry) => entry.idChat !== idChat));
+  }, []);
+
   // The latest page merged in; only the first page says whether there are
   // older lines, since a later load of the latest page says nothing about
-  // lines before those already held.
+  // lines before those already held. Every load says how many are at the
+  // table.
   const takeLatest = useCallback(
-    (page: ChatPage) => {
+    (page: ChatLoad) => {
       mergeAll(page.chats);
-      if (!loaded.current) {
-        loaded.current = true;
+      setAtTable(page.atTable);
+      if (!firstPage.current) {
+        firstPage.current = true;
         setHasPrevious(page.hasPrevious);
+        setLoaded(true);
       }
     },
     [mergeAll],
@@ -110,7 +137,8 @@ export function useStoryChat(idStory: number, isOpen: boolean): StoryChat {
   // for a story the table has since left is dropped.
   useEffect(() => {
     known.current = new Set();
-    loaded.current = false;
+    removed.current = new Set();
+    firstPage.current = false;
     let cancelled = false;
     sa_listChats(idStory)
       .then((page) => {
@@ -127,25 +155,34 @@ export function useStoryChat(idStory: number, isOpen: boolean): StoryChat {
   const receive = useCallback(
     (event: ChatEvent) => {
       if (event.idStory !== idStory) return;
+      if (event.type === "table.count") {
+        setAtTable(event.atTable);
+        return;
+      }
+      if (event.type === "chat.deleted") {
+        remove(event.idChat);
+        return;
+      }
       const isNew = event.type === "chat.posted" && !known.current.has(event.chat.idChat);
       if (isNew && !isOpenRef.current && event.chat.idUser !== user.id) {
         setUnread((count) => count + 1);
       }
       mergeAll([event.chat]);
     },
-    [idStory, mergeAll, user.id],
+    [idStory, mergeAll, remove, user.id],
   );
 
   const merge = useCallback((chat: PublicChat) => mergeAll([chat]), [mergeAll]);
 
   const loadPrevious = useCallback(async () => {
-    const oldest = entriesRef.current.find((entry) => entry.idChat !== null);
-    if (!oldest?.idChat) return;
+    const oldest = entriesRef.current[0];
+    if (!oldest) return;
     setLoadingPrevious(true);
     try {
       const page = await sa_listChats(idStory, oldest.idChat);
       mergeAll(page.chats);
       setHasPrevious(page.hasPrevious);
+      setAtTable(page.atTable);
     } catch {
       toaster.create({ title: "Earlier lines could not be loaded. Try again.", type: "error" });
     } finally {
@@ -153,5 +190,17 @@ export function useStoryChat(idStory: number, isOpen: boolean): StoryChat {
     }
   }, [idStory, mergeAll]);
 
-  return { entries, hasPrevious, loadingPrevious, loadPrevious, receive, refresh, merge, unread };
+  return {
+    entries,
+    hasPrevious,
+    loadingPrevious,
+    loadPrevious,
+    receive,
+    refresh,
+    merge,
+    remove,
+    unread,
+    atTable,
+    loaded,
+  };
 }

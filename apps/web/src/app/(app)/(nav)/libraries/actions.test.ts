@@ -3,7 +3,7 @@
 // story's scenes, the search over story_scenes.search_text, and the count
 // beside the column's heading.
 //
-// `before` makes its own story and scenes for the seed user, plus a story
+// `before` makes its own story and scenes for the test user, plus a story
 // belonging to someone else, and `after` deletes them. Fixture ids are
 // positive and left to the database, so they cannot collide with the seed's
 // negative ones. No status is written here by name: the scenes take the
@@ -15,13 +15,16 @@ import { loadEnvConfig } from "@next/env";
 
 import { SCENE_LOCKED_STATUS, SCENES_PAGE_SIZE } from "@/lib/scenes";
 import { transitionsFrom } from "@/lib/status";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "libraries-actions@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
@@ -29,7 +32,7 @@ type DbModule = typeof import("@/db");
 let db: DbModule["db"];
 let tables: DbModule["schema"];
 
-const MINE = "Fixture library — the seed user's own story";
+const MINE = "Fixture library — the test user's own story";
 const THEIRS = "Fixture library — somebody else's story";
 
 let otherUserId = "";
@@ -54,6 +57,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     actions = await import("./actions");
 
     const [otherUser] = await db
@@ -69,7 +73,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     const stories = await db
       .insert(tables.stories)
       .values([
-        { title: MINE, idCreatedByUser: SEED_USER },
+        { title: MINE, idCreatedByUser: testUser },
         { title: THEIRS, idCreatedByUser: otherUserId },
       ])
       .returning({ id: tables.stories.idStory, title: tables.stories.title });
@@ -87,7 +91,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
           sceneTitle: `Fixture scene ${index + 1}`,
           sceneDescription:
             index === 0 ? "A brass orrery on the table." : `Nothing of note, ${index + 1}.`,
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
         })),
       )
       .returning({ id: tables.storyScenes.idStoryScene });
@@ -104,20 +108,20 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     // other user's story. Only the place carries the word "lantern", and only
     // in its notes, which the card never shows.
     await db.insert(tables.elements).values([
-      { idStory: myStory, kind: "PERSON", name: "Fixture Zara", idCreatedByUser: SEED_USER },
+      { idStory: myStory, kind: "PERSON", name: "Fixture Zara", idCreatedByUser: testUser },
       {
         idStory: myStory,
         kind: "PERSON",
         name: "Fixture Aldric",
         title: "Magistrate",
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       },
       {
         idStory: myStory,
         kind: "PLACE",
         name: "Fixture vault",
         notes: "A lantern hangs by the door.",
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       },
       { idStory: theirStory, kind: "PERSON", name: "Fixture theirs", idCreatedByUser: otherUserId },
     ]);
@@ -131,6 +135,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       .where(inArray(tables.storyScenes.idStory, [myStory, theirStory]));
     await db.delete(tables.stories).where(inArray(tables.stories.idStory, [myStory, theirStory]));
     await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 
@@ -364,7 +369,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       .select({ id: tables.storyScenes.idStoryScene })
       .from(tables.storyScenes)
       .where(eq(tables.storyScenes.idStory, theirStory));
-    await db.insert(tables.storyPlayers).values({ idStory: theirStory, idUser: SEED_USER });
+    await db.insert(tables.storyPlayers).values({ idStory: theirStory, idUser: testUser });
 
     try {
       expect(await actions.sa_getStoryScene(theirs.id)).toMatchObject({
@@ -450,7 +455,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     }
 
     it("gives the storyteller every element in the scene, by kind, as written", async () => {
-      const made = await linkThree(myStory, SEED_USER);
+      const made = await linkThree(myStory, testUser);
       try {
         const detail = await actions.sa_getStoryScene(made.idScene);
         expect(detail?.elements).toEqual([
@@ -483,7 +488,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
 
     it("gives a player only what the table shows them", async () => {
       const made = await linkThree(theirStory, otherUserId);
-      await db.insert(tables.storyPlayers).values({ idStory: theirStory, idUser: SEED_USER });
+      await db.insert(tables.storyPlayers).values({ idStory: theirStory, idUser: testUser });
       try {
         const detail = await actions.sa_getStoryScene(made.idScene);
         // No hidden element, the name the table shows rather than the true
@@ -687,7 +692,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
   it("times a scene by its stretches in play, and gives it a length once finished", async () => {
     const [scene] = await db
       .insert(tables.storyScenes)
-      .values({ idStory: myStory, sceneTitle: "Fixture timed scene", idCreatedByUser: SEED_USER })
+      .values({ idStory: myStory, sceneTitle: "Fixture timed scene", idCreatedByUser: testUser })
       .returning({ id: tables.storyScenes.idStoryScene });
     const byId = eq(tables.storyScenes.idStoryScene, scene.id);
     // Each stretch is backdated after the move into ACTIVE, because the
@@ -737,7 +742,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       const rows = await db
         .insert(tables.storySessions)
         .values([
-          { idStory: myStory, title: "Fixture sitting", idCreatedByUser: SEED_USER },
+          { idStory: myStory, title: "Fixture sitting", idCreatedByUser: testUser },
           { idStory: theirStory, idCreatedByUser: otherUserId },
         ])
         .returning({
@@ -776,7 +781,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         title: TITLE,
         description: null,
         idStorySession: mySession,
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       });
     });
 
@@ -912,7 +917,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         name: NAME,
         initialName: null,
         title: "Under the dun",
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       });
     });
 
@@ -969,7 +974,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         .returning({ id: tables.attachments.idAttachment });
       const [doomed] = await db
         .insert(tables.elements)
-        .values({ idStory: myStory, kind: "THING", name: NAME, idCreatedByUser: SEED_USER })
+        .values({ idStory: myStory, kind: "THING", name: NAME, idCreatedByUser: testUser })
         .returning({ id: tables.elements.idElement });
       // Its picture: the element's use of the attachment, tagged cover.
       await db.insert(tables.attachmentUses).values({
@@ -977,7 +982,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         kind: "ELEMENT",
         idExternal: doomed.id,
         tags: ["cover"],
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       });
       const [scene] = await db
         .insert(tables.storyScenes)
@@ -985,7 +990,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         .returning({ id: tables.storyScenes.idStoryScene });
       await db
         .insert(tables.sceneElements)
-        .values({ idStoryScene: scene.id, idElement: doomed.id, idCreatedByUser: SEED_USER });
+        .values({ idStoryScene: scene.id, idElement: doomed.id, idCreatedByUser: testUser });
 
       try {
         expect(await actions.sa_deleteElement(doomed.id)).toEqual({ ok: true, idStory: myStory });
@@ -1072,7 +1077,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     it("deletes a completed scene, blanking the session that was on it and taking its links and picture uses", async () => {
       const [scene] = await db
         .insert(tables.storyScenes)
-        .values({ idStory: myStory, sceneTitle: TITLE, idCreatedByUser: SEED_USER })
+        .values({ idStory: myStory, sceneTitle: TITLE, idCreatedByUser: testUser })
         .returning({ id: tables.storyScenes.idStoryScene });
       await db
         .update(tables.storyScenes)
@@ -1080,15 +1085,15 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         .where(eq(tables.storyScenes.idStoryScene, scene.id));
       const [session] = await db
         .insert(tables.storySessions)
-        .values({ idStory: myStory, idStoryScene: scene.id, idCreatedByUser: SEED_USER })
+        .values({ idStory: myStory, idStoryScene: scene.id, idCreatedByUser: testUser })
         .returning({ id: tables.storySessions.idStorySession });
       const [element] = await db
         .insert(tables.elements)
-        .values({ idStory: myStory, kind: "THING", name: TITLE, idCreatedByUser: SEED_USER })
+        .values({ idStory: myStory, kind: "THING", name: TITLE, idCreatedByUser: testUser })
         .returning({ id: tables.elements.idElement });
       await db
         .insert(tables.sceneElements)
-        .values({ idStoryScene: scene.id, idElement: element.id, idCreatedByUser: SEED_USER });
+        .values({ idStoryScene: scene.id, idElement: element.id, idCreatedByUser: testUser });
       const [picture] = await db
         .insert(tables.attachments)
         .values({ idStory: myStory, status: "READY", url: "https://x.test/s.png" })
@@ -1097,7 +1102,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         idAttachment: picture.id,
         kind: "STORY_SCENE",
         idExternal: scene.id,
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       });
 
       try {

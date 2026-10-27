@@ -124,6 +124,7 @@ describe("ScenePreview", () => {
         sa_listChats: mock.fn(),
         sa_postChat: mock.fn(),
         sa_editChat: mock.fn(),
+        sa_deleteChat: mock.fn(),
       },
     });
     ({ ScenePreview } = await import("./scene-preview"));

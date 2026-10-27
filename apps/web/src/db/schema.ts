@@ -725,7 +725,9 @@ export const feedback = pgTable("feedback", {
 // the scene the table was on when the line was said, null while it was on
 // none. isSystem marks a line the table put there itself rather than a
 // person: the divider when the storyteller moves to another scene, a card
-// untapped.
+// untapped. roll is a /roll's dice and total (lib/roll.ts), null for any
+// other line; it is read through rollSchema rather than typed here, since a
+// row's jsonb is only as sound as what last wrote it.
 export const chats = pgTable("chats", {
   idChat: integer("id_chat").primaryKey().generatedByDefaultAsIdentity(),
   idStory: integer("id_story").notNull(),
@@ -733,6 +735,7 @@ export const chats = pgTable("chats", {
   chatText: text("chat_text").notNull(),
   isEdited: boolean("is_edited").notNull().default(false),
   isSystem: boolean("is_system").notNull().default(false),
+  roll: jsonb("roll"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),

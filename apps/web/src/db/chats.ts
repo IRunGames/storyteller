@@ -5,6 +5,7 @@ import type { CurrentScene } from "./scene-items";
 import { chats, stories, storySessions, user, userPreferences } from "./schema";
 import { PROFILE_PREFERENCE_KEYS, avatarSrc, chosenProfileColor } from "@/lib/profile";
 import type { PublicChat } from "@/lib/realtime/chat-events";
+import { rollSchema, type Roll } from "@/lib/roll";
 
 // The table chat's reads and writes, which the players' table, the
 // storyteller's scene moves and the untap action all need, kept here for the
@@ -38,6 +39,7 @@ function chatQuery(executor: Executor) {
       text: chats.chatText,
       isSystem: chats.isSystem,
       isEdited: chats.isEdited,
+      roll: chats.roll,
       createdAt: chats.createdAt,
       storedColor: sql<
         string | null
@@ -55,9 +57,13 @@ function chatQuery(executor: Executor) {
 
 type ChatRow = Awaited<ReturnType<ReturnType<typeof chatQuery>["where"]>>[number];
 
-function toPublicChat({ storedColor, storedAvatar, image, ...row }: ChatRow): PublicChat {
+// A roll is read through its schema, so a row whose jsonb does not hold one
+// shows as a plain line (its chat_text) rather than breaking the chat.
+function toPublicChat({ storedColor, storedAvatar, image, roll, ...row }: ChatRow): PublicChat {
+  const parsed = roll === null ? null : rollSchema.safeParse(roll);
   return {
     ...row,
+    roll: parsed?.success ? parsed.data : null,
     createdAt: (row.createdAt ?? new Date()).toISOString(),
     color: chosenProfileColor(storedColor ?? undefined),
     picture: avatarSrc(storedAvatar ?? undefined, image),
@@ -77,6 +83,7 @@ export async function chatById(
  * Saves one line, stamped with the sender, and answers with it as every
  * table may see it, ready to publish. Takes a transaction when the line is
  * part of a larger write, as the divider is part of moving to a scene.
+ * A /roll passes its roll, which the line carries beside its text.
  */
 export async function insertChat(
   values: {
@@ -85,6 +92,7 @@ export async function insertChat(
     text: string;
     isSystem: boolean;
     userId: string;
+    roll?: Roll;
   },
   executor: Executor = db,
 ): Promise<PublicChat> {
@@ -95,6 +103,7 @@ export async function insertChat(
       idStoryScene: values.idStoryScene,
       chatText: values.text,
       isSystem: values.isSystem,
+      roll: values.roll ?? null,
       idCreatedByUser: values.userId,
       idUpdatedByUser: values.userId,
     })

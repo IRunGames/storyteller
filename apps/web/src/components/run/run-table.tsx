@@ -50,6 +50,8 @@ import { toaster } from "@/components/ui/toaster";
 import { canSeeDiagnostics } from "@/lib/diagnostics";
 import { PlayCharacterSpace } from "@/components/play/play-character-space";
 import { PlayChat } from "@/components/play/play-chat";
+import { useChatLayout } from "@/components/play/play-chat-layout";
+import { PlayChatOverlay } from "@/components/play/play-chat-overlay";
 import { useStoryChat } from "@/components/play/use-story-chat";
 import { PlayDiagnostics } from "@/components/play/play-diagnostics";
 import { PlayHeader } from "@/components/play/play-header";
@@ -158,6 +160,7 @@ export function RunTable({
   const showChat = preferences.get<boolean>(SHOW_CHAT, false);
   const showDiagnostics = diagnosticsOffered && preferences.get<boolean>(SHOW_DIAGNOSTICS, false);
   const chat = useStoryChat(idStory, showChat && !showDiagnostics);
+  const [chatLayout] = useChatLayout();
   // This table publishes the scene and does not follow it, so the state
   // topic's messages are left alone; the connection is always open for the
   // chat, and for the diagnostics panel.
@@ -424,9 +427,13 @@ export function RunTable({
   // players' table: the chat's preference is left as it is.
   const rightPanel = showDiagnostics ? (
     <PlayDiagnostics id={DIAGNOSTICS_ID} channel={channel} />
-  ) : showChat ? (
+  ) : showChat && chatLayout !== "overlay" ? (
     <PlayChat id={CHAT_ID} idStory={idStory} chat={chat} />
   ) : null;
+  // The overlay layout has no panel: a box in the lower right, over the table.
+  const chatOverlay = showChat && !showDiagnostics && chatLayout === "overlay" && (
+    <PlayChatOverlay id={CHAT_ID} idStory={idStory} chat={chat} />
+  );
 
   return (
     <Flex direction="column" h="100vh">
@@ -848,6 +855,7 @@ export function RunTable({
           </Box>
         )}
       </Flex>
+      {chatOverlay}
     </Flex>
   );
 }

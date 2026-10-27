@@ -1,7 +1,7 @@
 // Integration test for the Timeline's session controls in actions.ts, against
 // the real database and skipped when DATABASE_URL is unset. Apart from
 // actions.test.ts because it needs nothing from the seeds: `before` makes a
-// story the seed user owns, with two sessions and a scene, and a story of
+// story the test user owns, with two sessions and a scene, and a story of
 // someone else's with a session; `after` deletes only those two stories,
 // which takes their sessions and scenes with them. Fixture ids are positive
 // and left to the database, so they never collide with the seed's.
@@ -9,13 +9,16 @@ import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "stories-session-actions@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
@@ -35,6 +38,7 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     actions = await import("./actions");
 
     // A rerun after a crash would trip the unique email.
@@ -50,7 +54,7 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     [{ id: mine }, { id: theirs }] = await db
       .insert(tables.stories)
       .values([
-        { title: "Session actions fixture — mine", idCreatedByUser: SEED_USER },
+        { title: "Session actions fixture — mine", idCreatedByUser: testUser },
         { title: "Session actions fixture — theirs", idCreatedByUser: otherUserId },
       ])
       .returning({ id: tables.stories.idStory });
@@ -62,9 +66,9 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
           idStory: mine,
           status: "OPEN",
           title: "Fixture open",
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
         },
-        { idStory: mine, status: "DONE", idCreatedByUser: SEED_USER },
+        { idStory: mine, status: "DONE", idCreatedByUser: testUser },
         { idStory: theirs, status: "OPEN", idCreatedByUser: otherUserId },
       ])
       .returning({ id: tables.storySessions.idStorySession });
@@ -73,7 +77,7 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     // session_players row each, attached to the session and PRESENT, which
     // stamps present_at. They go with the story in after (ON DELETE CASCADE).
     await db.insert(tables.sessionPlayers).values(
-      [SEED_USER, otherUserId].map((idUser) => ({
+      [testUser, otherUserId].map((idUser) => ({
         idStory: mine,
         idStorySession: open,
         status: "PRESENT",
@@ -88,7 +92,7 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         idStory: mine,
         sceneTitle: "Fixture scene in the open session",
         idStorySession: open,
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       })
       .returning({ id: tables.storyScenes.idStoryScene });
   });
@@ -99,6 +103,7 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, [mine, theirs]));
     }
     if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 

@@ -1,11 +1,11 @@
 // Integration test against the real database, skipped when DATABASE_URL is
-// unset so `just test` stays green offline. Writes rows for the seed user
-// (and one other seeded user, to exercise the ownership checks) and removes
-// them again in `after`; the negative-id seed rows are never touched.
+// unset so `just test` stays green offline. Writes rows for a test user of its
+// own (and reads one other seeded user, to exercise the ownership checks) and
+// removes them again in `after`; the negative-id seed rows are never touched.
 //
 // Cleanup is by id, never by owner. `node --test` runs the suite's files in
 // parallel against this one database, and stories/actions.test.ts creates
-// positive-id attachments for the same seed user, asserts across several
+// positive-id attachments for the same test user, asserts across several
 // awaits, and tidies up after itself. A "DELETE every positive-id row this
 // user owns" here would land inside that window and take its fixtures with
 // it -- an intermittent failure in a file this one never touches. Everything
@@ -18,6 +18,7 @@ import { loadEnvConfig } from "@next/env";
 import { createRequire } from "node:module";
 
 import type { AttachmentKind } from "@/lib/attachments";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
@@ -27,23 +28,23 @@ loadEnvConfig(process.cwd());
 // monkey-patching the same require-cached module object instead.
 const requireHere = createRequire(__filename);
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "components-uploads-actions@example.test";
+let testUser = "";
 // A different seeded user, owning none of the seeded attachments, so it is
 // safe to use as "someone else" in the ownership tests.
 const OTHER_USER = "00000000-0000-7000-8000-000000000002";
-// A story seeded as the seed user's own, on which `before` makes the scene
-// the holder cases attach to: tr_biu_attachment_uses_external_exists raises
-// on a holder with no row, so uses need a real scene rather than a made-up
-// id, and the seeds no longer hold one (story -1 and its scenes were
-// renumbered off them on 2026-10-15).
-const SEED_STORY = -3;
+// The test user's own story, and the scene on it the holder cases attach to,
+// both made in `before`: tr_biu_attachment_uses_external_exists raises on a
+// holder with no row, so uses need a real scene rather than a made-up id.
+let storyId = 0;
 let sceneId = 0;
 // A story seeded as OTHER_USER's own, for the ownership-of-the-holder tests.
 const OTHER_STORY_ID = -16;
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 // What a change to a scene element's pictures tells the players' table,
 // mocked so the tests see it reached for; what it sends is its own test's
 // business (lib/realtime/publish-scene.test.ts).
@@ -93,7 +94,7 @@ async function insertAttachment(
       idExternal: use.idExternal,
       tags: use.tags ?? [],
       ...(use.sortOrder === undefined ? {} : { sortOrder: use.sortOrder }),
-      idCreatedByUser: values.idCreatedByUser ?? SEED_USER,
+      idCreatedByUser: values.idCreatedByUser ?? testUser,
     });
   }
   return row;
@@ -122,13 +123,18 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     originalDel = blobModule.del;
     blobModule.del = del;
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     actions = await import("./actions");
+    [{ id: storyId }] = await db
+      .insert(tables.stories)
+      .values({ title: "Attachment fixture story", idCreatedByUser: testUser })
+      .returning({ id: tables.stories.idStory });
     [{ id: sceneId }] = await db
       .insert(tables.storyScenes)
       .values({
-        idStory: SEED_STORY,
+        idStory: storyId,
         sceneTitle: "Attachment fixture scene",
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       })
       .returning({ id: tables.storyScenes.idStoryScene });
   });
@@ -144,7 +150,9 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     if (sceneId) {
       await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, sceneId));
     }
+    if (storyId) await db.delete(tables.stories).where(eq(tables.stories.idStory, storyId));
     // Otherwise the process lingers until the pool's idle timeout.
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 
@@ -211,11 +219,11 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       .select({ idCreatedByUser: tables.attachments.idCreatedByUser })
       .from(tables.attachments)
       .where(eq(tables.attachments.idAttachment, result.idAttachment));
-    expect(row.idCreatedByUser).toBe(SEED_USER);
+    expect(row.idCreatedByUser).toBe(testUser);
   });
 
   it("moves an upload from UPLOADING to READY and sets the url", async () => {
-    const created = await insertAttachment({ status: "UPLOADING", idCreatedByUser: SEED_USER });
+    const created = await insertAttachment({ status: "UPLOADING", idCreatedByUser: testUser });
 
     await actions.sa_markAttachmentReady(created.id, "https://example.com/ready.jpg");
 
@@ -227,7 +235,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
   });
 
   it("moves an upload to ERROR, and a retry moves it back to UPLOADING", async () => {
-    const created = await insertAttachment({ status: "UPLOADING", idCreatedByUser: SEED_USER });
+    const created = await insertAttachment({ status: "UPLOADING", idCreatedByUser: testUser });
 
     await actions.sa_markAttachmentError(created.id);
     const [afterError] = await db
@@ -262,9 +270,9 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
   it("deletes an owned upload, its uses with it, and removes it from Blob", async () => {
     del.mock.resetCalls();
-    const url = `https://abc123.public.blob.vercel-storage.com/uploads/${SEED_USER}/photo.png`;
+    const url = `https://abc123.public.blob.vercel-storage.com/uploads/${testUser}/photo.png`;
     const created = await insertAttachment(
-      { status: "READY", url, isUploaded: true, idCreatedByUser: SEED_USER },
+      { status: "READY", url, isUploaded: true, idCreatedByUser: testUser },
       [{ kind: "STORY_SCENE", idExternal: sceneId }],
     );
 
@@ -286,7 +294,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       status: "READY",
       url: "https://example.com/a.jpg",
       isUploaded: false,
-      idCreatedByUser: SEED_USER,
+      idCreatedByUser: testUser,
     });
 
     await actions.sa_deleteAttachment(created.id);
@@ -311,7 +319,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       status: "READY",
       url,
       isUploaded: true,
-      idCreatedByUser: SEED_USER,
+      idCreatedByUser: testUser,
     });
 
     await actions.sa_deleteAttachment(created.id);
@@ -327,7 +335,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
   });
 
   it("refuses to mark ready with another user's blob url", async () => {
-    const created = await insertAttachment({ status: "UPLOADING", idCreatedByUser: SEED_USER });
+    const created = await insertAttachment({ status: "UPLOADING", idCreatedByUser: testUser });
     const theirUrl = `https://abc123.public.blob.vercel-storage.com/uploads/${OTHER_USER}/theirs.png`;
 
     await expect(actions.sa_markAttachmentReady(created.id, theirUrl)).rejects.toThrow();
@@ -377,7 +385,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
   });
 
   it("claims an unclaimed upload for the story of its first use, and no other", async () => {
-    const row = await insertAttachment({ status: "UPLOADING", idCreatedByUser: SEED_USER });
+    const row = await insertAttachment({ status: "UPLOADING", idCreatedByUser: testUser });
     const [before] = await db
       .select({ idStory: tables.attachments.idStory })
       .from(tables.attachments)
@@ -388,7 +396,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       idAttachment: row.id,
       kind: "STORY_SCENE",
       idExternal: sceneId,
-      idCreatedByUser: SEED_USER,
+      idCreatedByUser: testUser,
     });
 
     const [after] = await db
@@ -405,7 +413,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         idAttachment: row.id,
         kind: "STORY",
         idExternal: OTHER_STORY_ID,
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       }),
     ).rejects.toMatchObject({
       cause: expect.objectContaining({ message: expect.stringMatching(/belongs to story/) }),
@@ -468,11 +476,11 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       await db.delete(tables.stories).where(eq(tables.stories.title, title));
       [{ idStory }] = await db
         .insert(tables.stories)
-        .values({ title, idCreatedByUser: SEED_USER, idUpdatedByUser: SEED_USER })
+        .values({ title, idCreatedByUser: testUser, idUpdatedByUser: testUser })
         .returning({ idStory: tables.stories.idStory });
       [{ id: idScene }] = await db
         .insert(tables.storyScenes)
-        .values({ idStory, sceneTitle: "Fixture picker scene", idCreatedByUser: SEED_USER })
+        .values({ idStory, sceneTitle: "Fixture picker scene", idCreatedByUser: testUser })
         .returning({ id: tables.storyScenes.idStoryScene });
       [{ id: theirScene }] = await db
         .insert(tables.storyScenes)
@@ -492,7 +500,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     });
 
     const onStory = (url: string, values: { status?: string; tags?: string[] } = {}) =>
-      insertAttachment({ idStory, status: "READY", url, idCreatedByUser: SEED_USER, ...values });
+      insertAttachment({ idStory, status: "READY", url, idCreatedByUser: testUser, ...values });
     const sceneUse = async (id: number) =>
       (await usesOf(id)).find((use) => use.kind === "STORY_SCENE" && use.idExternal === idScene);
 
@@ -536,7 +544,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       await actions.sa_setAttachmentCover("STORY", idStory, cover, true);
       const { id: uploading } = await insertAttachment({
         idStory,
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
         isUploaded: true,
       });
 
@@ -568,7 +576,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
           idStory,
           status: "READY",
           url: "https://example.com/picker-old-scene-cover.jpg",
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
         },
         [{ kind: "STORY_SCENE", idExternal: idScene, tags: ["cover"] }],
       );
@@ -591,7 +599,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     it("leaves an unfinished row and another's scene alone", async () => {
       const { id: uploading } = await insertAttachment({
         idStory,
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
         isUploaded: true,
       });
       const { id: plain } = await onStory("https://example.com/picker-refused-cover.jpg");
@@ -613,7 +621,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
           status: "READY",
           url: "https://example.com/picker-back-cover.jpg",
           tags: ["harbour"],
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
         },
         [{ kind: "STORY_SCENE", idExternal: idScene }],
       );
@@ -657,7 +665,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
             idStory,
             status: "READY",
             url: `https://example.com/picker-fill-${n}.jpg`,
-            idCreatedByUser: SEED_USER,
+            idCreatedByUser: testUser,
           },
           [{ kind: "STORY_SCENE", idExternal: idScene }],
         );
@@ -697,11 +705,11 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       await db.delete(tables.stories).where(eq(tables.stories.title, title));
       [{ idStory }] = await db
         .insert(tables.stories)
-        .values({ title, idCreatedByUser: SEED_USER, idUpdatedByUser: SEED_USER })
+        .values({ title, idCreatedByUser: testUser, idUpdatedByUser: testUser })
         .returning({ idStory: tables.stories.idStory });
       [{ id: idSession }] = await db
         .insert(tables.storySessions)
-        .values({ idStory, idCreatedByUser: SEED_USER })
+        .values({ idStory, idCreatedByUser: testUser })
         .returning({ id: tables.storySessions.idStorySession });
       [{ id: theirSession }] = await db
         .insert(tables.storySessions)
@@ -717,7 +725,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     });
 
     const onStory = (url: string) =>
-      insertAttachment({ idStory, status: "READY", url, idCreatedByUser: SEED_USER });
+      insertAttachment({ idStory, status: "READY", url, idCreatedByUser: testUser });
 
     it("attaches the story's pictures to the session, and makes one its only cover", async () => {
       const { id: first } = await onStory("https://example.com/session-first.jpg");
@@ -760,19 +768,19 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       await db.delete(tables.stories).where(eq(tables.stories.title, title));
       [{ idStory }] = await db
         .insert(tables.stories)
-        .values({ title, idCreatedByUser: SEED_USER, idUpdatedByUser: SEED_USER })
+        .values({ title, idCreatedByUser: testUser, idUpdatedByUser: testUser })
         .returning({ idStory: tables.stories.idStory });
       [{ id: idScene }] = await db
         .insert(tables.storyScenes)
-        .values({ idStory, sceneTitle: "Fixture pictures scene", idCreatedByUser: SEED_USER })
+        .values({ idStory, sceneTitle: "Fixture pictures scene", idCreatedByUser: testUser })
         .returning({ id: tables.storyScenes.idStoryScene });
       [{ id: idElement }] = await db
         .insert(tables.elements)
-        .values({ idStory, kind: "PERSON", name: "Fixture Pictured", idCreatedByUser: SEED_USER })
+        .values({ idStory, kind: "PERSON", name: "Fixture Pictured", idCreatedByUser: testUser })
         .returning({ id: tables.elements.idElement });
       [{ id: idLink }] = await db
         .insert(tables.sceneElements)
-        .values({ idStoryScene: idScene, idElement, idCreatedByUser: SEED_USER })
+        .values({ idStoryScene: idScene, idElement, idCreatedByUser: testUser })
         .returning({ id: tables.sceneElements.idSceneElement });
       publishSceneElementPictures.mock.resetCalls();
     });
@@ -782,7 +790,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     });
 
     const onStory = (url: string) =>
-      insertAttachment({ idStory, status: "READY", url, idCreatedByUser: SEED_USER });
+      insertAttachment({ idStory, status: "READY", url, idCreatedByUser: testUser });
     const linkUses = async (id: number) =>
       (await usesOf(id)).filter((use) => use.kind === "SCENE_ELEMENT" && use.idExternal === idLink);
 
@@ -840,18 +848,18 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       const { id: brief } = await onStory("https://example.com/link-brief.jpg");
       const [{ id: passing }] = await db
         .insert(tables.sceneElements)
-        .values({ idStoryScene: idScene, idElement, idCreatedByUser: SEED_USER })
+        .values({ idStoryScene: idScene, idElement, idCreatedByUser: testUser })
         .onConflictDoNothing()
         .returning({ id: tables.sceneElements.idSceneElement })
         .then((rows) => (rows.length > 0 ? rows : [{ id: idLink }]));
       // The link is unique per scene and element, so a second scene holds it.
       const [{ id: otherScene }] = await db
         .insert(tables.storyScenes)
-        .values({ idStory, sceneTitle: "Fixture pictures scene 2", idCreatedByUser: SEED_USER })
+        .values({ idStory, sceneTitle: "Fixture pictures scene 2", idCreatedByUser: testUser })
         .returning({ id: tables.storyScenes.idStoryScene });
       const [{ id: link2 }] = await db
         .insert(tables.sceneElements)
-        .values({ idStoryScene: otherScene, idElement, idCreatedByUser: SEED_USER })
+        .values({ idStoryScene: otherScene, idElement, idCreatedByUser: testUser })
         .returning({ id: tables.sceneElements.idSceneElement });
       expect(passing).toBe(idLink);
 
@@ -882,7 +890,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       await db.delete(tables.stories).where(eq(tables.stories.title, title));
       [{ idStory }] = await db
         .insert(tables.stories)
-        .values({ title, idCreatedByUser: SEED_USER, idUpdatedByUser: SEED_USER })
+        .values({ title, idCreatedByUser: testUser, idUpdatedByUser: testUser })
         .returning({ idStory: tables.stories.idStory });
     });
 
@@ -897,7 +905,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     ) => {
       const { cover, ...rest } = values;
       return insertAttachment(
-        { idStory, status: "READY", url, idCreatedByUser: SEED_USER, ...rest },
+        { idStory, status: "READY", url, idCreatedByUser: testUser, ...rest },
         cover ? [{ kind: "STORY", idExternal: idStory, tags: ["cover"] }] : [],
       );
     };
@@ -981,7 +989,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         url: "https://x/blob-key.png",
         fileName: "Dragon Lair.png",
         isUploaded: true,
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       });
 
       expect(await actions.sa_searchAttachments("STORY", idStory, "PARCHMENT")).toEqual([map.id]);

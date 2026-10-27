@@ -59,6 +59,7 @@ const chat = {
   createdAt: "2026-10-26T20:05:00.000Z",
   color: null,
   picture: null,
+  roll: null,
 };
 
 describe("isSceneEntry", () => {
@@ -96,6 +97,24 @@ describe("toChatEntry", () => {
     expect(toChatEntry({ ...chat, isSystem: true, text: "Harry untapped Zed" }).kind).toBe(
       "system",
     );
+  });
+
+  it("makes a line that carries a roll a roll, whatever its text", () => {
+    const roll = {
+      notation: "2d4+2",
+      label: "initiative",
+      total: 6,
+      dice: [
+        { value: 3, dropped: false },
+        { value: 1, dropped: false },
+      ],
+      detail: "2d4+2: [3, 1]+2 = 6",
+    };
+    expect(toChatEntry({ ...chat, text: "6 for initiative", roll })).toMatchObject({
+      kind: "roll",
+      text: "6 for initiative",
+      roll,
+    });
   });
 });
 

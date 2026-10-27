@@ -7,10 +7,13 @@ import { after, before, describe, it } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "db-standard-tags@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
 type DbModule = typeof import("@/db");
@@ -24,6 +27,7 @@ const storyIds: number[] = [];
 describe("standard tags", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
 
     [{ id: taggedSystem }, { id: plainSystem }] = await db
       .insert(tables.systems)
@@ -43,6 +47,7 @@ describe("standard tags", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     await db
       .delete(tables.systems)
       .where(inArray(tables.systems.idSystem, [taggedSystem, plainSystem].filter(Boolean)));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 
@@ -55,12 +60,12 @@ describe("standard tags", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   ) {
     const [{ id }] = await db
       .insert(tables.stories)
-      .values({ title: "Fixture standard tags story", idCreatedByUser: SEED_USER, ...story })
+      .values({ title: "Fixture standard tags story", idCreatedByUser: testUser, ...story })
       .returning({ id: tables.stories.idStory });
     storyIds.push(id);
     const [scene] = await db
       .insert(tables.storyScenes)
-      .values({ idStory: id, sceneTitle: "Fixture tagged scene", idCreatedByUser: SEED_USER, tags })
+      .values({ idStory: id, sceneTitle: "Fixture tagged scene", idCreatedByUser: testUser, tags })
       .returning({ tags: tables.storyScenes.tags });
     return scene.tags;
   }
@@ -74,7 +79,7 @@ describe("standard tags", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
 
     const [{ id }] = await db
       .insert(tables.stories)
-      .values({ title: "Fixture untagged story", idCreatedByUser: SEED_USER })
+      .values({ title: "Fixture untagged story", idCreatedByUser: testUser })
       .returning({ id: tables.stories.idStory });
     storyIds.push(id);
     const [story] = await db
@@ -89,16 +94,16 @@ describe("standard tags", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
         idStory: id,
         kind: "PERSON",
         name: "Fixture tag person",
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       })
       .returning({ id: tables.elements.idElement });
     const [scene] = await db
       .insert(tables.storyScenes)
-      .values({ idStory: id, sceneTitle: "Fixture scene for a link", idCreatedByUser: SEED_USER })
+      .values({ idStory: id, sceneTitle: "Fixture scene for a link", idCreatedByUser: testUser })
       .returning({ id: tables.storyScenes.idStoryScene });
     const [link] = await db
       .insert(tables.sceneElements)
-      .values({ idStoryScene: scene.id, idElement: element.id, idCreatedByUser: SEED_USER })
+      .values({ idStoryScene: scene.id, idElement: element.id, idCreatedByUser: testUser })
       .returning({ tags: tables.sceneElements.tags });
     expect(link.tags).toEqual([]);
   });

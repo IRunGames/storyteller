@@ -248,6 +248,13 @@ needs_user_ids`), fails loudly if the registration did not take, and calls
   lazily inside `before` (the pool opens at import time), create their own
   fixtures, clean them up in both `before` and `after`, and close the pool
   ([`feedback/actions.test.ts`](../src/components/feedback/actions.test.ts)).
+- **A database test signs in as a test user of its own**, made with
+  `makeTestUser` from [`test-user.ts`](../src/test/test-user.ts) under an
+  `@example.test` address, and removed in `after`. Never a real or
+  `@irun.games` account: the dev database is where the owner plays, and a
+  test's cleanup deletes what its user wrote.
+  [`real-accounts.test.ts`](../src/test/real-accounts.test.ts) fails the suite
+  if one does.
 - **Query by role and accessible name.** If a test cannot find something by
   role, fix the markup, not the query.
 - **Zag's floating layers need patience under jsdom:** `findByRole` and

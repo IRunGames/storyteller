@@ -7,7 +7,7 @@ import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
 import type { CurrentUser } from "@/lib/current-user";
 import type { ChatEvent, PublicChat } from "@/lib/realtime/chat-events";
-import type { ChatPage } from "@/db/chats";
+import type { ChatLoad } from "@/app/(app)/play/[id]/actions";
 import type { StoryChat } from "./use-story-chat";
 
 const user: CurrentUser = {
@@ -30,9 +30,10 @@ const line = (idChat: number, overrides: Partial<PublicChat> = {}): PublicChat =
   createdAt: new Date(Date.UTC(2026, 9, 26, 20, idChat)).toISOString(),
   color: null,
   picture: null,
+  roll: null,
   ...overrides,
 });
-const event = (type: ChatEvent["type"], chat: PublicChat): ChatEvent => ({
+const event = (type: "chat.posted" | "chat.edited", chat: PublicChat): ChatEvent => ({
   v: 1,
   at: chat.createdAt,
   idStory: 7,
@@ -40,9 +41,10 @@ const event = (type: ChatEvent["type"], chat: PublicChat): ChatEvent => ({
   chat,
 });
 
-const sa_listChats = mock.fn(async (_idStory: number, _before?: number): Promise<ChatPage> => ({
+const sa_listChats = mock.fn(async (_idStory: number, _before?: number): Promise<ChatLoad> => ({
   chats: [line(5), line(6)],
   hasPrevious: true,
+  atTable: 3,
 }));
 
 let useStoryChat: typeof import("./use-story-chat").useStoryChat;
@@ -138,6 +140,7 @@ describe("useStoryChat", () => {
     sa_listChats.mock.mockImplementationOnce(async () => ({
       chats: [line(3), line(4)],
       hasPrevious: false,
+      atTable: 3,
     }));
 
     await act(async () => {
@@ -146,5 +149,46 @@ describe("useStoryChat", () => {
     expect(sa_listChats.mock.calls.at(-1)?.arguments).toEqual([7, 5]);
     expect(ids()).toEqual([3, 4, 5, 6]);
     expect(current.hasPrevious).toBe(false);
+  });
+
+  it("drops a line taken back, and does not take it back in from a later copy", async () => {
+    render(true);
+    await waitFor(() => expect(ids()).toEqual([5, 6]));
+
+    await act(async () => {
+      current.receive({ v: 1, at: "", idStory: 7, type: "chat.deleted", idChat: 6 });
+    });
+    expect(ids()).toEqual([5]);
+
+    await act(async () => {
+      current.remove(5);
+      current.receive(event("chat.posted", line(6)));
+      await current.refresh();
+    });
+    expect(ids()).toEqual([]);
+  });
+
+  it("holds how many are at the table, from each load and as it changes", async () => {
+    const { reopen } = render(false);
+    await waitFor(() => expect(current.atTable).toBe(3));
+
+    await act(async () => {
+      current.receive({ v: 1, at: "", idStory: 7, type: "table.count", atTable: 4 });
+      current.receive({ v: 1, at: "", idStory: 8, type: "table.count", atTable: 9 });
+    });
+    expect(current.atTable).toBe(4);
+    // A head count is not a line, so nothing is unread.
+    expect(current.unread).toBe(0);
+
+    sa_listChats.mock.mockImplementationOnce(async () => ({
+      chats: [],
+      hasPrevious: false,
+      atTable: 2,
+    }));
+    await act(async () => {
+      await current.refresh();
+    });
+    expect(current.atTable).toBe(2);
+    reopen(true);
   });
 });

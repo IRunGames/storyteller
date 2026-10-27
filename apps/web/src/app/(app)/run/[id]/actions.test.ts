@@ -9,13 +9,16 @@ import { expect } from "expect";
 import { and, eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 import { elementIdOf } from "@/lib/run";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "run-id-actions@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 // What each write tells the players' table, mocked so the tests see which
 // helper an action reached for; what the helpers send is their own test's
@@ -58,6 +61,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     mock.module("@/lib/realtime/publish-scene", { namedExports: published });
     mock.module("@/lib/realtime/publish", { namedExports: { publishChat, publishLater } });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     actions = await import("./actions");
 
     // A rerun after a crash would trip the unique email.
@@ -71,7 +75,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     [{ id: mine }, { id: theirs }] = await db
       .insert(tables.stories)
       .values([
-        { title: "Run table fixture — mine", idCreatedByUser: SEED_USER },
+        { title: "Run table fixture — mine", idCreatedByUser: testUser },
         { title: "Run table fixture — theirs", idCreatedByUser: otherUserId },
       ])
       .returning({ id: tables.stories.idStory });
@@ -79,7 +83,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     [{ id: scene }, { id: theirScene }] = await db
       .insert(tables.storyScenes)
       .values([
-        { idStory: mine, sceneTitle: "Fixture scene at the docks", idCreatedByUser: SEED_USER },
+        { idStory: mine, sceneTitle: "Fixture scene at the docks", idCreatedByUser: testUser },
         { idStory: theirs, sceneTitle: "Fixture scene of theirs", idCreatedByUser: otherUserId },
       ])
       .returning({ id: tables.storyScenes.idStoryScene });
@@ -89,22 +93,22 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     [{ id: abbey }, { id: zed }] = await db
       .insert(tables.elements)
       .values([
-        { idStory: mine, kind: "PLACE", name: "Fixture Abbey", idCreatedByUser: SEED_USER },
+        { idStory: mine, kind: "PLACE", name: "Fixture Abbey", idCreatedByUser: testUser },
         {
           idStory: mine,
           kind: "PERSON",
           name: "Fixture Zed",
           initialName: "Fixture hooded figure",
           title: "Harbourmaster",
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
         },
-        { idStory: mine, kind: "THING", name: "Fixture Lantern", idCreatedByUser: SEED_USER },
+        { idStory: mine, kind: "THING", name: "Fixture Lantern", idCreatedByUser: testUser },
       ])
       .returning({ id: tables.elements.idElement });
 
     await db.insert(tables.sceneElements).values([
-      { idStoryScene: scene, idElement: abbey, idCreatedByUser: SEED_USER },
-      { idStoryScene: scene, idElement: zed, tags: ["scene"], idCreatedByUser: SEED_USER },
+      { idStoryScene: scene, idElement: abbey, idCreatedByUser: testUser },
+      { idStoryScene: scene, idElement: zed, tags: ["scene"], idCreatedByUser: testUser },
     ]);
   });
 
@@ -122,6 +126,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, [mine, theirs]));
     }
     if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 
@@ -132,7 +137,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
   ): Promise<number> {
     const [session] = await db
       .insert(tables.storySessions)
-      .values({ idStory, status, idStoryScene, idCreatedByUser: SEED_USER })
+      .values({ idStory, status, idStoryScene, idCreatedByUser: testUser })
       .returning({ id: tables.storySessions.idStorySession });
     await db
       .update(tables.stories)
@@ -141,12 +146,12 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     return session.id;
   }
 
-  // A scene of the seed user's story in the given status, for the selector's
+  // A scene of the test user's story in the given status, for the selector's
   // tests; they go with the story in `after`.
   async function sceneIn(status: string, title = `Fixture ${status.toLowerCase()} scene`) {
     const [row] = await db
       .insert(tables.storyScenes)
-      .values({ idStory: mine, sceneTitle: title, status, idCreatedByUser: SEED_USER })
+      .values({ idStory: mine, sceneTitle: title, status, idCreatedByUser: testUser })
       .returning({ id: tables.storyScenes.idStoryScene });
     return row.id;
   }
@@ -255,7 +260,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         text: "Entering Fixture divider scene",
         idStoryScene: pending,
         isSystem: true,
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       },
     ]);
     expect(publishChat.mock.calls).toHaveLength(1);
@@ -525,7 +530,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         idStory: mine,
         status: "READY",
         url: "https://x.test/fixture-docks.png",
-        idCreatedByUser: SEED_USER,
+        idCreatedByUser: testUser,
       })
       .returning({ id: tables.attachments.idAttachment });
     // The scene's cover is its use of the picture, tagged cover.
@@ -534,7 +539,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       kind: "STORY_SCENE",
       idExternal: scene,
       tags: ["cover"],
-      idCreatedByUser: SEED_USER,
+      idCreatedByUser: testUser,
     });
 
     expect((await actions.sa_getRunPlaySpace(mine)).coverUrl).toBe(
@@ -1415,7 +1420,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
   it("edits a story's element from the library, apart from any scene", async () => {
     const [made] = await db
       .insert(tables.elements)
-      .values({ idStory: mine, kind: "THING", name: "Fixture lantern", idCreatedByUser: SEED_USER })
+      .values({ idStory: mine, kind: "THING", name: "Fixture lantern", idCreatedByUser: testUser })
       .returning({ id: tables.elements.idElement });
     const values = {
       kind: "THING",

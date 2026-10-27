@@ -9,13 +9,16 @@ import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "scenes-id-live-actions@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 const publishSceneChanged = mock.fn(async (..._args: unknown[]) => {});
 
 let actions: typeof import("./actions");
@@ -38,6 +41,7 @@ describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     mock.module("@/lib/realtime/publish-scene", { namedExports: { publishSceneChanged } });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     actions = await import("./actions");
 
     // A rerun after a crash would trip the unique email.
@@ -51,7 +55,7 @@ describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     [{ id: mine }, { id: theirs }] = await db
       .insert(tables.stories)
       .values([
-        { title: "Live scene fixture — mine", idCreatedByUser: SEED_USER },
+        { title: "Live scene fixture — mine", idCreatedByUser: testUser },
         { title: "Live scene fixture — theirs", idCreatedByUser: otherUserId },
       ])
       .returning({ id: tables.stories.idStory });
@@ -59,7 +63,7 @@ describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     [{ id: scene }, { id: theirScene }] = await db
       .insert(tables.storyScenes)
       .values([
-        { idStory: mine, sceneTitle: "Fixture scene at the docks", idCreatedByUser: SEED_USER },
+        { idStory: mine, sceneTitle: "Fixture scene at the docks", idCreatedByUser: testUser },
         { idStory: theirs, sceneTitle: "Fixture scene of theirs", idCreatedByUser: otherUserId },
       ])
       .returning({ id: tables.storyScenes.idStoryScene });
@@ -67,8 +71,8 @@ describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     [{ id: first }, { id: second }, { id: theirSession }] = await db
       .insert(tables.storySessions)
       .values([
-        { idStory: mine, status: "DONE", idCreatedByUser: SEED_USER },
-        { idStory: mine, status: "DONE", idCreatedByUser: SEED_USER },
+        { idStory: mine, status: "DONE", idCreatedByUser: testUser },
+        { idStory: mine, status: "DONE", idCreatedByUser: testUser },
         { idStory: theirs, status: "DONE", idCreatedByUser: otherUserId },
       ])
       .returning({ id: tables.storySessions.idStorySession });
@@ -94,6 +98,7 @@ describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, [mine, theirs]));
     }
     if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 
@@ -290,13 +295,13 @@ describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
           idStory: mine,
           sceneTitle: "Fixture scene of the first sitting",
           idStorySession: first,
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
         },
         {
           idStory: mine,
           sceneTitle: "Fixture scene of the second sitting",
           idStorySession: second,
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
         },
       ])
       .returning({ id: tables.storyScenes.idStoryScene });

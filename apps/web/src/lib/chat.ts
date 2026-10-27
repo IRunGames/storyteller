@@ -1,11 +1,12 @@
 import type { PublicChat } from "./realtime/chat-events";
+import type { Roll } from "./roll";
 
 /** One line in the table chat: something said, a roll, or a line the table put there itself. */
 export type ChatEntry = {
-  /** The React key: "chat-4" for a saved line, anything unique for the sample. */
+  /** The React key: "chat-4". */
   id: string;
-  /** The chats row, or null for a sample line, which was never saved. */
-  idChat: number | null;
+  /** The chats row. */
+  idChat: number;
   /** The sender's user id, so the viewer's own lines can be told apart. */
   idUser: string | null;
   /** Who sent it, as the chat shows them; the palette is keyed off this. */
@@ -16,12 +17,6 @@ export type ChatEntry = {
   picture: string | null;
   /** When it was said, ISO; the label is worked out as it is shown (chatTime). */
   createdAt: string;
-  /**
-   * A fixed label in place of chatTime's, for the sample: it is drawn on the
-   * server, whose clock and time zone are not the browser's, so a label
-   * worked out there would not match the one the browser works out.
-   */
-  time?: string;
   isEdited: boolean;
 } & (
   | { kind: "text"; text: string }
@@ -29,19 +24,8 @@ export type ChatEntry = {
   | { kind: "scene"; text: string }
   /** Any other line the table puts in itself: a card untapped. */
   | { kind: "system"; text: string }
-  | {
-      kind: "roll";
-      /** Each die as it landed. */
-      dice: number[];
-      /** What was added for an ability or skill, and its name. */
-      modifier: { value: number; label: string } | null;
-      total: number;
-      /** "2d6". */
-      formula: string;
-      /** What the roll was for: "Spot the box". */
-      label: string;
-      outcome: "SUCCESS" | "FAILURE";
-    }
+  /** A /roll: text is what it says ("6 for initiative"), roll its dice. */
+  | { kind: "roll"; text: string; roll: Roll }
 );
 
 const SCENE_ENTRY_PREFIX = "Entering ";
@@ -63,8 +47,7 @@ export function isSceneEntry(chat: Pick<PublicChat, "isSystem" | "text">): boole
 
 /** A line as it came from the database or the topic, as the chat holds it. */
 export function toChatEntry(chat: PublicChat): ChatEntry {
-  const kind = !chat.isSystem ? "text" : isSceneEntry(chat) ? "scene" : "system";
-  return {
+  const line = {
     id: `chat-${chat.idChat}`,
     idChat: chat.idChat,
     idUser: chat.idUser,
@@ -73,9 +56,10 @@ export function toChatEntry(chat: PublicChat): ChatEntry {
     picture: chat.picture,
     createdAt: chat.createdAt,
     isEdited: chat.isEdited,
-    kind,
     text: chat.text,
   };
+  if (chat.roll) return { ...line, kind: "roll", roll: chat.roll };
+  return { ...line, kind: !chat.isSystem ? "text" : isSceneEntry(chat) ? "scene" : "system" };
 }
 
 const clockFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
@@ -115,7 +99,7 @@ export function mergeChatEntries(held: ChatEntry[], incoming: ChatEntry[]): Chat
   const byId = new Map(held.map((entry) => [entry.id, entry]));
   for (const entry of incoming) byId.set(entry.id, entry);
   return [...byId.values()].sort(
-    (a, b) => a.createdAt.localeCompare(b.createdAt) || (a.idChat ?? 0) - (b.idChat ?? 0),
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.idChat - b.idChat,
   );
 }
 

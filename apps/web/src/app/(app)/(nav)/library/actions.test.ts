@@ -1,20 +1,23 @@
 // Integration test against the real database, skipped when DATABASE_URL is
 // unset so `just test` stays green offline. `before` inserts a second user and
-// three stories covering each branch: one the seed user owns, one they own but
-// archived, and a stranger's that the seed user plays in. Fixture ids are
+// three stories covering each branch: one the test user owns, one they own but
+// archived, and a stranger's that the test user plays in. Fixture ids are
 // positive and left to the database default, so they never collide with the
 // seed's negative ids.
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
+import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
 
-const SEED_USER = "01a0b60c-8938-7a0d-ab2b-34e12ce284c9";
+// Signed in as a test user of its own, never a real account (test-user.ts).
+const TEST_USER_EMAIL = "library-actions@example.test";
+let testUser = "";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: SEED_USER } }));
+const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
@@ -22,9 +25,9 @@ type DbModule = typeof import("@/db");
 let db: DbModule["db"];
 let tables: DbModule["schema"];
 
-const TITLE_OWNS = "Library fixture — seed user's own story";
-const TITLE_OWNS_ARCHIVED = "Library fixture — seed user's own archived story";
-const TITLE_PLAYS_IN = "Library fixture — other's story, seed user plays in it";
+const TITLE_OWNS = "Library fixture — test user's own story";
+const TITLE_OWNS_ARCHIVED = "Library fixture — test user's own archived story";
+const TITLE_PLAYS_IN = "Library fixture — other's story, test user plays in it";
 
 let otherUserId = "";
 let owns = 0;
@@ -36,6 +39,7 @@ describe("library actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     ({ db, schema: tables } = await import("@/db"));
+    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     actions = await import("./actions");
 
     const [otherUser] = await db
@@ -47,10 +51,10 @@ describe("library actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     const inserted = await db
       .insert(tables.stories)
       .values([
-        { title: TITLE_OWNS, idCreatedByUser: SEED_USER, idSystem: -26 },
+        { title: TITLE_OWNS, idCreatedByUser: testUser, idSystem: -26 },
         {
           title: TITLE_OWNS_ARCHIVED,
-          idCreatedByUser: SEED_USER,
+          idCreatedByUser: testUser,
           isActive: false,
           isArchived: true,
         },
@@ -63,7 +67,7 @@ describe("library actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     playsIn = idFor(TITLE_PLAYS_IN);
     fixtureStoryIds = [owns, ownsArchived, playsIn];
 
-    await db.insert(tables.storyPlayers).values({ idStory: playsIn, idUser: SEED_USER });
+    await db.insert(tables.storyPlayers).values({ idStory: playsIn, idUser: testUser });
   });
 
   after(async () => {
@@ -75,6 +79,7 @@ describe("library actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, fixtureStoryIds));
     }
     if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
+    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await db.$client.end();
   });
 

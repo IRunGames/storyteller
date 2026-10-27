@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 
-import { publishChat, publishStoryEvent } from "./publish";
+import { publishChat, publishChatDeleted, publishStoryEvent, publishTableCount } from "./publish";
 import type { StoryEvent } from "./events";
 
 const event: StoryEvent = {
@@ -97,6 +97,7 @@ describe("publishChat", () => {
     createdAt: "2026-10-26T20:05:00.000Z",
     color: null,
     picture: null,
+    roll: null,
   };
 
   it("publishes the line on the story's chat topic, as said by default", async () => {
@@ -112,5 +113,26 @@ describe("publishChat", () => {
 
     const body = JSON.parse(fetchMock.mock.calls[0].arguments[1]?.body as string);
     expect(JSON.parse(body.payload).type).toBe("chat.edited");
+  });
+
+  it("publishes a line taken back on the chat topic, by its id", async () => {
+    await publishChatDeleted(7, 4);
+
+    const body = JSON.parse(fetchMock.mock.calls[0].arguments[1]?.body as string);
+    expect(body.topic).toBe("story/7/chat");
+    expect(JSON.parse(body.payload)).toMatchObject({ type: "chat.deleted", idChat: 4 });
+  });
+
+  it("publishes how many are at the table on the chat topic", async () => {
+    await publishTableCount(7, 3);
+
+    const body = JSON.parse(fetchMock.mock.calls[0].arguments[1]?.body as string);
+    expect(body.topic).toBe("story/7/chat");
+    expect(JSON.parse(body.payload)).toMatchObject({
+      v: 1,
+      idStory: 7,
+      type: "table.count",
+      atTable: 3,
+    });
   });
 });

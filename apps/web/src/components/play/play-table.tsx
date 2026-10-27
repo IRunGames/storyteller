@@ -11,6 +11,8 @@ import type { StorySession } from "@/lib/stories";
 import { StoryPlayingBox } from "@/components/stories/story-playing-box";
 import { PlayCharacterSpace } from "./play-character-space";
 import { PlayChat } from "./play-chat";
+import { useChatLayout } from "./play-chat-layout";
+import { PlayChatOverlay } from "./play-chat-overlay";
 import { useStoryChat } from "./use-story-chat";
 import { PlayDiagnostics } from "./play-diagnostics";
 import { PlayHeader } from "./play-header";
@@ -89,6 +91,7 @@ export function PlayTable({
   // Diagnostics stands in for the chat, so the chat is showing only while
   // diagnostics is not.
   const chat = useStoryChat(idStory, showChat && !showDiagnostics);
+  const [chatLayout] = useChatLayout();
   const { scene, channel, setSceneText, setElementNotes, setElementStatus } = usePlayScene(
     idStory,
     initialScene,
@@ -132,9 +135,13 @@ export function PlayTable({
   // preference is left as it is, so closing diagnostics brings it back.
   const rightPanel = showDiagnostics ? (
     <PlayDiagnostics id={DIAGNOSTICS_ID} channel={channel} />
-  ) : showChat ? (
+  ) : showChat && chatLayout !== "overlay" ? (
     <PlayChat id={CHAT_ID} idStory={idStory} chat={chat} />
   ) : null;
+  // The overlay layout has no panel: a box in the lower right, over the table.
+  const chatOverlay = showChat && !showDiagnostics && chatLayout === "overlay" && (
+    <PlayChatOverlay id={CHAT_ID} idStory={idStory} chat={chat} />
+  );
 
   return (
     <Flex direction="column" h="100vh">
@@ -186,6 +193,7 @@ export function PlayTable({
           </Box>
         )}
       </Flex>
+      {chatOverlay}
     </Flex>
   );
 }
