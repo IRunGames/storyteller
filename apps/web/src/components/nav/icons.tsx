@@ -141,3 +141,33 @@ export function WaveIcon() {
     </svg>
   );
 }
+
+// The Ember theme's brand mark: a flame with two sparks drifting off it. The
+// inner tongue is cut out of the flame with the even-odd rule, as the
+// pumpkin's face is, so the header background shows through and the mark
+// keeps a single colour. No stroke, for the same reason as the pumpkin body.
+export function FlameIcon() {
+  return (
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      data-icon="flame"
+    >
+      <g stroke="none">
+        <path
+          fillRule="evenodd"
+          d="M12 2 C13 5.5 17.5 8 17.5 13.5 C17.5 17.5 15 21 12 21 C9 21 6.5 18.5 6.5 15 C6.5 12 8.3 10.2 9.4 8.6 C9.6 10.3 10.4 11.4 11.4 11.8 C11 8.4 11.2 5 12 2 Z M12 19 C13.6 19 14.8 17.6 14.8 15.8 C14.8 14 13.4 12.8 12.6 11.6 C12.3 13.2 11.4 14 10.4 14.4 C9.6 14.8 9.2 15.6 9.2 16.4 C9.2 17.9 10.5 19 12 19 Z"
+        />
+        <circle cx="18.8" cy="5.2" r="1.1" />
+        <circle cx="5.6" cy="7" r="0.8" />
+      </g>
+    </svg>
+  );
+}

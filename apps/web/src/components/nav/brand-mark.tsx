@@ -1,6 +1,6 @@
 import NextLink from "next/link";
 import { Box, HStack, Text } from "@chakra-ui/react";
-import { BerryIcon, PumpkinIcon, SparkleIcon, SprigIcon, WaveIcon } from "./icons";
+import { BerryIcon, FlameIcon, PumpkinIcon, SparkleIcon, SprigIcon, WaveIcon } from "./icons";
 
 // Every mark is always in the DOM and the theme class on <html> picks
 // which one shows. Reading the theme on the client instead would mean a
@@ -39,7 +39,7 @@ export function BrandMark({ active }: { active: boolean }) {
           as="span"
           display="inline-flex"
           color="nav.accent"
-          css={{ ".halloween &, .blackberry &, .mint &, .wave &": { display: "none" } }}
+          css={{ ".halloween &, .blackberry &, .mint &, .wave &, .ember &": { display: "none" } }}
         >
           <SparkleIcon />
         </Box>
@@ -74,6 +74,14 @@ export function BrandMark({ active }: { active: boolean }) {
           css={{ ".wave &": { display: "inline-flex" } }}
         >
           <WaveIcon />
+        </Box>
+        <Box
+          as="span"
+          display="none"
+          color="nav.accent"
+          css={{ ".ember &": { display: "inline-flex" } }}
+        >
+          <FlameIcon />
         </Box>
         <Text
           as="span"

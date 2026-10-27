@@ -13,6 +13,7 @@ export const THEMES = [
   { value: "blackberry", label: "Blackberry" },
   { value: "mint", label: "Mint" },
   { value: "wave", label: "Wave" },
+  { value: "ember", label: "Ember" },
 ] as const;
 
 export type Theme = (typeof THEMES)[number]["value"];
