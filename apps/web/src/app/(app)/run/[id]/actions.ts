@@ -42,7 +42,10 @@ import {
   type ElementPanelDetail,
 } from "@/lib/run";
 import { isScenePulse, scenePulseSchema } from "@/lib/realtime/events";
-import { publishLater } from "@/lib/realtime/publish";
+import { publishChat, publishLater } from "@/lib/realtime/publish";
+import type { PublicChat } from "@/lib/realtime/chat-events";
+import { insertChat } from "@/db/chats";
+import { sceneEntryText } from "@/lib/chat";
 import {
   publishElementChanged,
   publishSceneChanged,
@@ -366,13 +369,24 @@ function lockedScene(scene: { status: string }): boolean {
  *
  * The scene the session was on before is left as it was. Whether it is
  * finished is the storyteller's call, made on its own pill.
+ *
+ * When the session really moves (it was on another scene, or on none), the
+ * table chat gets its divider, "Entering <scene>", saved against the new
+ * scene in the same transaction and answered for the caller to publish once
+ * its own answer has gone. Null when the session was already on this scene,
+ * so loading it again adds no second divider.
  */
 async function putSessionOn(
   userId: string,
   idStorySession: number,
   idStoryScene: number,
-): Promise<void> {
-  await db.transaction(async (tx) => {
+): Promise<PublicChat | null> {
+  return db.transaction(async (tx) => {
+    const [before] = await tx
+      .select({ idStoryScene: storySessions.idStoryScene, idStory: storySessions.idStory })
+      .from(storySessions)
+      .where(eq(storySessions.idStorySession, idStorySession))
+      .limit(1);
     await tx
       .update(storyScenes)
       .set({ status: ACTIVE, idUpdatedByUser: userId })
@@ -396,7 +410,29 @@ async function putSessionOn(
       .update(storySessions)
       .set({ idStoryScene, idUpdatedByUser: userId })
       .where(eq(storySessions.idStorySession, idStorySession));
+
+    if (!before || before.idStoryScene === idStoryScene) return null;
+    const [scene] = await tx
+      .select({ title: storyScenes.sceneTitle })
+      .from(storyScenes)
+      .where(eq(storyScenes.idStoryScene, idStoryScene))
+      .limit(1);
+    return insertChat(
+      {
+        idStory: before.idStory,
+        idStoryScene,
+        text: sceneEntryText(scene?.title ?? "a new scene"),
+        isSystem: true,
+        userId,
+      },
+      tx,
+    );
   });
+}
+
+/** The divider putSessionOn saved, sent to every table; nothing when there was none. */
+function publishEntry(idStory: number, entry: PublicChat | null): void {
+  if (entry) publishLater(() => publishChat(idStory, entry));
 }
 
 export type SetSessionTitleResult =
@@ -492,10 +528,11 @@ export async function sa_getRunPlaySpace(idStory: number): Promise<RunPlaySpace>
     .limit(1);
   if (!active) return EMPTY;
 
-  await putSessionOn(user.id, session, active.idStoryScene);
+  const entry = await putSessionOn(user.id, session, active.idStoryScene);
   // The players' table follows the session's scene too; see
   // lib/realtime/publish-scene.ts.
   publishLater(() => publishSceneChanged(id.data));
+  publishEntry(id.data, entry);
   return spaceFor(id.data, active.idStoryScene);
 }
 
@@ -600,8 +637,9 @@ export async function sa_loadRunScene(
   const session = await playingSession(user.id, story.data);
   if (session === null) return { ok: false, error: NO_SESSION };
 
-  await putSessionOn(user.id, session, scene.data);
+  const entry = await putSessionOn(user.id, session, scene.data);
   publishLater(() => publishSceneChanged(story.data));
+  publishEntry(story.data, entry);
   return { ok: true, space: await spaceFor(story.data, scene.data) };
 }
 
@@ -653,8 +691,9 @@ export async function sa_createRunScene(
     .returning({ idStoryScene: storyScenes.idStoryScene });
 
   if (session !== null) {
-    await putSessionOn(user.id, session, created.idStoryScene);
+    const entry = await putSessionOn(user.id, session, created.idStoryScene);
     publishLater(() => publishSceneChanged(id));
+    publishEntry(id, entry);
   }
   return { ok: true, space: await spaceFor(id, created.idStoryScene) };
 }

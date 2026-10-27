@@ -50,6 +50,8 @@ export const user = pgTable("s_users", {
   idUserType: integer("id_user_type").default(-1).notNull(),
   tags: integer("tags"),
   isActive: boolean("is_active").default(true).notNull(),
+  // What the user writes about themselves on their profile; null until then.
+  bio: text("bio"),
   // name, email and nick_name joined for lookups, built by the database from
   // the search_fields recipe on the s_users row of _tables
   // (db/migrations/20260923181837_add_users_search_text.sql). Generated, so
@@ -718,6 +720,25 @@ export const feedback = pgTable("feedback", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
+// One line of a story's table chat (db/custom/create_chats_table.sql). The
+// sender is id_created_by_user, the standard audit column. idStoryScene is
+// the scene the table was on when the line was said, null while it was on
+// none. isSystem marks a line the table put there itself rather than a
+// person: the divider when the storyteller moves to another scene, a card
+// untapped.
+export const chats = pgTable("chats", {
+  idChat: integer("id_chat").primaryKey().generatedByDefaultAsIdentity(),
+  idStory: integer("id_story").notNull(),
+  idStoryScene: integer("id_story_scene"),
+  chatText: text("chat_text").notNull(),
+  isEdited: boolean("is_edited").notNull().default(false),
+  isSystem: boolean("is_system").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
 // One row per user, every preference in one jsonb object. idUser is the
 // upsert key (unique in the database); the audit columns below carry the same
 // user but are the metatable's, so the constraint could not sit on them.
@@ -728,6 +749,19 @@ export const userPreferences = pgTable("user_preferences", {
     .$type<UserPreferenceMap>()
     .default(sql`'{}'::jsonb`)
     .notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// The systems a user likes, shown on their profile. idUser owns the list and
+// is half of its unique key, which is why it sits beside the metatable's
+// idCreatedByUser carrying the same user.
+export const userSystems = pgTable("user_systems", {
+  idUserSystem: integer("id_user_system").primaryKey().generatedByDefaultAsIdentity(),
+  idUser: uuid("id_user").notNull(),
+  idSystem: integer("id_system").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -848,6 +882,12 @@ export const feedbackRelations = relations(feedback, ({ one }) => ({
   user: one(user, { fields: [feedback.idCreatedByUser], references: [user.id] }),
 }));
 
+export const chatsRelations = relations(chats, ({ one }) => ({
+  story: one(stories, { fields: [chats.idStory], references: [stories.idStory] }),
+  scene: one(storyScenes, { fields: [chats.idStoryScene], references: [storyScenes.idStoryScene] }),
+  sender: one(user, { fields: [chats.idCreatedByUser], references: [user.id] }),
+}));
+
 export const newsRelations = relations(news, ({ one, many }) => ({
   author: one(user, { fields: [news.idCreatedByUser], references: [user.id] }),
   archivedBy: one(user, { fields: [news.idArchivedByUser], references: [user.id] }),
@@ -861,6 +901,11 @@ export const newsReadsRelations = relations(newsReads, ({ one }) => ({
 
 export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
   user: one(user, { fields: [userPreferences.idUser], references: [user.id] }),
+}));
+
+export const userSystemsRelations = relations(userSystems, ({ one }) => ({
+  user: one(user, { fields: [userSystems.idUser], references: [user.id] }),
+  system: one(systems, { fields: [userSystems.idSystem], references: [systems.idSystem] }),
 }));
 
 // attachmentUses deliberately has no relations() block to its holders. A

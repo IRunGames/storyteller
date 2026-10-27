@@ -1,14 +1,16 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
-import NextLink from "next/link";
+import { useCallback, useId, useState, type ReactNode } from "react";
 import { Avatar, Menu, Portal, Tooltip, chakra } from "@chakra-ui/react";
 import { CircleAlert, House, Wrench } from "lucide-react";
 import { useSignOut } from "@/components/auth/sign-out-button";
 import { useUser } from "@/components/auth/user-provider";
 import { UserTypeVisibility } from "@/components/auth/user-type-visibility";
 import { EnvironmentVisibility } from "@/components/environment/environment-visibility";
+import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
+import { ProfileDialog } from "@/components/profile/profile-dialog";
 import { builtAt, currentEnvironment, isShownIn } from "@/lib/environment";
+import { PROFILE_PREFERENCE_KEYS, avatarSrc } from "@/lib/profile";
 import { isUserTypeShown, USER_TYPES } from "@/lib/user-types";
 
 // Who sees which of the menu's build items. Cause error is for anywhere but
@@ -47,6 +49,11 @@ export function NavAccountMenu() {
   const { signOut, isSigningOut } = useSignOut();
   const triggerId = useId();
   const [causeError, setCauseError] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const closeProfile = useCallback(() => setProfileOpen(false), []);
+  const preferences = useUserPreferences();
+  // The picture set on the profile, else the sign-in one, else initials.
+  const picture = avatarSrc(preferences.get(PROFILE_PREFERENCE_KEYS.avatarUrl), user.image);
 
   // The divider above the build items is drawn only when one of them is,
   // so a player in production does not get two dividers with nothing
@@ -67,85 +74,91 @@ export function NavAccountMenu() {
   const displayName = user.nickName || user.name || user.email;
 
   return (
-    <Menu.Root
-      positioning={{ placement: "bottom-end" }}
-      ids={{ trigger: triggerId }}
-      onSelect={(details) => {
-        if (details.value === "logout") void signOut();
-        if (details.value === "cause-error") setCauseError(true);
-      }}
-    >
-      {/* Both triggers use asChild, so their props merge onto the one
+    <>
+      <Menu.Root
+        positioning={{ placement: "bottom-end" }}
+        ids={{ trigger: triggerId }}
+        onSelect={(details) => {
+          if (details.value === "logout") void signOut();
+          if (details.value === "cause-error") setCauseError(true);
+          if (details.value === "profile") setProfileOpen(true);
+        }}
+      >
+        {/* Both triggers use asChild, so their props merge onto the one
           button: hover shows the tooltip, click opens the menu. */}
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Menu.Trigger asChild>
-            <chakra.button
-              type="button"
-              aria-label="Account menu"
-              display="inline-flex"
-              rounded="full"
-              cursor="pointer"
-              _focusVisible={{
-                outline: "2px solid",
-                outlineColor: "nav.accent",
-                outlineOffset: "2px",
-              }}
-            >
-              <Avatar.Root
-                boxSize="11"
-                bg="nav.avatarBg"
-                color="nav.avatarFg"
-                fontSize="15px"
-                fontWeight="semibold"
-                letterSpacing="0.02em"
+        <Tooltip.Root
+          openDelay={200}
+          positioning={{ placement: "top" }}
+          ids={{ trigger: triggerId }}
+        >
+          <Tooltip.Trigger asChild>
+            <Menu.Trigger asChild>
+              <chakra.button
+                type="button"
+                aria-label="Account menu"
+                display="inline-flex"
+                rounded="full"
+                cursor="pointer"
+                _focusVisible={{
+                  outline: "2px solid",
+                  outlineColor: "nav.accent",
+                  outlineOffset: "2px",
+                }}
               >
-                <Avatar.Fallback name={user.name} />
-                {user.image && <Avatar.Image src={user.image} />}
-              </Avatar.Root>
-            </chakra.button>
-          </Menu.Trigger>
-        </Tooltip.Trigger>
-        <Tooltip.Positioner>
-          <Tooltip.Content>{displayName}</Tooltip.Content>
-        </Tooltip.Positioner>
-      </Tooltip.Root>
-      <Portal>
-        <Menu.Positioner>
-          <Menu.Content>
-            <Menu.Item value="profile" asChild>
-              <NextLink href="/profile">Profile</NextLink>
-            </Menu.Item>
-            {showsBuildSection && <Menu.Separator />}
-            <EnvironmentVisibility {...CAUSE_ERROR_RULE}>
-              <Menu.Item value="cause-error" color="fg.error">
-                <CircleAlert />
-                Cause error
-              </Menu.Item>
-            </EnvironmentVisibility>
-            {/* Facts about this deployment, not actions: choosing one leaves
+                <Avatar.Root
+                  boxSize="11"
+                  bg="nav.avatarBg"
+                  color="nav.avatarFg"
+                  fontSize="15px"
+                  fontWeight="semibold"
+                  letterSpacing="0.02em"
+                >
+                  <Avatar.Fallback name={user.name} />
+                  {picture && <Avatar.Image src={picture} />}
+                </Avatar.Root>
+              </chakra.button>
+            </Menu.Trigger>
+          </Tooltip.Trigger>
+          <Tooltip.Positioner>
+            <Tooltip.Content>{displayName}</Tooltip.Content>
+          </Tooltip.Positioner>
+        </Tooltip.Root>
+        <Portal>
+          <Menu.Positioner>
+            <Menu.Content>
+              <Menu.Item value="profile">Profile</Menu.Item>
+              {showsBuildSection && <Menu.Separator />}
+              <EnvironmentVisibility {...CAUSE_ERROR_RULE}>
+                <Menu.Item value="cause-error" color="fg.error">
+                  <CircleAlert />
+                  Cause error
+                </Menu.Item>
+              </EnvironmentVisibility>
+              {/* Facts about this deployment, not actions: choosing one leaves
                 the menu open. */}
-            <UserTypeVisibility {...BUILD_INFO_RULE}>
-              <Menu.Item value="environment" closeOnSelect={false}>
-                <ItemTooltip label={currentEnvironment() ?? "Unknown"}>
-                  <Wrench />
-                  Environment
-                </ItemTooltip>
+              <UserTypeVisibility {...BUILD_INFO_RULE}>
+                <Menu.Item value="environment" closeOnSelect={false}>
+                  <ItemTooltip label={currentEnvironment() ?? "Unknown"}>
+                    <Wrench />
+                    Environment
+                  </ItemTooltip>
+                </Menu.Item>
+                <Menu.Item value="version" closeOnSelect={false}>
+                  <ItemTooltip label={builtAt() ?? "Build time unknown"}>
+                    <House />
+                    Version
+                  </ItemTooltip>
+                </Menu.Item>
+              </UserTypeVisibility>
+              <Menu.Separator />
+              <Menu.Item value="logout" disabled={isSigningOut}>
+                Logout
               </Menu.Item>
-              <Menu.Item value="version" closeOnSelect={false}>
-                <ItemTooltip label={builtAt() ?? "Build time unknown"}>
-                  <House />
-                  Version
-                </ItemTooltip>
-              </Menu.Item>
-            </UserTypeVisibility>
-            <Menu.Separator />
-            <Menu.Item value="logout" disabled={isSigningOut}>
-              Logout
-            </Menu.Item>
-          </Menu.Content>
-        </Menu.Positioner>
-      </Portal>
-    </Menu.Root>
+            </Menu.Content>
+          </Menu.Positioner>
+        </Portal>
+      </Menu.Root>
+      <ProfileDialog open={profileOpen} onClose={closeProfile} />
+    </>
   );
 }

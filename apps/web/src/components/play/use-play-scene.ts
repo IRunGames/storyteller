@@ -5,7 +5,7 @@ import { applyStoryEvent, type PlayScene } from "@/lib/play-scene";
 import type { SceneText } from "@/lib/scenes";
 import type { StoryEvent } from "@/lib/realtime/events";
 import { sa_getPlayScene } from "@/app/(app)/play/[id]/actions";
-import { useStoryChannel, type ChannelState } from "./use-story-channel";
+import { useStoryChannel, type ChannelHandlers, type ChannelState } from "./use-story-channel";
 
 /** A pulse about one element of the scene the table is on, as it came over the topic. */
 export type ScenePulseEvent = Extract<StoryEvent, { type: "scene_element.custom" }>;
@@ -23,6 +23,7 @@ export function usePlayScene(
   idStory: number,
   initial: PlayScene,
   onPulse?: (event: ScenePulseEvent) => void,
+  chat?: Pick<ChannelHandlers, "onChat" | "onConnect">,
 ): {
   scene: PlayScene;
   channel: ChannelState;
@@ -82,7 +83,16 @@ export function usePlayScene(
     [reload],
   );
 
-  const channel = useStoryChannel(idStory, onEvent, () => void reload());
+  // The chat rides on the same connection (useStoryChannel): its lines go
+  // to the table's chat, and each connection reloads it beside the scene.
+  const channel = useStoryChannel(idStory, {
+    onEvent,
+    onChat: chat?.onChat,
+    onConnect: () => {
+      void reload();
+      chat?.onConnect?.();
+    },
+  });
 
   // The scene's text as the panel just saved it, kept at once rather than
   // waiting for the topic to say the scene changed.

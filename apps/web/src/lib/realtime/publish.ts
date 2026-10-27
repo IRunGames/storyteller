@@ -1,6 +1,7 @@
 import { after } from "next/server";
-import { storyStateTopic } from "./topics";
+import { storyChatTopic, storyStateTopic } from "./topics";
 import type { StoryEvent } from "./events";
+import type { ChatEvent, ChatEventType, PublicChat } from "./chat-events";
 
 // Publishing to EMQX from the server. The broker's REST API is used rather
 // than an MQTT client: a server action runs in a function that may be gone a
@@ -40,23 +41,22 @@ function config(): Config | null {
 }
 
 /**
- * Publishes one event on the story's state topic and waits for the broker's
- * answer. Never throws: the database write it follows has already happened
- * and is what counts, so a broker that is down or refuses is logged and the
- * action still answers as if all were well. QoS 1, so a subscriber that is
- * connected hears it once at least; not retained, since a player who
- * arrives later loads the scene afresh rather than reading the last message.
+ * Publishes one payload on a topic and waits for the broker's answer. Never
+ * throws: the database write it follows has already happened and is what
+ * counts, so a broker that is down or refuses is logged and the action still
+ * answers as if all were well. QoS 1, so a subscriber that is connected
+ * hears it once at least; not retained, since a table that arrives later
+ * loads afresh from the database rather than reading the last message.
  */
-export async function publishStoryEvent(idStory: number, event: StoryEvent): Promise<void> {
+async function publishOnTopic(topic: string, payload: unknown): Promise<void> {
   const target = config();
   if (!target) return;
 
-  const topic = storyStateTopic(idStory);
   try {
     const response = await fetch(target.url, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: target.authorization },
-      body: JSON.stringify({ topic, payload: JSON.stringify(event), qos: 1, retain: false }),
+      body: JSON.stringify({ topic, payload: JSON.stringify(payload), qos: 1, retain: false }),
     });
     if (!response.ok) {
       console.error(
@@ -66,6 +66,24 @@ export async function publishStoryEvent(idStory: number, event: StoryEvent): Pro
   } catch (error) {
     console.error(`EMQX could not be reached to publish on ${topic}`, error);
   }
+}
+
+/** Publishes one event on the story's state topic; see publishOnTopic. */
+export async function publishStoryEvent(idStory: number, event: StoryEvent): Promise<void> {
+  await publishOnTopic(storyStateTopic(idStory), event);
+}
+
+/**
+ * Publishes one line of the table chat on the story's chat topic, whole, as
+ * said (chat.posted) or as edited (chat.edited); see publishOnTopic.
+ */
+export async function publishChat(
+  idStory: number,
+  chat: PublicChat,
+  type: ChatEventType = "chat.posted",
+): Promise<void> {
+  const event: ChatEvent = { v: 1, at: new Date().toISOString(), idStory, type, chat };
+  await publishOnTopic(storyChatTopic(idStory), event);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { requireUser, UnauthorizedError } from "@/lib/authorize";
-import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, uploadPrefix } from "@/lib/image-uploads";
+import { ALLOWED_IMAGE_TYPES, maxUploadBytes, uploadPrefix } from "@/lib/image-uploads";
 
 /**
  * Issues the short-lived token the browser uses to upload straight to Vercel
@@ -35,7 +35,9 @@ export async function POST(request: Request): Promise<Response> {
 
         return {
           allowedContentTypes: [...ALLOWED_IMAGE_TYPES],
-          maximumSizeInBytes: MAX_IMAGE_BYTES,
+          // A profile picture is held to a smaller size than an attachment;
+          // the pathname is already proven to be under this user's prefix.
+          maximumSizeInBytes: maxUploadBytes(pathname, user.id),
           addRandomSuffix: true,
         };
       },

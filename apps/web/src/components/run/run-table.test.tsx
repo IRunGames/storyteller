@@ -96,6 +96,7 @@ const sa_getStoryChannel = mock.fn(async (_idStory: number) => ({
   username: "player",
   password: "pw",
   topic: "story/-4/state",
+  chatTopic: "story/-4/chat",
 }));
 
 const sa_setRowStatus = mock.fn(async (_table: string, _id: number, status: string) => ({
@@ -349,7 +350,13 @@ describe("RunTable", () => {
     });
     // The diagnostics panel's channel: the broker is never reached from here.
     mock.module("@/app/(app)/play/[id]/actions", {
-      namedExports: { sa_getStoryChannel, sa_getPlayScene: mock.fn() },
+      namedExports: {
+        sa_getStoryChannel,
+        sa_getPlayScene: mock.fn(),
+        sa_listChats: mock.fn(async () => ({ chats: [], hasPrevious: false })),
+        sa_postChat: mock.fn(),
+        sa_editChat: mock.fn(),
+      },
     });
     mock.module("mqtt", { defaultExport: { connect } });
     mock.module("@/app/(app)/(nav)/libraries/actions", {
@@ -476,7 +483,10 @@ describe("RunTable", () => {
     await act(async () => {
       client.emit("connect");
     });
-    expect(client.subscribe.mock.calls[0].arguments[0]).toBe("story/-4/state");
+    expect(client.subscribe.mock.calls[0].arguments[0]).toEqual([
+      "story/-4/state",
+      "story/-4/chat",
+    ]);
     const header = screen.getByRole("banner");
     expect(screen.getByRole("region", { name: "Table Chat" })).toBeInTheDocument();
 
@@ -504,13 +514,48 @@ describe("RunTable", () => {
     ).toBeInTheDocument();
   });
 
-  it("neither offers Diagnostics to a player's account nor listens for one", () => {
+  it("does not offer Diagnostics to a player's account, but listens for the chat", async () => {
     renderTable({ "run.showDiagnostics": true });
     expect(
       within(screen.getByRole("banner")).queryByRole("button", { name: "Diagnostics" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Diagnostics" })).not.toBeInTheDocument();
-    expect(sa_getStoryChannel.mock.calls).toHaveLength(0);
+    await waitFor(() => expect(sa_getStoryChannel.mock.calls).toHaveLength(1));
+  });
+
+  it("counts chat lines that come in while the chat is closed", async () => {
+    renderTable();
+    await waitFor(() => expect(connect.mock.calls.length).toBeGreaterThan(0));
+    await act(async () => {
+      client.emit("connect");
+      client.emit(
+        "message",
+        "story/-4/chat",
+        new TextEncoder().encode(
+          JSON.stringify({
+            v: 1,
+            at: "",
+            idStory: -4,
+            type: "chat.posted",
+            chat: {
+              idChat: 1,
+              idStoryScene: null,
+              idUser: "a-player",
+              from: "Harry",
+              text: "Ready.",
+              isSystem: false,
+              isEdited: false,
+              createdAt: "2026-10-26T20:05:00.000Z",
+              color: null,
+              picture: null,
+            },
+          }),
+        ),
+      );
+    });
+    expect(
+      within(screen.getByRole("banner")).getByRole("button", { name: "Chat, 1 new" }),
+    ).toBeInTheDocument();
   });
 
   it("keeps its panels apart from a player's table", async () => {

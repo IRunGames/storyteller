@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
 
-import { storyStateTopic, storyTopicPrefix } from "./topics";
+import { storyChatTopic, storyStateTopic, storyTopicPrefix } from "./topics";
 
 describe("story topics", () => {
   it("puts every topic of a story under story/{id}", () => {
     expect(storyTopicPrefix(7)).toBe("story/7");
     expect(storyStateTopic(7)).toBe("story/7/state");
+    expect(storyChatTopic(7)).toBe("story/7/chat");
   });
 
   it("keeps a seed story's negative id as it is", () => {

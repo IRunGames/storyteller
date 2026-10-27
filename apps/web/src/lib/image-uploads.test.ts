@@ -3,9 +3,12 @@ import { expect } from "expect";
 
 import {
   ALLOWED_IMAGE_TYPES,
+  MAX_AVATAR_BYTES,
   MAX_IMAGE_BYTES,
+  avatarPrefix,
   isOwnUploadedBlobUrl,
   isUploadedBlobUrl,
+  maxUploadBytes,
   uploadPrefix,
 } from "./image-uploads";
 
@@ -78,5 +81,17 @@ describe("isOwnUploadedBlobUrl", () => {
 
   it("builds the prefix the route handler and the component agree on", () => {
     expect(uploadPrefix(USER)).toBe(`uploads/${USER}/`);
+  });
+});
+
+describe("profile picture uploads", () => {
+  it("keeps profile pictures in a folder inside the user's own prefix", () => {
+    expect(avatarPrefix(USER)).toBe(`uploads/${USER}/avatar/`);
+  });
+
+  it("holds a profile picture to 2 MB and anything else to the attachment limit", () => {
+    expect(MAX_AVATAR_BYTES).toBe(2 * 1024 * 1024);
+    expect(maxUploadBytes(`uploads/${USER}/avatar/me.png`, USER)).toBe(MAX_AVATAR_BYTES);
+    expect(maxUploadBytes(`uploads/${USER}/map.png`, USER)).toBe(MAX_IMAGE_BYTES);
   });
 });

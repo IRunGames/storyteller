@@ -7,6 +7,7 @@ import { attachmentUrl } from "@/db/attachment-url";
 import { hasOpenSession } from "@/db/open-session";
 import { waitingCount } from "@/db/session-player-counts";
 import { currentScene, sceneItems } from "@/db/scene-items";
+import { chatById, insertChat, listChats, type ChatPage } from "@/db/chats";
 import { requireUser } from "@/lib/authorize";
 import {
   isUnplayable,
@@ -15,7 +16,7 @@ import {
   type WaitingRoomState,
 } from "@/lib/play";
 import { EMPTY_PLAY_SCENE, type PlayScene } from "@/lib/play-scene";
-import { publishLater } from "@/lib/realtime/publish";
+import { publishChat, publishLater } from "@/lib/realtime/publish";
 import {
   publishElementChanged,
   publishSceneChanged,
@@ -25,10 +26,13 @@ import { elementSchema } from "@/lib/element-schemas";
 import { sceneTextSchema } from "@/lib/scene-schemas";
 import { SCENE_LOCKED_STATUS, type SetSceneTextResult } from "@/lib/scenes";
 import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
-import { storyStateTopic } from "@/lib/realtime/topics";
+import { storyChatTopic, storyStateTopic } from "@/lib/realtime/topics";
+import type { PublicChat } from "@/lib/realtime/chat-events";
+import { chatTextSchema } from "@/lib/chat-schemas";
 import { SCENE_ELEMENT_HIDDEN, SCENE_ELEMENT_SHOWN, SCENE_ELEMENT_TAPPED } from "@/lib/run";
 
-const { stories, storyPlayers, sessionPlayers, storyScenes, elements, sceneElements } = schema;
+const { stories, storyPlayers, sessionPlayers, storyScenes, elements, sceneElements, chats } =
+  schema;
 
 // stories.id_story is int4; an id outside that range is a query error to
 // Postgres rather than a missing row, so it is turned away before the query.
@@ -516,7 +520,13 @@ export async function sa_untapPlaySceneElement(
   if (row.status !== SCENE_ELEMENT_TAPPED) return { ok: false, error: NOT_TAPPED };
   if (!row.showInfo && !story.isOwner) return { ok: false, error: INFO_NOT_SHOWING };
 
-  await db.transaction(async (tx) => {
+  const [named] = await db
+    .select({ name: elements.name })
+    .from(elements)
+    .where(eq(elements.idElement, element.data))
+    .limit(1);
+
+  const said = await db.transaction(async (tx) => {
     await tx
       .update(sceneElements)
       .set({ status: SCENE_ELEMENT_SHOWN, idUpdatedByUser: user.id })
@@ -536,8 +546,21 @@ export async function sa_untapPlaySceneElement(
         })}::jsonb
       )
     `);
+    // The table says so in the chat, named as the chat names the sender.
+    const who = story.isOwner ? "Storyteller" : user.nickName || user.name;
+    return insertChat(
+      {
+        idStory: story.idStory,
+        idStoryScene: scene.data,
+        text: `${who} untapped ${named?.name ?? "a card"}`,
+        isSystem: true,
+        userId: user.id,
+      },
+      tx,
+    );
   });
   publishLater(() => publishSceneElement(story.idStory, scene.data, element.data));
+  publishLater(() => publishChat(story.idStory, said));
   return { ok: true, status: SCENE_ELEMENT_SHOWN };
 }
 
@@ -571,6 +594,8 @@ export type StoryChannel = {
   password: string;
   /** The story's state topic. */
   topic: string;
+  /** The story's chat topic, which the same connection listens to. */
+  chatTopic: string;
 };
 
 /**
@@ -602,5 +627,105 @@ export async function sa_getStoryChannel(idStory: number): Promise<StoryChannel 
     username,
     password,
     topic: storyStateTopic(story.idStory),
+    chatTopic: storyChatTopic(story.idStory),
   };
+}
+
+const EMPTY_CHAT_PAGE: ChatPage = { chats: [], hasPrevious: false };
+
+/**
+ * The table chat as it opens: the last CHAT_PAGE_SIZE lines of the scene
+ * being played (or, on no scene, those said on none since the session
+ * opened), oldest first; with `before`, the page before that line, for
+ * Previous…. Nothing for anyone but the story's storyteller and its players,
+ * and nothing while no session is being played, since the chat is the
+ * table's and there is no table.
+ */
+export async function sa_listChats(idStory: number, before?: number): Promise<ChatPage> {
+  const user = await requireUser();
+  const story = await loadPlayStory(user.id, idStory);
+  if (!story) return EMPTY_CHAT_PAGE;
+  const cursor = before === undefined ? undefined : idStorySchema.safeParse(before);
+  if (cursor && !cursor.success) return EMPTY_CHAT_PAGE;
+
+  const current = await currentScene(story.idStory);
+  if (current === null) return EMPTY_CHAT_PAGE;
+  return listChats(story.idStory, current, cursor?.data);
+}
+
+export type ChatResult = { ok: true; chat: PublicChat } | { ok: false; error: string };
+
+const NO_SESSION = "The story is not being played, so there is no table to talk at.";
+const NOT_YOUR_LINE = "That is not a line of yours.";
+
+/**
+ * One line said at the table, by the story's storyteller or one of its
+ * players, saved against the scene the session is on (taken here, not from
+ * the client) and sent to every table, the sender's own included. Refused
+ * for anyone else, and while no session is being played.
+ */
+export async function sa_postChat(idStory: number, text: unknown): Promise<ChatResult> {
+  const user = await requireUser();
+  const story = await loadPlayStory(user.id, idStory);
+  if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
+
+  const parsed = chatTextSchema.safeParse(text);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message };
+
+  const current = await currentScene(story.idStory);
+  if (current === null) return { ok: false, error: NO_SESSION };
+
+  const chat = await insertChat({
+    idStory: story.idStory,
+    idStoryScene: current.idStoryScene,
+    text: parsed.data,
+    isSystem: false,
+    userId: user.id,
+  });
+  publishLater(() => publishChat(story.idStory, chat));
+  return { ok: true, chat };
+}
+
+/**
+ * A line the caller said, put right in place: the text replaced and the
+ * line marked edited, then sent to every table again. Only the sender's own
+ * lines, and never one the table put there itself. No session is needed,
+ * so a line can still be corrected once the scene has moved on. Text that
+ * comes back the same is no edit, and the line is answered as it stands.
+ */
+export async function sa_editChat(
+  idStory: number,
+  idChat: number,
+  text: unknown,
+): Promise<ChatResult> {
+  const user = await requireUser();
+  const story = await loadPlayStory(user.id, idStory);
+  if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
+  const id = idStorySchema.safeParse(idChat);
+  if (!id.success) return { ok: false, error: NOT_YOUR_LINE };
+
+  const parsed = chatTextSchema.safeParse(text);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message };
+
+  const mine = and(
+    eq(chats.idChat, id.data),
+    eq(chats.idStory, story.idStory),
+    eq(chats.idCreatedByUser, user.id),
+    eq(chats.isSystem, false),
+  );
+  const [held] = await db.select({ text: chats.chatText }).from(chats).where(mine).limit(1);
+  if (!held) return { ok: false, error: NOT_YOUR_LINE };
+
+  if (held.text !== parsed.data) {
+    await db
+      .update(chats)
+      .set({ chatText: parsed.data, isEdited: true, idUpdatedByUser: user.id })
+      .where(mine);
+  }
+  const chat = await chatById(id.data);
+  if (!chat) return { ok: false, error: NOT_YOUR_LINE };
+  if (held.text !== parsed.data) {
+    publishLater(() => publishChat(story.idStory, chat, "chat.edited"));
+  }
+  return { ok: true, chat };
 }

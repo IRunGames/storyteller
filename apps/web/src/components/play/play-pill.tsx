@@ -20,9 +20,7 @@ import {
   SCENE_ELEMENT_TAPPED,
   type PlayItem,
 } from "@/lib/run";
-import { chatLog } from "@/lib/chat-log";
 import { sa_untapPlaySceneElement } from "@/app/(app)/play/[id]/actions";
-import { useUser } from "@/components/auth/user-provider";
 import { toaster } from "@/components/ui/toaster";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { ElementHistory } from "@/components/elements/element-history";
@@ -89,7 +87,6 @@ export function PlayPill({
   readOnly = false,
   withHistory = false,
 }: Props) {
-  const user = useUser();
   const isDisabled = item.sceneStatus === SCENE_ELEMENT_DISABLED;
   const isTapped = item.sceneStatus === SCENE_ELEMENT_TAPPED;
   const showInfo = item.showInfo === true;
@@ -101,7 +98,6 @@ export function PlayPill({
       const result = await sa_untapPlaySceneElement(idStory, idStoryScene, idElement);
       if (result.ok) {
         onStatusChange(idElement, result.status);
-        chatLog.post({ from: user.nickName || user.name, text: `untapped ${item.label}` });
         return;
       }
       onStatusChange(idElement, SCENE_ELEMENT_TAPPED);

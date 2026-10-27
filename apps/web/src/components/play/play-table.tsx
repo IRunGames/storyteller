@@ -11,6 +11,7 @@ import type { StorySession } from "@/lib/stories";
 import { StoryPlayingBox } from "@/components/stories/story-playing-box";
 import { PlayCharacterSpace } from "./play-character-space";
 import { PlayChat } from "./play-chat";
+import { useStoryChat } from "./use-story-chat";
 import { PlayDiagnostics } from "./play-diagnostics";
 import { PlayHeader } from "./play-header";
 import { PlayPanelToggle } from "./play-panel-toggle";
@@ -42,9 +43,12 @@ const DIAGNOSTICS_ID = "play-panel-diagnostics";
 // topic (usePlayScene). The storyteller's pulses come the same way: the
 // element whose picture they last put up (preview.open) is held here, as
 // nothing but this page remembers it, and the play space shows it full
-// size until preview.close or the player closes it. A storyteller or
-// administrator gets a fourth part, the diagnostics panel, which takes the
-// chat's place while it is open and shows what comes over that topic.
+// size until preview.close or the player closes it. The chat's lines come
+// over the same connection (useStoryChat) and are held here, so they keep
+// coming while the chat is closed and the Chat toggle counts them. A
+// storyteller or administrator gets a fourth part, the diagnostics panel,
+// which takes the chat's place while it is open and shows what comes over
+// that connection.
 type Props = {
   idStory: number;
   /** The story being played, shown in the header. */
@@ -76,16 +80,21 @@ export function PlayTable({
     if (event.custom.action === "preview.open") setPreviewIdElement(event.idElement);
     else if (event.custom.action === "preview.close") setPreviewIdElement(null);
   }, []);
-  const { scene, channel, setSceneText, setElementNotes, setElementStatus } = usePlayScene(
-    idStory,
-    initialScene,
-    onPulse,
-  );
-
   const showChat = preferences.get<boolean>(SHOW_CHAT, false);
   const showCharacter = preferences.get<boolean>(SHOW_CHARACTER, false);
   const diagnosticsOffered = canSeeDiagnostics(user.idUserType);
   const showDiagnostics = diagnosticsOffered && preferences.get<boolean>(SHOW_DIAGNOSTICS, false);
+  // The chat is held here rather than in its panel, so it keeps listening
+  // while the panel is closed and the Chat toggle can count what came in.
+  // Diagnostics stands in for the chat, so the chat is showing only while
+  // diagnostics is not.
+  const chat = useStoryChat(idStory, showChat && !showDiagnostics);
+  const { scene, channel, setSceneText, setElementNotes, setElementStatus } = usePlayScene(
+    idStory,
+    initialScene,
+    onPulse,
+    { onChat: chat.receive, onConnect: () => void chat.refresh() },
+  );
 
   const toggles = (
     <HStack gap="1">
@@ -101,6 +110,7 @@ export function PlayTable({
         label="Chat"
         controls={CHAT_ID}
         isOpen={showChat}
+        count={chat.unread}
         onToggle={() => preferences.set(SHOW_CHAT, !showChat)}
       >
         <MessageSquare />
@@ -123,7 +133,7 @@ export function PlayTable({
   const rightPanel = showDiagnostics ? (
     <PlayDiagnostics id={DIAGNOSTICS_ID} channel={channel} />
   ) : showChat ? (
-    <PlayChat id={CHAT_ID} />
+    <PlayChat id={CHAT_ID} idStory={idStory} chat={chat} />
   ) : null;
 
   return (

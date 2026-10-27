@@ -29,6 +29,10 @@ const published = {
   publishSessionUpdated: mock.fn(async (..._args: unknown[]) => {}),
 };
 
+// The chat's divider goes out over the broker; caught here, and run at once.
+const publishChat = mock.fn(async (_idStory: number, _chat: unknown) => {});
+const publishLater = (work: () => Promise<void>) => void work();
+
 let actions: typeof import("./actions");
 
 type DbModule = typeof import("@/db");
@@ -52,6 +56,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     mock.module("@/lib/realtime/publish-scene", { namedExports: published });
+    mock.module("@/lib/realtime/publish", { namedExports: { publishChat, publishLater } });
     ({ db, schema: tables } = await import("@/db"));
     actions = await import("./actions");
 
@@ -226,6 +231,44 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       },
     });
     expect(await sceneRow(pending)).toEqual({ status: "ACTIVE", idStorySession: session });
+    expect(await currentSceneOf(session)).toBe(pending);
+  });
+
+  it("puts an Entering divider in the chat when the table moves, and only then", async () => {
+    const session = await openSession(mine, null);
+    const pending = await sceneIn("PENDING", "Fixture divider scene");
+    publishChat.mock.resetCalls();
+    const dividers = () =>
+      db
+        .select({
+          text: tables.chats.chatText,
+          idStoryScene: tables.chats.idStoryScene,
+          isSystem: tables.chats.isSystem,
+          idCreatedByUser: tables.chats.idCreatedByUser,
+        })
+        .from(tables.chats)
+        .where(eq(tables.chats.idStoryScene, pending));
+
+    await actions.sa_loadRunScene(mine, pending);
+    expect(await dividers()).toEqual([
+      {
+        text: "Entering Fixture divider scene",
+        idStoryScene: pending,
+        isSystem: true,
+        idCreatedByUser: SEED_USER,
+      },
+    ]);
+    expect(publishChat.mock.calls).toHaveLength(1);
+    expect(publishChat.mock.calls[0].arguments[1]).toMatchObject({
+      text: "Entering Fixture divider scene",
+      from: "Storyteller",
+      isSystem: true,
+    });
+
+    // Loading the scene the table is already on is no move.
+    await actions.sa_loadRunScene(mine, pending);
+    expect(await dividers()).toHaveLength(1);
+    expect(publishChat.mock.calls).toHaveLength(1);
     expect(await currentSceneOf(session)).toBe(pending);
   });
 

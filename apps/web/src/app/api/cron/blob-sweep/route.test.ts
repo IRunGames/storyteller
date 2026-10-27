@@ -13,7 +13,7 @@
 // stories/actions.test.ts is asserting against at the same moment.
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 import { createRequire } from "node:module";
 
@@ -135,6 +135,11 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
     if (created.length > 0) {
       await db.delete(tables.attachments).where(inArray(tables.attachments.idAttachment, created));
     }
+    // Only the key the profile case set; anything else on the row is left.
+    await db
+      .update(tables.userPreferences)
+      .set({ preferences: sql`${tables.userPreferences.preferences} - 'profile.avatarUrl'` })
+      .where(eq(tables.userPreferences.idUser, FIXTURE_USER));
     if (sceneId) {
       await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, sceneId));
     }
@@ -242,5 +247,35 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
         ]),
       );
     expect(survivors.map((row) => row.id).sort()).toEqual([claimed.id, recentUnclaimed.id].sort());
+  });
+
+  // A profile picture is not an attachment, so only its preference keeps it
+  // from looking like an orphan.
+  it("keeps a blob a profile picture preference points at", async () => {
+    list.mock.resetCalls();
+    del.mock.resetCalls();
+
+    const avatarUrl = "https://abc123.public.blob.vercel-storage.com/uploads/u1/avatar/me.png";
+    const old = new Date(Date.now() - GRACE_MS - 60 * 60 * 1000);
+    await db
+      .insert(tables.userPreferences)
+      .values({
+        idUser: FIXTURE_USER,
+        preferences: { "profile.avatarUrl": avatarUrl },
+        idCreatedByUser: FIXTURE_USER,
+      })
+      .onConflictDoUpdate({
+        target: tables.userPreferences.idUser,
+        set: { preferences: sql`${tables.userPreferences.preferences} || excluded.preferences` },
+      });
+    list.mock.mockImplementation(async () => ({
+      blobs: [{ url: avatarUrl, uploadedAt: old }],
+      cursor: undefined,
+    }));
+
+    const response = await GET(request("Bearer s3cret"));
+
+    expect(response.status).toBe(200);
+    expect(del.mock.calls.flatMap((call) => call.arguments[0])).not.toContain(avatarUrl);
   });
 });

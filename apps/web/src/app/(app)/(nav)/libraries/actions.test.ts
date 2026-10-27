@@ -1162,11 +1162,12 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       expect(await stillThere(theirs.id)).toEqual([{ id: theirs.id }]);
     });
 
-    // What deleting leans on: a session's current scene goes blank and a
+    // What deleting leans on: a session's current scene goes blank, a
     // scene's element links go with it (its picture uses go by trigger, not
-    // by key). Nothing else points at story_scenes; a new key that does
-    // should say here what it does.
-    it("blanks a session's scene and cascades a scene's element links", async () => {
+    // by key), and the table chat's lines said in it stay, with no scene.
+    // Nothing else points at story_scenes; a new key that does should say
+    // here what it does.
+    it("blanks a session's scene and the chat's, and cascades a scene's element links", async () => {
       const keys = await db.execute<{ from_table: string; col: string; on_delete: string }>(sql`
         select c.conrelid::regclass::text as from_table, a.attname as col,
                c.confdeltype as on_delete
@@ -1176,6 +1177,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
           and c.confrelid = 'story_scenes'::regclass
         order by 1, 2`);
       expect(keys.rows).toEqual([
+        { from_table: "chats", col: "id_story_scene", on_delete: "n" },
         { from_table: "scene_elements", col: "id_story_scene", on_delete: "c" },
         { from_table: "story_sessions", col: "id_story_scene", on_delete: "n" },
       ]);

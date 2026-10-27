@@ -1,10 +1,11 @@
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { del, list } from "@vercel/blob";
 import { db, schema } from "@/db";
 import { staleBlobs, unclaimedAttachmentIds } from "@/lib/blob-sweep";
 import { isUploadedBlobUrl } from "@/lib/image-uploads";
+import { PROFILE_PREFERENCE_KEYS } from "@/lib/profile";
 
-const { attachments } = schema;
+const { attachments, userPreferences } = schema;
 
 /**
  * Deletes what the app left behind: blobs no attachment row points at any
@@ -14,8 +15,10 @@ const { attachments } = schema;
  * Two passes, both gated by the same grace period so neither takes a picture
  * out from under a user still mid-edit:
  *
- * 1. Blobs — the referenced set is one query, every URL an uploaded
- *    attachment currently points at, whatever it is attached to (or not).
+ * 1. Blobs — the referenced set is every URL an uploaded attachment
+ *    currently points at, whatever it is attached to (or not), and every
+ *    profile picture a user's preferences point at, which is the one upload
+ *    that is not an attachment.
  *    `list()` then walks the whole store and anything not in that set, past
  *    the grace period, is deleted.
  * 2. Attachments — rows with a null `external_id` past the grace period were
@@ -37,7 +40,15 @@ export async function GET(request: Request): Promise<Response> {
     .select({ url: attachments.url })
     .from(attachments)
     .where(and(eq(attachments.isUploaded, true), isNotNull(attachments.url)));
-  const referenced = new Set(referencedRows.map((row) => row.url as string));
+  const avatarKey = PROFILE_PREFERENCE_KEYS.avatarUrl;
+  const avatarRows = await db
+    .select({ url: sql<string>`${userPreferences.preferences} ->> ${avatarKey}` })
+    .from(userPreferences)
+    .where(sql`${userPreferences.preferences} ->> ${avatarKey} is not null`);
+  const referenced = new Set([
+    ...referencedRows.map((row) => row.url as string),
+    ...avatarRows.map((row) => row.url),
+  ]);
 
   let cursor: string | undefined;
   do {

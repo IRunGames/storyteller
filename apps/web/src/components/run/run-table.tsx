@@ -50,6 +50,7 @@ import { toaster } from "@/components/ui/toaster";
 import { canSeeDiagnostics } from "@/lib/diagnostics";
 import { PlayCharacterSpace } from "@/components/play/play-character-space";
 import { PlayChat } from "@/components/play/play-chat";
+import { useStoryChat } from "@/components/play/use-story-chat";
 import { PlayDiagnostics } from "@/components/play/play-diagnostics";
 import { PlayHeader } from "@/components/play/play-header";
 import { PlayPanelToggle } from "@/components/play/play-panel-toggle";
@@ -79,10 +80,6 @@ const LIBRARY_ID = "run-panel-library";
 const CHAT_ID = "run-panel-chat";
 const CHARACTER_ID = "run-panel-character";
 const DIAGNOSTICS_ID = "run-panel-diagnostics";
-
-// This table publishes and does not listen; nothing here changes on a
-// message. The channel is opened for the diagnostics panel alone.
-const ignoreEvent = () => {};
 
 type Props = {
   idStory: number;
@@ -133,9 +130,13 @@ type Props = {
 // right.
 //
 // Every change made here is published on the story's MQTT topic for the
-// players' table (lib/realtime/publish-scene.ts). The diagnostics panel, in
-// the chat's place as on the players' table, listens to that same topic so
-// the storyteller can see each change go out.
+// players' table (lib/realtime/publish-scene.ts). The table listens to the
+// story's topics too, for the chat (useStoryChat), whose lines come in
+// whether or not its panel is open and are counted on the Chat toggle
+// while it is not; moving to another scene puts an "Entering" divider in
+// it. The diagnostics panel, in the chat's place as on the players' table,
+// lists what comes over that same connection, so the storyteller can see
+// each change go out.
 export function RunTable({
   idStory,
   title,
@@ -150,7 +151,20 @@ export function RunTable({
   const user = useUser();
   const preferences = useUserPreferences();
   const diagnosticsOffered = canSeeDiagnostics(user.idUserType);
-  const channel = useStoryChannel(idStory, ignoreEvent, ignoreEvent, diagnosticsOffered);
+  // The chat is held here rather than in its panel, so it keeps listening
+  // while the panel is closed and the Chat toggle can count what came in.
+  // Diagnostics stands in for the chat, so the chat is showing only while
+  // diagnostics is not.
+  const showChat = preferences.get<boolean>(SHOW_CHAT, false);
+  const showDiagnostics = diagnosticsOffered && preferences.get<boolean>(SHOW_DIAGNOSTICS, false);
+  const chat = useStoryChat(idStory, showChat && !showDiagnostics);
+  // This table publishes the scene and does not follow it, so the state
+  // topic's messages are left alone; the connection is always open for the
+  // chat, and for the diagnostics panel.
+  const channel = useStoryChannel(idStory, {
+    onChat: chat.receive,
+    onConnect: () => void chat.refresh(),
+  });
   const router = useRouter();
   const [scene, setScene] = useState<RunScene | null>(initialSpace.scene);
   // The library's tab, held here for the sort menu beside its heading.
@@ -224,9 +238,7 @@ export function RunTable({
   }, [session]);
 
   const showLibrary = preferences.get<boolean>(SHOW_LIBRARY, true);
-  const showChat = preferences.get<boolean>(SHOW_CHAT, false);
   const showCharacter = preferences.get<boolean>(SHOW_CHARACTER, false);
-  const showDiagnostics = diagnosticsOffered && preferences.get<boolean>(SHOW_DIAGNOSTICS, false);
   // The library's Add as invisible switch; a stack's + reads it too, for
   // where its new element starts.
   const addInvisible = preferences.get<boolean>(RUN_ADD_INVISIBLE, false);
@@ -390,6 +402,7 @@ export function RunTable({
         label="Chat"
         controls={CHAT_ID}
         isOpen={showChat}
+        count={chat.unread}
         onToggle={() => preferences.set(SHOW_CHAT, !showChat)}
       >
         <MessageSquare />
@@ -412,7 +425,7 @@ export function RunTable({
   const rightPanel = showDiagnostics ? (
     <PlayDiagnostics id={DIAGNOSTICS_ID} channel={channel} />
   ) : showChat ? (
-    <PlayChat id={CHAT_ID} />
+    <PlayChat id={CHAT_ID} idStory={idStory} chat={chat} />
   ) : null;
 
   return (

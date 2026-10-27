@@ -121,6 +121,9 @@ describe("ScenePreview", () => {
         sa_setPlaySceneText: mock.fn(),
         sa_setPlayElementNotes: mock.fn(),
         sa_untapPlaySceneElement: mock.fn(),
+        sa_listChats: mock.fn(),
+        sa_postChat: mock.fn(),
+        sa_editChat: mock.fn(),
       },
     });
     ({ ScenePreview } = await import("./scene-preview"));

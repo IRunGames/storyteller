@@ -26,6 +26,11 @@ const publishSceneElement = mock.fn(
   async (_idStory: number, _idStoryScene: number, _idElement: number) => {},
 );
 
+// The chat's lines go out over the broker after the action answers; run
+// at once here, and caught, so the tests see what was sent.
+const publishChat = mock.fn(async (_idStory: number, _chat: unknown, _type?: string) => {});
+const publishLater = (work: () => Promise<void>) => void work();
+
 let actions: typeof import("./actions");
 
 type DbModule = typeof import("@/db");
@@ -46,6 +51,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     mock.module("@/lib/realtime/publish-scene", {
       namedExports: { publishSceneChanged, publishElementChanged, publishSceneElement },
     });
+    mock.module("@/lib/realtime/publish", { namedExports: { publishChat, publishLater } });
     ({ db, schema: tables } = await import("@/db"));
     actions = await import("./actions");
 
@@ -528,6 +534,19 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         expect(publishSceneElement.mock.calls.map((call) => call.arguments)).toEqual([
           [playsIn, docks, zed],
         ]);
+        // The table says so in the chat, as a line of its own.
+        const [said] = await db
+          .select()
+          .from(tables.chats)
+          .where(eq(tables.chats.idStory, playsIn))
+          .orderBy(sql`id_chat desc`)
+          .limit(1);
+        expect(said).toMatchObject({
+          idStoryScene: docks,
+          isSystem: true,
+          idCreatedByUser: SEED_USER,
+        });
+        expect(said.chatText).toMatch(/ untapped Play fixture Zed$/);
 
         // The hidden ghost cannot be seen, let alone untapped; a stranger
         // is turned away; a complete scene takes no change.
@@ -716,6 +735,207 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect((await actions.sa_getPlayScene(playsIn))?.idStorySession).toBeNull();
     });
 
+    describe("the table chat", () => {
+      let cellar = 0;
+
+      before(async () => {
+        [{ id: cellar }] = await db
+          .insert(tables.storyScenes)
+          .values({
+            idStory: playsIn,
+            sceneTitle: "Play fixture cellar",
+            idCreatedByUser: otherUserId,
+          })
+          .returning({ id: tables.storyScenes.idStoryScene });
+      });
+
+      beforeEach(async () => {
+        publishChat.mock.resetCalls();
+        await db.delete(tables.chats).where(eq(tables.chats.idStory, playsIn));
+      });
+
+      it("takes a line only from someone at the table while a session is played", async () => {
+        expect(await actions.sa_postChat(playsIn, "Anyone?")).toEqual({
+          ok: false,
+          error: "The story is not being played, so there is no table to talk at.",
+        });
+        await onScene(docks);
+        expect(await actions.sa_postChat(stranger, "Hello")).toEqual({
+          ok: false,
+          error: "You are not at this story's table.",
+        });
+        expect(await actions.sa_postChat(playsIn, "   ")).toEqual({
+          ok: false,
+          error: "Say something first.",
+        });
+        expect(
+          await db.select().from(tables.chats).where(eq(tables.chats.idStory, playsIn)),
+        ).toEqual([]);
+        expect(publishChat.mock.callCount()).toBe(0);
+      });
+
+      it("saves a line against the scene being played, as said by the caller, and sends it", async () => {
+        await onScene(docks);
+        const result = await actions.sa_postChat(playsIn, "  Fog again. ");
+        expect(result).toMatchObject({
+          ok: true,
+          chat: {
+            idStoryScene: docks,
+            idUser: SEED_USER,
+            text: "Fog again.",
+            isSystem: false,
+            isEdited: false,
+          },
+        });
+        if (!result.ok) return;
+        // A player is named as themselves; the storyteller as Storyteller.
+        expect(result.chat.from).not.toBe("Storyteller");
+        expect(publishChat.mock.calls[0].arguments).toEqual([playsIn, result.chat]);
+
+        caller = otherUserId;
+        const told = await actions.sa_postChat(playsIn, "The ferry is late.");
+        expect(told).toMatchObject({
+          ok: true,
+          chat: { from: "Storyteller", idUser: otherUserId },
+        });
+      });
+
+      it("draws a line in the sender's profile colour and picture, where they chose them", async () => {
+        await db.insert(tables.userPreferences).values({
+          idUser: secondPlayerId,
+          preferences: {
+            "profile.color": "#46A758",
+            "profile.avatarUrl": "https://example.test/second.png",
+          },
+          idCreatedByUser: secondPlayerId,
+          idUpdatedByUser: secondPlayerId,
+        });
+        try {
+          await onScene(docks);
+          caller = secondPlayerId;
+          expect(await actions.sa_postChat(playsIn, "Over here.")).toMatchObject({
+            ok: true,
+            chat: { color: "#46A758", picture: "https://example.test/second.png" },
+          });
+          // No preferences and no provider picture: the chat's own fallbacks.
+          caller = otherUserId;
+          expect(await actions.sa_postChat(playsIn, "Noted.")).toMatchObject({
+            ok: true,
+            chat: { color: null, picture: null },
+          });
+        } finally {
+          await db
+            .delete(tables.userPreferences)
+            .where(eq(tables.userPreferences.idUser, secondPlayerId));
+        }
+      });
+
+      it("opens on the scene being played, or on no scene since the session opened", async () => {
+        const session = await onScene(docks);
+        await actions.sa_postChat(playsIn, "At the docks");
+        await db
+          .update(tables.storySessions)
+          .set({ idStoryScene: cellar })
+          .where(eq(tables.storySessions.idStorySession, session));
+        await actions.sa_postChat(playsIn, "In the cellar");
+        // An old no-scene line from before this session opened stays out.
+        await db.insert(tables.chats).values({
+          idStory: playsIn,
+          chatText: "Long ago",
+          idCreatedByUser: SEED_USER,
+          createdAt: new Date("2020-01-01T00:00:00Z"),
+        });
+
+        const texts = async () =>
+          (await actions.sa_listChats(playsIn)).chats.map((chat) => chat.text);
+        expect(await texts()).toEqual(["In the cellar"]);
+
+        await db
+          .update(tables.storySessions)
+          .set({ idStoryScene: null })
+          .where(eq(tables.storySessions.idStorySession, session));
+        await actions.sa_postChat(playsIn, "Between scenes");
+        expect(await texts()).toEqual(["Between scenes"]);
+
+        expect(await actions.sa_listChats(stranger)).toEqual({ chats: [], hasPrevious: false });
+      });
+
+      it("opens on the last hundred lines and pages back through the rest", async () => {
+        await onScene(docks);
+        // 205 lines a second apart, so their order is plain.
+        const start = Date.UTC(2026, 0, 1);
+        await db.insert(tables.chats).values(
+          Array.from({ length: 205 }, (_, i) => ({
+            idStory: playsIn,
+            idStoryScene: docks,
+            chatText: `Line ${i}`,
+            idCreatedByUser: SEED_USER,
+            createdAt: new Date(start + i * 1000),
+          })),
+        );
+
+        const first = await actions.sa_listChats(playsIn);
+        expect(first.chats).toHaveLength(100);
+        expect(first.chats[0].text).toBe("Line 105");
+        expect(first.chats[99].text).toBe("Line 204");
+        expect(first.hasPrevious).toBe(true);
+
+        const second = await actions.sa_listChats(playsIn, first.chats[0].idChat);
+        expect(second.chats[0].text).toBe("Line 5");
+        expect(second.chats[99].text).toBe("Line 104");
+        expect(second.hasPrevious).toBe(true);
+
+        const third = await actions.sa_listChats(playsIn, second.chats[0].idChat);
+        expect(third.chats.map((chat) => chat.text)).toEqual([
+          "Line 0",
+          "Line 1",
+          "Line 2",
+          "Line 3",
+          "Line 4",
+        ]);
+        expect(third.hasPrevious).toBe(false);
+      });
+
+      it("lets the sender alone rewrite a line of theirs, marking it edited", async () => {
+        await onScene(docks);
+        const said = await actions.sa_postChat(playsIn, "Fog");
+        if (!said.ok) throw new Error(said.error);
+        const id = said.chat.idChat;
+        publishChat.mock.resetCalls();
+
+        // The same text again is no edit.
+        expect(await actions.sa_editChat(playsIn, id, " Fog ")).toMatchObject({
+          ok: true,
+          chat: { text: "Fog", isEdited: false },
+        });
+        expect(publishChat.mock.callCount()).toBe(0);
+
+        const edited = await actions.sa_editChat(playsIn, id, "Thick fog");
+        expect(edited).toMatchObject({ ok: true, chat: { text: "Thick fog", isEdited: true } });
+        expect(publishChat.mock.calls[0].arguments.slice(2)).toEqual(["chat.edited"]);
+
+        const notYours = { ok: false, error: "That is not a line of yours." };
+        caller = secondPlayerId;
+        expect(await actions.sa_editChat(playsIn, id, "Mine now")).toEqual(notYours);
+        caller = SEED_USER;
+        const [system] = await db
+          .insert(tables.chats)
+          .values({
+            idStory: playsIn,
+            chatText: "Entering Play fixture docks",
+            isSystem: true,
+            idCreatedByUser: SEED_USER,
+          })
+          .returning({ id: tables.chats.idChat });
+        expect(await actions.sa_editChat(playsIn, system.id, "Leaving")).toEqual(notYours);
+        expect(await actions.sa_editChat(stranger, id, "Elsewhere")).toEqual({
+          ok: false,
+          error: "You are not at this story's table.",
+        });
+        expect(publishChat.mock.callCount()).toBe(1);
+      });
+    });
+
     it("gives a stranger nothing", async () => {
       await onScene(docks);
       expect(await actions.sa_getPlayScene(stranger)).toBeNull();
@@ -728,6 +948,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         username: "player",
         password: "pw",
         topic: `story/${playsIn}/state`,
+        chatTopic: `story/${playsIn}/chat`,
       });
     });
 

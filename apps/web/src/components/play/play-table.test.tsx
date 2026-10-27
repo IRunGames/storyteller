@@ -4,10 +4,10 @@ import { expect } from "expect";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import type { PublicChat } from "@/lib/realtime/chat-events";
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
 import { UserProvider } from "@/components/auth/user-provider";
-import { chatLog } from "@/lib/chat-log";
 import type { CurrentUser } from "@/lib/current-user";
 import { EMPTY_PLAY_SCENE, type PlayScene } from "@/lib/play-scene";
 import type { StorySession } from "@/lib/stories";
@@ -45,6 +45,7 @@ const channel = {
   username: "player",
   password: "pw",
   topic: "story/7/state",
+  chatTopic: "story/7/chat",
 };
 const sa_getStoryChannel = mock.fn(async (_idStory: number) => channel as typeof channel | null);
 const sa_getPlayScene = mock.fn(async (_idStory: number) => null as PlayScene | null);
@@ -60,6 +61,10 @@ const sa_untapPlaySceneElement = mock.fn(
     status: "READY",
   }),
 );
+const sa_listChats = mock.fn(async (_idStory: number, _before?: number) => ({
+  chats: [] as PublicChat[],
+  hasPrevious: false,
+}));
 const sa_setPlayElementNotes = mock.fn(
   async (_story: number, _element: number, notes: string): Promise<SetElementNotesResult> => ({
     ok: true,
@@ -231,6 +236,22 @@ describe("PlayTable", () => {
         sa_setPlaySceneText,
         sa_setPlayElementNotes,
         sa_untapPlaySceneElement,
+        sa_listChats,
+        // The line as the action saves it: the server names the sender.
+        sa_postChat: mock.fn(async (_story: number, text: string) => ({
+          ok: true,
+          chat: {
+            idChat: 1,
+            idStoryScene: 3,
+            idUser: user.id,
+            from: "Paul Stafford",
+            text,
+            isSystem: false,
+            isEdited: false,
+            createdAt: new Date().toISOString(),
+          },
+        })),
+        sa_editChat: mock.fn(),
       },
     });
     mock.module("mqtt", { defaultExport: { connect } });
@@ -248,7 +269,7 @@ describe("PlayTable", () => {
     sa_getPlayScene.mock.mockImplementation(async () => null);
     connect.mock.resetCalls();
     sa_untapPlaySceneElement.mock.resetCalls();
-    chatLog.clear();
+    sa_listChats.mock.resetCalls();
   });
 
   afterEach(() => {
@@ -445,9 +466,56 @@ describe("PlayTable", () => {
     await connected();
 
     expect(connect.mock.calls[0].arguments[0]).toBe(channel.url);
-    expect(client.subscribe.mock.calls[0].arguments[0]).toBe("story/7/state");
+    expect(client.subscribe.mock.calls[0].arguments[0]).toEqual(["story/7/state", "story/7/chat"]);
     expect(sa_getPlayScene.mock.calls).toHaveLength(1);
     await screen.findByText("Abbot");
+  });
+
+  it("counts chat lines that come in while the chat is closed, and opens on them", async () => {
+    const u = userEvent.setup();
+    renderTable();
+    await connected();
+    await waitFor(() => expect(sa_listChats.mock.callCount()).toBeGreaterThan(0));
+    const said = (idChat: number, idUser: string) => ({
+      v: 1,
+      at: "2026-10-26T20:05:00.000Z",
+      idStory: 7,
+      type: "chat.posted",
+      chat: {
+        idChat,
+        idStoryScene: 3,
+        idUser,
+        from: "Harry",
+        text: `Line ${idChat}`,
+        isSystem: false,
+        isEdited: false,
+        createdAt: "2026-10-26T20:05:00.000Z",
+        color: null,
+        picture: null,
+      },
+    });
+
+    await act(async () => {
+      for (const event of [
+        said(1, "someone-else"),
+        said(2, "someone-else"),
+        said(2, "someone-else"),
+      ])
+        client.emit("message", "story/7/chat", new TextEncoder().encode(JSON.stringify(event)));
+      // The viewer's own line is not news to them.
+      client.emit(
+        "message",
+        "story/7/chat",
+        new TextEncoder().encode(JSON.stringify(said(3, user.id))),
+      );
+    });
+    const banner = screen.getByRole("banner");
+    await u.click(within(banner).getByRole("button", { name: "Chat, 2 new" }));
+
+    const chat = await screen.findByRole("region", { name: "Table Chat" });
+    expect(within(chat).getByText("Line 1")).toBeInTheDocument();
+    expect(within(chat).getAllByText("Line 2")).toHaveLength(1);
+    expect(within(banner).getByRole("button", { name: "Chat" })).toBeInTheDocument();
   });
 
   it("adds, changes and removes elements as messages arrive", async () => {
@@ -726,7 +794,6 @@ describe("PlayTable", () => {
     await u.click(within(ask).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(sa_untapPlaySceneElement.mock.callCount()).toBe(0);
-    expect(chatLog.entries()).toHaveLength(0);
 
     await u.click(untap);
     await u.click(
@@ -737,8 +804,9 @@ describe("PlayTable", () => {
     );
     await waitFor(() => expect(sa_untapPlaySceneElement.mock.callCount()).toBe(1));
     expect(sa_untapPlaySceneElement.mock.calls[0].arguments).toEqual([7, 3, 5]);
-    // Ready again, the marker gone, and the chat told who did it. The pill
-    // is drawn afresh without its tooltip, so it is found again.
+    // Ready again and the marker gone; the action itself tells the chat who
+    // did it. The pill is drawn afresh without its tooltip, so it is found
+    // again.
     const readied = () =>
       screen.getByText("A hooded figure").closest("[data-scene-status]") as HTMLElement;
     await waitFor(() => expect(readied()).toHaveAttribute("data-scene-status", "READY"));
@@ -746,12 +814,9 @@ describe("PlayTable", () => {
     expect(readied()).not.toHaveStyle({ opacity: "0.7" });
     expect(within(readied()).queryByRole("button", { name: /untap/ })).toBeNull();
     expect(within(readied()).queryByRole("img", { name: "Tapped" })).toBeNull();
-    expect(chatLog.entries()).toMatchObject([
-      { from: "Paul Stafford", text: "untapped A hooded figure" },
-    ]);
   });
 
-  it("stays tapped, says why and tells the chat nothing when the untap is refused", async () => {
+  it("stays tapped and says why when the untap is refused", async () => {
     const u = userEvent.setup();
     sa_untapPlaySceneElement.mock.mockImplementationOnce(async () => ({
       ok: false,
@@ -775,7 +840,6 @@ describe("PlayTable", () => {
       "data-scene-status",
       "TAPPED",
     );
-    expect(chatLog.entries()).toHaveLength(0);
   });
 
   it("lets a player keep notes on an element from its info popover", async () => {
@@ -1016,7 +1080,7 @@ describe("PlayTable", () => {
     expect(screen.queryByRole("region", { name: "Table Chat" })).not.toBeInTheDocument();
     const panel = screen.getByRole("region", { name: "Diagnostics" });
     expect(within(panel).getByText("connected")).toBeInTheDocument();
-    expect(within(panel).getByText("story/7/state")).toBeInTheDocument();
+    expect(within(panel).getByText("story/7/state, story/7/chat")).toBeInTheDocument();
     expect(sa_setUserPreference.mock.calls[0].arguments[0]).toEqual({
       key: "play.showDiagnostics",
       value: true,
@@ -1100,8 +1164,8 @@ describe("PlayTable", () => {
 
     await person.type(within(chat).getByRole("textbox", { name: "Message" }), "Hello{Enter}");
 
+    expect(await within(chat).findByText("Hello")).toBeInTheDocument();
     expect(within(chat).queryByText("Sample conversation")).not.toBeInTheDocument();
-    expect(within(chat).getByText("Hello")).toBeInTheDocument();
     expect(within(chat).getByText("Paul Stafford")).toBeInTheDocument();
     expect(within(chat).getAllByRole("article")).toHaveLength(1);
   });

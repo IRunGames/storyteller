@@ -44,6 +44,18 @@ const sa_setUserPreference = mock.fn<(input: unknown) => Promise<SetPreference>>
   ok: true,
 }));
 
+// The account menu's Profile item opens the profile dialog, which loads the
+// profile through its own actions module.
+const sa_getProfile = mock.fn(async () => ({
+  name: "Paul Stafford",
+  email: "storyteller@irun.games",
+  nickName: null,
+  bio: null,
+  image: null,
+  createdAt: new Date("2017-05-25T12:00:00Z"),
+  systems: [],
+}));
+
 // Static imports are hoisted, so the module under test can only be loaded
 // after the mocks are registered — hence the dynamic import in `before`.
 let AppHeader: typeof import("./app-header").AppHeader;
@@ -71,6 +83,17 @@ describe("AppHeader", () => {
     mock.module("@/lib/auth-client", { namedExports: { signOut } });
     mock.module("@/components/feedback/actions", { namedExports: { sa_submitFeedback } });
     mock.module("@/components/preferences/actions", { namedExports: { sa_setUserPreference } });
+    mock.module("@/components/profile/actions", {
+      namedExports: {
+        sa_getProfile,
+        sa_updateProfileDetails: mock.fn(),
+        sa_searchSystems: mock.fn(async () => []),
+        sa_addLikedSystem: mock.fn(),
+        sa_removeLikedSystem: mock.fn(),
+        sa_listOwnedStories: mock.fn(async () => []),
+        sa_listPlayingStories: mock.fn(async () => []),
+      },
+    });
 
     ({ AppHeader } = await import("./app-header"));
     ({ UserPreferencesProvider } =
@@ -406,9 +429,28 @@ describe("AppHeader", () => {
 
     await u.click(screen.getByRole("button", { name: "Account menu" }));
 
-    const profile = await screen.findByRole("menuitem", { name: "Profile" });
-    expect(profile).toHaveAttribute("href", "/profile");
+    expect(await screen.findByRole("menuitem", { name: "Profile" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Logout" })).toBeInTheDocument();
+  });
+
+  it("opens the profile dialog from Profile", async () => {
+    const u = userEvent.setup();
+    renderHeader();
+
+    await u.click(screen.getByRole("button", { name: "Account menu" }));
+    const item = await screen.findByRole("menuitem", { name: "Profile" });
+    // Highlight before clicking, for the reason given in the logout test.
+    let step = 0;
+    await waitFor(async () => {
+      step += 1;
+      await u.pointer({ target: item, coords: { clientX: step, clientY: step } });
+      expect(item).toHaveAttribute("data-highlighted");
+    });
+    await u.click(item);
+
+    const dialog = await screen.findByRole("dialog", { name: "Profile" });
+    expect(await within(dialog).findByText("storyteller@irun.games")).toBeInTheDocument();
+    expect(within(dialog).getByRole("tab", { name: "Systems" })).toBeInTheDocument();
   });
 
   describe("the Cause error item", () => {

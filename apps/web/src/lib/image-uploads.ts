@@ -4,6 +4,9 @@ export const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "im
 /** The largest upload the route will authorise. The field refuses the same size client-side. */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
+/** The largest profile picture the route will authorise. The profile card refuses the same size. */
+export const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+
 const BLOB_HOST_SUFFIX = ".public.blob.vercel-storage.com";
 
 /**
@@ -13,6 +16,25 @@ const BLOB_HOST_SUFFIX = ".public.blob.vercel-storage.com";
  */
 export function uploadPrefix(userId: string): string {
   return `uploads/${userId}/`;
+}
+
+/**
+ * Where one user's profile pictures live: inside their upload prefix, so the
+ * route's ownership check still holds, and in a folder of their own, so the
+ * route can tell a profile picture from an attachment and hold it to the
+ * smaller limit.
+ */
+export function avatarPrefix(userId: string): string {
+  return `${uploadPrefix(userId)}avatar/`;
+}
+
+/**
+ * The size the route allows for an upload to this path: a profile picture is
+ * shown small in a circle and 2 MB is plenty, while an attachment may be a map
+ * or a handout someone wants to read the detail of.
+ */
+export function maxUploadBytes(pathname: string, userId: string): number {
+  return pathname.startsWith(avatarPrefix(userId)) ? MAX_AVATAR_BYTES : MAX_IMAGE_BYTES;
 }
 
 /**
