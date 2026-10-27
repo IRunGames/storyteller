@@ -1,0 +1,32 @@
+{
+  "name": "dev-button",
+  "displayName": "Storyteller dev button",
+  "description": "Start and stop the `just dev` task from the status bar and editor title bar, and show when it is running",
+  "publisher": "storyteller",
+  "version": "0.0.1",
+  "private": true,
+  "engines": { "vscode": "^1.80.0" },
+  "main": "extension.js",
+  "files": ["extension.js"],
+  "activationEvents": ["workspaceContains:justfile"],
+  "contributes": {
+    "commands": [
+      { "command": "storyteller.startDev", "title": "Start just dev", "icon": "$(play)" },
+      { "command": "storyteller.stopDev", "title": "Stop just dev", "icon": "$(debug-stop)" }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "storyteller.startDev",
+          "when": "storyteller.devAvailable && !storyteller.devRunning",
+          "group": "navigation"
+        },
+        {
+          "command": "storyteller.stopDev",
+          "when": "storyteller.devAvailable && storyteller.devRunning",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}
