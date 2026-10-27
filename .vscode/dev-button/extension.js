@@ -7,10 +7,16 @@ function activate(context) {
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(item);
 
-  const execution = () => vscode.tasks.taskExecutions.find((e) => e.task.name === LABEL);
+  // Only this workspace's own tasks.json task, never one a provider extension
+  // contributes under the same label.
+  const isOurs = (t) => t.name === LABEL && t.source === "Workspace";
+  const execution = () => vscode.tasks.taskExecutions.find((e) => isOurs(e.task));
   // Unfiltered: a type filter only asks task providers, which leaves out tasks.json's own tasks.
-  const findTask = async () =>
-    (await vscode.tasks.fetchTasks()).find((t) => t.name === LABEL);
+  // Two tasks under the label would make the button's choice a guess, so it takes neither.
+  const findTask = async () => {
+    const matches = (await vscode.tasks.fetchTasks()).filter(isOurs);
+    return matches.length === 1 ? matches[0] : undefined;
+  };
 
   const render = () => {
     const running = Boolean(execution());
@@ -28,7 +34,7 @@ function activate(context) {
       if (execution()) return;
       const task = await findTask();
       if (!task) {
-        vscode.window.showErrorMessage(`No "${LABEL}" task in .vscode/tasks.json`);
+        vscode.window.showErrorMessage(`Expected exactly one "${LABEL}" task in .vscode/tasks.json`);
         return;
       }
       await vscode.tasks.executeTask(task);
