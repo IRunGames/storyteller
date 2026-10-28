@@ -22,6 +22,14 @@ type Props = {
   id: string;
   idStory: number;
   chat: StoryChat;
+  /**
+   * Whether the box to type in shows. The display table (/table/[id]) leaves
+   * it out for a guest, who reads the table's lines but has no account to
+   * speak with.
+   */
+  canPost?: boolean;
+  /** Whether the layout picker shows; the display table has no other layout to pick. */
+  showLayoutPicker?: boolean;
 };
 
 // How long a line stays over the table.
@@ -46,7 +54,13 @@ const chatToaster = createToaster({
 // are not. Edits and
 // rolls arrive the same way as any line; a taken-back line leaves its toast
 // at once.
-export function PlayChatOverlay({ id, idStory, chat }: Props) {
+export function PlayChatOverlay({
+  id,
+  idStory,
+  chat,
+  canPost = true,
+  showLayoutPicker = true,
+}: Props) {
   const { entries, loaded } = chat;
   // The newest line held once the chat had loaded with the overlay up; only
   // lines after it show.
@@ -95,25 +109,27 @@ export function PlayChatOverlay({ id, idStory, chat }: Props) {
         </ChakraToaster>
       </Portal>
 
-      <HStack
-        as="section"
-        id={id}
-        aria-label="Table Chat"
-        position="fixed"
-        bottom="4"
-        right="4"
-        zIndex="docked"
-        w={{ base: "calc(100% - 2rem)", md: "sm" }}
-        gap="2"
-        p="2"
-        bg="bg.panel"
-        borderWidth="1px"
-        rounded="lg"
-        shadow="md"
-      >
-        <PlayChatLayoutPicker />
-        <PlayChatInput idStory={idStory} chat={chat} small />
-      </HStack>
+      {(canPost || showLayoutPicker) && (
+        <HStack
+          as="section"
+          id={id}
+          aria-label="Table Chat"
+          position="fixed"
+          bottom="4"
+          right="4"
+          zIndex="docked"
+          w={{ base: "calc(100% - 2rem)", md: "sm" }}
+          gap="2"
+          p="2"
+          bg="bg.panel"
+          borderWidth="1px"
+          rounded="lg"
+          shadow="md"
+        >
+          {showLayoutPicker && <PlayChatLayoutPicker />}
+          {canPost && <PlayChatInput idStory={idStory} chat={chat} small />}
+        </HStack>
+      )}
     </>
   );
 }

@@ -17,6 +17,7 @@ const user: CurrentUser = {
   image: null,
   nickName: null,
   idUserType: -2,
+  isAnonymous: false,
 };
 
 const line = (idChat: number, overrides: Partial<PublicChat> = {}): PublicChat => ({

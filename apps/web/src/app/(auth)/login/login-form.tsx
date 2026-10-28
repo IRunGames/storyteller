@@ -18,6 +18,7 @@ import {
 } from "@chakra-ui/react";
 import { signIn } from "@/lib/auth-client";
 import { signInSchema, type SignInValues } from "@/lib/auth-schemas";
+import { withRedirect } from "@/lib/safe-redirect";
 import { GoogleButton } from "@/components/auth/google-button";
 
 export function LoginForm({ redirectTo }: { redirectTo: string }) {
@@ -40,8 +41,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
       // and a wrong password, so this does not leak which accounts exist.
       // A "root" error belongs to no field; the next submit clears it.
       setError("root", {
-        message:
-          result.error.message ?? "Could not sign you in. Please try again.",
+        message: result.error.message ?? "Could not sign you in. Please try again.",
       });
       return;
     }
@@ -78,20 +78,12 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
 
           <Field.Root required invalid={!!errors.password}>
             <Field.Label>Password</Field.Label>
-            <Input
-              type="password"
-              autoComplete="current-password"
-              {...register("password")}
-            />
+            <Input type="password" autoComplete="current-password" {...register("password")} />
             <Field.ErrorText>{errors.password?.message}</Field.ErrorText>
           </Field.Root>
 
           {/* Stays loading after success: the browser is navigating away. */}
-          <Button
-            type="submit"
-            loading={isSubmitting || isSubmitSuccessful}
-            w="full"
-          >
+          <Button type="submit" loading={isSubmitting || isSubmitSuccessful} w="full">
             Sign in
           </Button>
         </Stack>
@@ -110,7 +102,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
       <Text textStyle="sm" color="fg.muted" textAlign="center">
         Don&apos;t have an account?{" "}
         <Link asChild>
-          <NextLink href="/signup">Sign up</NextLink>
+          <NextLink href={withRedirect("/signup", redirectTo)}>Sign up</NextLink>
         </Link>
       </Text>
     </Stack>

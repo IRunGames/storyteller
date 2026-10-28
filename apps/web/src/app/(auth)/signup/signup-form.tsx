@@ -17,11 +17,8 @@ import {
   Text,
 } from "@chakra-ui/react";
 import { signUp } from "@/lib/auth-client";
-import {
-  MIN_PASSWORD_LENGTH,
-  signUpSchema,
-  type SignUpValues,
-} from "@/lib/auth-schemas";
+import { MIN_PASSWORD_LENGTH, signUpSchema, type SignUpValues } from "@/lib/auth-schemas";
+import { withRedirect } from "@/lib/safe-redirect";
 import { GoogleButton } from "@/components/auth/google-button";
 
 export function SignupForm({ redirectTo }: { redirectTo: string }) {
@@ -44,9 +41,7 @@ export function SignupForm({ redirectTo }: { redirectTo: string }) {
     if (result.error) {
       // A "root" error belongs to no field; the next submit clears it.
       setError("root", {
-        message:
-          result.error.message ??
-          "Could not create your account. Please try again.",
+        message: result.error.message ?? "Could not create your account. Please try again.",
       });
       return;
     }
@@ -89,24 +84,14 @@ export function SignupForm({ redirectTo }: { redirectTo: string }) {
 
           <Field.Root required invalid={!!errors.password}>
             <Field.Label>Password</Field.Label>
-            <Input
-              type="password"
-              autoComplete="new-password"
-              {...register("password")}
-            />
+            <Input type="password" autoComplete="new-password" {...register("password")} />
             {/* Chakra shows ErrorText only while invalid, so both can sit here. */}
-            <Field.HelperText>
-              At least {MIN_PASSWORD_LENGTH} characters.
-            </Field.HelperText>
+            <Field.HelperText>At least {MIN_PASSWORD_LENGTH} characters.</Field.HelperText>
             <Field.ErrorText>{errors.password?.message}</Field.ErrorText>
           </Field.Root>
 
           {/* Stays loading after success: the browser is navigating away. */}
-          <Button
-            type="submit"
-            loading={isSubmitting || isSubmitSuccessful}
-            w="full"
-          >
+          <Button type="submit" loading={isSubmitting || isSubmitSuccessful} w="full">
             Create account
           </Button>
         </Stack>
@@ -125,7 +110,7 @@ export function SignupForm({ redirectTo }: { redirectTo: string }) {
       <Text textStyle="sm" color="fg.muted" textAlign="center">
         Already have an account?{" "}
         <Link asChild>
-          <NextLink href="/login">Sign in</NextLink>
+          <NextLink href={withRedirect("/login", redirectTo)}>Sign in</NextLink>
         </Link>
       </Text>
     </Stack>

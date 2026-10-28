@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Badge,
   Box,
@@ -18,7 +18,9 @@ import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS, type SceneText } from "@/lib
 import { cssUrlValue } from "@/lib/stories";
 import { sa_setPlaySceneText } from "@/app/(app)/play/[id]/actions";
 import { AttachmentPreviewDialog } from "@/components/uploads/attachment-preview";
+import { BackgroundToggle } from "./background-toggle";
 import { PlayPill } from "./play-pill";
+import { SceneStateOverlay } from "./scene-state-overlay";
 import { SceneTextPopover } from "./scene-text-popover";
 import type { ChannelStatus } from "./use-story-channel";
 
@@ -52,6 +54,8 @@ type Props = {
   readOnly?: boolean;
   /** Each pill's info popover ends with the element's History (a scene's preview). */
   withHistory?: boolean;
+  /** The eye in the upper right that puts everything away to show the cover (BackgroundToggle). */
+  withBackgroundToggle?: boolean;
   /** Drawn either side of the scene's title: the preview's chevrons to the scenes before and after. */
   titleStart?: ReactNode;
   titleEnd?: ReactNode;
@@ -107,6 +111,12 @@ const STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
  * space, in the same preview a thumbnail opens, until the storyteller takes
  * it down or the player closes it for themselves. An element the table
  * does not hold, or one without a picture, shows nothing.
+ *
+ * Given withBackgroundToggle, an eye in the upper right puts away the
+ * title, the stacks, the scene's overlay, the no-scene box and the cover's
+ * dimming, leaving the cover alone until it is pressed again. The picture
+ * the storyteller puts up stays: it is theirs to take down, not part of
+ * the space.
  */
 export function PlaySpace({
   idStory,
@@ -120,11 +130,14 @@ export function PlaySpace({
   onPreviewClose,
   readOnly = false,
   withHistory = false,
+  withBackgroundToggle = false,
   titleStart,
   titleEnd,
   renderTitle,
   noSceneBox,
 }: Props) {
+  const [showBackground, setShowBackground] = useState(false);
+  const detailsHidden = withBackgroundToggle && showBackground;
   const note = STATUS_NOTES[status];
   const items = scene.items.map(toPlayItem);
   // A pending or complete scene is there to read, not to play in: the pills'
@@ -152,11 +165,40 @@ export function PlaySpace({
             bgPos="center"
             style={{ backgroundImage: `url("${cssUrlValue(coverUrl)}")` }}
           />
-          <Box aria-hidden position="absolute" inset="0" bg="blackAlpha.400" />
+          {!detailsHidden && <Box aria-hidden position="absolute" inset="0" bg="blackAlpha.400" />}
         </>
       )}
-      <Stack position="relative" h="full" overflowY="auto" gap="3" p="4">
-        <HStack justify="space-between" gap="3" align="start">
+      {withBackgroundToggle && (
+        // As tall as the title row (the title's xs info button) and at its
+        // top, so the eye sits level with the title; it stays put while the
+        // row is put away.
+        <Flex position="absolute" top="4" right="4" zIndex="1" h="8" align="center">
+          <BackgroundToggle
+            isOn={showBackground}
+            onToggle={() => setShowBackground(!showBackground)}
+            controls="play-space-details"
+          />
+        </Flex>
+      )}
+      {/* Put away with display rather than taken out, so the pills' open
+          popovers and half-written notes are there when it comes back. */}
+      <Stack
+        id="play-space-details"
+        position="relative"
+        h="full"
+        overflowY="auto"
+        gap="3"
+        p="4"
+        display={detailsHidden ? "none" : undefined}
+      >
+        {/* Room at the end of the row for the eye, so the connection badge
+            and a long title never run under it. */}
+        <HStack
+          justify="space-between"
+          gap="3"
+          align="start"
+          pe={withBackgroundToggle ? "8" : undefined}
+        >
           {/* The scene's title is what the space is about; the region keeps
               its own name for a screen reader. Centred over the stacks, in
               small caps, as a scene's title is set on a page. */}
@@ -251,50 +293,7 @@ export function PlaySpace({
           </Flex>
         )}
       </Stack>
-      {/* Over the whole space, the way the storyteller's table covers a
-          complete scene: a pending scene is not being played yet, so the
-          players wait. It lets the pointer through, so what is under it can
-          still be read (lookOnly above keeps it from being changed). It
-          lifts when the storyteller makes the scene active, which comes over
-          the topic as a change of scene. */}
-      {scene.scene?.status === SCENE_PENDING_STATUS && (
-        <Flex
-          position="absolute"
-          inset="0"
-          direction="column"
-          align="center"
-          justify="center"
-          bg="blackAlpha.600"
-          pointerEvents="none"
-          data-testid="scene-pending-overlay"
-        >
-          <Text fontSize="5xl" fontWeight="bold" letterSpacing="widest" color="white">
-            PENDING
-          </Text>
-          <Text fontSize="xl" letterSpacing="wider" color="white">
-            Please Stand By
-          </Text>
-        </Flex>
-      )}
-      {/* A complete scene the storyteller has gone back to is the record of
-          what was played: the same overlay the storyteller's table puts up,
-          so the players see it is not being played and press nothing in it
-          (the actions refuse too). */}
-      {scene.scene?.status === SCENE_LOCKED_STATUS && (
-        <Flex
-          position="absolute"
-          inset="0"
-          align="center"
-          justify="center"
-          bg="blackAlpha.600"
-          pointerEvents="none"
-          data-testid="scene-complete-overlay"
-        >
-          <Text fontSize="5xl" fontWeight="bold" letterSpacing="widest" color="white">
-            COMPLETE
-          </Text>
-        </Flex>
-      )}
+      {!detailsHidden && <SceneStateOverlay status={scene.scene?.status} />}
       {/* Keyed by the item, so a change of picture is a fresh dialog rather
           than one whose image swaps under it. No tags: the picture's tags are
           the attachment's, not the element's, as the pill's preview says. */}
@@ -312,7 +311,7 @@ export function PlaySpace({
           showTags={false}
         />
       )}
-      {scene.scene === null && noSceneBox}
+      {scene.scene === null && !detailsHidden && noSceneBox}
     </Box>
   );
 }

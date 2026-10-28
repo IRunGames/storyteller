@@ -28,6 +28,7 @@ const user: CurrentUser = {
   image: null,
   nickName: null,
   idUserType: -1,
+  isAnonymous: false,
 };
 
 // The popover imports its server action itself, so the whole actions module
@@ -333,71 +334,19 @@ describe("AppHeader", () => {
     ]);
   });
 
-  it("shows the brand mark of the theme in force: sparkle, pumpkin, berry, sprig, wave or flame", async () => {
+  it("shows the Storyteller logo as the brand mark, whatever the theme", async () => {
     const u = userEvent.setup();
     renderHeader();
 
     const brand = screen.getByRole("link", { name: "Storyteller" });
-    const sparkle = brand.querySelector('[data-icon="sparkle"]')!;
-    const pumpkin = brand.querySelector('[data-icon="pumpkin"]')!;
-    const berry = brand.querySelector('[data-icon="berry"]')!;
-    const sprig = brand.querySelector('[data-icon="sprig"]')!;
-    const wave = brand.querySelector('[data-icon="wave"]')!;
-    const flame = brand.querySelector('[data-icon="flame"]')!;
+    const logo = brand.querySelector("img")!;
+    expect(logo).toHaveAttribute("src", "/images/storyteller-logo.png");
+    expect(brand.querySelector("svg")).toBeNull();
 
-    async function choose(label: string, className: string) {
-      await u.click(await screen.findByRole("button", { name: "Choose theme" }));
-      await u.click(await screen.findByRole("menuitemradio", { name: label }));
-      await waitFor(() => expect(document.documentElement).toHaveClass(className));
-    }
-
-    await choose("Dark", "dark");
-    expect(sparkle).toBeVisible();
-    expect(pumpkin).not.toBeVisible();
-    expect(berry).not.toBeVisible();
-    expect(sprig).not.toBeVisible();
-    expect(wave).not.toBeVisible();
-    expect(flame).not.toBeVisible();
-
-    await choose("Halloween", "halloween");
-    expect(pumpkin).toBeVisible();
-    expect(sparkle).not.toBeVisible();
-    expect(berry).not.toBeVisible();
-    expect(sprig).not.toBeVisible();
-    expect(wave).not.toBeVisible();
-    expect(flame).not.toBeVisible();
-
-    await choose("Blackberry", "blackberry");
-    expect(berry).toBeVisible();
-    expect(sparkle).not.toBeVisible();
-    expect(pumpkin).not.toBeVisible();
-    expect(sprig).not.toBeVisible();
-    expect(wave).not.toBeVisible();
-    expect(flame).not.toBeVisible();
-
-    await choose("Mint", "mint");
-    expect(sprig).toBeVisible();
-    expect(sparkle).not.toBeVisible();
-    expect(pumpkin).not.toBeVisible();
-    expect(berry).not.toBeVisible();
-    expect(wave).not.toBeVisible();
-    expect(flame).not.toBeVisible();
-
-    await choose("Wave", "wave");
-    expect(wave).toBeVisible();
-    expect(sparkle).not.toBeVisible();
-    expect(pumpkin).not.toBeVisible();
-    expect(berry).not.toBeVisible();
-    expect(sprig).not.toBeVisible();
-    expect(flame).not.toBeVisible();
-
-    await choose("Ember", "ember");
-    expect(flame).toBeVisible();
-    expect(sparkle).not.toBeVisible();
-    expect(pumpkin).not.toBeVisible();
-    expect(berry).not.toBeVisible();
-    expect(sprig).not.toBeVisible();
-    expect(wave).not.toBeVisible();
+    await u.click(await screen.findByRole("button", { name: "Choose theme" }));
+    await u.click(await screen.findByRole("menuitemradio", { name: "Halloween" }));
+    await waitFor(() => expect(document.documentElement).toHaveClass("halloween"));
+    expect(logo).toBeVisible();
   });
 
   it("names the account button with the nickname, else the name, else the email", async () => {

@@ -8,10 +8,7 @@ const DEFAULT_DESTINATION = "/home";
  * signed-in user straight off the site. Only a single-slash absolute path is
  * allowed through; anything else falls back to the default destination.
  */
-export function safeRedirect(
-  value: string | string[] | undefined,
-  fallback = DEFAULT_DESTINATION,
-) {
+export function safeRedirect(value: string | string[] | undefined, fallback = DEFAULT_DESTINATION) {
   const candidate = Array.isArray(value) ? value[0] : value;
 
   if (
@@ -24,4 +21,16 @@ export function safeRedirect(
   }
 
   return candidate;
+}
+
+/**
+ * `path` carrying `redirectTo` on to the next page, as the links between
+ * /login and /signup do, so someone who switches from one to the other still
+ * lands where they were headed: a guest at a table, say. The default
+ * destination is left off, since both pages fall back to it anyway.
+ */
+export function withRedirect(path: string, redirectTo: string) {
+  return redirectTo === DEFAULT_DESTINATION
+    ? path
+    : `${path}?redirectTo=${encodeURIComponent(redirectTo)}`;
 }

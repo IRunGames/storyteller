@@ -20,6 +20,7 @@ describe("toCurrentUser", () => {
       tags: null,
       isActive: true,
       bio: "Runs the table on Thursdays.",
+      isAnonymous: false,
       searchText: "Paul Stafford storyteller@irun.games Gandalf",
     };
 
@@ -30,6 +31,7 @@ describe("toCurrentUser", () => {
       image: null,
       nickName: "Gandalf",
       idUserType: -1,
+      isAnonymous: false,
     });
   });
 });

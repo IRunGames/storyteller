@@ -15,6 +15,7 @@ const as = (idUserType: number): CurrentUser => ({
   image: null,
   nickName: null,
   idUserType,
+  isAnonymous: false,
 });
 
 describe("UserTypeVisibility", () => {

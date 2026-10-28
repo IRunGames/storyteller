@@ -11,11 +11,7 @@ export function NavDrawer({ pathname }: { pathname: string }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <Drawer.Root
-      open={open}
-      onOpenChange={(e) => setOpen(e.open)}
-      placement="start"
-    >
+    <Drawer.Root open={open} onOpenChange={(e) => setOpen(e.open)} placement="start">
       <Drawer.Trigger asChild>
         <IconButton
           aria-label="Open menu"

@@ -12,6 +12,7 @@ const user = {
   image: null,
   nickName: "Gandalf",
   idUserType: -1,
+  isAnonymous: false,
 };
 
 function WhoAmI() {

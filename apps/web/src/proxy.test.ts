@@ -9,9 +9,7 @@ const ORIGIN = "http://localhost:3000";
 
 function request(path: string, { sessionCookie = false } = {}) {
   return new NextRequest(new URL(path, ORIGIN), {
-    headers: sessionCookie
-      ? { cookie: "better-auth.session_token=some-token" }
-      : {},
+    headers: sessionCookie ? { cookie: "better-auth.session_token=some-token" } : {},
   });
 }
 
@@ -20,9 +18,7 @@ describe("proxy", () => {
     const response = proxy(request("/home"));
 
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(
-      `${ORIGIN}/login?redirectTo=%2Fhome`,
-    );
+    expect(response.headers.get("location")).toBe(`${ORIGIN}/login?redirectTo=%2Fhome`);
   });
 
   for (const path of [
@@ -42,7 +38,7 @@ describe("proxy", () => {
     });
   }
 
-  for (const path of ["/", "/signup", "/signup/"]) {
+  for (const path of ["/", "/signup", "/signup/", "/join/abc123"]) {
     it(`lets a visitor without a cookie reach ${path}`, () => {
       const response = proxy(request(path));
 
@@ -89,5 +85,16 @@ describe("proxy", () => {
     expect(unstable_doesMiddlewareMatch({ config, url: "/images/hearth_welcome.webp" })).toBe(
       false,
     );
+  });
+
+  it("never runs for the window icons", () => {
+    // A browser asks for them on the login page too, with no cookie.
+    for (const url of ["/favicon.ico", "/icon.png", "/apple-icon.png"]) {
+      expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);
+    }
+  });
+
+  it("still runs for a page whose path starts like an icon", () => {
+    expect(unstable_doesMiddlewareMatch({ config, url: "/iconography" })).toBe(true);
   });
 });

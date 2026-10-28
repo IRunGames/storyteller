@@ -23,6 +23,7 @@ const user: CurrentUser = {
   image: null,
   nickName: null,
   idUserType: -2,
+  isAnonymous: false,
 };
 
 const sa_setUserPreference = mock.fn(async (_input: { key: string; value: unknown }) => ({
@@ -276,6 +277,16 @@ describe("PlayTable", () => {
 
   afterEach(() => {
     toaster.remove();
+  });
+
+  it("goes to the display table from the middle of the header", () => {
+    renderTable();
+
+    const banner = screen.getByRole("banner");
+    expect(within(banner).getByRole("link", { name: "Display mode" })).toHaveAttribute(
+      "href",
+      "/table/7",
+    );
   });
 
   it("shows the story's cover behind the play space while the scene has none of its own", () => {
@@ -986,6 +997,31 @@ describe("PlayTable", () => {
 
     expect(sa_getPlayScene.mock.calls).toHaveLength(1);
     await screen.findByRole("heading", { name: "The abbey" });
+  });
+
+  it("puts the play space away behind its eye to show the cover, and brings it back", async () => {
+    const u = userEvent.setup();
+    renderTable(
+      {},
+      "3. Kildealg",
+      user,
+      { ...scene, scene: { ...scene.scene!, status: "PENDING" } },
+      "https://x.test/story.png",
+    );
+    const space = screen.getByRole("region", { name: "Play space" });
+    const eye = within(space).getByRole("button", { name: "Show background" });
+    expect(eye).toHaveAttribute("aria-pressed", "false");
+
+    await u.click(eye);
+    expect(eye).toHaveAttribute("aria-pressed", "true");
+    expect(within(space).queryByRole("heading", { name: "The docks" })).toBeNull();
+    expect(within(space).queryByTestId("scene-pending-overlay")).toBeNull();
+    expect(screen.getByTestId("play-space-cover")).toBeInTheDocument();
+
+    await u.click(eye);
+    expect(eye).toHaveAttribute("aria-pressed", "false");
+    expect(within(space).getByRole("heading", { name: "The docks" })).toBeInTheDocument();
+    expect(within(space).getByTestId("scene-pending-overlay")).toBeInTheDocument();
   });
 
   it("asks the players to stand by over a pending scene", () => {

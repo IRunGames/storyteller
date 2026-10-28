@@ -52,6 +52,10 @@ export const user = pgTable("s_users", {
   isActive: boolean("is_active").default(true).notNull(),
   // What the user writes about themselves on their profile; null until then.
   bio: text("bio"),
+  // A guest who came in by a story's join link without an account, made and
+  // read by Better Auth's anonymous plugin (lib/auth.ts). Such a user may only
+  // be at the tables they joined; see docs/auth.md.
+  isAnonymous: boolean("is_anonymous").default(false).notNull(),
   // name, email and nick_name joined for lookups, built by the database from
   // the search_fields recipe on the s_users row of _tables
   // (db/migrations/20260923181837_add_users_search_text.sql). Generated, so
@@ -187,6 +191,9 @@ export const stories = pgTable("stories", {
   isArchived: boolean("is_archived").default(false).notNull(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   idArchivedByUser: uuid("id_archived_by_user"),
+  // The code in the story's join link, /join/<code>; null until the
+  // storyteller first asks for the link (sa_getJoinLink).
+  joinCode: text("join_code").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -204,6 +211,9 @@ export const storyPlayers = pgTable("story_players", {
   idCharacter: bigint("id_character", { mode: "number" }),
   hoursPlayed: doublePrecision("hours_played"),
   joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow().notNull(),
+  // Seated through the story's join link; the storyteller's plan caps how
+  // many of these a story has (lib/join.ts).
+  isFromLink: boolean("is_from_link").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

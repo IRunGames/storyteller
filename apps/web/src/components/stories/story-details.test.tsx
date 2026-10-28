@@ -17,6 +17,7 @@ const viewer: CurrentUser = {
   image: null,
   nickName: null,
   idUserType: -1,
+  isAnonymous: false,
 };
 const renderWithProviders = (ui: ReactElement, who: CurrentUser = viewer) =>
   renderBare(<UserProvider user={who}>{ui}</UserProvider>);

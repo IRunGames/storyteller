@@ -13,7 +13,8 @@ How sign-up, sign-in and route protection work in the web app.
 | Chakra UI v3 | The forms |
 
 Two sign-in methods are enabled: **email + password** (minimum 8 characters) and
-**Google OAuth**.
+**Google OAuth**. A third kind of session has no account behind it: a **guest**,
+someone who followed a story's join link (see [Guests](#guests)).
 
 ## Routes
 
@@ -26,8 +27,9 @@ These are the only pages reachable without a session.
 | URL | Source | Who can reach it |
 |---|---|---|
 | `/` | [`(public)/page.tsx`](<../src/app/(public)/page.tsx>) | Anyone, signed in or not |
-| `/login` | [`(auth)/login/`](<../src/app/(auth)/login/page.tsx>) | Signed-out only — signed-in users bounce to `/home` |
+| `/login` | [`(auth)/login/`](<../src/app/(auth)/login/page.tsx>) | Signed-out only — signed-in users bounce to `/home`, guests excepted |
 | `/signup` | [`(auth)/signup/`](<../src/app/(auth)/signup/page.tsx>) | Signed-out only — same bounce |
+| `/join/[code]` | [`(public)/join/[code]/`](<../src/app/(public)/join/[code]/page.tsx>) | Anyone holding a story's join link; see [Guests](#guests) |
 | `/api/auth/*` | [`api/auth/[...all]/route.ts`](<../src/app/api/auth/[...all]/route.ts>) | Better Auth's own handler |
 | `/api/cron/*` | [`api/cron/`](../src/app/api/cron/) | Vercel Cron only — no session, each job checks `Authorization: Bearer $CRON_SECRET` itself |
 | `/images/*` | [`public/images/`](../public/images/) | Anyone — the pictures the landing, waiting and error pages paint; the proxy skips them so a visitor with no cookie sees the landing page's |
@@ -44,6 +46,7 @@ one of them and is protected by being there.
 | `(app)/(nav)` | [`(nav)/layout.tsx`](<../src/app/(app)/(nav)/layout.tsx>) | Every signed-in page that carries the menu bar: the landing page after login (`/home`) and the sections the bar links to |
 | `(app)/play` | [`play/[id]/page.tsx`](<../src/app/(app)/play/[id]/page.tsx>) | The players' table and waiting room, with their own full-screen layout and no menu bar. The story's owner is sent on to `/run/[id]` |
 | `(app)/run` | [`run/[id]/page.tsx`](<../src/app/(app)/run/[id]/page.tsx>) | The storyteller's table, with the story's library down the side. Only the story's owner gets in; anyone else gets the not-found page |
+| `(app)/table` | [`table/[id]/page.tsx`](<../src/app/(app)/table/[id]/page.tsx>) | The display table: the scene large, with nothing to press, for a shared screen or a guest. The story's owner and its players get in, guests included; anyone else gets the not-found page |
 | `(app)/preview` | [`preview/scene/[id]/page.tsx`](<../src/app/(app)/preview/scene/[id]/page.tsx>) | A read-only look at one scene as the players would see it, keyed on the scene, opened in a new tab from the storyteller's scene selector. The story's owner and its players get in; anyone else gets the not-found page |
 
 ## The flow
@@ -109,6 +112,47 @@ guarantee.
 [`safeRedirect()`](../src/lib/safe-redirect.ts) narrows it to a same-origin
 path — `https://evil.example` and the protocol-relative `//evil.example` both
 fall back to `/home`.
+
+## Guests
+
+A storyteller hands out a join link from their table (the link button in the
+run table's header, `sa_getJoinLink`): `/join/<code>`, where the code is a
+random 12 characters kept on `stories.join_code`. Following it needs no
+account. The join page asks for a name, offering a random one ("Ferocious
+Hamster"), and its form:
+
+1. signs a visitor with no session in as a guest, through Better Auth's
+   [anonymous plugin](https://better-auth.com/docs/plugins/anonymous)
+   (`signIn.anonymous()`). The plugin makes a real `s_users` row with
+   `is_anonymous` set and a placeholder email, and a session cookie like any
+   other;
+2. seats them at the story with `sa_joinByLink`, which names a guest's row
+   after the name they picked and adds a `story_players` row with
+   `is_from_link` set. The seats the link may give out are capped by the
+   storyteller's plan: 3 for an unpaid storyteller, 10 for a paid one
+   ([`lib/join.ts`](../src/lib/join.ts)). Invited players do not count.
+
+Because a guest is a real user, everything at the table works for them
+unchanged: `requireUser()`, the play actions, presence, the MQTT login, chat
+authorship. What keeps them in their place is where they may go:
+
+- `(nav)/layout.tsx` sends a guest to `/signup`: nothing behind the menu bar
+  is theirs;
+- `/play/[id]` and its waiting room send a guest to `/table/[id]`;
+- `(auth)/layout.tsx` lets a guest's session through to `/login` and
+  `/signup` instead of bouncing it to `/home`.
+
+**Linking.** Logging in or signing up while holding a guest's session links
+it: the plugin calls `onLinkAccount` in [`auth.ts`](../src/lib/auth.ts) with
+both users, then deletes the anonymous one.
+[`moveGuestToUser`](../src/db/guests.ts) runs first and moves the guest's
+seats, presence and chat lines to the account. It has to: `story_players`,
+`user_preferences` and `user_systems` would block the delete, and `chats`
+would lose its authors to `ON DELETE SET NULL`. The display table's Log in /
+Sign up button carries `redirectTo=/table/[id]`, and the links between
+`/login` and `/signup` keep it, so the new account lands back at the table.
+
+Guests who never sign up are left in `s_users`. Nothing clears them yet.
 
 ## Storage
 

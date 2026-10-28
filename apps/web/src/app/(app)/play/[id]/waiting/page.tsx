@@ -15,10 +15,13 @@ const idSchema = z.coerce.number().int().min(-2147483648).max(2147483647);
 // put away — is sent back there to be shown the right thing, so the rules
 // for who sees what stay in that one page.
 export default async function WaitingRoomPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireSession();
+  const signedIn = await requireSession();
 
   const id = idSchema.safeParse((await params).id);
   if (!id.success) notFound();
+  // A guest (someone in by a join link, with no account) has only the
+  // display table; the players' table is for accounts.
+  if (signedIn.user.isAnonymous) redirect(`/table/${id.data}`);
 
   const story = await sa_getPlayStory(id.data);
   if (!story) notFound();

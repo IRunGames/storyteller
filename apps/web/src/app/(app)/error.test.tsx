@@ -18,6 +18,7 @@ const signedIn: CurrentUser = {
   image: null,
   nickName: null,
   idUserType: -1,
+  isAnonymous: false,
 };
 
 // Static imports hoist above mock.module, so the page is imported in `before`.

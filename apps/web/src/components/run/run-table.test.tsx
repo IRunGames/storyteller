@@ -27,6 +27,7 @@ const user: CurrentUser = {
   image: null,
   nickName: null,
   idUserType: -1,
+  isAnonymous: false,
 };
 
 const people: StoryElement[] = [
@@ -315,6 +316,7 @@ describe("RunTable", () => {
     });
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
+        sa_suspendInactiveSession: mock.fn(),
         sa_listRunScenes: async () => [],
         sa_loadRunScene: mock.fn(),
         sa_createRunScene: mock.fn(),

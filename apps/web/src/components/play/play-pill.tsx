@@ -258,13 +258,14 @@ function PlayLinkButton({ label, link }: { label: string; link: NonNullable<Play
 
 /**
  * The pill's info button: a popover with what the storyteller lets the
- * players know of the element, under the name the pill shows. The title
+ * players know of the element, under the name the pill shows. The display
+ * table's pill (PassivePill) offers it too, to someone with an account. The title
  * and the description, each only when the element has one, and then the
  * players' notes field. The field is drawn afresh each opening, with the
  * popover, so it starts from the notes as the table holds them now. Read
  * only, the notes are shown as they are, when there are any.
  */
-function PlayInfoPopover({
+export function PlayInfoPopover({
   label,
   title,
   info,

@@ -43,9 +43,10 @@ how we use it. Authentication has its own page, [`auth.md`](auth.md).
   unnamed.
 - **Icons come from `lucide-react`**, one consistent stroke set: `<Bell />`,
   `<ThumbsUp />`, `<Heart fill="currentColor" />` for a filled state. Chakra
-  v3 ships no icon set of its own. Hand-drawn SVGs are for logos only: the
-  brand mark in [`icons.tsx`](../src/components/nav/icons.tsx) and the Google
-  mark in the sign-in button. An icon is decorative
+  v3 ships no icon set of its own. Hand-drawn SVGs are for marks only: the
+  themes' marks in [`icons.tsx`](../src/components/nav/icons.tsx) and the
+  Google mark in the sign-in button. The Storyteller logo is a picture,
+  `LogoMark` in [`brand-mark.tsx`](../src/components/nav/brand-mark.tsx). An icon is decorative
   (Lucide sets `aria-hidden` itself); the button around it carries the
   `aria-label`.
 - **Header buttons share one look:** `IconButton variant="ghost" boxSize="11"
@@ -60,8 +61,7 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   of themes is [`themes.ts`](../src/lib/themes.ts); the provider hands it to
   `next-themes` so the old class is removed on a switch.
 - **Anything that differs per theme is a CSS rule on the theme class**
-  (`css={{ ".halloween &": { display: "none" } }}` in
-  [`brand-mark.tsx`](../src/components/nav/brand-mark.tsx)), not a branch on
+  (`css={{ ".halloween &": { display: "none" } }}`), not a branch on
   the theme in JavaScript, which would need `ClientOnly`. The selector is
   spelled out because Chakra only types the `_halloween` condition after its
   typegen CLI has run, which we do not do; tokens in `theme.ts` are untyped

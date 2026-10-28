@@ -23,9 +23,10 @@ import { getSessionCookie } from "better-auth/cookies";
  * Reachable without a session. Everything else the matcher below lets through
  * needs one, so a new page under app/(app)/ is protected without touching this
  * file; a new public page must be added here. Keep in sync with app/(public)/
- * and app/(auth)/.
+ * and app/(auth)/. /join is a story's join link, which a guest follows with
+ * no account and no cookie.
  */
-const PUBLIC_ROUTES = ["/", "/login", "/signup"];
+const PUBLIC_ROUTES = ["/", "/login", "/signup", "/join"];
 
 const SIGNED_OUT_HOME = "/login";
 
@@ -57,6 +58,11 @@ export const config = {
   // calls it with no cookie at all, and each job checks CRON_SECRET itself,
   // so a redirect here would stop every run), the pictures in public/images
   // (the landing page paints one behind itself for visitors with no cookie,
-  // and a redirect here would leave it blank) and Next internals.
-  matcher: ["/((?!api/auth|api/cron|images/|_next/static|_next/image|favicon.ico).*)"],
+  // and a redirect here would leave it blank), the window icons Next serves
+  // from app/favicon.ico, icon.png and apple-icon.png (a browser asks for
+  // them on the login page too, and would be handed the page instead) and
+  // Next internals.
+  matcher: [
+    "/((?!api/auth|api/cron|images/|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png).*)",
+  ],
 };

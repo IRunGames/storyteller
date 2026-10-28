@@ -54,7 +54,10 @@ import { useChatLayout } from "@/components/play/play-chat-layout";
 import { PlayChatOverlay } from "@/components/play/play-chat-overlay";
 import { useStoryChat } from "@/components/play/use-story-chat";
 import { PlayDiagnostics } from "@/components/play/play-diagnostics";
+import { DisplayModeButton } from "@/components/play/display-mode-button";
 import { PlayHeader } from "@/components/play/play-header";
+import { InactivityCheck } from "./inactivity-check";
+import { JoinLinkButton } from "./join-link-button";
 import { PlayPanelToggle } from "@/components/play/play-panel-toggle";
 import { SceneTextPopover } from "@/components/play/scene-text-popover";
 import { useStoryChannel } from "@/components/play/use-story-channel";
@@ -420,6 +423,8 @@ export function RunTable({
           <Activity />
         </PlayPanelToggle>
       )}
+      <DisplayModeButton idStory={idStory} />
+      <JoinLinkButton idStory={idStory} />
     </HStack>
   );
 
@@ -437,6 +442,16 @@ export function RunTable({
 
   return (
     <Flex direction="column" h="100vh">
+      {/* Asks after a long quiet whether play goes on, and suspends the
+          session if not; the chip and the overlay then follow the status. */}
+      {session && (
+        <InactivityCheck
+          idStory={idStory}
+          idStorySession={session.idStorySession}
+          isPlaying={sessionStatus === "OPEN" || sessionStatus === "RESUMED"}
+          onSuspended={setSessionStatus}
+        />
+      )}
       <PlayHeader
         title={title}
         session={session ? sessionHeading(session) : null}

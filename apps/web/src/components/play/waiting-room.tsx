@@ -41,6 +41,12 @@ type Props = {
    * page on the server so the server and the browser draw the same one.
    */
   background: string;
+  /**
+   * The table the room hands over to once it opens: /play/[id] unless the
+   * player came from the display table, /table/[id], which has a room of its
+   * own so they go back to the screen they chose.
+   */
+  tableHref?: string;
 };
 
 /**
@@ -63,7 +69,7 @@ type Props = {
  * as the room unmounts. Going to the table does not: sa_joinSession attaches
  * the waiting row to the session there.
  */
-export function WaitingRoom({ story, initial, sessions, background }: Props) {
+export function WaitingRoom({ story, initial, sessions, background, tableHref }: Props) {
   const router = useRouter();
   // Read through a ref by the heartbeat, so the effect below runs once per
   // story rather than again whenever the router object changes: its cleanup
@@ -74,6 +80,7 @@ export function WaitingRoom({ story, initial, sessions, background }: Props) {
   });
   const [state, setState] = useState(initial);
   const { idStory } = story;
+  const table = tableHref ?? `/play/${idStory}`;
   // True until the room has decided to go: to the table, or out once the
   // waiting row is gone. It arms the leave guard, and tells the cleanup
   // whether the row still needs deleting.
@@ -116,7 +123,7 @@ export function WaitingRoom({ story, initial, sessions, background }: Props) {
           routerRef.current.replace("/play");
         } else if (next.hasOpenSession || next.isUnplayable) {
           staying.current = false;
-          routerRef.current.replace(`/play/${idStory}`);
+          routerRef.current.replace(table);
         } else {
           setState(next);
         }
@@ -137,7 +144,7 @@ export function WaitingRoom({ story, initial, sessions, background }: Props) {
       clearInterval(timer);
       if (staying.current) sa_leaveWaitingRoom(idStory).catch(() => {});
     };
-  }, [idStory]);
+  }, [idStory, table]);
 
   return (
     // In the bottom-left corner rather than the middle, as the landing page's

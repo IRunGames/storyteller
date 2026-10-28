@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
 
-import { safeRedirect } from "./safe-redirect";
+import { safeRedirect, withRedirect } from "./safe-redirect";
 
 describe("safeRedirect", () => {
   it("lets a same-origin absolute path through", () => {
@@ -43,5 +43,12 @@ describe("safeRedirect", () => {
 
   it("uses a caller-supplied fallback instead of the default", () => {
     expect(safeRedirect("//evil.example", "/login")).toBe("/login");
+  });
+});
+
+describe("withRedirect", () => {
+  it("carries a destination on, and leaves the default off", () => {
+    expect(withRedirect("/login", "/table/7")).toBe("/login?redirectTo=%2Ftable%2F7");
+    expect(withRedirect("/signup", "/home")).toBe("/signup");
   });
 });

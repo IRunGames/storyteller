@@ -1,17 +1,6 @@
 import NextLink from "next/link";
-import { Box, HStack, Text } from "@chakra-ui/react";
-import { BerryIcon, FlameIcon, PumpkinIcon, SparkleIcon, SprigIcon, WaveIcon } from "./icons";
+import { HStack, Image, Text } from "@chakra-ui/react";
 
-// Every mark is always in the DOM and the theme class on <html> picks
-// which one shows. Reading the theme on the client instead would mean a
-// ClientOnly skeleton in the header on every load, since the server does
-// not know the theme; a CSS rule is settled before first paint.
-//
-// The selector is written out (".halloween &") rather than the `_halloween`
-// condition theme.ts declares because Chakra only types custom conditions
-// after its typegen CLI has written them into node_modules, which this repo
-// does not run. Tokens in theme.ts are untyped and can use `_halloween`.
-//
 // The mark is the link to /home, which is not in NAV_ITEMS, so it takes the
 // same accent-on-tint pill as an active NavLink when the user is there. The
 // pill's padding is always applied and pulled back with a negative margin,
@@ -35,54 +24,7 @@ export function BrandMark({ active }: { active: boolean }) {
       }}
     >
       <NextLink href="/home" aria-current={active ? "page" : undefined}>
-        <Box
-          as="span"
-          display="inline-flex"
-          color="nav.accent"
-          css={{ ".halloween &, .blackberry &, .mint &, .wave &, .ember &": { display: "none" } }}
-        >
-          <SparkleIcon />
-        </Box>
-        <Box
-          as="span"
-          display="none"
-          color="nav.accent"
-          css={{ ".halloween &": { display: "inline-flex" } }}
-        >
-          <PumpkinIcon />
-        </Box>
-        <Box
-          as="span"
-          display="none"
-          color="nav.accent"
-          css={{ ".blackberry &": { display: "inline-flex" } }}
-        >
-          <BerryIcon />
-        </Box>
-        <Box
-          as="span"
-          display="none"
-          color="nav.accent"
-          css={{ ".mint &": { display: "inline-flex" } }}
-        >
-          <SprigIcon />
-        </Box>
-        <Box
-          as="span"
-          display="none"
-          color="nav.accent"
-          css={{ ".wave &": { display: "inline-flex" } }}
-        >
-          <WaveIcon />
-        </Box>
-        <Box
-          as="span"
-          display="none"
-          color="nav.accent"
-          css={{ ".ember &": { display: "inline-flex" } }}
-        >
-          <FlameIcon />
-        </Box>
+        <LogoMark />
         <Text
           as="span"
           fontSize="2xl"
@@ -95,4 +37,18 @@ export function BrandMark({ active }: { active: boolean }) {
       </NextLink>
     </HStack>
   );
+}
+
+/** Where the logo is served from; a copy of the iRun blog's public/logo.png. */
+export const LOGO_URL = "/images/storyteller-logo.png";
+
+/**
+ * The Storyteller logo alone, with no link or name: the brand mark's icon,
+ * and the display table's (/table/[id]), which shows it over the scene. The
+ * same on every theme, being the app's mark rather than the theme's; the
+ * theme menu's button shows which theme is in force. Decorative, as the name
+ * beside it says what it is. The size is the caller's.
+ */
+export function LogoMark({ size = "8" }: { size?: string }) {
+  return <Image src={LOGO_URL} alt="" boxSize={size} rounded="md" flexShrink="0" />;
 }

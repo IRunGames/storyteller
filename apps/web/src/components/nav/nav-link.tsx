@@ -33,11 +33,7 @@ export function NavLink({ href, active, children, onNavigate }: NavLinkProps) {
         outlineOffset: "2px",
       }}
     >
-      <NextLink
-        href={href}
-        aria-current={active ? "page" : undefined}
-        onClick={onNavigate}
-      >
+      <NextLink href={href} aria-current={active ? "page" : undefined} onClick={onNavigate}>
         {children}
       </NextLink>
     </Box>

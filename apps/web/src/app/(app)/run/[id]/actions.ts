@@ -1,6 +1,19 @@
 "use server";
 
-import { and, asc, desc, eq, ilike, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  ne,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl, sceneElementImageUrl } from "@/db/attachment-url";
@@ -59,6 +72,7 @@ import { SCENE_LOCKED_STATUS, type SetSceneTextResult } from "@/lib/scenes";
 import { sessionTitleSchema } from "@/lib/session-schemas";
 import { sceneStacksSchema, stacksSchema } from "@/lib/stack-schemas";
 import { sessionHeading } from "@/lib/stories";
+import { joinCap } from "@/lib/join";
 
 const {
   attachments,
@@ -66,6 +80,7 @@ const {
   elements,
   sceneElements,
   stories,
+  storyPlayers,
   storyScenes,
   storySessions,
   vSceneElements,
@@ -472,6 +487,71 @@ export async function sa_setSessionTitle(
   // answer has gone out; see lib/realtime/publish-scene.ts.
   publishLater(() => publishSessionUpdated(story.data, session.data, updated[0].title));
   return { ok: true, title: updated[0].title };
+}
+
+export type SuspendInactiveSessionResult =
+  { ok: true; status: string } | { ok: false; error: string };
+
+const NOT_BEING_PLAYED = "That session is not being played.";
+
+/**
+ * The run table's inactivity check: the storyteller left the table untouched
+ * for long enough, then said they are not playing or did not answer, so the
+ * session being played is suspended, as the session chip would suspend it.
+ *
+ * The status trigger logs the move on the session's activity_log itself, but
+ * says nothing of why, so the action appends its own `inactivity_log` entry
+ * through _append_activity_log, in one transaction with the move, saying it
+ * was suspended for inactivity and whether the storyteller answered. The
+ * players' table is then told, as for any session status change.
+ *
+ * Only the story's current session, and only while it is being played: the
+ * WHERE repeats both, so a session suspended or ended meanwhile (from another
+ * window, say) matches nothing and is refused rather than moved again.
+ */
+export async function sa_suspendInactiveSession(
+  idStory: number,
+  idStorySession: number,
+  answered: boolean,
+): Promise<SuspendInactiveSessionResult> {
+  const user = await requireUser();
+  const story = idSchema.safeParse(idStory);
+  const session = idSchema.safeParse(idStorySession);
+  if (!story.success || !session.success) return { ok: false, error: NOT_THIS_STORYS_SESSION };
+  if ((await playingSession(user.id, story.data)) !== session.data) {
+    return { ok: false, error: NOT_BEING_PLAYED };
+  }
+
+  const moved = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(storySessions)
+      .set({ status: "SUSPENDED", idUpdatedByUser: user.id })
+      .where(
+        and(
+          eq(storySessions.idStorySession, session.data),
+          eq(storySessions.idStory, story.data),
+          inArray(storySessions.status, PLAYING),
+        ),
+      )
+      .returning({ status: storySessions.status });
+    if (!row) return null;
+    await tx.execute(sql`
+      select _append_activity_log(
+        table_name := 'story_sessions',
+        field_name := 'activity_log',
+        record_id := ${String(session.data)},
+        activity_category := 'inactivity_log',
+        activity_details := 'suspended for inactivity',
+        activity_source := 'run table',
+        user_id := ${user.id},
+        activity_data := ${JSON.stringify({ answered })}::jsonb
+      )
+    `);
+    return row;
+  });
+  if (!moved) return { ok: false, error: NOT_BEING_PLAYED };
+  publishLater(() => publishSceneChanged(story.data));
+  return { ok: true, status: moved.status };
 }
 
 /**
@@ -1898,4 +1978,41 @@ async function linkedRow(
     sceneUrl: row.sceneUrl,
     sceneUrlText: row.sceneUrlText,
   };
+}
+
+export type JoinLink = {
+  /** The code in /join/<code>; the page builds the link from its own origin. */
+  code: string;
+  /** Seats the link has given out so far. */
+  joined: number;
+  /** How many it may give out, by the storyteller's plan (lib/join.ts). */
+  cap: number;
+};
+
+/**
+ * The story's join link, for the storyteller to hand to people without an
+ * account. The code is made the first time it is asked for and kept after
+ * that, so a link already sent keeps working: coalesce in the UPDATE leaves
+ * one that is there alone, and two tabs asking at once get the same code.
+ * Nine random bytes make a 12-character base64url code, too many to guess.
+ * Null for anyone but the story's storyteller.
+ */
+export async function sa_getJoinLink(idStory: number): Promise<JoinLink | null> {
+  const user = await requireUser();
+  const id = idSchema.safeParse(idStory);
+  if (!id.success) return null;
+
+  const fresh = randomBytes(9).toString("base64url");
+  const [story] = await db
+    .update(stories)
+    .set({ joinCode: sql`coalesce(${stories.joinCode}, ${fresh})` })
+    .where(and(eq(stories.idStory, id.data), eq(stories.idCreatedByUser, user.id)))
+    .returning({ code: stories.joinCode });
+  if (!story?.code) return null;
+
+  const [taken] = await db
+    .select({ n: count() })
+    .from(storyPlayers)
+    .where(and(eq(storyPlayers.idStory, id.data), eq(storyPlayers.isFromLink, true)));
+  return { code: story.code, joined: taken.n, cap: joinCap(user.idUserType) };
 }

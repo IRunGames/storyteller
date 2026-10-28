@@ -18,6 +18,7 @@ const user: CurrentUser = {
   image: null,
   nickName: null,
   idUserType: -1,
+  isAnonymous: false,
 };
 
 const profile: Profile = {

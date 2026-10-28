@@ -1108,6 +1108,49 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(await titleOf()).toBeNull();
   });
 
+  it("suspends a session left inactive, noting why in its activity_log", async () => {
+    const session = await openSession(mine, null);
+    published.publishSceneChanged.mock.resetCalls();
+
+    expect(await actions.sa_suspendInactiveSession(mine, session, false)).toEqual({
+      ok: true,
+      status: "SUSPENDED",
+    });
+    const [row] = await db
+      .select({ status: tables.storySessions.status, log: tables.storySessions.activityLog })
+      .from(tables.storySessions)
+      .where(eq(tables.storySessions.idStorySession, session));
+    expect(row.status).toBe("SUSPENDED");
+    const entry = (row.log as Record<string, unknown>[]).find(
+      (e) => e.activityCategory === "inactivity_log",
+    );
+    expect(entry).toMatchObject({
+      activityDetails: "suspended for inactivity",
+      userId: testUser,
+      activityData: { answered: false },
+    });
+    expect(published.publishSceneChanged.mock.calls.map((c) => c.arguments)).toEqual([[mine]]);
+
+    // Already suspended: nothing moves again.
+    expect(await actions.sa_suspendInactiveSession(mine, session, true)).toEqual({
+      ok: false,
+      error: "That session is not being played.",
+    });
+  });
+
+  it("suspends no session of another's story, nor one that is not being played", async () => {
+    const theirSession = await openSession(theirs, null);
+    expect(await actions.sa_suspendInactiveSession(theirs, theirSession, false)).toEqual({
+      ok: false,
+      error: "That session is not being played.",
+    });
+    const done = await openSession(mine, null, "DONE");
+    expect(await actions.sa_suspendInactiveSession(mine, done, false)).toEqual({
+      ok: false,
+      error: "That session is not being played.",
+    });
+  });
+
   it("writes up a scene's description and notes from the panel behind its title", async () => {
     const target = await sceneIn("COMPLETE", "Fixture scene to write up");
     const textOf = async () =>
@@ -1671,6 +1714,37 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       await actions.sa_setSceneElementStatus(theirs, theirScene, abbey, "INVISIBLE");
       await actions.sa_unlinkSceneElement(mine, scene, 2 ** 20);
       for (const fn of Object.values(published)) expect(fn.mock.calls).toHaveLength(0);
+    });
+  });
+  describe("sa_getJoinLink", () => {
+    it("makes the story's code once, and keeps it", async () => {
+      const first = await actions.sa_getJoinLink(mine);
+      expect(first?.code).toMatch(/^[A-Za-z0-9_-]{12}$/);
+      // An unpaid storyteller by default, with no one in by the link yet.
+      expect(first).toMatchObject({ joined: 0, cap: 3 });
+
+      const again = await actions.sa_getJoinLink(mine);
+      expect(again?.code).toBe(first?.code);
+    });
+
+    it("counts only the seats the link gave out", async () => {
+      await db
+        .insert(tables.storyPlayers)
+        .values([{ idStory: mine, idUser: otherUserId, isFromLink: true }]);
+      try {
+        expect((await actions.sa_getJoinLink(mine))?.joined).toBe(1);
+      } finally {
+        await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, mine));
+      }
+    });
+
+    it("gives nothing for someone else's story, and does not make it a code", async () => {
+      expect(await actions.sa_getJoinLink(theirs)).toBeNull();
+      const [row] = await db
+        .select({ code: tables.stories.joinCode })
+        .from(tables.stories)
+        .where(eq(tables.stories.idStory, theirs));
+      expect(row.code).toBeNull();
     });
   });
 });

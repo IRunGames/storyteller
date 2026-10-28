@@ -18,6 +18,7 @@ const user: CurrentUser = {
   image: null,
   nickName: null,
   idUserType: -2,
+  isAnonymous: false,
 };
 
 const now = new Date();

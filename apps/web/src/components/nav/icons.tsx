@@ -1,28 +1,10 @@
-// The brand marks are the only hand-drawn icons in the app; every other icon
-// comes from lucide-react. They are decorative: the link around them carries
-// the accessible name. `data-icon` is there so a test can tell them apart,
+// The themes' marks are the only hand-drawn icons in the app; every other
+// icon comes from lucide-react. The theme menu shows them beside each theme's
+// name and on its button. They are decorative: the control around them
+// carries the accessible name. `data-icon` is there so a test can tell them apart,
 // since a decorative SVG has no role or name to query by.
 
-export function SparkleIcon() {
-  return (
-    <svg
-      width="28"
-      height="28"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      data-icon="sparkle"
-    >
-      <path d="M11 4 L12.8 9.2 L18 11 L12.8 12.8 L11 18 L9.2 12.8 L4 11 L9.2 9.2 Z" />
-      <path d="M18.5 3 L19.2 5 L21 5.7 L19.2 6.4 L18.5 8.4 L17.8 6.4 L16 5.7 L17.8 5 Z" />
-    </svg>
-  );
-}
-
-// The Halloween theme's brand mark: a jack-o'-lantern. The face is cut out
+// The Halloween theme's mark: a jack-o'-lantern. The face is cut out
 // of the body with the even-odd rule, so the header background shows through
 // rather than a second colour, and the body has no stroke because a stroke
 // would creep into the cut-outs.
@@ -50,7 +32,7 @@ export function PumpkinIcon() {
   );
 }
 
-// The Blackberry theme's brand mark: a cluster of drupelets under a stem and
+// The Blackberry theme's mark: a cluster of drupelets under a stem and
 // leaf. The circles are packed so their outline stays bumpy at 28px, which
 // is what makes the shape read as a berry rather than a blob.
 export function BerryIcon() {
@@ -83,7 +65,7 @@ export function BerryIcon() {
   );
 }
 
-// The Mint theme's brand mark: a sprig of three leaves on a stem. Each
+// The Mint theme's mark: a sprig of three leaves on a stem. Each
 // midrib is cut out of its leaf with the even-odd rule, as the pumpkin's face
 // is, so the header background shows through and the leaves keep a single
 // colour. The leaves have no stroke for the same reason as the pumpkin body.
@@ -111,7 +93,7 @@ export function SprigIcon() {
   );
 }
 
-// The Wave theme's brand mark: a breaking wave over a ripple. The crest's
+// The Wave theme's mark: a breaking wave over a ripple. The crest's
 // curl is the hollow of a single filled shape rather than a stroked spiral,
 // so it keeps its weight at 28px, and it has no stroke for the same reason
 // as the pumpkin body. The ripple is a stroke, as the stems are.
@@ -142,7 +124,7 @@ export function WaveIcon() {
   );
 }
 
-// The Ember theme's brand mark: a flame with two sparks drifting off it. The
+// The Ember theme's mark: a flame with two sparks drifting off it. The
 // inner tongue is cut out of the flame with the even-odd rule, as the
 // pumpkin's face is, so the header background shows through and the mark
 // keeps a single colour. No stroke, for the same reason as the pumpkin body.

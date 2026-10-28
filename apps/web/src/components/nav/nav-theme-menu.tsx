@@ -10,8 +10,8 @@ import { BerryIcon, FlameIcon, PumpkinIcon, SprigIcon, WaveIcon } from "./icons"
 
 // The button shows the icon of the theme in force, and each menu item shows
 // its own beside its name. The pumpkin, berry, sprig, wave and flame are the
-// Halloween, Blackberry, Mint, Wave and Ember brand marks reused, which is
-// why they are not Lucide icons.
+// Halloween, Blackberry, Mint, Wave and Ember themes' own marks (icons.tsx),
+// which is why they are not Lucide icons.
 const ICONS: Record<Theme, ReactNode> = {
   light: <Sun />,
   dark: <Moon />,
@@ -80,8 +80,8 @@ export function NavThemeMenu() {
                 {THEMES.map((entry) => (
                   <Menu.RadioItem key={entry.value} value={entry.value}>
                     <Menu.ItemIndicator />
-                    {/* The brand marks draw themselves at 28px for the
-                        header; here every icon is scaled to the item's
+                    {/* The themes' marks draw themselves at 28px; here
+                        every icon is scaled to the item's
                         text size, Lucide's and the marks alike. */}
                     <Box
                       as="span"

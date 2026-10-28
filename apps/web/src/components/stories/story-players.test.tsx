@@ -17,6 +17,7 @@ const viewer: CurrentUser = {
   image: null,
   nickName: null,
   idUserType: -1,
+  isAnonymous: false,
 };
 const renderWithProviders = (ui: ReactElement, who: CurrentUser = viewer) =>
   renderBare(<UserProvider user={who}>{ui}</UserProvider>);
@@ -179,6 +180,7 @@ describe("StoryPlayers", () => {
       image: null,
       nickName: "PaulKhash",
       idUserType: -1,
+      isAnonymous: false,
     };
 
     it("says Me! in place of their name, with their picture and a way to leave", () => {

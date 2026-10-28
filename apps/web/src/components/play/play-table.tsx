@@ -9,6 +9,7 @@ import { canSeeDiagnostics } from "@/lib/diagnostics";
 import type { PlayScene } from "@/lib/play-scene";
 import type { StorySession } from "@/lib/stories";
 import { StoryPlayingBox } from "@/components/stories/story-playing-box";
+import { DisplayModeButton } from "./display-mode-button";
 import { PlayCharacterSpace } from "./play-character-space";
 import { PlayChat } from "./play-chat";
 import { useChatLayout } from "./play-chat-layout";
@@ -128,6 +129,7 @@ export function PlayTable({
           <Activity />
         </PlayPanelToggle>
       )}
+      <DisplayModeButton idStory={idStory} />
     </HStack>
   );
 
@@ -155,6 +157,7 @@ export function PlayTable({
             idStory={idStory}
             scene={scene}
             fallbackCoverUrl={storyCoverUrl}
+            withBackgroundToggle={!user.isAnonymous}
             // The storyteller's box from the run table, without the pencils
             // and bins: only the story's owner manages its sessions, and the
             // owner is sent to /run rather than here.
