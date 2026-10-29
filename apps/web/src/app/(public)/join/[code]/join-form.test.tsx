@@ -7,7 +7,9 @@ import { renderWithProviders } from "@/test/render";
 import type { JoinByLinkResult } from "./actions";
 
 const push = mock.fn((_href: string) => {});
-const anonymous = mock.fn(async () => ({ data: {}, error: null as { message?: string } | null }));
+const sa_joinAsGuest = mock.fn(
+  async (_code: string, _nickname: string): Promise<JoinByLinkResult> => ({ ok: true, idStory: 7 }),
+);
 const sa_joinByLink = mock.fn(
   async (_code: string, _nickname: string): Promise<JoinByLinkResult> => ({ ok: true, idStory: 7 }),
 );
@@ -28,18 +30,17 @@ describe("JoinForm", () => {
     mock.module("next/navigation", {
       namedExports: { useRouter: () => ({ push, refresh: mock.fn() }) },
     });
-    mock.module("@/lib/auth-client", { namedExports: { signIn: { anonymous } } });
-    mock.module("./actions", { namedExports: { sa_joinByLink } });
+    mock.module("./actions", { namedExports: { sa_joinAsGuest, sa_joinByLink } });
     ({ JoinForm } = await import("./join-form"));
   });
 
   beforeEach(() => {
     push.mock.resetCalls();
-    anonymous.mock.resetCalls();
+    sa_joinAsGuest.mock.resetCalls();
     sa_joinByLink.mock.resetCalls();
   });
 
-  it("signs a visitor in as a guest under the name they keep, and takes them to the table", async () => {
+  it("joins a visitor as a guest under the name they keep, and takes them to the table", async () => {
     const u = userEvent.setup();
     renderWithProviders(<JoinForm {...base} />);
 
@@ -48,8 +49,8 @@ describe("JoinForm", () => {
     await u.click(screen.getByRole("button", { name: "Join" }));
 
     await waitFor(() => expect(push.mock.calls[0]?.arguments).toEqual(["/table/7"]));
-    expect(anonymous.mock.callCount()).toBe(1);
-    expect(sa_joinByLink.mock.calls[0].arguments).toEqual(["AbCdEfGhIjKl", "Ferocious Hamster"]);
+    expect(sa_joinAsGuest.mock.calls[0].arguments).toEqual(["AbCdEfGhIjKl", "Ferocious Hamster"]);
+    expect(sa_joinByLink.mock.callCount()).toBe(0);
   });
 
   it("rolls another name", async () => {
@@ -64,7 +65,7 @@ describe("JoinForm", () => {
     expect(name.value).toMatch(/^\w+ \w+$/);
   });
 
-  it("joins someone with an account as themselves, with no guest sign-in", async () => {
+  it("joins someone with an account as themselves, with no guest made", async () => {
     const u = userEvent.setup();
     renderWithProviders(<JoinForm {...base} hasSession member="Harry" />);
 
@@ -73,11 +74,12 @@ describe("JoinForm", () => {
     await u.click(screen.getByRole("button", { name: "Join" }));
 
     await waitFor(() => expect(push.mock.callCount()).toBe(1));
-    expect(anonymous.mock.callCount()).toBe(0);
+    expect(sa_joinByLink.mock.callCount()).toBe(1);
+    expect(sa_joinAsGuest.mock.callCount()).toBe(0);
   });
 
   it("says when the table is full, and stays", async () => {
-    sa_joinByLink.mock.mockImplementationOnce(async () => ({
+    sa_joinAsGuest.mock.mockImplementationOnce(async () => ({
       ok: false,
       error: "This table is full.",
     }));

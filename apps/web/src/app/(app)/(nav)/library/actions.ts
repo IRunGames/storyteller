@@ -2,7 +2,7 @@
 
 import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import { systemLabel } from "@/lib/stories";
 
 const { stories, systems } = schema;
@@ -29,7 +29,7 @@ export type LibraryStory = {
  * stories for one list.
  */
 export async function sa_listLibraryStories(): Promise<LibraryStory[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const rows = await db
     .select({

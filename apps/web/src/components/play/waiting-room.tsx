@@ -24,7 +24,12 @@ import {
   type WaitingRoomState,
 } from "@/lib/play";
 import type { StorySession } from "@/lib/stories";
-import { sa_leaveWaitingRoom, sa_waitForSession } from "@/app/(app)/play/[id]/actions";
+import {
+  sa_leaveAsGuest,
+  sa_leaveWaitingRoom,
+  sa_waitForSession,
+} from "@/app/(app)/play/[id]/actions";
+import { useUser } from "@/components/auth/user-provider";
 import { StorySessions } from "@/components/stories/story-sessions";
 import { LeaveWaitingRoomDialog } from "./leave-waiting-room-dialog";
 import { PlayCover } from "./play-cover";
@@ -62,11 +67,12 @@ type Props = {
  * table and the dialog.
  *
  * Leaving is deliberate. Give up deletes the caller's waiting row and goes
- * home; following any link out first asks, through
- * LeaveWaitingRoomDialog, and deletes the row before moving on; closing or
- * reloading the tab gets the browser's own prompt (see useLeaveGuard). A way
- * out the guard cannot see, such as the back button, still deletes the row
- * as the room unmounts. Going to the table does not: sa_joinSession attaches
+ * home, or, for a guest, deletes the guest (sa_leaveAsGuest) and goes to
+ * the landing page, since a guest has no home page and nothing to keep.
+ * Following any link out first asks, through LeaveWaitingRoomDialog, and
+ * deletes the row before moving on; closing or reloading the tab gets the
+ * browser's own prompt (see useLeaveGuard). A way out the guard cannot see,
+ * such as the back button, still deletes the row as the room unmounts. Going to the table does not: sa_joinSession attaches
  * the waiting row to the session there.
  */
 export function WaitingRoom({ story, initial, sessions, background, tableHref }: Props) {
@@ -91,6 +97,20 @@ export function WaitingRoom({ story, initial, sessions, background, tableHref }:
   // them away to leave more of the picture.
   const sessionsId = useId();
   const [showSessions, setShowSessions] = useState(true);
+
+  const user = useUser();
+
+  async function giveUp() {
+    if (!user.isAnonymous) return leaveTo(new URL("/home", window.location.href));
+    setLeaving(true);
+    staying.current = false;
+    try {
+      await sa_leaveAsGuest(idStory);
+    } catch {
+      // As in leaveTo: someone who asked to leave is not kept for this.
+    }
+    window.location.assign("/");
+  }
 
   async function leaveTo(to: URL) {
     setLeaving(true);
@@ -191,7 +211,7 @@ export function WaitingRoom({ story, initial, sessions, background, tableHref }:
               variant="outline"
               size="sm"
               ms="auto"
-              onClick={() => leaveTo(new URL("/home", window.location.href))}
+              onClick={giveUp}
               loading={isLeaving && pendingLeave === null}
               loadingText="Giving up"
             >

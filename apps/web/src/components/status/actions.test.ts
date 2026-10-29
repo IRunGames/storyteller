@@ -28,6 +28,9 @@ type DbModule = typeof import("@/db");
 let db: DbModule["db"];
 let tables: DbModule["schema"];
 
+const GUEST_EMAIL = "components-status-guest@example.test";
+const ABSENT_GUEST_EMAIL = "components-status-absent-guest@example.test";
+
 const MINE = "Fixture status — the test user's own story";
 const THEIRS = "Fixture status — somebody else's story";
 
@@ -99,6 +102,8 @@ describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => 
     await db.delete(tables.stories).where(inArray(tables.stories.idStory, [myStory, theirStory]));
     await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
     await removeTestUser(db, tables, TEST_USER_EMAIL);
+    await removeTestUser(db, tables, GUEST_EMAIL);
+    await removeTestUser(db, tables, ABSENT_GUEST_EMAIL);
     await db.$client.end();
   });
 
@@ -255,5 +260,51 @@ describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => 
       ok: false,
       error: "That is not yours to change.",
     });
+  });
+
+  it("deletes the story's guests when its session ends, and no one else", async () => {
+    const guest = await makeTestUser(db, tables, GUEST_EMAIL);
+    // Seated by the link but never at this session: their seat goes too.
+    const absent = await makeTestUser(db, tables, ABSENT_GUEST_EMAIL);
+    await db
+      .update(tables.user)
+      .set({ isAnonymous: true })
+      .where(inArray(tables.user.id, [guest, absent]));
+    const [session] = await db
+      .insert(tables.storySessions)
+      .values({ idStory: myStory, idCreatedByUser: testUser, status: "OPEN" })
+      .returning({ id: tables.storySessions.idStorySession });
+    await db.insert(tables.storyPlayers).values([
+      { idStory: myStory, idUser: guest, isFromLink: true },
+      { idStory: myStory, idUser: absent, isFromLink: true },
+      { idStory: myStory, idUser: otherUserId },
+    ]);
+    await db.insert(tables.sessionPlayers).values(
+      [guest, otherUserId].map((who) => ({
+        idStory: myStory,
+        idStorySession: session.id,
+        status: "PRESENT",
+        idCreatedByUser: who,
+        idUpdatedByUser: who,
+      })),
+    );
+
+    expect(await actions.sa_setRowStatus("story_sessions", session.id, "DONE")).toEqual({
+      ok: true,
+      status: "DONE",
+    });
+
+    const left = await db
+      .select({ id: tables.user.id })
+      .from(tables.user)
+      .where(inArray(tables.user.id, [guest, absent, otherUserId]));
+    expect(left).toEqual([{ id: otherUserId }]);
+    const seats = await db
+      .select({ idUser: tables.storyPlayers.idUser })
+      .from(tables.storyPlayers)
+      .where(eq(tables.storyPlayers.idStory, myStory));
+    expect(seats).toEqual([{ idUser: otherUserId }]);
+    await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, myStory));
+    await db.delete(tables.storySessions).where(eq(tables.storySessions.idStory, myStory));
   });
 });

@@ -3,7 +3,7 @@
 import { and, desc, eq, exists, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import { ELEMENT_HISTORY_PAGE_SIZE } from "@/lib/elements";
 import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
 import { sessionHeading } from "@/lib/stories";
@@ -48,7 +48,7 @@ export async function sa_listElementHistory(
   exceptIdStoryScene: number | null,
   offset: number,
 ): Promise<ElementHistoryPage | null> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const element = idSchema.safeParse(idElement);
   const except = idSchema.nullable().safeParse(exceptIdStoryScene);

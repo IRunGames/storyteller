@@ -57,6 +57,14 @@ export const WAITING_HEARTBEAT_MS = 10_000;
 export const WAITING_STALE_SECONDS = 90;
 
 /**
+ * How long a guest's display table may be gone before the guest is taken
+ * out of the story (api/table/leave). Closing a tab and reloading it send
+ * the same pagehide; a reload brings the table back, and sa_joinSession
+ * makes the guest PRESENT again, well inside this.
+ */
+export const GUEST_AWAY_GRACE_MS = 10_000;
+
+/**
  * How long someone has waited, as a clock reads: "0:07", "12:40", "1:02:05".
  * Negative input, which a client clock running behind the database's gives
  * in the first moments, reads as no wait at all.
@@ -66,9 +74,7 @@ export function formatWaited(seconds: number): string {
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const secs = String(total % 60).padStart(2, "0");
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, "0")}:${secs}`
-    : `${minutes}:${secs}`;
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${secs}` : `${minutes}:${secs}`;
 }
 
 /** "1 person waiting", "3 people waiting". */

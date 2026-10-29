@@ -17,10 +17,9 @@ import {
   Tooltip,
 } from "@chakra-ui/react";
 import { Dices } from "lucide-react";
-import { signIn } from "@/lib/auth-client";
 import { randomGuestName } from "@/lib/guest-names";
 import { joinSchema, type JoinValues } from "@/lib/join-schemas";
-import { sa_joinByLink } from "./actions";
+import { sa_joinAsGuest, sa_joinByLink } from "./actions";
 
 type Props = {
   code: string;
@@ -36,15 +35,9 @@ type Props = {
 
 /**
  * Takes a seat at a story from its join link. A visitor with no session is
- * signed in as a guest first (Better Auth's anonymous plugin, lib/auth.ts),
- * so the seat has a user to belong to; the nickname they pick then names
- * that guest. Someone with an account joins under their own name and is
- * not asked for one.
- *
- * The guest is signed in before the seat is asked for, so a full table can
- * leave behind a guest with no seat. That costs nothing, as the guest can do
- * nothing without one, and it is the only order that works: the action has
- * to know who is joining.
+ * made a guest by the server as they are seated (sa_joinAsGuest), named by
+ * the nickname they pick. Someone with an account joins under their own
+ * name and is not asked for one.
  */
 export function JoinForm({ code, title, isFull, hasSession, member, suggested }: Props) {
   const router = useRouter();
@@ -62,17 +55,9 @@ export function JoinForm({ code, title, isFull, hasSession, member, suggested }:
   });
 
   async function onSubmit(values: JoinValues) {
-    if (!hasSession) {
-      const signedIn = await signIn.anonymous();
-      if (signedIn.error) {
-        setError("root", {
-          message: signedIn.error.message ?? "Could not let you in. Please try again.",
-        });
-        return;
-      }
-    }
-
-    const joined = await sa_joinByLink(code, values.nickname);
+    const joined = hasSession
+      ? await sa_joinByLink(code, values.nickname)
+      : await sa_joinAsGuest(code, values.nickname);
     if (!joined.ok) {
       setError("root", { message: joined.error });
       return;

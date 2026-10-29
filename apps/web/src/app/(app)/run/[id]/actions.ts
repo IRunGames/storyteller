@@ -19,7 +19,7 @@ import { db, schema } from "@/db";
 import { attachmentUrl, sceneElementImageUrl } from "@/db/attachment-url";
 import { elementOrderBy } from "@/db/element-order";
 import { COVER_TAG } from "@/lib/attachments";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import {
   elementTagsSchema,
   runElementSchema,
@@ -73,16 +73,20 @@ import { sessionTitleSchema } from "@/lib/session-schemas";
 import { sceneStacksSchema, stacksSchema } from "@/lib/stack-schemas";
 import { sessionHeading } from "@/lib/stories";
 import { joinCap } from "@/lib/join";
+import { recountTable, removeGuestsFrom } from "@/lib/guests";
+import { WAITING_STALE_SECONDS } from "@/lib/play";
 
 const {
   attachments,
   attachmentUses,
   elements,
   sceneElements,
+  sessionPlayers,
   stories,
   storyPlayers,
   storyScenes,
   storySessions,
+  user: users,
   vSceneElements,
   vStoryScenes,
 } = schema;
@@ -273,7 +277,7 @@ export async function sa_setSceneText(
   idStoryScene: number,
   input: unknown,
 ): Promise<SetSceneTextResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   if (!story.success || !scene.success) return { ok: false, errors: { root: NOT_THIS_STORY } };
@@ -467,7 +471,7 @@ export async function sa_setSessionTitle(
   idStorySession: number,
   title: string,
 ): Promise<SetSessionTitleResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const session = idSchema.safeParse(idStorySession);
   if (!story.success || !session.success) return { ok: false, error: NOT_THIS_STORYS_SESSION };
@@ -514,7 +518,7 @@ export async function sa_suspendInactiveSession(
   idStorySession: number,
   answered: boolean,
 ): Promise<SuspendInactiveSessionResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const session = idSchema.safeParse(idStorySession);
   if (!story.success || !session.success) return { ok: false, error: NOT_THIS_STORYS_SESSION };
@@ -575,7 +579,7 @@ export async function sa_suspendInactiveSession(
  * there: the scene and its elements are their preparation.
  */
 export async function sa_getRunPlaySpace(idStory: number): Promise<RunPlaySpace> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const id = idSchema.safeParse(idStory);
   if (!id.success) return EMPTY;
@@ -623,7 +627,7 @@ export async function sa_getRunPlaySpace(idStory: number): Promise<RunPlaySpace>
  * anyone but the storyteller.
  */
 export async function sa_listRunScenes(idStory: number): Promise<RunScene[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const id = idSchema.safeParse(idStory);
   if (!id.success) return [];
@@ -668,7 +672,7 @@ export async function sa_getScenePlaySpace(
   idStory: number,
   idStoryScene: number,
 ): Promise<RunPlaySpace> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
@@ -694,7 +698,7 @@ export async function sa_loadRunScene(
   idStory: number,
   idStoryScene: number,
 ): Promise<LoadRunSceneResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
@@ -743,7 +747,7 @@ export async function sa_createRunScene(
   idStory: number,
   input: unknown,
 ): Promise<CreateRunSceneResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idSchema.parse(idStory);
   if (!(await ownsStory(user.id, id))) {
     throw new Error("Only the storyteller who created a story can add scenes to it");
@@ -792,7 +796,7 @@ export async function sa_createLiveScene(
   idStory: number,
   input: unknown,
 ): Promise<CreateRunSceneResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idSchema.parse(idStory);
   if (!(await ownsStory(user.id, id))) {
     throw new Error("Only the storyteller who created a story can add scenes to it");
@@ -927,7 +931,7 @@ export async function sa_createSceneElement(
   tag: string | null,
   input: unknown,
 ): Promise<SceneElementFormResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.parse(idStory);
   const scene = idSchema.parse(idStoryScene);
   const stackTag = stackTagSchema.parse(tag);
@@ -1047,7 +1051,7 @@ export async function sa_updateSceneElement(
   idElement: number,
   input: unknown,
 ): Promise<SceneElementFormResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.parse(idStory);
   const scene = idSchema.parse(idStoryScene);
   const element = idSchema.parse(idElement);
@@ -1156,7 +1160,7 @@ export async function sa_linkSceneElement(
   options: { hidden?: boolean; tag?: string | null; showInfo?: boolean } = {},
 ): Promise<LinkSceneElementResult> {
   const { hidden = false, tag = null, showInfo } = options;
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   const element = idSchema.safeParse(idElement);
@@ -1257,7 +1261,7 @@ export async function sa_setSceneElementStatus(
   idElement: number,
   status: string,
 ): Promise<SetSceneElementStatusResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   const element = idSchema.safeParse(idElement);
@@ -1302,7 +1306,7 @@ export async function sa_setSceneElementShowInfo(
   idElement: number,
   showInfo: boolean,
 ): Promise<SetSceneElementShowInfoResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   const element = idSchema.safeParse(idElement);
@@ -1347,7 +1351,7 @@ export async function sa_pulseSceneElement(
   idElement: number,
   custom: { action: string },
 ): Promise<PulseSceneElementResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   const element = idSchema.safeParse(idElement);
@@ -1395,7 +1399,7 @@ export async function sa_setSceneElementShowing(
   idElement: number,
   showing: string,
 ): Promise<SetSceneElementShowingResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   const element = idSchema.safeParse(idElement);
@@ -1432,7 +1436,7 @@ export async function sa_listSceneLibraryElements(
   query: string = "",
   sort: ElementSort = "name",
 ): Promise<StoryElement[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   // The same bound as sa_listStoryElements' search, refused the same way.
   const needle = z.string().max(200).parse(query).trim();
   const order = z.enum(ELEMENT_SORT_KEYS).parse(sort);
@@ -1489,7 +1493,7 @@ export async function sa_updateStoryElement(
   idElement: number,
   input: unknown,
 ): Promise<UpdateStoryElementResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.parse(idStory);
   const element = idSchema.parse(idElement);
   if (!(await ownsStory(user.id, story))) throw new Error(NOT_THIS_STORY);
@@ -1547,7 +1551,7 @@ export async function sa_getElementDetail(
   idElement: number,
   idStoryScene: number | null = null,
 ): Promise<ElementPanelDetail | null> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const element = idSchema.safeParse(idElement);
   const scene = idSchema.nullable().safeParse(idStoryScene);
@@ -1619,7 +1623,7 @@ export async function sa_unlinkSceneElement(
   idStoryScene: number,
   idElement: number,
 ): Promise<UnlinkSceneElementResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   const element = idSchema.safeParse(idElement);
@@ -1665,7 +1669,7 @@ export async function sa_setElementImage(
   idElement: number,
   idAttachment: number | null,
 ): Promise<SetElementImageResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const element = idSchema.safeParse(idElement);
   const attachment = idSchema.nullable().safeParse(idAttachment);
@@ -1722,7 +1726,7 @@ export async function sa_setElementTags(
   idElement: number,
   tags: unknown,
 ): Promise<SetElementTagsResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const element = idSchema.safeParse(idElement);
   if (!story.success || !(await ownsStory(user.id, story.data))) {
@@ -1769,7 +1773,7 @@ export async function sa_setSceneStacks(
   idStoryScene: number,
   input: unknown,
 ): Promise<SetSceneStacksResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.parse(idStory);
   const scene = idSchema.parse(idStoryScene);
   const owned = await ownedScene(user.id, story, scene);
@@ -1839,7 +1843,7 @@ export async function sa_moveSceneElement(
   from: string | null,
   to: string,
 ): Promise<MoveSceneElementResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   const element = idSchema.safeParse(idElement);
@@ -1893,7 +1897,7 @@ export async function sa_setSceneElementTags(
   idElement: number,
   tags: string[],
 ): Promise<SetSceneElementTagsResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   const element = idSchema.safeParse(idElement);
@@ -1998,7 +2002,7 @@ export type JoinLink = {
  * Null for anyone but the story's storyteller.
  */
 export async function sa_getJoinLink(idStory: number): Promise<JoinLink | null> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idSchema.safeParse(idStory);
   if (!id.success) return null;
 
@@ -2015,4 +2019,150 @@ export async function sa_getJoinLink(idStory: number): Promise<JoinLink | null> 
     .from(storyPlayers)
     .where(and(eq(storyPlayers.idStory, id.data), eq(storyPlayers.isFromLink, true)));
   return { code: story.code, joined: taken.n, cap: joinCap(user.idUserType) };
+}
+
+/**
+ * How many seats the story's link has given out and how many it may, for
+ * the chip on the storyteller's link button. Unlike sa_getJoinLink it makes
+ * no code, so the table can ask on every load. Null for anyone but the
+ * story's storyteller.
+ */
+export async function sa_getJoinCount(
+  idStory: number,
+): Promise<Pick<JoinLink, "joined" | "cap"> | null> {
+  const user = await requireAccount();
+  const id = idSchema.safeParse(idStory);
+  if (!id.success) return null;
+
+  const [owned] = await db
+    .select({ id: stories.idStory })
+    .from(stories)
+    .where(and(eq(stories.idStory, id.data), eq(stories.idCreatedByUser, user.id)))
+    .limit(1);
+  if (!owned) return null;
+
+  const [taken] = await db
+    .select({ n: count() })
+    .from(storyPlayers)
+    .where(and(eq(storyPlayers.idStory, id.data), eq(storyPlayers.isFromLink, true)));
+  return { joined: taken.n, cap: joinCap(user.idUserType) };
+}
+
+/** Where someone who came in by the link is: their presence row's status, or null for nowhere. */
+export type LinkPlayerStatus = "PRESENT" | "AWAY" | "WAITING" | "LEFT" | null;
+
+export type LinkPlayer = {
+  idUser: string;
+  name: string;
+  /** Came in with no account (is_anonymous); removing them deletes them. */
+  isGuest: boolean;
+  status: LinkPlayerStatus;
+};
+
+/**
+ * Everyone seated at the story by its join link, guests and accounts alike,
+ * with where each is now: their row at the session being played, or failing
+ * that their waiting-room row, as long as its heartbeat is fresh
+ * (WAITING_STALE_SECONDS), since a closed waiting room leaves its row
+ * WAITING. Loaded only when the storyteller asks, from the link button.
+ * Empty for anyone but the story's storyteller.
+ */
+export async function sa_listLinkPlayers(idStory: number): Promise<LinkPlayer[]> {
+  const user = await requireAccount();
+  const id = idSchema.safeParse(idStory);
+  if (!id.success) return [];
+
+  const atSession = sql<string | null>`(
+    select sp.status from session_players sp
+    where sp.id_story_session = ${stories.idStorySession}
+      and sp.id_created_by_user = ${storyPlayers.idUser}
+    limit 1
+  )`;
+  const waiting = sql<string | null>`(
+    select sp.status from session_players sp
+    where sp.id_story = ${stories.idStory}
+      and sp.id_story_session is null
+      and sp.id_created_by_user = ${storyPlayers.idUser}
+      and (sp.status <> 'WAITING'
+        or sp.updated_at > now() - make_interval(secs => ${WAITING_STALE_SECONDS}))
+    limit 1
+  )`;
+  const rows = await db
+    .select({
+      idUser: users.id,
+      name: sql<string>`coalesce(${users.nickName}, ${users.name})`,
+      isGuest: users.isAnonymous,
+      status: sql<string | null>`coalesce(${atSession}, ${waiting})`,
+    })
+    .from(storyPlayers)
+    .innerJoin(stories, eq(stories.idStory, storyPlayers.idStory))
+    .innerJoin(users, eq(users.id, storyPlayers.idUser))
+    .where(
+      and(
+        eq(storyPlayers.idStory, id.data),
+        eq(storyPlayers.isFromLink, true),
+        eq(stories.idCreatedByUser, user.id),
+      ),
+    )
+    .orderBy(asc(storyPlayers.idStoryPlayer));
+  return rows.map((row) => ({ ...row, status: row.status as LinkPlayerStatus }));
+}
+
+export type RemoveLinkPlayerResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Takes someone who came in by the link out of the story: their seat and
+ * their presence at its sessions and waiting room. A guest seated nowhere
+ * else is deleted as well (lib/guests.ts), so their cookie stops working;
+ * someone with an account keeps it and simply has no seat here. Every
+ * table is told the scene changed, so the removed person's table reloads
+ * and finds it is no longer theirs, and the head count is published again.
+ * Only seats from the link: the storyteller removes invited players from
+ * the story's page.
+ */
+export async function sa_removeLinkPlayer(
+  idStory: number,
+  idUser: string,
+): Promise<RemoveLinkPlayerResult> {
+  const user = await requireAccount();
+  const id = idSchema.safeParse(idStory);
+  const who = z.string().uuid().safeParse(idUser);
+  const notHere = { ok: false, error: "That is not someone who joined by the link." } as const;
+  if (!id.success || !who.success) return notHere;
+
+  const [seat] = await db
+    .select({ isGuest: users.isAnonymous })
+    .from(storyPlayers)
+    .innerJoin(stories, eq(stories.idStory, storyPlayers.idStory))
+    .innerJoin(users, eq(users.id, storyPlayers.idUser))
+    .where(
+      and(
+        eq(storyPlayers.idStory, id.data),
+        eq(storyPlayers.idUser, who.data),
+        eq(storyPlayers.isFromLink, true),
+        eq(stories.idCreatedByUser, user.id),
+      ),
+    )
+    .limit(1);
+  if (!seat) return notHere;
+
+  if (seat.isGuest) {
+    await removeGuestsFrom(id.data, [who.data]);
+  } else {
+    const wasPresent = await db.transaction(async (tx) => {
+      const gone = await tx
+        .delete(sessionPlayers)
+        .where(
+          and(eq(sessionPlayers.idStory, id.data), eq(sessionPlayers.idCreatedByUser, who.data)),
+        )
+        .returning({ status: sessionPlayers.status });
+      await tx
+        .delete(storyPlayers)
+        .where(and(eq(storyPlayers.idStory, id.data), eq(storyPlayers.idUser, who.data)));
+      return gone.some((row) => row.status === "PRESENT");
+    });
+    if (wasPresent) recountTable(id.data);
+  }
+  publishLater(() => publishSceneChanged(id.data));
+  return { ok: true };
 }

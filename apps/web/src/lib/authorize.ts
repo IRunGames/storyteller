@@ -37,3 +37,17 @@ export const requireUser = cache(async function requireUser(): Promise<DbUser> {
 
   return user;
 });
+
+/**
+ * The gate for every server action a guest must not reach: requireUser()
+ * and then a refusal for an anonymous user, the guest who came in by a
+ * story's join link (lib/auth.ts). A guest's pages only read the table they
+ * joined, so a guest calling anything else has gone around those pages;
+ * the few actions that serve them stay on requireUser(), and
+ * authorize-guard.test.ts names them.
+ */
+export async function requireAccount(): Promise<DbUser> {
+  const user = await requireUser();
+  if (user.isAnonymous) throw new UnauthorizedError("You need an account to do that.");
+  return user;
+}

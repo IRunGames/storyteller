@@ -317,6 +317,9 @@ describe("RunTable", () => {
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
         sa_suspendInactiveSession: mock.fn(),
+        sa_getJoinCount: mock.fn(async () => ({ joined: 0, cap: 3 })),
+        sa_listLinkPlayers: mock.fn(async () => []),
+        sa_removeLinkPlayer: mock.fn(),
         sa_listRunScenes: async () => [],
         sa_loadRunScene: mock.fn(),
         sa_createRunScene: mock.fn(),

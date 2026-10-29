@@ -42,6 +42,7 @@ const sa_waitForSession = mock.fn<(idStory: number) => Promise<WaitingRoomState 
   async () => initial,
 );
 const sa_leaveWaitingRoom = mock.fn(async () => {});
+const sa_leaveAsGuest = mock.fn(async (_idStory: number) => {});
 const replace = mock.fn();
 const push = mock.fn();
 
@@ -76,7 +77,7 @@ describe("WaitingRoom", () => {
       namedExports: { sa_listStatusOptions: mock.fn(async () => []), sa_setRowStatus: mock.fn() },
     });
     mock.module("@/app/(app)/play/[id]/actions", {
-      namedExports: { sa_waitForSession, sa_leaveWaitingRoom },
+      namedExports: { sa_waitForSession, sa_leaveWaitingRoom, sa_leaveAsGuest },
     });
 
     ({ WaitingRoom } = await import("./waiting-room"));
@@ -88,13 +89,14 @@ describe("WaitingRoom", () => {
     sa_waitForSession.mock.resetCalls();
     sa_waitForSession.mock.mockImplementation(async () => initial);
     sa_leaveWaitingRoom.mock.resetCalls();
+    sa_leaveAsGuest.mock.resetCalls();
     replace.mock.resetCalls();
     push.mock.resetCalls();
   });
 
-  function render() {
+  function render(as: CurrentUser = user) {
     return renderWithProviders(
-      <UserProvider user={user}>
+      <UserProvider user={as}>
         <UserPreferencesProvider preferences={{}}>
           <WaitingRoom
             story={{ idStory: 7, title: "Kildealg" }}
@@ -181,6 +183,18 @@ describe("WaitingRoom", () => {
     expect(push.mock.calls[0].arguments).toEqual(["/home"]);
     expect(sa_leaveWaitingRoom.mock.calls[0].arguments).toEqual([7]);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("deletes a guest who gives up, rather than only their waiting row", async () => {
+    const actor = userEvent.setup();
+    render({ ...user, email: "guest@example.test", isAnonymous: true });
+
+    await actor.click(screen.getByRole("button", { name: "Give up" }));
+
+    await waitFor(() => expect(sa_leaveAsGuest.mock.callCount()).toBe(1));
+    expect(sa_leaveAsGuest.mock.calls[0].arguments).toEqual([7]);
+    expect(sa_leaveWaitingRoom.mock.callCount()).toBe(0);
+    expect(push.mock.callCount()).toBe(0);
   });
 
   it("asks before a link leaves the room, and stays on Keep waiting", async () => {

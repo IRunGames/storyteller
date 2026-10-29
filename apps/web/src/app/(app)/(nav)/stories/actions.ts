@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { cardOrder, cardQuery, notArchived, playerName } from "@/db/story-cards";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount, requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
 import {
   PAGE_SIZE,
@@ -77,7 +77,7 @@ export async function sa_listMyStories(
   offset: number,
   showInactive = false,
 ): Promise<StoryCardData[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const skip = offsetSchema.parse(offset);
   const includeInactive = z.boolean().parse(showInactive);
 
@@ -97,7 +97,7 @@ export async function sa_listMyStories(
 
 /** Stories the user has favorited, less any that have since been archived. */
 export async function sa_listFavoriteStories(offset: number): Promise<StoryCardData[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const skip = offsetSchema.parse(offset);
 
   return cardQuery(user.id)
@@ -113,7 +113,7 @@ export async function sa_listFavoriteStories(offset: number): Promise<StoryCardD
 
 /** Active stories whose storyteller has flagged them as open to new players. */
 export async function sa_listLookingForPlayers(offset: number): Promise<StoryCardData[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const skip = offsetSchema.parse(offset);
 
   return cardQuery(user.id)
@@ -124,7 +124,7 @@ export async function sa_listLookingForPlayers(offset: number): Promise<StoryCar
 }
 
 export async function sa_getStory(idStory: number): Promise<StoryCardData | null> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   // An unusable id is simply not a story: safeParse rather than parse, so the
   // page's notFound() handles it instead of a raw ZodError becoming a 500.
@@ -141,7 +141,7 @@ export async function sa_getStory(idStory: number): Promise<StoryCardData | null
  * story_players row (db/seeds/seed_story_players.sql says the same).
  */
 export async function sa_listStoryPlayers(idStory: number): Promise<StoryPlayer[]> {
-  await requireUser();
+  await requireAccount();
 
   // As in sa_getStory: an id Postgres cannot compare is not a story, so it
   // has no players rather than raising.
@@ -212,7 +212,7 @@ export async function sa_removeStoryPlayer(
   idStory: number,
   idUser: string,
 ): Promise<RemovePlayerResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   // The caller's right to do this at all, and an id Postgres can compare.
   // Thrown by requireOwnedStory for a story that is not theirs, which the
@@ -252,7 +252,7 @@ export type JoinStoryResult = { ok: true; player: StoryPlayer } | { ok: false; e
  * it, so the page can add it at once.
  */
 export async function sa_joinStory(idStory: number): Promise<JoinStoryResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const closed = "This story is not open for you to join.";
   const id = idStorySchema.safeParse(idStory);
   if (!id.success) return { ok: false, error: closed };
@@ -300,7 +300,7 @@ export type LeaveStoryResult = { ok: true } | { ok: false; error: string };
  * transaction, and the favorite is only taken once a seat was found.
  */
 export async function sa_leaveStory(idStory: number): Promise<LeaveStoryResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const notSeated = "You are not a player of this story.";
   const id = idStorySchema.safeParse(idStory);
   if (!id.success) return { ok: false, error: notSeated };
@@ -328,7 +328,7 @@ export async function sa_leaveStory(idStory: number): Promise<LeaveStoryResult> 
  * blank query finds nobody rather than everybody.
  */
 export async function sa_searchPlayers(idStory: number, query: string): Promise<PlayerMatch[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = await requireOwnedStory(user.id, idStory);
   const needle = querySchema.parse(query).trim();
   if (needle === "") return [];
@@ -356,7 +356,7 @@ export async function sa_addStoryPlayers(
   idStory: number,
   idUsers: string[],
 ): Promise<StoryPlayer[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = await requireOwnedStory(user.id, idStory);
   const ids = inviteSchema.parse(idUsers);
 
@@ -423,7 +423,7 @@ export async function sa_listStorySessions(
  * are only ever the first page.
  */
 export async function sa_countStorySessions(idStory: number): Promise<number> {
-  await requireUser();
+  await requireAccount();
 
   const id = idStorySchema.safeParse(idStory);
   if (!id.success) return 0;
@@ -530,7 +530,7 @@ export async function sa_getStorySession(
 }
 
 export async function sa_listSystems(): Promise<{ idSystem: number; label: string }[]> {
-  await requireUser();
+  await requireAccount();
 
   const rows = await db
     .select({
@@ -569,7 +569,7 @@ function fieldErrors(parsed: z.ZodSafeParseError<unknown>): StoryFormResult {
  * redirect throws, so this never resolves with ok: true.
  */
 export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const parsed = storySchema.safeParse(input);
   if (!parsed.success) return fieldErrors(parsed);
@@ -602,7 +602,7 @@ export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
  * back into null.
  */
 export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues | null> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   // As in sa_getStory: an id Postgres cannot compare is not a story.
   const id = idStorySchema.safeParse(idStory);
@@ -628,13 +628,13 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
 /**
  * Validates and saves the edit form over a story the caller created, then
  * redirects to the story's page. The story is read first and its creator
- * compared with the id of the s_users row requireUser() loaded, never an id
+ * compared with the id of the s_users row requireAccount() loaded, never an id
  * the client sent; a mismatch is thrown, since the form cannot fix it. The
  * same predicate is repeated in the UPDATE's WHERE so the write cannot land
  * on a row that changed hands between the read and the write.
  */
 export async function sa_updateStory(idStory: number, input: unknown): Promise<StoryFormResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.parse(idStory);
 
   const [story] = await db
@@ -682,7 +682,7 @@ export async function sa_setFavorite(
   idStory: number,
   isFavorite: boolean,
 ): Promise<{ isFavorite: boolean }> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.parse(idStory);
   const wanted = z.boolean().parse(isFavorite);
 
@@ -762,7 +762,7 @@ export async function sa_createStorySession(
   idStory: number,
   title: string,
 ): Promise<CreateSessionResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.safeParse(idStory);
   const name = newSessionTitleSchema.safeParse(title);
   if (!id.success || !name.success) return { ok: false, error: "That session could not be made." };
@@ -807,7 +807,7 @@ export async function sa_createStorySession(
  * tell. The scenes run oldest first, the order the board wrote them in.
  */
 export async function sa_getSessionForEdit(idStorySession: number): Promise<SessionForEdit | null> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.safeParse(idStorySession);
   if (!id.success) return null;
 
@@ -862,7 +862,7 @@ export async function sa_updateStorySession(
   idStorySession: number,
   input: unknown,
 ): Promise<UpdateSessionResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.safeParse(idStorySession);
   if (!id.success) return { ok: false, errors: { root: NOT_YOUR_SESSION } };
   if ((await ownedSession(user.id, id.data)) === null) {
@@ -902,7 +902,7 @@ export type DeleteSessionResult = { ok: true } | { ok: false; error: string };
  * goes with it (session_players, ON DELETE CASCADE).
  */
 export async function sa_deleteStorySession(idStorySession: number): Promise<DeleteSessionResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.safeParse(idStorySession);
   if (!id.success) return { ok: false, error: NOT_YOUR_SESSION };
 

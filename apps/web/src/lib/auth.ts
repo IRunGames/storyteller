@@ -24,6 +24,12 @@ export const auth = betterAuth({
     requireEmailVerification: false,
     minPasswordLength: MIN_PASSWORD_LENGTH,
   },
+  // A guest is made only by sa_joinAsGuest, which checks the story's join
+  // link first and calls the plugin's endpoint from the server (auth.api).
+  // Left open over HTTP, anyone could make guests without a link. Deleting
+  // a guest is ours too (db/guests.ts), so the plugin's delete stays shut.
+  // These paths close only the HTTP handler; auth.api still reaches them.
+  disabledPaths: ["/sign-in/anonymous", "/delete-anonymous-user"],
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID as string,

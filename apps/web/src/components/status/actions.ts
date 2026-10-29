@@ -3,7 +3,8 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
+import { removeGuestsFrom } from "@/lib/guests";
 import { publishLater } from "@/lib/realtime/publish";
 import {
   publishElementChanged,
@@ -49,7 +50,7 @@ const statusSchema = z.string().min(1).max(64);
  * who cannot change a status still sees its pill.
  */
 export async function sa_listStatusOptions(table: StatusTable): Promise<StatusOption[]> {
-  await requireUser();
+  await requireAccount();
   const name = tableSchema.parse(table);
 
   const rows = await db
@@ -93,7 +94,7 @@ export async function sa_setRowStatus(
   id: number,
   status: string,
 ): Promise<SetStatusResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const name = tableSchema.parse(table);
   const rowId = idSchema.parse(id);
   const next = statusSchema.parse(status);
@@ -129,6 +130,18 @@ export async function sa_setRowStatus(
 
     if (updated.length === 0) {
       return { ok: false, error: "That status changed while you were looking; try again." };
+    }
+    // A guest's seat was for that sitting: once it is over they have
+    // nothing left to come back to, so every guest seated at the story goes,
+    // and a guest seated nowhere else is deleted. Before the publish, so a
+    // guest's table reloading on the news finds itself signed out. The
+    // session has ended either way, so a failure here is logged rather than
+    // reported as the move failing; the daily sweep (api/cron/guest-sweep)
+    // takes the guests once their sessions run out.
+    if (name === "story_sessions" && next === "DONE") {
+      await removeGuestsFrom(row.idStory).catch((error: unknown) =>
+        console.error("Could not remove the guests of a finished session", rowId, error),
+      );
     }
     publishLater(() => publishStatusChange(name, rowId, row));
     return { ok: true, status: updated[0].status };

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { sceneItems } from "@/db/scene-items";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import type { PlayScene } from "@/lib/play-scene";
 import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
 import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
@@ -62,7 +62,7 @@ export type ScenePreview = {
  * answer for the reason loadPlayStory gives.
  */
 export async function sa_getScenePreview(idStoryScene: number): Promise<ScenePreview | null> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idSchema.safeParse(idStoryScene);
   if (!id.success) return null;
 

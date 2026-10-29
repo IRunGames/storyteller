@@ -21,6 +21,18 @@ const hasDb = Boolean(process.env.DATABASE_URL);
 let caller = "";
 const getSession = mock.fn(async () => (caller ? { user: { id: caller } } : null));
 
+// Better Auth's anonymous sign-in, standing in for the plugin: it makes the
+// guest a test user of this file's, so the cleanup finds it. `beforeMade`
+// runs first, for a test that fills the table while the guest is made.
+const GUEST_EMAIL = "join-actions-guest@example.test";
+let beforeMade: () => Promise<void> = async () => {};
+const signInAnonymous = mock.fn(async () => {
+  await beforeMade();
+  const id = await makeTestUser(db, tables, GUEST_EMAIL);
+  await db.update(tables.user).set({ isAnonymous: true }).where(eq(tables.user.id, id));
+  return { token: "t", user: { id } };
+});
+
 let actions: typeof import("./actions");
 
 type DbModule = typeof import("@/db");
@@ -34,6 +46,8 @@ let story = 0;
 describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
+    mock.module("@/lib/auth", { namedExports: { auth: { api: { signInAnonymous } } } });
+    mock.module("next/headers", { namedExports: { headers: async () => new Headers() } });
     ({ db, schema: tables } = await import("@/db"));
     actions = await import("./actions");
 
@@ -61,14 +75,20 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
 
   beforeEach(async () => {
     caller = "";
+    beforeMade = async () => {};
+    signInAnonymous.mock.resetCalls();
     await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, story));
     await db.update(tables.user).set({ idUserType: -2 }).where(eq(tables.user.id, owner));
   });
 
   after(async () => {
     if (!db) return;
-    if (story) await db.delete(tables.stories).where(eq(tables.stories.idStory, story));
+    if (story) {
+      await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, story));
+      await db.delete(tables.stories).where(eq(tables.stories.idStory, story));
+    }
     for (let n = 0; n < JOINERS; n++) await removeTestUser(db, tables, joinerEmail(n));
+    await removeTestUser(db, tables, GUEST_EMAIL);
     await removeTestUser(db, tables, OWNER_EMAIL);
     await db.$client.end();
   });
@@ -180,6 +200,60 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     it("turns away a code that is not a story's", async () => {
       caller = joiners[2];
       expect(await actions.sa_joinByLink("noSuchCode00", "x")).toMatchObject({ ok: false });
+    });
+  });
+
+  describe("sa_joinAsGuest", () => {
+    const guest = () =>
+      db
+        .select({ id: tables.user.id, name: tables.user.name })
+        .from(tables.user)
+        .where(eq(tables.user.email, GUEST_EMAIL));
+
+    it("makes a guest from a good link and seats them under their name", async () => {
+      const joined = await actions.sa_joinAsGuest(CODE, "Sleepy Otter");
+
+      expect(joined).toEqual({ ok: true, idStory: story });
+      const [made] = await guest();
+      expect(made.name).toBe("Sleepy Otter");
+      expect(await seats()).toEqual([{ idUser: made.id, isFromLink: true }]);
+      await removeTestUser(db, tables, GUEST_EMAIL);
+    });
+
+    it("makes no guest for a code that is not a story's, a full table or no name", async () => {
+      expect(await actions.sa_joinAsGuest("noSuchCode00", "Otter")).toMatchObject({ ok: false });
+      expect(await actions.sa_joinAsGuest(CODE, "   ")).toMatchObject({ ok: false });
+      await db
+        .insert(tables.storyPlayers)
+        .values(
+          joiners.slice(2, 5).map((idUser) => ({ idStory: story, idUser, isFromLink: true })),
+        );
+      expect(await actions.sa_joinAsGuest(CODE, "Otter")).toEqual({
+        ok: false,
+        error: "This table is full.",
+      });
+
+      expect(signInAnonymous.mock.callCount()).toBe(0);
+    });
+
+    it("deletes the guest again when the last seat goes while they are made", async () => {
+      beforeMade = async () => {
+        await db
+          .insert(tables.storyPlayers)
+          .values(
+            joiners.slice(2, 5).map((idUser) => ({ idStory: story, idUser, isFromLink: true })),
+          );
+      };
+
+      expect(await actions.sa_joinAsGuest(CODE, "Otter")).toMatchObject({ ok: false });
+      expect(await guest()).toEqual([]);
+    });
+
+    it("seats a visitor who already has a session as sa_joinByLink does", async () => {
+      caller = joiners[2];
+      expect(await actions.sa_joinAsGuest(CODE, "x")).toMatchObject({ ok: true });
+      expect(signInAnonymous.mock.callCount()).toBe(0);
+      expect(await seats()).toEqual([{ idUser: joiners[2], isFromLink: true }]);
     });
   });
 });

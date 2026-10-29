@@ -311,7 +311,7 @@ export function AttachmentListField({
       setHasLoaded(true);
       commit(merged);
     } catch {
-      // sa_listAttachments calls requireUser() and runs a db.select, either
+      // sa_listAttachments calls requireAccount() and runs a db.select, either
       // of which can reject. Left unhandled, rows would stay [] forever
       // with nothing on screen to say why -- on an edit form that reads as
       // "this story has no pictures", which invites the user to re-upload

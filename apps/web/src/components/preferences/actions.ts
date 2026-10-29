@@ -2,7 +2,7 @@
 
 import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount, requireUser } from "@/lib/authorize";
 import { setUserPreferenceSchema, type UserPreferenceMap } from "@/lib/user-preference-schemas";
 
 const { userPreferences } = schema;
@@ -38,7 +38,7 @@ export async function sa_getUserPreferences(): Promise<UserPreferenceMap> {
  * the later value. updated_at comes from the table's trigger.
  */
 export async function sa_setUserPreference(input: unknown): Promise<SetUserPreferenceResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const parsed = setUserPreferenceSchema.safeParse(input);
   if (!parsed.success) {

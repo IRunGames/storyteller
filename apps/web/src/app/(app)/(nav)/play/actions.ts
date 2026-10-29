@@ -6,7 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { hasOpenSession } from "@/db/open-session";
 import { presentCount, waitingCount } from "@/db/session-player-counts";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import { formatDayUtc } from "@/lib/dates";
 import { newSessionTitle } from "@/lib/play";
 
@@ -39,7 +39,7 @@ export type PlayableStory = {
  * Retired stories are left out because there is no table to open for them.
  */
 export async function sa_listPlayableStories(): Promise<PlayableStory[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   // A correlated EXISTS rather than a join, so a story the caller both owns
   // and has a player row in still comes back once.
@@ -88,7 +88,7 @@ export type UnfinishedSession = {
  * caller's, or is not there, has none: only its storyteller opens sessions.
  */
 export async function sa_listUnfinishedSessions(idStory: number): Promise<UnfinishedSession[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idSchema.safeParse(idStory);
   if (!id.success) return [];
 
@@ -138,7 +138,7 @@ export async function sa_startPlaying(
   idStorySession: number | null,
   title?: string,
 ): Promise<StartPlayingResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const session = idSchema.nullable().safeParse(idStorySession);
   if (!story.success || !session.success) {

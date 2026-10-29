@@ -1,9 +1,12 @@
 "use server";
 
 import { and, count, eq } from "drizzle-orm";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
+import { deleteGuests } from "@/db/guests";
+import { auth } from "@/lib/auth";
 import { requireUser } from "@/lib/authorize";
 import { getSession } from "@/lib/require-session";
 import { joinCap, TABLE_FULL } from "@/lib/join";
@@ -33,7 +36,7 @@ export type JoinStory = {
 
 /**
  * The story a join link names, for /join/[code] to show before anyone has
- * an account. This is the one action that does not start with requireUser():
+ * an account. One of the two actions that do not start with requireUser():
  * whoever holds the link may see the story's title and cover, which is what
  * the storyteller handed the link out for. Nothing else about the story
  * leaves here. A signed-in visitor is also told whether they are already at
@@ -85,19 +88,59 @@ export async function sa_getJoinStory(code: string): Promise<JoinStory | null> {
 export type JoinByLinkResult = { ok: true; idStory: number } | { ok: false; error: string };
 
 /**
- * Takes a seat at the story a join link names. The join form calls it once
- * the visitor has a session: their own, or the anonymous one it has just
- * signed them into. A guest's nickname names their user row, since a guest
- * has no profile to set one on; someone with an account keeps their own.
- *
- * The storyteller and anyone already seated are let through without a new
- * seat, so following the link again is harmless. Otherwise the seats the
- * link has given out are counted against the storyteller's plan
- * (lib/join.ts), with the story row locked for the length of the
- * transaction so two people joining at once cannot both take the last seat.
+ * Takes a seat at the story a join link names, for a visitor who already
+ * has a session: their own account, or a guest's joining another table. A
+ * visitor with none joins through sa_joinAsGuest instead. Someone with an
+ * account keeps their own name; a guest's nickname renames them.
  */
 export async function sa_joinByLink(code: string, nickname: string): Promise<JoinByLinkResult> {
   const user = await requireUser();
+  return takeSeat(user, code, nickname);
+}
+
+/**
+ * Makes a guest and seats them, for a visitor with no session. The guest
+ * is made here rather than by the browser so that a guest can only come
+ * from a join link: the link is checked first, and Better Auth's endpoint
+ * for making one is closed over HTTP (lib/auth.ts). Called with a session
+ * already held, it seats that one, as sa_joinByLink does.
+ *
+ * The link and the free seats are checked before the guest is made, so a
+ * bad link or a full table leaves no guest behind. Two joining at once can
+ * still both pass that check for the last seat; the one who loses the race
+ * in takeSeat is deleted again.
+ */
+export async function sa_joinAsGuest(code: string, nickname: string): Promise<JoinByLinkResult> {
+  const held = await getSession();
+  if (held) return sa_joinByLink(code, nickname);
+
+  const name = nicknameSchema.safeParse(nickname);
+  if (!name.success) return { ok: false, error: name.error.issues[0].message };
+  const story = await sa_getJoinStory(code);
+  if (!story) return { ok: false, error: GONE };
+  if (story.isFull) return { ok: false, error: TABLE_FULL };
+
+  const made = await auth.api.signInAnonymous({ headers: await headers() });
+  if (!made) return { ok: false, error: "Could not let you in. Please try again." };
+  const joined = await takeSeat({ id: made.user.id, isAnonymous: true }, code, name.data);
+  // The guest's session goes with their row, so the cookie just set is dead.
+  if (!joined.ok) await deleteGuests([made.user.id]);
+  return joined;
+}
+
+/**
+ * Seats `user` at the story the link names. The storyteller and anyone
+ * already seated are let through without a new seat, so following the link
+ * again is harmless. Otherwise the seats the link has given out are counted
+ * against the storyteller's plan (lib/join.ts), with the story row locked
+ * for the length of the transaction so two people joining at once cannot
+ * both take the last seat.
+ */
+async function takeSeat(
+  user: { id: string; isAnonymous: boolean },
+  code: string,
+  nickname: string,
+): Promise<JoinByLinkResult> {
   const parsedCode = codeSchema.safeParse(code);
   if (!parsedCode.success) return { ok: false, error: GONE };
   const name = nicknameSchema.safeParse(nickname);

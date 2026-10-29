@@ -31,7 +31,7 @@ These are the only pages reachable without a session.
 | `/signup` | [`(auth)/signup/`](<../src/app/(auth)/signup/page.tsx>) | Signed-out only — same bounce |
 | `/join/[code]` | [`(public)/join/[code]/`](<../src/app/(public)/join/[code]/page.tsx>) | Anyone holding a story's join link; see [Guests](#guests) |
 | `/api/auth/*` | [`api/auth/[...all]/route.ts`](<../src/app/api/auth/[...all]/route.ts>) | Better Auth's own handler |
-| `/api/cron/*` | [`api/cron/`](../src/app/api/cron/) | Vercel Cron only — no session, each job checks `Authorization: Bearer $CRON_SECRET` itself |
+| `/api/cron/*` | [`api/cron/`](../src/app/api/cron/) | Vercel Cron only — no session, each job checks `Authorization: Bearer $CRON_SECRET` itself: `blob-sweep` and `guest-sweep` |
 | `/images/*` | [`public/images/`](../public/images/) | Anyone — the pictures the landing, waiting and error pages paint; the proxy skips them so a visitor with no cookie sees the landing page's |
 
 ### Private pages
@@ -116,31 +116,50 @@ fall back to `/home`.
 ## Guests
 
 A storyteller hands out a join link from their table (the link button in the
-run table's header, `sa_getJoinLink`): `/join/<code>`, where the code is a
+run table's header, `sa_getJoinLink`, with a chip once anyone has joined by
+it saying how many of the plan's seats are taken): `/join/<code>`, where the code is a
 random 12 characters kept on `stories.join_code`. Following it needs no
 account. The join page asks for a name, offering a random one ("Ferocious
-Hamster"), and its form:
+Hamster"), and its form calls one of two actions:
 
-1. signs a visitor with no session in as a guest, through Better Auth's
-   [anonymous plugin](https://better-auth.com/docs/plugins/anonymous)
-   (`signIn.anonymous()`). The plugin makes a real `s_users` row with
-   `is_anonymous` set and a placeholder email, and a session cookie like any
-   other;
-2. seats them at the story with `sa_joinByLink`, which names a guest's row
-   after the name they picked and adds a `story_players` row with
-   `is_from_link` set. The seats the link may give out are capped by the
-   storyteller's plan: 3 for an unpaid storyteller, 10 for a paid one
-   ([`lib/join.ts`](../src/lib/join.ts)). Invited players do not count.
+- a visitor with no session calls `sa_joinAsGuest`. It checks the link and
+  that a seat is free, and only then makes the guest, through Better Auth's
+  [anonymous plugin](https://better-auth.com/docs/plugins/anonymous) called
+  from the server (`auth.api.signInAnonymous`). That makes a real `s_users` row
+  with `is_anonymous` set and a placeholder email, and sets a session cookie
+  like any other. The guest is then named after the name they picked and
+  seated. If the last seat went meanwhile, the guest is deleted again;
+- a visitor with a session (an account, or a guest joining another table)
+  calls `sa_joinByLink`, which seats them as they are.
 
-Because a guest is a real user, everything at the table works for them
-unchanged: `requireUser()`, the play actions, presence, the MQTT login, chat
-authorship. What keeps them in their place is where they may go:
+Either way the seat is a `story_players` row with `is_from_link` set. The
+seats the link may give out are capped by the storyteller's plan: 3 for an
+unpaid storyteller, 10 for a paid one ([`lib/join.ts`](../src/lib/join.ts)).
+Invited players do not count.
+
+The plugin's own endpoints, `/api/auth/sign-in/anonymous` and
+`/api/auth/delete-anonymous-user`, are closed over HTTP (`disabledPaths` in
+[`auth.ts`](../src/lib/auth.ts)), so a guest can only come from a join link.
+
+**What a guest may do.** A guest only reads the table they joined. The pages
+keep them there:
 
 - `(nav)/layout.tsx` sends a guest to `/signup`: nothing behind the menu bar
   is theirs;
 - `/play/[id]` and its waiting room send a guest to `/table/[id]`;
 - `(auth)/layout.tsx` lets a guest's session through to `/login` and
   `/signup` instead of bouncing it to `/home`.
+
+The server actions enforce it, since an action is a POST anyone holding a
+cookie can make whatever the pages show. Every action starts with
+`requireAccount()` ([`authorize.ts`](../src/lib/authorize.ts)), which refuses
+a guest, except the few the display table and its waiting room need: reading
+the story, the scene, its sessions, the chat and the live channel, keeping
+the guest's presence, reading their preferences, joining by link and
+leaving. Those start with `requireUser()` and are listed in
+[`guest-gate.test.ts`](../src/test/guest-gate.test.ts), which fails for any
+other action that lets a guest through. The realtime login a table gets
+can only subscribe, so a guest cannot publish to the broker either.
 
 **Linking.** Logging in or signing up while holding a guest's session links
 it: the plugin calls `onLinkAccount` in [`auth.ts`](../src/lib/auth.ts) with
@@ -152,7 +171,35 @@ would lose its authors to `ON DELETE SET NULL`. The display table's Log in /
 Sign up button carries `redirectTo=/table/[id]`, and the links between
 `/login` and `/signup` keep it, so the new account lands back at the table.
 
-Guests who never sign up are left in `s_users`. Nothing clears them yet.
+**Removing guests.** A guest is nothing but their seats, so a guest who
+leaves a story loses their seat and presence there
+([`removeGuestsFromStory`](../src/db/guests.ts)), and a guest left seated
+nowhere is deleted, their session with them:
+
+- **Leave** on the display table, or **Give up** in its waiting room
+  (`sa_leaveAsGuest`), takes the guest out of that story and sends them to
+  the landing page;
+- **closing the display table's page** sends a beacon on `pagehide` to
+  [`/api/table/leave`](../src/app/api/table/leave/route.ts). The guest goes
+  AWAY at once, and `GUEST_AWAY_GRACE_MS` (10 seconds) later, unless their
+  table has come back and made them PRESENT again, they are taken out of the
+  story. The wait is there because a reload sends the same event: the
+  reloaded table seats the guest again before it runs out;
+- **the storyteller removing them**, from the list of who joined at the
+  bottom of the run table's join link popover (`sa_removeLinkPlayer`). Someone
+  with an account who came in by the link loses their seat and presence there
+  and keeps their account;
+- **ending a session** (`sa_setRowStatus` to DONE) takes every guest seated
+  at the story out of it, whether or not they sat at that session. Their
+  table finds it can no longer load the scene and sends them to the landing
+  page;
+- **anything those miss** (a browser that never sent the beacon, a guest a
+  full table turned away) is caught by the daily
+  [`guest-sweep`](../src/app/api/cron/guest-sweep/route.ts) cron job, which
+  deletes guests more than a day old whose sessions have all expired.
+
+Each table a deleted guest was at is told its new head count. Chat lines
+guests wrote before they were refused writing stay, with no author.
 
 ## Storage
 

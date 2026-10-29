@@ -4,7 +4,7 @@ import { and, desc, eq, ilike, inArray, notExists, sql } from "drizzle-orm";
 import { del } from "@vercel/blob";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
 import { isOwnUploadedBlobUrl, isUploadedBlobUrl } from "@/lib/image-uploads";
 import {
@@ -147,7 +147,7 @@ export async function sa_createAttachment(input: {
   contentType?: string;
   byteSize?: number;
 }): Promise<{ idAttachment: number; status: string }> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const kind = attachmentKindSchema.parse(input.kind);
   const idExternal = idExternalSchema.nullable().parse(input.idExternal);
 
@@ -204,7 +204,7 @@ export async function sa_createAttachment(input: {
  * the key would not be.
  */
 export async function sa_markAttachmentReady(id: number, url: string): Promise<void> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const attachmentId = idAttachmentSchema.parse(id);
   // Pinned to http(s) like a typed link, for the same reason: this row's url
   // is what the story card puts inside a CSS url("…"). Blob's own urls always
@@ -226,7 +226,7 @@ export async function sa_markAttachmentReady(id: number, url: string): Promise<v
 
 /** Moves an upload from UPLOADING to ERROR when Blob reports a failure. */
 export async function sa_markAttachmentError(id: number): Promise<void> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const attachmentId = idAttachmentSchema.parse(id);
   await db
     .update(attachments)
@@ -238,7 +238,7 @@ export async function sa_markAttachmentError(id: number): Promise<void> {
 
 /** Moves a failed upload from ERROR back to UPLOADING so the field can try again. */
 export async function sa_retryAttachment(id: number): Promise<void> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const attachmentId = idAttachmentSchema.parse(id);
   await db
     .update(attachments)
@@ -272,7 +272,7 @@ export async function sa_retryAttachment(id: number): Promise<void> {
  * guard does not rely on that alone).
  */
 export async function sa_deleteAttachment(id: number): Promise<void> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const attachmentId = idAttachmentSchema.parse(id);
 
   const [row] = await db
@@ -320,7 +320,7 @@ export async function sa_setAttachmentCover(
   id: number,
   isCover: boolean,
 ): Promise<void> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const parsedKind = attachmentKindSchema.parse(kind);
   const parsedIdExternal = idExternalSchema.parse(idExternal);
   const attachmentId = idAttachmentSchema.parse(id);
@@ -412,7 +412,7 @@ async function dropEmptyStoryUses(
  * stored, however its presses interleave.
  */
 export async function sa_setAttachmentTags(id: number, tags: string[]): Promise<void> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const attachmentId = idAttachmentSchema.parse(id);
   const parsedTags = attachmentTagsSchema.parse(tags);
 
@@ -438,7 +438,7 @@ export async function sa_listAttachments(
   kind: AttachmentKind,
   idExternal: number,
 ): Promise<Attachment[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   // A bad kind or an id outside int4 is a query error rather than a missing
   // row, so it is refused the same way an unowned holder is: an empty list.
@@ -556,7 +556,7 @@ export async function sa_searchAttachments(
   idExternal: number,
   query: string,
 ): Promise<number[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const parsedKind = attachmentKindSchema.safeParse(kind);
   const parsedId = idExternalSchema.safeParse(idExternal);
@@ -629,7 +629,7 @@ export async function sa_attachToHolder(
   idExternal: number,
   ids: number[],
 ): Promise<AttachResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const holderKind = attachHolderKindSchema.parse(kind);
   const holderId = idExternalSchema.parse(idExternal);
   const parsedIds = attachmentIdsSchema.parse(ids);
@@ -693,7 +693,7 @@ export async function sa_detachFromHolder(
   idExternal: number,
   ids: number[],
 ): Promise<DetachResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const holderKind = attachHolderKindSchema.parse(kind);
   const holderId = idExternalSchema.parse(idExternal);
   const parsedIds = attachmentIdsSchema.parse(ids);
@@ -734,7 +734,7 @@ export async function sa_attachAsCover(
   idExternal: number,
   id: number,
 ): Promise<AttachAsCoverResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const holderKind = attachHolderKindSchema.parse(kind);
   const holderId = idExternalSchema.parse(idExternal);
   const attachmentId = idAttachmentSchema.parse(id);

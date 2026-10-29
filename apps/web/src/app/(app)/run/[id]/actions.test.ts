@@ -35,6 +35,9 @@ const published = {
 // The chat's divider goes out over the broker; caught here, and run at once.
 const publishChat = mock.fn(async (_idStory: number, _chat: unknown) => {});
 const publishLater = (work: () => Promise<void>) => void work();
+// The head count a removed player's table is told; caught, and run at once.
+const publishTableCount = mock.fn(async (_idStory: number, _atTable: number) => {});
+const LINK_GUEST_EMAIL = "run-id-actions-link-guest@example.test";
 
 let actions: typeof import("./actions");
 
@@ -59,7 +62,9 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
   before(async () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     mock.module("@/lib/realtime/publish-scene", { namedExports: published });
-    mock.module("@/lib/realtime/publish", { namedExports: { publishChat, publishLater } });
+    mock.module("@/lib/realtime/publish", {
+      namedExports: { publishChat, publishLater, publishTableCount },
+    });
     ({ db, schema: tables } = await import("@/db"));
     testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     actions = await import("./actions");
@@ -127,6 +132,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     }
     if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
     await removeTestUser(db, tables, TEST_USER_EMAIL);
+    await removeTestUser(db, tables, LINK_GUEST_EMAIL);
     await db.$client.end();
   });
 
@@ -1745,6 +1751,137 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         .from(tables.stories)
         .where(eq(tables.stories.idStory, theirs));
       expect(row.code).toBeNull();
+    });
+  });
+
+  describe("who joined by the link", () => {
+    // A guest of this file's and the other user, both seated at the story
+    // by its link, the guest present at an open session and the other
+    // waiting from before it.
+    async function seatTwo(): Promise<{ guest: string; idStorySession: number }> {
+      const guest = await makeTestUser(db, tables, LINK_GUEST_EMAIL);
+      await db
+        .update(tables.user)
+        .set({ isAnonymous: true, nickName: "Sleepy Otter" })
+        .where(eq(tables.user.id, guest));
+      await db.insert(tables.storyPlayers).values([
+        { idStory: mine, idUser: otherUserId, isFromLink: true },
+        { idStory: mine, idUser: guest, isFromLink: true },
+      ]);
+      const idStorySession = await openSession(mine, null, "OPEN");
+      await db.insert(tables.sessionPlayers).values([
+        {
+          idStory: mine,
+          idStorySession,
+          status: "PRESENT",
+          idCreatedByUser: guest,
+          idUpdatedByUser: guest,
+        },
+        { idStory: mine, idCreatedByUser: otherUserId, idUpdatedByUser: otherUserId },
+      ]);
+      return { guest, idStorySession };
+    }
+
+    async function cleanUp() {
+      await db.delete(tables.sessionPlayers).where(eq(tables.sessionPlayers.idStory, mine));
+      await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, mine));
+      await removeTestUser(db, tables, LINK_GUEST_EMAIL);
+    }
+
+    it("counts the link's seats for the chip without making a code", async () => {
+      await db
+        .update(tables.stories)
+        .set({ joinCode: null })
+        .where(eq(tables.stories.idStory, mine));
+      await seatTwo();
+      try {
+        expect(await actions.sa_getJoinCount(mine)).toEqual({ joined: 2, cap: 3 });
+        expect(await actions.sa_getJoinCount(theirs)).toBeNull();
+        const [row] = await db
+          .select({ code: tables.stories.joinCode })
+          .from(tables.stories)
+          .where(eq(tables.stories.idStory, mine));
+        expect(row.code).toBeNull();
+      } finally {
+        await cleanUp();
+      }
+    });
+
+    it("lists who joined by the link, guest or not, and where each is", async () => {
+      const { guest } = await seatTwo();
+      try {
+        const players = await actions.sa_listLinkPlayers(mine);
+        expect(players).toEqual([
+          { idUser: otherUserId, name: expect.any(String), isGuest: false, status: "WAITING" },
+          { idUser: guest, name: "Sleepy Otter", isGuest: true, status: "PRESENT" },
+        ]);
+        expect(await actions.sa_listLinkPlayers(theirs)).toEqual([]);
+      } finally {
+        await cleanUp();
+      }
+    });
+
+    it("deletes a guest the storyteller removes, and tells the table", async () => {
+      const { guest } = await seatTwo();
+      try {
+        published.publishSceneChanged.mock.resetCalls();
+        publishTableCount.mock.resetCalls();
+
+        expect(await actions.sa_removeLinkPlayer(mine, guest)).toEqual({ ok: true });
+
+        const left = await db
+          .select({ id: tables.user.id })
+          .from(tables.user)
+          .where(eq(tables.user.id, guest));
+        expect(left).toEqual([]);
+        expect(published.publishSceneChanged.mock.calls[0].arguments).toEqual([mine]);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(publishTableCount.mock.calls[0]?.arguments[0]).toBe(mine);
+      } finally {
+        await cleanUp();
+      }
+    });
+
+    it("takes an account's seat and presence, and leaves the account", async () => {
+      await seatTwo();
+      try {
+        expect(await actions.sa_removeLinkPlayer(mine, otherUserId)).toEqual({ ok: true });
+
+        const seats = await db
+          .select({ id: tables.storyPlayers.idUser })
+          .from(tables.storyPlayers)
+          .where(
+            and(eq(tables.storyPlayers.idStory, mine), eq(tables.storyPlayers.idUser, otherUserId)),
+          );
+        expect(seats).toEqual([]);
+        const rows = await db
+          .select({ id: tables.sessionPlayers.idSessionPlayer })
+          .from(tables.sessionPlayers)
+          .where(eq(tables.sessionPlayers.idCreatedByUser, otherUserId));
+        expect(rows).toEqual([]);
+        const [still] = await db
+          .select({ id: tables.user.id })
+          .from(tables.user)
+          .where(eq(tables.user.id, otherUserId));
+        expect(still).toEqual({ id: otherUserId });
+      } finally {
+        await cleanUp();
+      }
+    });
+
+    it("refuses someone not seated by the link, and someone else's story", async () => {
+      const { guest } = await seatTwo();
+      try {
+        await db
+          .update(tables.storyPlayers)
+          .set({ isFromLink: false })
+          .where(eq(tables.storyPlayers.idUser, otherUserId));
+        expect(await actions.sa_removeLinkPlayer(mine, otherUserId)).toMatchObject({ ok: false });
+        expect(await actions.sa_removeLinkPlayer(theirs, guest)).toMatchObject({ ok: false });
+        expect(await actions.sa_removeLinkPlayer(mine, "not-a-uuid")).toMatchObject({ ok: false });
+      } finally {
+        await cleanUp();
+      }
     });
   });
 });

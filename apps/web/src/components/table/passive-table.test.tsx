@@ -115,6 +115,8 @@ const sa_setPlayElementNotes = mock.fn(
   }),
 );
 
+const sa_leaveAsGuest = mock.fn(async (_idStory: number) => {});
+
 const sa_setUserPreference = mock.fn(async (_input: { key: string; value: unknown }) => ({
   ok: true as const,
 }));
@@ -162,6 +164,7 @@ describe("PassiveTable", () => {
         sa_postChat: mock.fn(),
         sa_editChat: mock.fn(),
         sa_deleteChat: mock.fn(),
+        sa_leaveAsGuest,
       },
     });
     mock.module("mqtt", { defaultExport: { connect } });
@@ -311,6 +314,43 @@ describe("PassiveTable", () => {
       "href",
       "/signup?redirectTo=%2Ftable%2F7",
     );
+  });
+
+  it("lets a guest leave, deleting them once they say so", async () => {
+    sa_leaveAsGuest.mock.resetCalls();
+    const u = userEvent.setup();
+    renderTable(guest);
+
+    await u.click(screen.getByRole("button", { name: "Leave" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Leave the table?" });
+    expect(within(dialog).getByText(/You joined Psychoneira as a guest/)).toBeInTheDocument();
+    expect(sa_leaveAsGuest.mock.callCount()).toBe(0);
+    await u.click(within(dialog).getByRole("button", { name: "Leave" }));
+
+    await waitFor(() => expect(sa_leaveAsGuest.mock.callCount()).toBe(1));
+    expect(sa_leaveAsGuest.mock.calls[0].arguments).toEqual([7]);
+  });
+
+  it("tells the server when a guest's page goes, and nothing for anyone else", async () => {
+    const sendBeacon = mock.fn((_url: string, _body: Blob) => true);
+    Object.defineProperty(navigator, "sendBeacon", { value: sendBeacon, configurable: true });
+
+    const { unmount } = renderTable(member);
+    window.dispatchEvent(new window.Event("pagehide"));
+    expect(sendBeacon.mock.callCount()).toBe(0);
+    unmount();
+
+    renderTable(guest);
+    window.dispatchEvent(new window.Event("pagehide"));
+    expect(sendBeacon.mock.callCount()).toBe(1);
+    const [url, body] = sendBeacon.mock.calls[0].arguments;
+    expect(url).toBe("/api/table/leave");
+    expect(JSON.parse(await body.text())).toEqual({ idStory: 7 });
+  });
+
+  it("gives someone with an account no Leave", () => {
+    renderTable(member);
+    expect(screen.queryByRole("button", { name: "Leave" })).toBeNull();
   });
 
   it("gives someone with an account the overlay chat's box, with no layout to pick", async () => {

@@ -3,7 +3,7 @@
 import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
 import type { RunScene } from "@/lib/run";
 import { publishLater } from "@/lib/realtime/publish";
@@ -69,7 +69,7 @@ export async function sa_setLiveSceneText(
   idStoryScene: number,
   input: unknown,
 ): Promise<SetSceneTextResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   if (!story.success || !scene.success) return { ok: false, errors: { root: NOT_THIS_STORY } };
@@ -112,7 +112,7 @@ export async function sa_setLiveSceneSession(
   idStoryScene: number,
   idStorySession: number | null,
 ): Promise<SetLiveSceneSessionResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   const session = idSchema.nullable().safeParse(idStorySession);
@@ -172,7 +172,7 @@ export async function sa_searchLiveScenes(
   idStory: number,
   search: { query: string; statuses: string[]; sessions: number[] },
 ): Promise<RunScene[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const parsed = liveSceneSearchSchema.safeParse(search);
   if (!story.success || !parsed.success) return [];

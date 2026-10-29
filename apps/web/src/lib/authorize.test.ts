@@ -12,6 +12,7 @@ const activeUser = {
 };
 
 let requireUser: typeof import("./authorize").requireUser;
+let requireAccount: typeof import("./authorize").requireAccount;
 let UnauthorizedError: typeof import("./authorize").UnauthorizedError;
 
 describe("requireUser", () => {
@@ -23,7 +24,7 @@ describe("requireUser", () => {
         schema: { user: { id: "id_user" } },
       },
     });
-    ({ requireUser, UnauthorizedError } = await import("./authorize"));
+    ({ requireUser, requireAccount, UnauthorizedError } = await import("./authorize"));
   });
 
   beforeEach(() => {
@@ -58,5 +59,24 @@ describe("requireUser", () => {
 
     await expect(requireUser()).resolves.toEqual(activeUser);
     expect(findFirst.mock.callCount()).toBe(1);
+  });
+});
+
+describe("requireAccount", () => {
+  beforeEach(() => {
+    getSession.mock.mockImplementation(async () => ({ user: { id: activeUser.id } }));
+  });
+
+  it("rejects a guest", async () => {
+    findFirst.mock.mockImplementation(async () => ({ ...activeUser, isAnonymous: true }));
+
+    await expect(requireAccount()).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+
+  it("returns the database row for someone with an account", async () => {
+    const member = { ...activeUser, isAnonymous: false };
+    findFirst.mock.mockImplementation(async () => member);
+
+    await expect(requireAccount()).resolves.toEqual(member);
   });
 });

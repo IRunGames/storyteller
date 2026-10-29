@@ -4,7 +4,7 @@ import { and, asc, count, eq, exists, ilike, not, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { cardOrder, cardQuery, notArchived } from "@/db/story-cards";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
 import type { LikedSystem, Profile } from "@/lib/profile";
 import { MAX_LIKED_SYSTEMS, profileDetailsSchema, systemIdSchema } from "@/lib/profile-schemas";
@@ -72,7 +72,7 @@ function fieldErrors(issues: { path: PropertyKey[]; message: string }[]): Record
  * carries neither the bio nor the join date.
  */
 export async function sa_getProfile(): Promise<Profile> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   return {
     name: user.name,
@@ -92,7 +92,7 @@ export async function sa_getProfile(): Promise<Profile> {
  * reads a "" nickname as none already and a bio has no reader that would.
  */
 export async function sa_updateProfileDetails(input: unknown): Promise<ProfileResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const parsed = profileDetailsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error.issues) };
@@ -113,7 +113,7 @@ export async function sa_updateProfileDetails(input: unknown): Promise<ProfileRe
  * opens.
  */
 export async function sa_searchSystems(query: string): Promise<LikedSystem[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const needle = querySchema.parse(query).trim();
 
   const alreadyLiked = exists(
@@ -145,7 +145,7 @@ export async function sa_searchSystems(query: string): Promise<LikedSystem[]> {
  * over, which is harmless for a list on a profile.
  */
 export async function sa_addLikedSystem(idSystem: number): Promise<LikedSystemsResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = systemIdSchema.parse(idSystem);
 
   const [system] = await db
@@ -173,7 +173,7 @@ export async function sa_addLikedSystem(idSystem: number): Promise<LikedSystemsR
 
 /** Takes a system off the caller's liked list; removing one not on it is a no-op. */
 export async function sa_removeLikedSystem(idSystem: number): Promise<LikedSystemsResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = systemIdSchema.parse(idSystem);
 
   await db
@@ -189,7 +189,7 @@ export async function sa_removeLikedSystem(idSystem: number): Promise<LikedSyste
  * still theirs. Unpaged, since one person's own stories are few.
  */
 export async function sa_listOwnedStories(): Promise<StoryCardData[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   return cardQuery(user.id)
     .where(and(eq(stories.idCreatedByUser, user.id), notArchived))
@@ -202,7 +202,7 @@ export async function sa_listOwnedStories(): Promise<StoryCardData[]> {
  * who sat themselves at their own table does not see it twice.
  */
 export async function sa_listPlayingStories(): Promise<StoryCardData[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const playsIn = exists(
     db

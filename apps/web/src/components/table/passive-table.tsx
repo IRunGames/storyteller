@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import NextLink from "next/link";
 import {
   Badge,
@@ -32,6 +32,8 @@ import { withRedirect } from "@/lib/safe-redirect";
 import { cssUrlValue } from "@/lib/stories";
 import { LogoMark } from "@/components/nav/brand-mark";
 import { BackgroundToggle } from "@/components/play/background-toggle";
+import { authClient } from "@/lib/auth-client";
+import { GuestLeaveButton } from "./guest-leave-button";
 import { PassivePill } from "./passive-pill";
 
 type Props = {
@@ -49,6 +51,15 @@ type Props = {
 };
 
 const CHAT_ID = "table-chat";
+
+// A guest is deleted when the storyteller ends the session they sat at
+// (sa_setRowStatus), and the table's reload on that news then fails. If it
+// failed because the guest's session is gone, rather than the network, there
+// is no table left for them, and they go to the landing page.
+async function leaveIfSignedOut() {
+  const { data, error } = await authClient.getSession();
+  if (!error && !data) window.location.assign("/");
+}
 
 // Whether someone with an account has the chat's box to type in, a user
 // preference as the play table's panels are, so a screen put up for the
@@ -78,7 +89,10 @@ const STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
  * the top: the Storyteller logo, the scene's title with the story and session
  * under it, and one button, back to the storyteller's or the player's own
  * table, or, for a guest, to log in or sign up, which keeps their seat
- * (lib/auth.ts) and brings them back here.
+ * (lib/auth.ts) and brings them back here. A guest also has Leave
+ * (GuestLeaveButton), is taken out of the story shortly after closing the
+ * page (useGuestDeparture), and is sent out when the storyteller ends the
+ * session.
  *
  * The elements are in the storyteller's stacks as on the players' table, as
  * large pills with no pictures (PassivePill). A picture the storyteller puts
@@ -123,7 +137,10 @@ export function PassiveTable({
   const { scene, channel, setElementNotes } = usePlayScene(idStory, initialScene, onPulse, {
     onChat: chat.receive,
     onConnect: () => void chat.refresh(),
+    onReloadFailed: user.isAnonymous ? leaveIfSignedOut : undefined,
   });
+
+  useGuestDeparture(idStory, user.isAnonymous);
 
   const items = scene.items.map(toPlayItem);
   const coverUrl = scene.coverUrl ?? storyCoverUrl;
@@ -223,6 +240,7 @@ export function PassiveTable({
                   onToggle={() => preferences.set(SHOW_CHAT_BOX, !showChatBox)}
                 />
               )}
+              {user.isAnonymous && <GuestLeaveButton idStory={idStory} title={title} />}
               <TableButton idStory={idStory} isOwner={isOwner} isGuest={user.isAnonymous} />
             </HStack>
           </Box>
@@ -329,6 +347,34 @@ export function PassiveTable({
  * table the viewer plays at, or, for a guest, to make an account, which
  * keeps their seat and brings them back here.
  */
+/**
+ * For a guest, tells the server as the page goes (pagehide) that they may
+ * have closed it, with a beacon, which the browser still sends as the page
+ * unloads. The server waits a moment before taking them out of the story
+ * (api/table/leave), since a reload sends the same event and comes straight
+ * back. A page the browser kept whole for the back button (pageshow with
+ * persisted) is loaded afresh when it returns, so the guest is seated again
+ * rather than shown a table they were taken out of.
+ */
+function useGuestDeparture(idStory: number, isGuest: boolean) {
+  useEffect(() => {
+    if (!isGuest) return;
+    const onHide = () => {
+      const body = new Blob([JSON.stringify({ idStory })], { type: "application/json" });
+      navigator.sendBeacon("/api/table/leave", body);
+    };
+    const onShow = (event: PageTransitionEvent) => {
+      if (event.persisted) window.location.reload();
+    };
+    window.addEventListener("pagehide", onHide);
+    window.addEventListener("pageshow", onShow);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("pageshow", onShow);
+    };
+  }, [idStory, isGuest]);
+}
+
 function TableButton({
   idStory,
   isOwner,

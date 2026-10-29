@@ -36,6 +36,11 @@ const publishChatDeleted = mock.fn(async (_idStory: number, _idChat: number) => 
 const publishTableCount = mock.fn(async (_idStory: number, _atTable: number) => {});
 const publishLater = (work: () => Promise<void>) => void work();
 
+// A guest leaving is signed out through Better Auth; mocked, since there is
+// no request here for it to clear a cookie on.
+const signOut = mock.fn(async (_options: { headers: Headers }) => ({ success: true }));
+const GUEST_EMAIL = "play-id-actions-guest@example.test";
+
 // publishLater runs its work at once but does not wait on it, and the head
 // count reads the database before publishing, so a test waits for the call.
 async function waitForCall(fn: { mock: { callCount(): number } }, count = 1) {
@@ -67,6 +72,8 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     mock.module("@/lib/realtime/publish", {
       namedExports: { publishChat, publishChatDeleted, publishLater, publishTableCount },
     });
+    mock.module("@/lib/auth", { namedExports: { auth: { api: { signOut } } } });
+    mock.module("next/headers", { namedExports: { headers: async () => new Headers() } });
     ({ db, schema: tables } = await import("@/db"));
     testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
     caller = testUser;
@@ -136,6 +143,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
     if (secondPlayerId) await db.delete(tables.user).where(eq(tables.user.id, secondPlayerId));
     await removeTestUser(db, tables, TEST_USER_EMAIL);
+    await removeTestUser(db, tables, GUEST_EMAIL);
     await db.$client.end();
   });
 
@@ -1068,6 +1076,65 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     it("says there is no channel when the broker is not configured", async () => {
       delete process.env.MQTT_PLAYER_PASSWORD;
       expect(await actions.sa_getStoryChannel(playsIn)).toBeNull();
+    });
+  });
+
+  describe("guests", () => {
+    // A guest of this file's, seated at the played-in story and present at
+    // its session, as the join link and the display table leave them.
+    async function seatedGuest(): Promise<string> {
+      const id = await makeTestUser(db, tables, GUEST_EMAIL);
+      await db.update(tables.user).set({ isAnonymous: true }).where(eq(tables.user.id, id));
+      await db
+        .insert(tables.storyPlayers)
+        .values({ idStory: playsIn, idUser: id, isFromLink: true });
+      caller = id;
+      await actions.sa_joinSession(playsIn);
+      return id;
+    }
+
+    it("lets a guest read the table but not write to it", async () => {
+      await openSession(playsIn, "OPEN");
+      await seatedGuest();
+
+      expect(await actions.sa_getPlayStory(playsIn)).not.toBeNull();
+      await expect(actions.sa_postChat(playsIn, "Hello")).rejects.toThrow(
+        "You need an account to do that.",
+      );
+      await expect(actions.sa_setPlayElementNotes(playsIn, 1, "x")).rejects.toThrow(
+        "You need an account to do that.",
+      );
+      await removeTestUser(db, tables, GUEST_EMAIL);
+    });
+
+    it("deletes a guest who leaves, signs them out, and recounts the table", async () => {
+      await openSession(playsIn, "OPEN");
+      const guest = await seatedGuest();
+      signOut.mock.resetCalls();
+      publishTableCount.mock.resetCalls();
+
+      await actions.sa_leaveAsGuest(playsIn);
+
+      expect(signOut.mock.callCount()).toBe(1);
+      const left = await db
+        .select({ id: tables.user.id })
+        .from(tables.user)
+        .where(eq(tables.user.id, guest));
+      expect(left).toEqual([]);
+      await waitForCall(publishTableCount);
+      expect(publishTableCount.mock.calls[0].arguments[0]).toBe(playsIn);
+    });
+
+    it("leaves someone with an account alone", async () => {
+      signOut.mock.resetCalls();
+      await actions.sa_leaveAsGuest(playsIn);
+
+      expect(signOut.mock.callCount()).toBe(0);
+      const still = await db
+        .select({ id: tables.user.id })
+        .from(tables.user)
+        .where(eq(tables.user.id, testUser));
+      expect(still).toHaveLength(1);
     });
   });
 });

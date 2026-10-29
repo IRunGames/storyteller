@@ -1,6 +1,7 @@
 "use server";
 
 import { and, eq, exists, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
@@ -8,7 +9,9 @@ import { hasOpenSession } from "@/db/open-session";
 import { atTableCount, waitingCount } from "@/db/session-player-counts";
 import { currentScene, sceneItems } from "@/db/scene-items";
 import { chatById, insertChat, listChats, type ChatPage } from "@/db/chats";
-import { requireUser } from "@/lib/authorize";
+import { auth } from "@/lib/auth";
+import { requireAccount, requireUser } from "@/lib/authorize";
+import { removeGuestsFrom } from "@/lib/guests";
 import {
   isUnplayable,
   WAITING_STALE_SECONDS,
@@ -106,7 +109,7 @@ export type ActivateStoryResult = { ok: true } | { ok: false; error: string };
  * says so.
  */
 export async function sa_activateStory(idStory: number): Promise<ActivateStoryResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.safeParse(idStory);
   if (!id.success) return { ok: false, error: "That story could not be found." };
 
@@ -212,6 +215,24 @@ export async function sa_leaveWaitingRoom(idStory: number): Promise<void> {
   if (!id.success) return;
 
   await db.delete(sessionPlayers).where(waitingRow(id.data, user.id));
+}
+
+/**
+ * A guest leaving the story's table: their seat and presence there go, and
+ * a guest seated nowhere else is deleted and their session cookie cleared,
+ * since a guest has no account to come back to and the join link makes them
+ * anew (lib/guests.ts). Called from the display table's Leave and the
+ * waiting room's Give up. Someone with an account is not touched; they
+ * leave a story from its page.
+ */
+export async function sa_leaveAsGuest(idStory: number): Promise<void> {
+  const user = await requireUser();
+  const id = idStorySchema.safeParse(idStory);
+  if (!user.isAnonymous || !id.success) return;
+  const deleted = await removeGuestsFrom(id.data, [user.id]);
+  // The session row went with the user; signing out still clears the
+  // cookie on this response, so the browser stops sending a dead one.
+  if (deleted.length > 0) await auth.api.signOut({ headers: await headers() });
 }
 
 /**
@@ -364,7 +385,7 @@ export async function sa_setPlaySceneText(
   idStoryScene: number,
   input: unknown,
 ): Promise<SetSceneTextResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
   const scene = idStorySchema.safeParse(idStoryScene);
   if (!story || !scene.success) return { ok: false, errors: { root: NOT_AT_THIS_TABLE } };
@@ -423,7 +444,7 @@ export async function sa_setPlayElementNotes(
   idElement: number,
   input: unknown,
 ): Promise<SetElementNotesResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
   const element = idStorySchema.safeParse(idElement);
   if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
@@ -494,7 +515,7 @@ export async function sa_untapPlaySceneElement(
   idStoryScene: number,
   idElement: number,
 ): Promise<UntapSceneElementResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
   const scene = idStorySchema.safeParse(idStoryScene);
   const element = idStorySchema.safeParse(idElement);
@@ -688,7 +709,7 @@ const NOT_YOUR_LINE = "That is not a line of yours.";
  * a roll that cannot be made, is refused and nothing is saved.
  */
 export async function sa_postChat(idStory: number, text: unknown): Promise<ChatResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
   if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
 
@@ -728,7 +749,7 @@ export async function sa_editChat(
   idChat: number,
   text: unknown,
 ): Promise<ChatResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
   if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
   const id = idStorySchema.safeParse(idChat);
@@ -770,7 +791,7 @@ export type DeleteChatResult = { ok: true; idChat: number } | { ok: false; error
  * whose dice are what was rolled. No session is needed, as for an edit.
  */
 export async function sa_deleteChat(idStory: number, idChat: number): Promise<DeleteChatResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
   if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
   const id = idStorySchema.safeParse(idChat);

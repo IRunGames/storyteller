@@ -424,7 +424,7 @@ export function RunTable({
         </PlayPanelToggle>
       )}
       <DisplayModeButton idStory={idStory} />
-      <JoinLinkButton idStory={idStory} />
+      <JoinLinkButton idStory={idStory} atTable={chat.atTable} />
     </HStack>
   );
 

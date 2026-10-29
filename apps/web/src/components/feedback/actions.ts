@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import { feedbackSchema } from "@/lib/feedback-schemas";
 
 const { feedback } = schema;
@@ -12,9 +12,7 @@ const { feedback } = schema;
 // signed-in page, so no single page owns it. It starts by proving who is
 // asking, like every other action.
 
-export type SubmitFeedbackResult =
-  | { ok: true }
-  | { ok: false; errors: Record<string, string> };
+export type SubmitFeedbackResult = { ok: true } | { ok: false; errors: Record<string, string> };
 
 /**
  * Records a thumbs up / down for the page the caller was on. The submitter is
@@ -22,7 +20,7 @@ export type SubmitFeedbackResult =
  * client sent; the IP is kept only as a record and never trusted for anything.
  */
 export async function sa_submitFeedback(input: unknown): Promise<SubmitFeedbackResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const parsed = feedbackSchema.safeParse(input);
   if (!parsed.success) {

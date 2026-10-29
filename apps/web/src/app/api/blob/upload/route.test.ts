@@ -3,7 +3,7 @@ import { expect } from "expect";
 
 const USER = "8f2b1c44-0000-4000-8000-000000000001";
 
-// requireUser() is the real gate; mocking it is how this test drives the two
+// requireAccount() is the real gate; mocking it is how this test drives the two
 // answers the route has to tell apart — no session, and a session whose user
 // is asking for someone else's prefix.
 //
@@ -13,7 +13,7 @@ const USER = "8f2b1c44-0000-4000-8000-000000000001";
 // pass for the wrong reason.
 class UnauthorizedError extends Error {}
 
-const requireUser = mock.fn<() => Promise<{ id: string }>>(async () => ({
+const requireAccount = mock.fn<() => Promise<{ id: string }>>(async () => ({
   id: USER,
 }));
 
@@ -45,18 +45,18 @@ describe("POST /api/blob/upload", () => {
     // cases this file tests fail inside onBeforeGenerateToken first.
     process.env.BLOB_READ_WRITE_TOKEN = "vercel_blob_rw_test_0000000000000000000000";
     mock.module("@/lib/authorize", {
-      namedExports: { requireUser, UnauthorizedError },
+      namedExports: { requireAccount, UnauthorizedError },
     });
     ({ POST } = await import("./route"));
   });
 
   beforeEach(() => {
-    requireUser.mock.resetCalls();
-    requireUser.mock.mockImplementation(async () => ({ id: USER }));
+    requireAccount.mock.resetCalls();
+    requireAccount.mock.mockImplementation(async () => ({ id: USER }));
   });
 
   it("refuses to issue a token when nobody is signed in", async () => {
-    requireUser.mock.mockImplementation(async () => {
+    requireAccount.mock.mockImplementation(async () => {
       throw new UnauthorizedError("not signed in");
     });
 

@@ -17,13 +17,15 @@ export type ScenePulseEvent = Extract<StoryEvent, { type: "scene_element.custom"
  * message says more changed than it can absorb, and on every connection,
  * since a message may have gone by while it was not listening. A pulse
  * (scene_element.custom) changes nothing held; one about the scene the
- * table is on is handed to `onPulse` for the table to act on.
+ * table is on is handed to `onPulse` for the table to act on. A reload that
+ * fails is handed to `onReloadFailed`, if given, and otherwise ignored: the
+ * next message or connection loads it again.
  */
 export function usePlayScene(
   idStory: number,
   initial: PlayScene,
   onPulse?: (event: ScenePulseEvent) => void,
-  chat?: Pick<ChannelHandlers, "onChat" | "onConnect">,
+  options?: Pick<ChannelHandlers, "onChat" | "onConnect"> & { onReloadFailed?: () => void },
 ): {
   scene: PlayScene;
   channel: ChannelState;
@@ -52,9 +54,21 @@ export function usePlayScene(
   // out of order and leave the older scene showing.
   const reloads = useRef(0);
 
+  // The latest onReloadFailed, held as onPulse is below.
+  const onReloadFailedRef = useRef(options?.onReloadFailed);
+  useEffect(() => {
+    onReloadFailedRef.current = options?.onReloadFailed;
+  });
+
   const reload = useCallback(async () => {
     const number = ++reloads.current;
-    const next = await sa_getPlayScene(idStory);
+    let next: PlayScene | null;
+    try {
+      next = await sa_getPlayScene(idStory);
+    } catch {
+      onReloadFailedRef.current?.();
+      return;
+    }
     if (next && number === reloads.current) setScene(next);
   }, [idStory]);
 
@@ -87,10 +101,10 @@ export function usePlayScene(
   // to the table's chat, and each connection reloads it beside the scene.
   const channel = useStoryChannel(idStory, {
     onEvent,
-    onChat: chat?.onChat,
+    onChat: options?.onChat,
     onConnect: () => {
       void reload();
-      chat?.onConnect?.();
+      options?.onConnect?.();
     },
   });
 

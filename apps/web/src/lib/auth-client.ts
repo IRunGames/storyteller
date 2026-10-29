@@ -3,7 +3,8 @@ import { anonymousClient } from "better-auth/client/plugins";
 
 export const authClient = createAuthClient({
   baseURL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-  // signIn.anonymous(), for a guest joining by link (app/(public)/join).
+  // Types a guest's session (isAnonymous). A guest is made on the server,
+  // by sa_joinAsGuest; the plugin's signIn.anonymous() is closed over HTTP.
   plugins: [anonymousClient()],
 });
 

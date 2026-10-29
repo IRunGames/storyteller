@@ -7,7 +7,7 @@ import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { elementOrderBy } from "@/db/element-order";
 import { currentScene, sceneItems, type SceneItemRow } from "@/db/scene-items";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import {
   ELEMENT_KINDS,
   ELEMENT_SORT_KEYS,
@@ -120,7 +120,7 @@ export async function sa_listStoryScenes(
   query: string = "",
   statuses?: string[],
 ): Promise<StoryScene[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const skip = offsetSchema.parse(offset);
   const needle = querySchema.parse(query).trim();
   // Undefined is "no such filter", which is not the same as an empty list:
@@ -190,7 +190,7 @@ export async function sa_listStoryScenes(
  * big the column is, not how much of it a query happens to match.
  */
 export async function sa_countStoryScenes(idStory: number): Promise<number> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const id = idStorySchema.safeParse(idStory);
   if (!id.success) return 0;
@@ -223,7 +223,7 @@ export async function sa_listStoryElements(
   statuses?: string[],
   sort: ElementSort = "name",
 ): Promise<StoryElement[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const ofKind = kindSchema.parse(kind);
   const skip = offsetSchema.parse(offset);
   const needle = querySchema.parse(query).trim();
@@ -268,7 +268,7 @@ export async function sa_countStoryElements(idStory: number): Promise<Record<Ele
     ElementKind,
     number
   >;
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const id = idStorySchema.safeParse(idStory);
   if (!id.success) return counts;
@@ -297,7 +297,7 @@ export async function sa_countStoryElements(idStory: number): Promise<Record<Ele
  * is.
  */
 export async function sa_getStoryScene(idStoryScene: number): Promise<StorySceneDetail | null> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const id = idStorySchema.safeParse(idStoryScene);
   if (!id.success) return null;
@@ -403,7 +403,7 @@ async function sessionOptions(idStory: number): Promise<SceneSessionOption[]> {
 
 /** The sittings a scene of this story may be put in; nothing for anyone but its storyteller. */
 export async function sa_listSceneSessionOptions(idStory: number): Promise<SceneSessionOption[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const id = idStorySchema.safeParse(idStory);
   if (!id.success) return [];
@@ -466,7 +466,7 @@ async function parseScene(
  * and the Scenes column load the new scene.
  */
 export async function sa_createStoryScene(idStory: number, input: unknown): Promise<CreateResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.parse(idStory);
   if (!(await ownsStory(user.id, id))) {
     throw new Error("Only the storyteller who created a story can add scenes to it");
@@ -502,7 +502,7 @@ export async function sa_getStorySceneForEdit(idStoryScene: number): Promise<{
   values: { title: string; description: string; idStorySession: number | null };
   sessions: SceneSessionOption[];
 } | null> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const id = idStorySchema.safeParse(idStoryScene);
   if (!id.success) return null;
@@ -550,7 +550,7 @@ export async function sa_updateStoryScene(
   input: unknown,
   returnTo?: string,
 ): Promise<SceneFormResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.parse(idStoryScene);
 
   const [row] = await db
@@ -610,7 +610,7 @@ export type DeleteSceneResult = { ok: true } | { ok: false; error: string };
  * alike, as sa_getStorySceneForEdit answers both with null.
  */
 export async function sa_deleteStoryScene(idStoryScene: number): Promise<DeleteSceneResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.safeParse(idStoryScene);
   const gone = "That scene is not one of your story's.";
   if (!id.success) return { ok: false, error: gone };
@@ -641,7 +641,7 @@ export type ElementFormResult = SceneFormResult;
  * can close and the element's kind column load it.
  */
 export async function sa_createElement(idStory: number, input: unknown): Promise<CreateResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.parse(idStory);
   if (!(await ownsStory(user.id, id))) {
     throw new Error("Only the storyteller who created a story can add elements to it");
@@ -687,7 +687,7 @@ export async function sa_getElementForEdit(idElement: number): Promise<{
     urlText: string;
   };
 } | null> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const id = idStorySchema.safeParse(idElement);
   if (!id.success) return null;
@@ -741,7 +741,7 @@ export type DeleteElementResult = { ok: true; idStory: number } | { ok: false; e
  * alike, as sa_getElementForEdit answers both with null.
  */
 export async function sa_deleteElement(idElement: number): Promise<DeleteElementResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.safeParse(idElement);
   const gone = "That element is not one of your story's.";
   if (!id.success) return { ok: false, error: gone };
@@ -771,7 +771,7 @@ export async function sa_updateElement(
   idElement: number,
   input: unknown,
 ): Promise<ElementFormResult> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const id = idStorySchema.parse(idElement);
 
   const [row] = await db

@@ -1,5 +1,5 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
-import { requireUser, UnauthorizedError } from "@/lib/authorize";
+import { requireAccount, UnauthorizedError } from "@/lib/authorize";
 import { ALLOWED_IMAGE_TYPES, maxUploadBytes, uploadPrefix } from "@/lib/image-uploads";
 
 /**
@@ -10,7 +10,7 @@ import { ALLOWED_IMAGE_TYPES, maxUploadBytes, uploadPrefix } from "@/lib/image-u
  * server action, and it is deliberate: `upload()` from `@vercel/blob/client`
  * needs an HTTP endpoint it can POST to for a token, and a server action
  * cannot serve that role. The authorisation is not weaker for it — the same
- * `requireUser()` every action opens with runs here before a token is issued.
+ * `requireAccount()` the actions open with runs here before a token is issued.
  *
  * `onUploadCompleted` is not used. Vercel calls it from their own network, so
  * it never fires against localhost, and nothing needs it: the browser gets
@@ -24,7 +24,7 @@ export async function POST(request: Request): Promise<Response> {
       body,
       request,
       onBeforeGenerateToken: async (pathname) => {
-        const user = await requireUser();
+        const user = await requireAccount();
 
         // The client chooses the pathname, so this is the only place the
         // prefix can be enforced. Without it a signed-in user could write

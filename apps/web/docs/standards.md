@@ -101,14 +101,19 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   See [`stories/page.tsx`](<../src/app/(app)/(nav)/stories/page.tsx>).
 - **Every read and write is a server action** in the route's `actions.ts`,
   `"use server"` at the top, and every exported function starts with
-  `const user = await requireUser()` from
+  `const user = await requireAccount()` from
   [`authorize.ts`](../src/lib/authorize.ts). That checks the session _and_ the
-  `s_users` row (exists, active), so a stale cookie for a deactivated account
-  does nothing. There is no separate query layer.
+  `s_users` row (exists, active, not a guest), so a stale cookie for a
+  deactivated account does nothing, and neither does a guest's. The few
+  actions a guest's pages need start with `requireUser()` instead, which lets
+  a guest through, and are named in
+  [`guest-gate.test.ts`](../src/test/guest-gate.test.ts); a new one fails that
+  test until it is named there. See [Guests](auth.md#guests). There is no
+  separate query layer.
 - **One exception, and only one: `app/api/blob/upload/route.ts`.** `upload()`
   from `@vercel/blob/client` needs an HTTP endpoint to POST to for a token,
-  which a server action cannot be. It opens with the same `requireUser()` an
-  action does, and it checks the client-supplied pathname against that user's
+  which a server action cannot be. It opens with the same `requireAccount()`
+  an action does, and it checks the client-supplied pathname against that user's
   own prefix. Uploading is the only thing that earns a route handler; adding
   another needs the same kind of reason.
 - **Every exported action is named with the `sa_` prefix**: `sa_listNews`,
@@ -121,7 +126,7 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   does from the file beside it. Do not thread an action down as a prop through a layout or parent that
   has no use for it. In a test, `mock.module` the actions module before the
   dynamic import of the component.
-- **Use `user.id` from `requireUser()`, never an id the client sent.** Stamp
+- **Use `user.id` from `requireAccount()`, never an id the client sent.** Stamp
   `idCreatedByUser` and `idUpdatedByUser` with it on every insert.
 - **Validate the input with the shared zod schema** and return a discriminated
   union: `{ ok: true }` or `{ ok: false, errors: Record<string, string> }`

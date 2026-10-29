@@ -3,12 +3,12 @@
 import { and, desc, eq, gt, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/authorize";
+import { requireAccount } from "@/lib/authorize";
 import { NEWS_LIMIT, type NewsItem } from "@/lib/news";
 
 const { news, newsReads } = schema;
 
-// The only way the home page touches the news tables; requireUser() proves
+// The only way the home page touches the news tables; requireAccount() proves
 // who is asking before anything is read or written.
 
 // news.id_news is int4. An id outside that range is a query error to Postgres,
@@ -22,7 +22,7 @@ const idNewsSchema = z.number().int().min(-2147483648).max(2147483647);
  * inserted by the app agree on "now".
  */
 export async function sa_listNews(): Promise<NewsItem[]> {
-  const user = await requireUser();
+  const user = await requireAccount();
 
   const now = sql`now()`;
   // Correlated and scoped to the caller, like favoritedBy() on the Stories
@@ -32,25 +32,27 @@ export async function sa_listNews(): Promise<NewsItem[]> {
     .from(newsReads)
     .where(and(eq(newsReads.idNews, news.idNews), eq(newsReads.idUser, user.id)));
 
-  return db
-    .select({
-      idNews: news.idNews,
-      title: news.title,
-      body: news.body,
-      startsAt: news.startsAt,
-    })
-    .from(news)
-    .where(
-      and(
-        eq(news.isArchived, false),
-        lte(news.startsAt, now),
-        or(isNull(news.expiresAt), gt(news.expiresAt, now)),
-        notExists(readByCaller),
-      ),
-    )
-    // id_news breaks a starts_at tie so the order is stable between renders.
-    .orderBy(desc(news.startsAt), desc(news.idNews))
-    .limit(NEWS_LIMIT);
+  return (
+    db
+      .select({
+        idNews: news.idNews,
+        title: news.title,
+        body: news.body,
+        startsAt: news.startsAt,
+      })
+      .from(news)
+      .where(
+        and(
+          eq(news.isArchived, false),
+          lte(news.startsAt, now),
+          or(isNull(news.expiresAt), gt(news.expiresAt, now)),
+          notExists(readByCaller),
+        ),
+      )
+      // id_news breaks a starts_at tie so the order is stable between renders.
+      .orderBy(desc(news.startsAt), desc(news.idNews))
+      .limit(NEWS_LIMIT)
+  );
 }
 
 /**
@@ -63,7 +65,7 @@ export async function sa_listNews(): Promise<NewsItem[]> {
  * something to handle here.
  */
 export async function sa_markNewsRead(idNews: number[]): Promise<{ ok: true }> {
-  const user = await requireUser();
+  const user = await requireAccount();
   const ids = z.array(idNewsSchema).max(NEWS_LIMIT).parse(idNews);
   if (ids.length === 0) return { ok: true };
 
