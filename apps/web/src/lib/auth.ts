@@ -18,9 +18,10 @@ export const auth = betterAuth({
   },
   emailAndPassword: {
     enabled: true,
-    // No mail provider is wired up yet, so there is nothing to send a
-    // verification link with. Sign-in stays unblocked and `email_verified`
-    // simply stays false until we add one.
+    // Better Auth is given no sendVerificationEmail yet (lib/email.ts only
+    // sends invitations so far), so there is nothing to send a verification
+    // link with. Sign-in stays unblocked and `email_verified` simply stays
+    // false until it is.
     requireEmailVerification: false,
     minPasswordLength: MIN_PASSWORD_LENGTH,
   },

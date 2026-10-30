@@ -21,7 +21,7 @@ import { MIN_PASSWORD_LENGTH, signUpSchema, type SignUpValues } from "@/lib/auth
 import { withRedirect } from "@/lib/safe-redirect";
 import { GoogleButton } from "@/components/auth/google-button";
 
-export function SignupForm({ redirectTo }: { redirectTo: string }) {
+export function SignupForm({ redirectTo, email = "" }: { redirectTo: string; email?: string }) {
   const router = useRouter();
   const {
     register,
@@ -30,7 +30,7 @@ export function SignupForm({ redirectTo }: { redirectTo: string }) {
     formState: { errors, isSubmitting, isSubmitSuccessful },
   } = useForm<SignUpValues>({
     resolver: zodResolver(signUpSchema),
-    defaultValues: { name: "", email: "", password: "" },
+    defaultValues: { name: "", email, password: "" },
   });
 
   // `values` has already been through the schema, so name and email arrive

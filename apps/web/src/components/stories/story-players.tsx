@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Avatar, Heading, HStack, List, Stack, Text } from "@chakra-ui/react";
 import type { StoryPlayer } from "@/lib/stories";
 import { useUser } from "@/components/auth/user-provider";
+import { EmailInvitePopover } from "./email-invite-popover";
 import { InvitePlayersPopover } from "./invite-players-popover";
 import { JoinStoryButton } from "./join-story-button";
 import { LeaveStoryButton } from "./leave-story-button";
@@ -61,10 +62,13 @@ export function StoryPlayers({
           />
         )}
         {isOwner && (
-          <InvitePlayersPopover
-            idStory={idStory}
-            onInvited={(added) => setPlayers((current) => [...current, ...added])}
-          />
+          <HStack gap="2" wrap="wrap" justify="flex-end">
+            <EmailInvitePopover idStory={idStory} />
+            <InvitePlayersPopover
+              idStory={idStory}
+              onInvited={(added) => setPlayers((current) => [...current, ...added])}
+            />
+          </HStack>
         )}
       </HStack>
 

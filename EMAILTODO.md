@@ -12,26 +12,27 @@ outgrow it.
 ## Stack context
 
 - Next.js 16 on Vercel (`apps/web`)
-- Better Auth 1.7 (`apps/web/src/lib/auth.ts`) — currently Google OAuth only
+- Better Auth 1.7 (`apps/web/src/lib/auth.ts`) — email + password and Google OAuth
+- Invitations already send through `sendEmail` (`apps/web/docs/auth.md#invitations`)
 - Drizzle + Neon Postgres
-- Sending domain: `mail.irun.games` (subdomain, see below)
+- Sending domain: `storyteller.irun.games` (subdomain, see below)
 
 ## Checklist
 
 ### Account + domain
 - [ ] Create Resend account, add via Vercel Marketplace integration so
       `RESEND_API_KEY` lands in the Vercel project env automatically
-- [ ] Verify the **subdomain** `mail.irun.games` in Resend (not the root domain,
+- [ ] Verify the **subdomain** `storyteller.irun.games` in Resend (not the root domain,
       so app sending reputation stays separate from personal mail on irun.games)
 - [ ] Add the DNS records Resend gives you: SPF, DKIM, and a DMARC record
-      (`_dmarc.mail.irun.games`, start with `p=none`)
-- [ ] Add `RESEND_API_KEY` to `.env.local` for dev (`vercel env pull`)
-- [ ] Decide the from address, e.g. `Storyteller <noreply@mail.irun.games>`
+      (`_dmarc.storyteller.irun.games`, start with `p=none`)
+- [x] Add `RESEND_API_KEY` to `.env.local` for dev (`vercel env pull`)
+- [ ] Decide the from address, e.g. `Storyteller <noreply@storyteller.irun.games>`
 
 ### Code
-- [ ] `npm i resend` in `apps/web` (plus `@react-email/components` if we want
+- [x] `npm i resend` in `apps/web` (plus `@react-email/components` if we want
       React templates rather than raw HTML strings)
-- [ ] Create `apps/web/src/lib/email.ts` — single `resend` client + a
+- [x] Create `apps/web/src/lib/email.ts` — single `resend` client + a
       `sendEmail({ to, subject, react|html })` helper so every send goes
       through one place
 - [ ] Pick the login flavor (see below) and wire it into `auth.ts`

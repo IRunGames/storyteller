@@ -16,7 +16,7 @@ describe("toCurrentUser", () => {
       nickName: "Gandalf",
       lastLogin: new Date(),
       hoursPlayed: 12,
-      idUserType: -1,
+      idUserType: -10,
       tags: null,
       isActive: true,
       bio: "Runs the table on Thursdays.",
@@ -30,7 +30,7 @@ describe("toCurrentUser", () => {
       email: "storyteller@irun.games",
       image: null,
       nickName: "Gandalf",
-      idUserType: -1,
+      idUserType: -10,
       isAnonymous: false,
     });
   });

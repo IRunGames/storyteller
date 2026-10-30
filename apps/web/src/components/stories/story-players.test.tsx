@@ -16,7 +16,7 @@ const viewer: CurrentUser = {
   email: "viewer@example.test",
   image: null,
   nickName: null,
-  idUserType: -1,
+  idUserType: -10,
   isAnonymous: false,
 };
 const renderWithProviders = (ui: ReactElement, who: CurrentUser = viewer) =>
@@ -62,6 +62,9 @@ describe("StoryPlayers", () => {
       namedExports: {
         sa_searchPlayers,
         sa_addStoryPlayers,
+        sa_inviteToStory: async () => ({ ok: false, errors: {} }),
+        sa_listStoryInvitations: async () => [],
+        sa_revokeStoryInvitation: async () => ({ ok: true }),
         sa_removeStoryPlayer,
         sa_leaveStory,
         sa_joinStory,
@@ -179,7 +182,7 @@ describe("StoryPlayers", () => {
       email: "paul@example.test",
       image: null,
       nickName: "PaulKhash",
-      idUserType: -1,
+      idUserType: -10,
       isAnonymous: false,
     };
 

@@ -1,10 +1,25 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq, exists, ilike, inArray, isNotNull, not, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  gt,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  not,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
+import { createInvitation, emailInvitation } from "@/db/invitations";
 import { cardOrder, cardQuery, notArchived, playerName } from "@/db/story-cards";
 import { requireAccount, requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
@@ -21,10 +36,12 @@ import {
   type StorySessionDetail,
   type UpdateSessionResult,
 } from "@/lib/stories";
+import { storyInviteSchema } from "@/lib/invitation-schemas";
 import { sessionEditSchema } from "@/lib/session-schemas";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
 
 const {
+  invitations,
   stories,
   systems,
   storyPlayers,
@@ -379,6 +396,123 @@ export async function sa_addStoryPlayers(
     .from(users)
     .where(inArray(users.id, seatedIds))
     .orderBy(asc(playerName));
+}
+
+export type StoryInvitation = {
+  idInvitation: number;
+  email: string;
+  token: string;
+  expiresAt: Date;
+};
+
+export type InviteToStoryResult =
+  | { ok: true; invitation: StoryInvitation; emailed: boolean }
+  | { ok: false; errors: Record<string, string> };
+
+/**
+ * The Invite by email form on a story the caller created: makes an
+ * invitation to the story for that address and, when `send` is set, emails
+ * it. Copy link calls this with `send` off and copies the link instead.
+ *
+ * An address that already has an invitation to this story waiting is
+ * refused (db/invitations.ts), and so is one whose account is already at
+ * the table, storyteller included, since accepting would do nothing. A mail
+ * that does not go out leaves the invitation in place and says so, so the
+ * storyteller can copy its link instead.
+ */
+export async function sa_inviteToStory(
+  idStory: number,
+  input: unknown,
+  send: boolean,
+): Promise<InviteToStoryResult> {
+  const user = await requireAccount();
+  const id = await requireOwnedStory(user.id, idStory);
+  const parsed = storyInviteSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, errors: { email: parsed.error.issues[0]?.message ?? "Invalid email." } };
+  }
+  const { email } = parsed.data;
+
+  const seated = db
+    .select({ one: storyPlayers.idStoryPlayer })
+    .from(storyPlayers)
+    .where(and(eq(storyPlayers.idStory, id), eq(storyPlayers.idUser, users.id)));
+  const [atTable] = await db
+    .select({ one: users.id })
+    .from(users)
+    .where(and(sql`lower(${users.email}) = ${email}`, or(eq(users.id, user.id), exists(seated))))
+    .limit(1);
+  if (atTable) return { ok: false, errors: { email: "They are already at this table." } };
+
+  const made = await createInvitation({ email, idStory: id, senderId: user.id });
+  if (!made.ok) return { ok: false, errors: { email: made.error } };
+
+  const emailed = send ? await emailInvitation(made.idInvitation) : false;
+  const [invitation] = await db
+    .select({
+      idInvitation: invitations.idInvitation,
+      email: invitations.email,
+      token: invitations.token,
+      expiresAt: invitations.expiresAt,
+    })
+    .from(invitations)
+    .where(eq(invitations.idInvitation, made.idInvitation))
+    .limit(1);
+  return { ok: true, invitation, emailed };
+}
+
+/**
+ * The invitations to a story the caller created that are still waiting:
+ * not accepted, not revoked, not expired. Newest first.
+ */
+export async function sa_listStoryInvitations(idStory: number): Promise<StoryInvitation[]> {
+  const user = await requireAccount();
+  const id = await requireOwnedStory(user.id, idStory);
+  return db
+    .select({
+      idInvitation: invitations.idInvitation,
+      email: invitations.email,
+      token: invitations.token,
+      expiresAt: invitations.expiresAt,
+    })
+    .from(invitations)
+    .where(
+      and(
+        eq(invitations.idStory, id),
+        isNull(invitations.acceptedAt),
+        isNull(invitations.revokedAt),
+        gt(invitations.expiresAt, sql`now()`),
+      ),
+    )
+    .orderBy(desc(invitations.idInvitation));
+}
+
+/**
+ * Withdraws a waiting invitation to a story the caller created. Its link
+ * stops working, and the address may be invited again. One that was
+ * accepted meanwhile is left alone: the seat it gave is the storyteller's
+ * to remove from the Players list.
+ */
+export async function sa_revokeStoryInvitation(
+  idStory: number,
+  idInvitation: number,
+): Promise<{ ok: boolean }> {
+  const user = await requireAccount();
+  const id = await requireOwnedStory(user.id, idStory);
+  const invitationId = z.number().int().positive().max(2147483647).parse(idInvitation);
+  const revoked = await db
+    .update(invitations)
+    .set({ revokedAt: sql`now()`, idUpdatedByUser: user.id })
+    .where(
+      and(
+        eq(invitations.idInvitation, invitationId),
+        eq(invitations.idStory, id),
+        isNull(invitations.acceptedAt),
+        isNull(invitations.revokedAt),
+      ),
+    )
+    .returning({ id: invitations.idInvitation });
+  return { ok: revoked.length > 0 };
 }
 
 /**

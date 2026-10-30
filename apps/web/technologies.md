@@ -19,6 +19,8 @@
   - Data access: every read and write is a server action in the route's `actions.ts`, starting with `requireAccount()` from `src/lib/authorize.ts`, which checks the session and the user row (exists, active, not a guest) before the query runs; the few a guest may call use `requireUser()`, which lets a guest through. No separate query layer.
   - @vercel/blob for image uploads, browser-direct to a public store
   - @dice-roller/rpg-dice-roller for the table chat's `/roll`, on the server only (`src/lib/dice.ts`), drawing from Web Crypto
+  - resend for transactional email, sent only through `sendEmail` in `src/lib/email.ts` (invitations, so far)
+  - @tanstack/react-table (v9) for tables that sort and search, drawn with Chakra's `Table` (the admin Invitations list)
   - mqtt (mqtt.js) in the browser, over WebSocket TLS, for the players' table to follow the storyteller's; the server publishes through EMQX's REST API (`src/lib/realtime/`)
 
 ## Hosting
@@ -26,3 +28,4 @@
 - Vercel (nextjs, Vercel Blob)
 - Neon (postgres)
 - EMQX (mqtt)
+- Resend (email, from storyteller.irun.games)

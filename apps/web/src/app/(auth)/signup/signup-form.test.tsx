@@ -8,8 +8,7 @@ import { renderWithProviders } from "@/test/render";
 type Details = { name: string; email: string; password: string };
 
 type SignUpResult =
-  | { data: Record<string, unknown>; error: null }
-  | { data: null; error: { message?: string } };
+  { data: Record<string, unknown>; error: null } | { data: null; error: { message?: string } };
 
 const router = {
   push: mock.fn<(href: string) => void>(),
@@ -76,6 +75,20 @@ describe("SignupForm", () => {
     });
     await waitFor(() => expect(router.push.mock.callCount()).toBe(1));
     expect(router.push.mock.calls[0].arguments[0]).toBe("/home");
+  });
+
+  it("starts with the address an invitation sent along", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SignupForm redirectTo="/invite/abc" email="newcomer@example.test" />);
+    expect(screen.getByLabelText(/email/i)).toHaveValue("newcomer@example.test");
+
+    await fill(user, { name: "Newcomer", password: "speak-friend" });
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+
+    await waitFor(() => expect(signUp.email.mock.callCount()).toBe(1));
+    expect(signUp.email.mock.calls[0].arguments[0].email).toBe("newcomer@example.test");
+    await waitFor(() => expect(router.push.mock.callCount()).toBe(1));
+    expect(router.push.mock.calls[0].arguments[0]).toBe("/invite/abc");
   });
 
   it("refuses a blank name without calling better-auth", async () => {
@@ -156,9 +169,7 @@ describe("SignupForm", () => {
 
     await user.type(screen.getByLabelText(/name/i), "Gandalf");
 
-    await waitFor(() =>
-      expect(screen.queryByText(/enter your name/i)).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByText(/enter your name/i)).not.toBeInTheDocument());
     expect(screen.getByLabelText(/name/i)).not.toHaveAttribute("aria-invalid", "true");
   });
 
@@ -197,9 +208,7 @@ describe("SignupForm", () => {
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => expect(signUp.email.mock.callCount()).toBe(1));
-    expect(signUp.email.mock.calls[0].arguments[0].email).toBe(
-      "gandalf@irun.games",
-    );
+    expect(signUp.email.mock.calls[0].arguments[0].email).toBe("gandalf@irun.games");
   });
 
   it("refuses a short password without calling better-auth", async () => {
@@ -213,9 +222,7 @@ describe("SignupForm", () => {
     });
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
-    expect(
-      await screen.findByText(/password must be at least 8/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/password must be at least 8/i)).toBeInTheDocument();
     expect(signUp.email.mock.callCount()).toBe(0);
   });
 
@@ -237,8 +244,6 @@ describe("SignupForm", () => {
 
     expect(await screen.findByText("User already exists")).toBeInTheDocument();
     expect(router.push.mock.callCount()).toBe(0);
-    expect(
-      screen.getByRole("button", { name: /create account/i }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: /create account/i })).toBeEnabled();
   });
 });

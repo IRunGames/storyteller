@@ -17,7 +17,7 @@ type Props = Rule & {
 /**
  * Shows its children only to the user types its rule allows, by the signed-in
  * account's s_user_types id, where smaller is more powerful (USER_TYPES in
- * lib/user-types.ts): `showAbove={USER_TYPES.unpaidPlayer}` for storytellers
+ * lib/user-types.ts): `showAbove={USER_TYPES.paidPlayer}` for storytellers
  * and administrators. The bounds are strict, and anything the rule does not
  * allow is hidden. The counterpart of EnvironmentVisibility.
  *

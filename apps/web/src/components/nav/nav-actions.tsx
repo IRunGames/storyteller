@@ -4,12 +4,13 @@ import { usePathname } from "next/navigation";
 import { HStack } from "@chakra-ui/react";
 import { NavFeedbackPopover } from "@/components/feedback/nav-feedback-popover";
 import { NavAccountMenu } from "./nav-account-menu";
+import { NavAdminMenu } from "./nav-admin-menu";
 import { NavDrawer } from "./nav-drawer";
 import { NavNotificationsBell } from "./nav-notifications-bell";
 import { NavThemeMenu } from "./nav-theme-menu";
 
-// The right-hand side of a header: feedback, theme, notifications, account
-// and, below md, the drawer. The menu bar and the table's own header at
+// The right-hand side of a header: feedback, theme, the administrators'
+// wrench, notifications, account and, below md, the drawer. The menu bar and the table's own header at
 // /play/[id] both render this, so the two stay the same.
 export function NavActions() {
   const pathname = usePathname();
@@ -20,6 +21,7 @@ export function NavActions() {
     <HStack gap="1">
       <NavFeedbackPopover pathname={pathname} />
       <NavThemeMenu />
+      <NavAdminMenu />
       <NavNotificationsBell />
       <NavAccountMenu />
       <NavDrawer pathname={pathname} />

@@ -30,6 +30,7 @@ These are the only pages reachable without a session.
 | `/login` | [`(auth)/login/`](<../src/app/(auth)/login/page.tsx>) | Signed-out only — signed-in users bounce to `/home`, guests excepted |
 | `/signup` | [`(auth)/signup/`](<../src/app/(auth)/signup/page.tsx>) | Signed-out only — same bounce |
 | `/join/[code]` | [`(public)/join/[code]/`](<../src/app/(public)/join/[code]/page.tsx>) | Anyone holding a story's join link; see [Guests](#guests) |
+| `/invite/[token]` | [`(public)/invite/[token]/`](<../src/app/(public)/invite/[token]/page.tsx>) | Anyone holding an invitation's link; see [Invitations](#invitations) |
 | `/api/auth/*` | [`api/auth/[...all]/route.ts`](<../src/app/api/auth/[...all]/route.ts>) | Better Auth's own handler |
 | `/api/cron/*` | [`api/cron/`](../src/app/api/cron/) | Vercel Cron only — no session, each job checks `Authorization: Bearer $CRON_SECRET` itself: `blob-sweep` and `guest-sweep` |
 | `/images/*` | [`public/images/`](../public/images/) | Anyone — the pictures the landing, waiting and error pages paint; the proxy skips them so a visitor with no cookie sees the landing page's |
@@ -47,6 +48,7 @@ one of them and is protected by being there.
 | `(app)/play` | [`play/[id]/page.tsx`](<../src/app/(app)/play/[id]/page.tsx>) | The players' table and waiting room, with their own full-screen layout and no menu bar. The story's owner is sent on to `/run/[id]` |
 | `(app)/run` | [`run/[id]/page.tsx`](<../src/app/(app)/run/[id]/page.tsx>) | The storyteller's table, with the story's library down the side. Only the story's owner gets in; anyone else gets the not-found page |
 | `(app)/table` | [`table/[id]/page.tsx`](<../src/app/(app)/table/[id]/page.tsx>) | The display table: the scene large, with nothing to press, for a shared screen or a guest. The story's owner and its players get in, guests included; anyone else gets the not-found page |
+| `(app)/(nav)/admin` | [`admin/invitations/page.tsx`](<../src/app/(app)/(nav)/admin/invitations/page.tsx>) | The administrators' tools, behind the menu bar's wrench. Anyone short of an administrator gets the not-found page, and every action checks `requireAdmin()` |
 | `(app)/preview` | [`preview/scene/[id]/page.tsx`](<../src/app/(app)/preview/scene/[id]/page.tsx>) | A read-only look at one scene as the players would see it, keyed on the scene, opened in a new tab from the storyteller's scene selector. The story's owner and its players get in; anyone else gets the not-found page |
 
 ## The flow
@@ -201,6 +203,65 @@ nowhere is deleted, their session with them:
 Each table a deleted guest was at is told its new head count. Chat lines
 guests wrote before they were refused writing stay, with no author.
 
+## Invitations
+
+An invitation is a link, `/invite/<token>`, that brings someone in with an
+account rather than as a guest. There are two kinds, both rows of
+`invitations` ([`db/invitations.ts`](../src/db/invitations.ts)):
+
+- **A storyteller's**, to one of their stories: the Invite by Email button
+  beside Invite Players (`sa_inviteToStory`). Only the story's owner may
+  send one. Accepting it seats the account at the story. The seat is not a
+  link seat, so it does not count against the join link's cap.
+- **An administrator's**, to the app with an account type: the Invitations
+  page behind the menu bar's wrench (`sa_inviteToApp`). The type is Paid
+  Player or Paid Storyteller. Accepting it raises the account to that type
+  and never lowers one: the smaller id is the more powerful
+  ([`user-types.ts`](../src/lib/user-types.ts)), so the new type is
+  `least(current, invited)`, and an administrator who accepts stays an
+  administrator.
+
+Each is emailed through Resend ([`lib/email.ts`](../src/lib/email.ts)), or
+made without mail and copied as a link to send some other way. A mail that
+does not go out leaves the invitation in place, and the sender is told to
+copy the link instead. The link is built from `BETTER_AUTH_URL` in mail, and
+from the page's own origin when copied.
+
+Only production mails the person invited. Everywhere else (development, test,
+staging, or an environment that is not set) every message goes to the address
+in `EMAIL_NON_PRODUCTION_TO` instead, its subject prefixed with
+`[to: <intended address>]`, so trying an invite out never reaches a stranger
+with a link to someone's localhost. Without `EMAIL_NON_PRODUCTION_TO` there,
+nothing is sent and the invitation's link is copied instead. Production does
+not read it.
+
+**One at a time.** An email may have one waiting invitation per story, and
+one to the app. Two partial unique indexes enforce it, so two sends racing
+each other cannot both get in; a second is refused with "That email already
+has an invitation waiting". The indexes cannot see expiry, so an expired
+invitation is revoked as the next one is made, which frees the email.
+Withdrawing (a storyteller) or deleting (an administrator) frees it too.
+
+**Accepting.** The token is what is redeemed, whatever address the account
+has, so a link passed on by text, or a Google account under another address,
+still works; the invited address only fills in the signup form. On the
+invite page:
+
+- someone signed in with an account presses Accept (`sa_acceptInvitation`)
+  and goes on to `/play/[id]` for a story, or `/home`;
+- anyone else, a guest included, is offered Sign up
+  (`/signup?redirectTo=/invite/<token>&email=<invited>`) or Log in, and comes
+  back to the invite page to accept. Google's `callbackURL` carries the same
+  `redirectTo`. There is no guest step, and one accept path serves every way
+  of signing in;
+- a used, withdrawn or expired link says it is no longer valid.
+
+Accepting locks the row for its transaction, so one link opened in two tabs
+is accepted once. A link lasts `INVITE_TTL_DAYS` (14 days); an administrator
+can set a later day from the Edit dialog, which also brings an expired
+invitation back. An accepted invitation cannot be edited. Deleting one
+removes only the record; the seat or type it gave stays.
+
 ## Storage
 
 Better Auth's four models map onto our own tables in the `irun` schema via
@@ -217,9 +278,10 @@ dbmate owns the schema (see [`db/README.md`](../../../db/README.md)).
 
 ## Current gaps
 
-- **Email verification is off.** No mail provider is configured, so there is
-  nothing to send a link with. `requireEmailVerification: false` and
-  `email_verified` stays false. Sign-in is not blocked by it.
+- **Email verification is off.** Resend is wired up for invitations
+  (`lib/email.ts`), but Better Auth is not given a `sendVerificationEmail`, so
+  `requireEmailVerification: false` and `email_verified` stays false. Sign-in
+  is not blocked by it.
 - **Google needs credentials.** `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are
   empty in `.env.local`; the button won't work until they're filled in.
 - **No password reset or "forgot password" flow yet.**

@@ -1,13 +1,15 @@
 /**
  * The s_user_types rows (db/seeds/seed_s_user_types.sql) by name. The smaller
- * the id, the more the account may do: a player is -1, an administrator -100.
+ * the id, the more the account may do: a player is -10, an administrator -100.
+ * Each tier is its unpaid type then its paid one, five apart.
  * isUserTypeShown leans on that order rather than on this list, so a type
  * added later between two of these ranks by its id alone.
  */
 export const USER_TYPES = {
-  unpaidPlayer: -1,
-  unpaidStoryteller: -2,
-  paidStoryteller: -3,
+  unpaidPlayer: -10,
+  paidPlayer: -15,
+  unpaidStoryteller: -20,
+  paidStoryteller: -25,
   administrator: -100,
 } as const;
 

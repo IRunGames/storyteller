@@ -28,7 +28,7 @@ const user: CurrentUser = {
   email: "storyteller@irun.games",
   image: null,
   nickName: null,
-  idUserType: -1,
+  idUserType: -10,
   isAnonymous: false,
 };
 

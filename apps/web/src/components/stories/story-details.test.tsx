@@ -16,7 +16,7 @@ const viewer: CurrentUser = {
   email: "viewer@example.test",
   image: null,
   nickName: null,
-  idUserType: -1,
+  idUserType: -10,
   isAnonymous: false,
 };
 const renderWithProviders = (ui: ReactElement, who: CurrentUser = viewer) =>
@@ -102,6 +102,9 @@ describe("StoryDetails", () => {
         sa_getStorySession: async () => null,
         sa_searchPlayers: async () => [],
         sa_addStoryPlayers: async () => [],
+        sa_inviteToStory: async () => ({ ok: false, errors: {} }),
+        sa_listStoryInvitations: async () => [],
+        sa_revokeStoryInvitation: async () => ({ ok: true }),
       },
     });
     // The attachments field uploads to Blob and has a test file of its own;

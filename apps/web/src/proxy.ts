@@ -24,9 +24,10 @@ import { getSessionCookie } from "better-auth/cookies";
  * needs one, so a new page under app/(app)/ is protected without touching this
  * file; a new public page must be added here. Keep in sync with app/(public)/
  * and app/(auth)/. /join is a story's join link, which a guest follows with
- * no account and no cookie.
+ * no account and no cookie, and /invite an invitation's link, which someone
+ * follows before they have an account.
  */
-const PUBLIC_ROUTES = ["/", "/login", "/signup", "/join"];
+const PUBLIC_ROUTES = ["/", "/login", "/signup", "/join", "/invite"];
 
 const SIGNED_OUT_HOME = "/login";
 

@@ -26,7 +26,7 @@ const user: CurrentUser = {
   email: "storyteller@irun.games",
   image: null,
   nickName: null,
-  idUserType: -1,
+  idUserType: -10,
   isAnonymous: false,
 };
 
@@ -484,7 +484,7 @@ describe("RunTable", () => {
 
   it("offers Diagnostics to a storyteller in the chat's place, listening to the story's topic", async () => {
     const u = userEvent.setup();
-    renderTable({ "run.showChat": true }, kildealg, EMPTY_PLAY_SPACE, { ...user, idUserType: -2 });
+    renderTable({ "run.showChat": true }, kildealg, EMPTY_PLAY_SPACE, { ...user, idUserType: -20 });
     await waitFor(() => expect(connect.mock.calls).toHaveLength(1));
     await act(async () => {
       client.emit("connect");

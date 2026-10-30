@@ -16,7 +16,7 @@ const member: CurrentUser = {
   email: "harry@example.test",
   image: null,
   nickName: null,
-  idUserType: -1,
+  idUserType: -10,
   isAnonymous: false,
 };
 const guest: CurrentUser = {

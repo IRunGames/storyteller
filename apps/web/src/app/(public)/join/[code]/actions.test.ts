@@ -78,7 +78,7 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     beforeMade = async () => {};
     signInAnonymous.mock.resetCalls();
     await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, story));
-    await db.update(tables.user).set({ idUserType: -2 }).where(eq(tables.user.id, owner));
+    await db.update(tables.user).set({ idUserType: -20 }).where(eq(tables.user.id, owner));
   });
 
   after(async () => {
@@ -187,7 +187,7 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     });
 
     it("seats ten from the link for a paid storyteller", async () => {
-      await db.update(tables.user).set({ idUserType: -3 }).where(eq(tables.user.id, owner));
+      await db.update(tables.user).set({ idUserType: -25 }).where(eq(tables.user.id, owner));
       for (const joiner of joiners.slice(0, 10)) {
         caller = joiner;
         expect(await actions.sa_joinByLink(CODE, "Brave Yak")).toMatchObject({ ok: true });

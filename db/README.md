@@ -116,18 +116,25 @@ up and down — the script adds them)
 5. run the migrations, `bun run migrate`
 
 New tables should register with the metatable rather than declaring audit
-columns by hand: `CALL _p_update_tables();`, then
-`UPDATE _tables SET needs_timestamps = TRUE, needs_user_ids = TRUE WHERE table_name = '<table>';`,
-then `CALL _p_update_tables_timestamps(); CALL _p_update_tables_user_ids();`.
-See `custom/create_story_favorites_table.sql` for the full pattern including
-the guard that fails loudly if the table was not registered. A table whose
-rows are taken down rather than deleted also sets `needs_archival = TRUE` and
-calls `_p_update_tables_archives()`, which adds `is_archived`, `archived_at`
-and `id_archived_by_user` with the triggers that keep them in step; see
-`custom/create_news_table.sql`.
-A table whose rows move through statuses maps itself to a workflow in the same
-`UPDATE _tables` and calls the workflow procedures; see
-`custom/create_story_sessions_table.sql` and `STATUS_WORKFLOWS.md`.
+columns by hand, in one call after the `CREATE TABLE`:
+
+```sql
+CALL _p_set_and_update_table_features('<table>',
+    p_timestamps := TRUE,
+    p_user_ids   := TRUE);
+```
+
+It registers the table in `_tables` and raises if it is not there afterwards,
+records what the table needs, runs only the procedures those needs call for,
+and indexes every foreign key. Its other switches add the rest:
+`p_archival` (`is_archived`, `archived_at`, `id_archived_by_user` and the
+triggers that keep them in step), `p_activity_log`, `p_tags`, `p_kind_values`,
+`p_status_workflow_ids` (see `STATUS_WORKFLOWS.md`) and `p_search_fields`;
+`procedures/_p_set_and_update_table_features.sql` describes each. See
+`custom/create_invitations_table.sql` for a plain table and
+`custom/create_elements_table.sql` for one with a kind and a workflow.
+Older scripts (`create_story_favorites_table.sql`, `create_news_table.sql`)
+spell the same steps out by hand; don't copy that form.
 
 ---
 

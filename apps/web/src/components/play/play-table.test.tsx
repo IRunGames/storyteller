@@ -22,7 +22,7 @@ const user: CurrentUser = {
   email: "storyteller@irun.games",
   image: null,
   nickName: null,
-  idUserType: -2,
+  idUserType: -20,
   isAnonymous: false,
 };
 
@@ -1218,7 +1218,7 @@ describe("PlayTable", () => {
   });
 
   it("offers no Diagnostics to a player", () => {
-    renderTable({ "play.showDiagnostics": true }, "3. Kildealg", { ...user, idUserType: -1 });
+    renderTable({ "play.showDiagnostics": true }, "3. Kildealg", { ...user, idUserType: -10 });
     const header = screen.getByRole("banner");
     expect(within(header).queryByRole("button", { name: "Diagnostics" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Diagnostics" })).not.toBeInTheDocument();

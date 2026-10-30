@@ -27,7 +27,7 @@ const user: CurrentUser = {
   email: "storyteller@irun.games",
   image: null,
   nickName: null,
-  idUserType: -1,
+  idUserType: -10,
   isAnonymous: false,
 };
 
@@ -507,7 +507,7 @@ describe("AppHeader", () => {
       process.env.NEXT_PUBLIC_ENVIRONMENT = "TEST";
       process.env.NEXT_PUBLIC_BUILT_AT = "2026-10-23T21:38:23.753Z";
       const u = userEvent.setup();
-      renderHeader({ ...user, idUserType: -2 });
+      renderHeader({ ...user, idUserType: -20 });
 
       await u.click(screen.getByRole("button", { name: "Account menu" }));
       const environment = await screen.findByRole("menuitem", { name: "Environment" });
@@ -531,7 +531,7 @@ describe("AppHeader", () => {
     it("keeps them from a player", async () => {
       process.env.NEXT_PUBLIC_ENVIRONMENT = "TEST";
       const u = userEvent.setup();
-      renderHeader({ ...user, idUserType: -1 });
+      renderHeader({ ...user, idUserType: -10 });
 
       await u.click(screen.getByRole("button", { name: "Account menu" }));
       await screen.findByRole("menuitem", { name: "Profile" });

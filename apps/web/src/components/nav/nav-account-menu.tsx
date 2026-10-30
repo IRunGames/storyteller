@@ -14,9 +14,10 @@ import { PROFILE_PREFERENCE_KEYS, avatarSrc } from "@/lib/profile";
 import { isUserTypeShown, USER_TYPES } from "@/lib/user-types";
 
 // Who sees which of the menu's build items. Cause error is for anywhere but
-// production; the environment and version are for storytellers and up.
+// production; the environment and version are for storytellers and up, so
+// above the paid player.
 const CAUSE_ERROR_RULE = { showBelow: "PRODUCTION" } as const;
-const BUILD_INFO_RULE = { showAbove: USER_TYPES.unpaidPlayer } as const;
+const BUILD_INFO_RULE = { showAbove: USER_TYPES.paidPlayer } as const;
 
 /**
  * A menu item's tooltip, on a span filling the item rather than on the item

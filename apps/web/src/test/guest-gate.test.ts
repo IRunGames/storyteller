@@ -35,11 +35,13 @@ const GUEST_ACTIONS = new Set([
   "app/api/table/leave/route.ts POST",
 ]);
 
-// Actions with no session to check: the join page before anyone is signed
-// in, and the guest's sign-in itself, which checks the link instead.
+// Actions with no session to check: the join and invite pages before anyone
+// is signed in, and the guest's sign-in itself, which checks the link
+// instead.
 const UNGATED_ACTIONS = new Set([
   "app/(public)/join/[code]/actions.ts sa_getJoinStory",
   "app/(public)/join/[code]/actions.ts sa_joinAsGuest",
+  "app/(public)/invite/[token]/actions.ts sa_getInvitation",
 ]);
 
 function sources(dir: string): string[] {
@@ -80,7 +82,9 @@ describe("server actions and guests", () => {
   it("check who is asking in every action not named as ungated", () => {
     const ungated = found
       .filter(
-        ({ key, body }) => !/require(User|Account)\(\)/.test(body) && !UNGATED_ACTIONS.has(key),
+        // requireAdmin() is requireAccount() and more (lib/authorize.ts).
+        ({ key, body }) =>
+          !/require(User|Account|Admin)\(\)/.test(body) && !UNGATED_ACTIONS.has(key),
       )
       .map(({ key }) => key);
     expect(ungated).toEqual([]);

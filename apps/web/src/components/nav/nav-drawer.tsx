@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Box, CloseButton, Drawer, IconButton, Portal, Stack } from "@chakra-ui/react";
 import { NAV_ITEMS, isActive } from "./nav-items";
+import { ADMIN_ITEMS, AdminOnly } from "./nav-admin-menu";
 import { NavLink } from "./nav-link";
 import { Menu as MenuIcon } from "lucide-react";
 
@@ -58,6 +59,20 @@ export function NavDrawer({ pathname }: { pathname: string }) {
                     ))}
                   </Stack>
                 ))}
+                {/* The wrench's tools, for an administrator, listed with
+                    the pages they sit beside in the header. */}
+                <AdminOnly>
+                  {ADMIN_ITEMS.map((item) => (
+                    <NavLink
+                      key={item.href}
+                      href={item.href}
+                      active={isActive(pathname, item.href)}
+                      onNavigate={() => setOpen(false)}
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </AdminOnly>
               </Stack>
             </Drawer.Body>
             <Drawer.CloseTrigger asChild>

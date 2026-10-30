@@ -2,6 +2,7 @@ import { cache } from "react";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { getSession } from "@/lib/require-session";
+import { USER_TYPES } from "@/lib/user-types";
 
 export type DbUser = typeof schema.user.$inferSelect;
 
@@ -49,5 +50,18 @@ export const requireUser = cache(async function requireUser(): Promise<DbUser> {
 export async function requireAccount(): Promise<DbUser> {
   const user = await requireUser();
   if (user.isAnonymous) throw new UnauthorizedError("You need an account to do that.");
+  return user;
+}
+
+/**
+ * The gate for the administrators' tools behind the menu bar's wrench:
+ * requireAccount() and then a refusal for any type short of Administrator.
+ * Hiding the wrench only decides what is drawn; this is what refuses.
+ */
+export async function requireAdmin(): Promise<DbUser> {
+  const user = await requireAccount();
+  if (user.idUserType > USER_TYPES.administrator) {
+    throw new UnauthorizedError("Only an administrator can do that.");
+  }
   return user;
 }

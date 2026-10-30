@@ -47,7 +47,7 @@ export const user = pgTable("s_users", {
   nickName: varchar("nick_name"),
   lastLogin: timestamp("last_login", { withTimezone: true }).defaultNow().notNull(),
   hoursPlayed: doublePrecision("hours_played").default(0).notNull(),
-  idUserType: integer("id_user_type").default(-1).notNull(),
+  idUserType: integer("id_user_type").default(-10).notNull(),
   tags: integer("tags"),
   isActive: boolean("is_active").default(true).notNull(),
   // What the user writes about themselves on their profile; null until then.
@@ -222,6 +222,38 @@ export const storyFavorites = pgTable("story_favorites", {
   idStoryFavorite: integer("id_story_favorite").primaryKey().generatedByDefaultAsIdentity(),
   idStory: bigint("id_story", { mode: "number" }).notNull(),
   idUser: uuid("id_user").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
+// The kinds of account a user can hold (db/seeds/seed_s_user_types.sql),
+// read here only for their names. The ids are ranked, smaller is more
+// powerful; USER_TYPES in lib/user-types.ts names them in code.
+export const userTypes = pgTable("s_user_types", {
+  idUserType: bigint("id_user_type", { mode: "number" }).primaryKey(),
+  userTypeName: varchar("user_type_name").notNull(),
+  sortOrder: integer("sort_order").default(0).notNull(),
+});
+
+// An invitation into the app, sent by email and/or copied as a link,
+// /invite/<token>. A storyteller's names a story (idStory) and seats whoever
+// accepts it there; an administrator's names a user type (idUserType) and
+// raises the accepting account to it. Live until accepted, revoked or past
+// expiresAt; partial unique indexes allow one live invitation per email per
+// story, and one app invitation per email
+// (db/custom/create_invitations_table.sql). The sender is idCreatedByUser.
+export const invitations = pgTable("invitations", {
+  idInvitation: integer("id_invitation").primaryKey().generatedByDefaultAsIdentity(),
+  email: text("email").notNull(),
+  token: text("token").notNull().unique(),
+  idStory: integer("id_story"),
+  idUserType: integer("id_user_type"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  idAcceptedByUser: uuid("id_accepted_by_user"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -919,6 +951,16 @@ export const userPreferencesRelations = relations(userPreferences, ({ one }) => 
 export const userSystemsRelations = relations(userSystems, ({ one }) => ({
   user: one(user, { fields: [userSystems.idUser], references: [user.id] }),
   system: one(systems, { fields: [userSystems.idSystem], references: [systems.idSystem] }),
+}));
+
+export const invitationsRelations = relations(invitations, ({ one }) => ({
+  story: one(stories, { fields: [invitations.idStory], references: [stories.idStory] }),
+  userType: one(userTypes, {
+    fields: [invitations.idUserType],
+    references: [userTypes.idUserType],
+  }),
+  sender: one(user, { fields: [invitations.idCreatedByUser], references: [user.id] }),
+  acceptedBy: one(user, { fields: [invitations.idAcceptedByUser], references: [user.id] }),
 }));
 
 // attachmentUses deliberately has no relations() block to its holders. A

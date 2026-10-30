@@ -13,6 +13,7 @@ const activeUser = {
 
 let requireUser: typeof import("./authorize").requireUser;
 let requireAccount: typeof import("./authorize").requireAccount;
+let requireAdmin: typeof import("./authorize").requireAdmin;
 let UnauthorizedError: typeof import("./authorize").UnauthorizedError;
 
 describe("requireUser", () => {
@@ -24,7 +25,8 @@ describe("requireUser", () => {
         schema: { user: { id: "id_user" } },
       },
     });
-    ({ requireUser, requireAccount, UnauthorizedError } = await import("./authorize"));
+    ({ requireUser, requireAccount, requireAdmin, UnauthorizedError } =
+      await import("./authorize"));
   });
 
   beforeEach(() => {
@@ -78,5 +80,24 @@ describe("requireAccount", () => {
     findFirst.mock.mockImplementation(async () => member);
 
     await expect(requireAccount()).resolves.toEqual(member);
+  });
+});
+
+describe("requireAdmin", () => {
+  beforeEach(() => {
+    getSession.mock.mockImplementation(async () => ({ user: { id: activeUser.id } }));
+  });
+
+  it("rejects a paid storyteller", async () => {
+    findFirst.mock.mockImplementation(async () => ({ ...activeUser, idUserType: -25 }));
+
+    await expect(requireAdmin()).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+
+  it("returns the database row for an administrator", async () => {
+    const admin = { ...activeUser, isAnonymous: false, idUserType: -100 };
+    findFirst.mock.mockImplementation(async () => admin);
+
+    await expect(requireAdmin()).resolves.toEqual(admin);
   });
 });
