@@ -49,7 +49,7 @@ export function AppHeader() {
         </HStack>
       </HStack>
 
-      <NavActions />
+      <NavActions foldBelow="md" />
     </HStack>
   );
 }

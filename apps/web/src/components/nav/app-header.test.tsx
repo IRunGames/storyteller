@@ -201,8 +201,8 @@ describe("AppHeader", () => {
   });
 
   // The tables' header hands NavActions its toggles. jsdom applies no media
-  // queries, so the drawer's phone-only section is in the document here
-  // whatever the width; what is checked is its order and the names.
+  // queries, so the drawer's folded section is in the document here whatever
+  // the width; what is checked is its order and the names.
   it("lists a page's buttons with their names, a separator, then the user's buttons in the drawer", async () => {
     const u = userEvent.setup();
     const { NavActions } = await import("./nav-actions");
@@ -211,6 +211,7 @@ describe("AppHeader", () => {
       <UserProvider user={user}>
         <UserPreferencesProvider preferences={{}}>
           <NavActions
+            foldBelow="sm"
             menu={
               <PlayPanelToggle label="Chat" controls="chat" isOpen={false} onToggle={() => {}}>
                 <span />

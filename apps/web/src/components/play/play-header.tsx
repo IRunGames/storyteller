@@ -27,8 +27,8 @@ type Props = {
   /**
    * Below sm, move the middle into the hamburger's drawer as well, its
    * buttons drawn with their names. For the tables, whose toggles a phone has
-   * no room for beside the title. The user's buttons go into the drawer below
-   * sm on every one of these headers (NavActions).
+   * no room for beside the title. The user's buttons fold into the drawer
+   * below sm on every one of these headers (NavActions).
    */
   centerInMenu?: boolean;
 };
@@ -139,7 +139,7 @@ export function PlayHeader({
           and a hidden item leaves the grid, so this would otherwise flow
           into the middle column and sit beside the title. */}
       <Box gridColumn="3" justifySelf="end">
-        <NavActions menu={centerInMenu ? center : null} />
+        <NavActions foldBelow="sm" menu={centerInMenu ? center : undefined} />
       </Box>
     </Grid>
   );

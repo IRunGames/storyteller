@@ -13,6 +13,7 @@ import {
 } from "@chakra-ui/react";
 import { NAV_ITEMS, isActive } from "./nav-items";
 import { ADMIN_ITEMS, AdminOnly } from "./nav-admin-menu";
+import type { NavFold } from "./nav-actions";
 import { NavDrawerContext } from "./nav-drawer-context";
 import { NavLink } from "./nav-link";
 import { NavUserButtons } from "./nav-user-buttons";
@@ -20,23 +21,24 @@ import { Menu as MenuIcon } from "lucide-react";
 
 type Props = {
   pathname: string;
-  /** The page's own buttons, listed first below sm, or null for none; see NavActions. */
+  /** Where the user's buttons fold into the drawer; see NavActions. */
+  foldBelow: NavFold;
+  /** The page's own buttons, listed first; see NavActions. */
   menu?: ReactNode;
 };
 
 // Below md the inline links are hidden and this hamburger takes their place.
 //
-// Under a header that folds (PlayHeader), the drawer below sm starts with the
-// page's own buttons if it has any (the tables' panel toggles), drawn with
-// their names through NavDrawerContext, then a separator, the user's buttons
-// and another separator before the links: the header has room for none of
-// them there.
-// From sm to md the header still shows them, so the drawer leaves them out.
+// Below foldBelow the drawer starts with the page's own buttons if it has
+// any (the tables' panel toggles), drawn with their names through
+// NavDrawerContext, then a separator, the user's buttons and another
+// separator before the links: the header has room for none of them there.
+// Above it the header still shows them, so the drawer leaves them out.
 //
 // Mounted only while open: the user's buttons are a second copy of the
 // header's, each with its own state and requests, which should not run
 // behind a closed drawer.
-export function NavDrawer({ pathname, menu }: Props) {
+export function NavDrawer({ pathname, foldBelow, menu }: Props) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -67,22 +69,20 @@ export function NavDrawer({ pathname, menu }: Props) {
               <Drawer.Title>Menu</Drawer.Title>
             </Drawer.Header>
             <Drawer.Body>
-              {menu !== undefined && (
-                <Box hideFrom="sm">
-                  {menu && (
-                    <>
-                      <NavDrawerContext.Provider value={{ close: () => setOpen(false) }}>
-                        <Stack gap="1">{menu}</Stack>
-                      </NavDrawerContext.Provider>
-                      <Separator my="3" />
-                    </>
-                  )}
-                  <HStack gap="1" wrap="wrap">
-                    <NavUserButtons />
-                  </HStack>
-                  <Separator my="3" />
-                </Box>
-              )}
+              <Box hideFrom={foldBelow}>
+                {menu && (
+                  <>
+                    <NavDrawerContext.Provider value={{ close: () => setOpen(false) }}>
+                      <Stack gap="1">{menu}</Stack>
+                    </NavDrawerContext.Provider>
+                    <Separator my="3" />
+                  </>
+                )}
+                <HStack gap="1" wrap="wrap">
+                  <NavUserButtons />
+                </HStack>
+                <Separator my="3" />
+              </Box>
               <Stack as="nav" aria-label="Primary" gap="2">
                 {NAV_ITEMS.map((item) => (
                   <Stack key={item.href} gap="2">
