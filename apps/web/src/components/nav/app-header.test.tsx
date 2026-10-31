@@ -200,6 +200,43 @@ describe("AppHeader", () => {
     ]);
   });
 
+  // The tables' header hands NavActions its toggles. jsdom applies no media
+  // queries, so the drawer's phone-only section is in the document here
+  // whatever the width; what is checked is its order and the names.
+  it("lists a page's buttons with their names, a separator, then the user's buttons in the drawer", async () => {
+    const u = userEvent.setup();
+    const { NavActions } = await import("./nav-actions");
+    const { PlayPanelToggle } = await import("@/components/play/play-panel-toggle");
+    renderWithProviders(
+      <UserProvider user={user}>
+        <UserPreferencesProvider preferences={{}}>
+          <NavActions
+            menu={
+              <PlayPanelToggle label="Chat" controls="chat" isOpen={false} onToggle={() => {}}>
+                <span />
+              </PlayPanelToggle>
+            }
+          />
+        </UserPreferencesProvider>
+      </UserProvider>,
+    );
+
+    await u.click(screen.getByRole("button", { name: "Open menu" }));
+
+    const drawer = await screen.findByRole("dialog", { name: "Menu" });
+    const chat = within(drawer).getByRole("button", { name: "Chat" });
+    expect(chat).toHaveTextContent("Chat");
+    const separator = drawer.querySelector("hr, [role=separator]");
+    const account = within(drawer).getByRole("button", { name: /account/i });
+    expect(separator).not.toBeNull();
+    expect(
+      chat.compareDocumentPosition(separator!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      separator!.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("highlights the brand mark on the home page it links to, and only there", () => {
     pathname = "/home";
     renderHeader();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Box, Flex, HStack } from "@chakra-ui/react";
+import { Box, Flex } from "@chakra-ui/react";
 import { Activity, MessageSquare, UserRound } from "lucide-react";
 import { useUser } from "@/components/auth/user-provider";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
@@ -100,8 +100,10 @@ export function PlayTable({
     { onChat: chat.receive, onConnect: () => void chat.refresh() },
   );
 
+  // A list with no row of its own: PlayHeader lays it out in the header, and
+  // in the drawer on a phone.
   const toggles = (
-    <HStack gap="1">
+    <>
       <PlayPanelToggle
         label="Character"
         controls={CHARACTER_ID}
@@ -130,7 +132,7 @@ export function PlayTable({
         </PlayPanelToggle>
       )}
       <DisplayModeButton idStory={idStory} />
-    </HStack>
+    </>
   );
 
   // Diagnostics stands in for the chat rather than beside it: the chat's
@@ -147,7 +149,7 @@ export function PlayTable({
 
   return (
     <Flex direction="column" h="100vh">
-      <PlayHeader title={title} session={session} center={toggles} />
+      <PlayHeader title={title} session={session} center={toggles} centerInMenu />
 
       {/* minH 0 all the way down, so a long chat scrolls inside its panel
           instead of stretching the page past the window. */}

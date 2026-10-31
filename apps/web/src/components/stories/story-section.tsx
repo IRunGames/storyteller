@@ -58,7 +58,7 @@ export function StorySection({
         <Text color="fg.muted">{emptyText}</Text>
       ) : (
         // Two regimes. Up to lg the grid has a fixed column count and the
-        // cards stretch to fill it: one tall card on a phone, two on a
+        // cards stretch to fill it: one wide card on a phone, two on a
         // tablet. From lg up a card may grow only from 16rem to 20rem, and
         // any further width becomes another column rather than wider cards.
         <Grid

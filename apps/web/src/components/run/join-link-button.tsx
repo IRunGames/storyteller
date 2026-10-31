@@ -5,6 +5,7 @@ import {
   Alert,
   Badge,
   Box,
+  Button,
   Clipboard,
   Float,
   IconButton,
@@ -20,6 +21,7 @@ import {
 } from "@chakra-ui/react";
 import { Link2 } from "lucide-react";
 import { sa_getJoinCount, sa_getJoinLink, type JoinLink } from "@/app/(app)/run/[id]/actions";
+import { NAV_DRAWER_BUTTON, useNavDrawer } from "@/components/nav/nav-drawer-context";
 import { LinkPlayers } from "./link-players";
 
 /**
@@ -41,10 +43,13 @@ import { LinkPlayers } from "./link-players";
  * and a way to take them out (LinkPlayers).
  *
  * Tooltip and popover share one trigger id, for the reason
- * NavFeedbackPopover gives.
+ * NavFeedbackPopover gives. In the hamburger's drawer (on a phone, see
+ * PlayHeader) the trigger is a row with its name and the chip after it, and
+ * the drawer stays open under the popover, which is what the press was for.
  */
 export function JoinLinkButton({ idStory, atTable = 0 }: { idStory: number; atTable?: number }) {
   const triggerId = useId();
+  const drawer = useNavDrawer();
   const [link, setLink] = useState<JoinLink | null | "loading">(null);
   const [failed, setFailed] = useState(false);
   const [joined, setJoined] = useState<Pick<JoinLink, "joined" | "cap"> | null>(null);
@@ -84,6 +89,15 @@ export function JoinLinkButton({ idStory, atTable = 0 }: { idStory: number; atTa
   }
 
   const url = link && link !== "loading" ? `${window.location.origin}/join/${link.code}` : "";
+  const name =
+    joined && joined.joined > 0
+      ? `Join link, ${joined.joined} of ${joined.cap} joined`
+      : "Join link";
+  const chip = joined && joined.joined > 0 && (
+    <Badge variant="solid" rounded="full" size="xs">
+      {joined.joined}/{joined.cap}
+    </Badge>
+  );
 
   return (
     <Popover.Root
@@ -93,37 +107,47 @@ export function JoinLinkButton({ idStory, atTable = 0 }: { idStory: number; atTa
         if (details.open) void load();
       }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label={
-                joined && joined.joined > 0
-                  ? `Join link, ${joined.joined} of ${joined.cap} joined`
-                  : "Join link"
-              }
-              variant="ghost"
-              boxSize="11"
-              rounded="10px"
-              color="nav.icon"
-            >
-              <Link2 />
-              {joined && joined.joined > 0 && (
-                <Float placement="top-end" offset="2.5">
-                  <Box aria-hidden="true">
-                    <Badge variant="solid" rounded="full" size="xs">
-                      {joined.joined}/{joined.cap}
-                    </Badge>
-                  </Box>
-                </Float>
-              )}
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Tooltip.Positioner>
-          <Tooltip.Content>Join link</Tooltip.Content>
-        </Tooltip.Positioner>
-      </Tooltip.Root>
+      {drawer ? (
+        <Popover.Trigger asChild>
+          <Button {...NAV_DRAWER_BUTTON} aria-label={name} color="nav.icon">
+            <Link2 />
+            Join link
+            {chip && (
+              <Box aria-hidden="true" ms="auto">
+                {chip}
+              </Box>
+            )}
+          </Button>
+        </Popover.Trigger>
+      ) : (
+        <Tooltip.Root
+          openDelay={200}
+          positioning={{ placement: "top" }}
+          ids={{ trigger: triggerId }}
+        >
+          <Tooltip.Trigger asChild>
+            <Popover.Trigger asChild>
+              <IconButton
+                aria-label={name}
+                variant="ghost"
+                boxSize="11"
+                rounded="10px"
+                color="nav.icon"
+              >
+                <Link2 />
+                {chip && (
+                  <Float placement="top-end" offset="2.5">
+                    <Box aria-hidden="true">{chip}</Box>
+                  </Float>
+                )}
+              </IconButton>
+            </Popover.Trigger>
+          </Tooltip.Trigger>
+          <Tooltip.Positioner>
+            <Tooltip.Content>Join link</Tooltip.Content>
+          </Tooltip.Positioner>
+        </Tooltip.Root>
+      )}
       <Portal>
         <Popover.Positioner>
           <Popover.Content w="sm">

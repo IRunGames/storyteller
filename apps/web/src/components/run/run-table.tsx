@@ -386,8 +386,10 @@ export function RunTable({
   const setPictureUp = (key: string, up: boolean) =>
     setPictureUpKey((current) => (up ? key : current === key ? null : current));
 
+  // A list with no row of its own: PlayHeader lays it out in the header, and
+  // in the drawer on a phone.
   const toggles = (
-    <HStack gap="1">
+    <>
       <PlayPanelToggle
         label="Library"
         controls={LIBRARY_ID}
@@ -425,7 +427,7 @@ export function RunTable({
       )}
       <DisplayModeButton idStory={idStory} />
       <JoinLinkButton idStory={idStory} atTable={chat.atTable} />
-    </HStack>
+    </>
   );
 
   // Diagnostics stands in for the chat rather than beside it, as on the
@@ -457,6 +459,7 @@ export function RunTable({
         session={session ? sessionHeading(session) : null}
         sessionContent={session && <RunSessionTitle idStory={idStory} session={session} />}
         center={toggles}
+        centerInMenu
         afterSession={
           <HStack gap="1" flexShrink="0">
             {/* The session's status as a chip beside its title, and the

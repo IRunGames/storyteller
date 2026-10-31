@@ -63,7 +63,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
       position="relative"
       overflow="hidden"
       rounded="xl"
-      aspectRatio={{ base: 3 / 4, md: 4 / 3 }}
+      aspectRatio={{ base: 5 / 3, md: 4 / 3 }}
       color="white"
       boxShadow={live ? glow(3) : undefined}
       _hover={{ boxShadow: live ? glow(5) : "lg" }}
@@ -131,9 +131,13 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
           )}
         </Stack>
 
+        {/* A phone's card is 5:3, which leaves room under the title for two
+            lines of summary and nothing more: a third, or "more" under
+            them, would run into the bottom row. The card itself opens the
+            story, where the whole summary is. */}
         {summary && (
           <Box flex="1" minH="0">
-            <Text textStyle="sm" lineClamp={3} color="whiteAlpha.900">
+            <Text textStyle="sm" lineClamp={{ base: 2, md: 3 }} color="whiteAlpha.900">
               {summary}
             </Text>
             {isLong && (
@@ -149,6 +153,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
                     h="auto"
                     position="relative"
                     zIndex="1"
+                    hideBelow="md"
                     onClick={(event) => {
                       event.stopPropagation();
                     }}

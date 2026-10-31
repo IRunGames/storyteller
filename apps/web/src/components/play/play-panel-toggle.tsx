@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Badge, Box, Float, IconButton, Portal, Tooltip } from "@chakra-ui/react";
+import { Badge, Box, Button, Float, IconButton, Portal, Tooltip } from "@chakra-ui/react";
+import { NAV_DRAWER_BUTTON, useNavDrawer } from "@/components/nav/nav-drawer-context";
 
 type Props = {
   /** What the panel is called: "Chat", "Character". */
@@ -27,13 +28,48 @@ type Props = {
  * A count puts a small badge on the button's corner and into its name
  * ("Chat, 3 new"), so a screen reader hears what the badge shows. The badge
  * is decorative; the name carries it.
+ *
+ * In the hamburger's drawer (on a phone, see PlayHeader) it is a row with
+ * its name beside the icon and the count after it, and a press closes the
+ * drawer too, so the panel it opened is what the player sees next.
  */
 export function PlayPanelToggle({ label, controls, isOpen, count = 0, onToggle, children }: Props) {
+  const drawer = useNavDrawer();
+  const name = count > 0 ? `${label}, ${count} new` : label;
+  const badge = count > 99 ? "99+" : count;
+
+  if (drawer) {
+    return (
+      <Button
+        {...NAV_DRAWER_BUTTON}
+        aria-label={name}
+        aria-pressed={isOpen}
+        aria-controls={controls}
+        color={isOpen ? "nav.accent" : "nav.icon"}
+        bg={isOpen ? "nav.accentTint" : undefined}
+        onClick={() => {
+          onToggle();
+          drawer.close();
+        }}
+      >
+        {children}
+        {label}
+        {count > 0 && (
+          <Box aria-hidden="true" ms="auto">
+            <Badge colorPalette="red" variant="solid" rounded="full" size="xs">
+              {badge}
+            </Badge>
+          </Box>
+        )}
+      </Button>
+    );
+  }
+
   return (
     <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
       <Tooltip.Trigger asChild>
         <IconButton
-          aria-label={count > 0 ? `${label}, ${count} new` : label}
+          aria-label={name}
           position="relative"
           aria-pressed={isOpen}
           aria-controls={controls}
@@ -49,7 +85,7 @@ export function PlayPanelToggle({ label, controls, isOpen, count = 0, onToggle, 
             <Float placement="top-end" offset="2.5">
               <Box aria-hidden="true">
                 <Badge colorPalette="red" variant="solid" rounded="full" size="xs">
-                  {count > 99 ? "99+" : count}
+                  {badge}
                 </Badge>
               </Box>
             </Float>

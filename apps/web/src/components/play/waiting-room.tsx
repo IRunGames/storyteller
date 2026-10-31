@@ -171,13 +171,15 @@ export function WaitingRoom({ story, initial, sessions, background, tableHref }:
     // panel is, so the figures in the middle of each waiting picture stay in
     // view.
     <PlayCover title={story.title} imageUrl={background} placement="bottomStart">
-      <Box maxW="3xl" w="full" p={{ base: "4", md: "10" }}>
+      {/* Flush with the window's edges on a phone, where a margin round the
+          panel would only narrow the text inside it. */}
+      <Box maxW="3xl" w="full" p={{ base: "0", sm: "4", md: "10" }}>
         <Stack
           gap="6"
           p={{ base: "5", md: "8" }}
           bg="bg.panel"
-          borderWidth="1px"
-          rounded="xl"
+          borderWidth={{ base: "1px 0 0", sm: "1px" }}
+          rounded={{ base: "none", sm: "xl" }}
           shadow="lg"
         >
           <Stack gap="2">

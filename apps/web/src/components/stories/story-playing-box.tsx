@@ -25,7 +25,8 @@ type Props = {
 
 /**
  * What the play space shows while it is on no scene, at the storyteller's
- * table (RunTable) and the players' (PlaySpace), in its lower-left corner: "Playing <title>" on the panel colour, part
+ * table (RunTable) and the players' (PlaySpace), in its lower-left corner (along its
+ * whole foot on a phone): "Playing <title>" on the panel colour, part
  * see-through so the cover behind still shows, and the story's sessions
  * folded away under a Sessions chevron, closed to begin with.
  *
@@ -49,16 +50,19 @@ export function StoryPlayingBox({
   const [showSessions, setShowSessions] = useState(false);
 
   return (
+    // On a phone the box takes the play space's whole width, flush with its
+    // edges: the 1rem margin it keeps from sm up would cost a third of what
+    // little room the sessions have there.
     <Box
       position="absolute"
-      bottom="4"
-      left="4"
-      maxW="lg"
-      w="calc(100% - 2rem)"
-      maxH="calc(100% - 2rem)"
+      bottom={{ base: "0", sm: "4" }}
+      left={{ base: "0", sm: "4" }}
+      maxW={{ base: "full", sm: "lg" }}
+      w={{ base: "full", sm: "calc(100% - 2rem)" }}
+      maxH={{ base: "full", sm: "calc(100% - 2rem)" }}
       overflowY="auto"
       p="4"
-      rounded="xl"
+      rounded={{ base: "none", sm: "xl" }}
       bg="bg.panel/80"
       backdropFilter="blur(6px)"
       shadow="md"
