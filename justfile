@@ -247,6 +247,7 @@ load:
     bunx dbmate load
 
 alias custom := make_custom
+alias die := kill
 alias function := make_function
 alias procedure := make_procedure
 alias proc := make_procedure

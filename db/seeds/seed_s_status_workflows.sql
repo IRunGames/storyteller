@@ -10,4 +10,5 @@
         (-3, 'Attachments Status Workflow', 'status', NULL),
         (-4, 'Elements Status Workflow', 'status', NULL),
         (-5, 'Scene Elements Status Workflow', 'status', NULL),
-        (-6, 'Session Players Status Workflow', 'status', NULL);
+        (-6, 'Session Players Status Workflow', 'status', NULL),
+        (-7, 'Feedback Status Workflow', 'status', NULL);

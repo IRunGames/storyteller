@@ -3,7 +3,10 @@ import { expect } from "expect";
 
 import { feedbackSchema } from "./feedback-schemas";
 
-function messagesFor(result: { success: boolean; error?: { issues: { path: PropertyKey[]; message: string }[] } }) {
+function messagesFor(result: {
+  success: boolean;
+  error?: { issues: { path: PropertyKey[]; message: string }[] };
+}) {
   if (result.success || !result.error) return {};
   return Object.fromEntries(
     result.error.issues.map((issue) => [issue.path.join("."), issue.message]),
@@ -11,7 +14,7 @@ function messagesFor(result: { success: boolean; error?: { issues: { path: Prope
 }
 
 const good = {
-  isPositive: true,
+  status: "THUMBS_UP",
   feedback: "Loved the new cards.",
   pagePath: "/home",
 };
@@ -31,10 +34,18 @@ describe("feedbackSchema", () => {
     expect(result.data?.feedback).toBe("");
   });
 
-  it("refuses a missing rating", () => {
-    expect(messagesFor(feedbackSchema.safeParse({ ...good, isPositive: undefined }))).toEqual({
-      isPositive: "Pick thumbs up or thumbs down.",
-    });
+  it("accepts each of the workflow's statuses", () => {
+    for (const status of ["THUMBS_UP", "THUMBS_DOWN", "IDEA"]) {
+      expect(feedbackSchema.safeParse({ ...good, status }).success).toBe(true);
+    }
+  });
+
+  it("refuses a missing or unknown rating", () => {
+    for (const status of [undefined, "IDEAS", true]) {
+      expect(messagesFor(feedbackSchema.safeParse({ ...good, status }))).toEqual({
+        status: "Pick thumbs up, thumbs down or an idea.",
+      });
+    }
   });
 
   it("refuses text over 2000 characters", () => {
@@ -45,9 +56,9 @@ describe("feedbackSchema", () => {
 
   it("refuses a page path that is not a path", () => {
     expect(feedbackSchema.safeParse({ ...good, pagePath: "" }).success).toBe(false);
-    expect(feedbackSchema.safeParse({ ...good, pagePath: "https://example.com/home" }).success).toBe(
-      false,
-    );
+    expect(
+      feedbackSchema.safeParse({ ...good, pagePath: "https://example.com/home" }).success,
+    ).toBe(false);
     expect(feedbackSchema.safeParse({ ...good, pagePath: "/home/42" }).success).toBe(true);
   });
 });

@@ -15,7 +15,7 @@ const { feedback } = schema;
 export type SubmitFeedbackResult = { ok: true } | { ok: false; errors: Record<string, string> };
 
 /**
- * Records a thumbs up / down for the page the caller was on. The submitter is
+ * Records a thumbs up, thumbs down or idea for the page the caller was on. The submitter is
  * id_created_by_user, stamped from the database row rather than anything the
  * client sent; the IP is kept only as a record and never trusted for anything.
  */
@@ -42,7 +42,7 @@ export async function sa_submitFeedback(input: unknown): Promise<SubmitFeedbackR
 
   const values = parsed.data;
   await db.insert(feedback).values({
-    isPositive: values.isPositive,
+    status: values.status,
     pagePath: values.pagePath,
     feedback: values.feedback || null,
     ipAddress,

@@ -17,8 +17,8 @@ import {
   Tooltip,
 } from "@chakra-ui/react";
 import { sa_submitFeedback } from "./actions";
-import { feedbackSchema, type FeedbackValues } from "@/lib/feedback-schemas";
-import { ThumbsDown, ThumbsUp } from "lucide-react";
+import { feedbackSchema, type FeedbackStatus, type FeedbackValues } from "@/lib/feedback-schemas";
+import { Lightbulb, ThumbsDown, ThumbsUp } from "lucide-react";
 import { toaster } from "@/components/ui/toaster";
 
 // Self-contained: the popover and its server action live together in this
@@ -30,15 +30,17 @@ type Props = {
   pathname: string;
 };
 
-// The two rating choices, as buttons wearing role="radio" rather than Chakra's
+// The three choices, as buttons wearing role="radio" rather than Chakra's
 // RadioGroup: the options are icons with no visible text, and a native radio
 // would need its control hidden and its label restyled to look like a button
 // anyway. aria-checked and the radiogroup wrapper give a screen reader the
 // same picture.
-const RATINGS = [
-  { value: true, label: "Good", hint: "Good!", Icon: ThumbsUp },
-  { value: false, label: "Not good", hint: "Not good", Icon: ThumbsDown },
-] as const;
+// Each sets the row's status, the feedback workflow's key for that kind.
+const RATINGS: { value: FeedbackStatus; label: string; hint: string; Icon: typeof ThumbsUp }[] = [
+  { value: "THUMBS_UP", label: "Good", hint: "Good!", Icon: ThumbsUp },
+  { value: "THUMBS_DOWN", label: "Not good", hint: "Not good", Icon: ThumbsDown },
+  { value: "IDEA", label: "Idea", hint: "I have an idea!", Icon: Lightbulb },
+];
 
 // Tooltip and popover each stamp an id on the one button and look their trigger
 // up by that id when positioning. Left to their own ids, the tooltip's wins
@@ -60,8 +62,16 @@ export function NavFeedbackPopover({ pathname }: Props) {
     // Thumbs up is preselected so a happy reader can just press Send.
     // pagePath is only a placeholder here; submit() reads the live pathname
     // so a navigation while the popover is open rates the page actually shown.
-    defaultValues: { isPositive: true, feedback: "", pagePath: pathname },
+    defaultValues: { status: "THUMBS_UP", feedback: "", pagePath: pathname },
   });
+
+  // Every opening starts from thumbs up and an empty text, whatever the form
+  // held before. reset() alone would restore the defaults useForm captured on
+  // its first render, which Fast Refresh keeps across edits to this file.
+  function show() {
+    reset({ status: "THUMBS_UP", feedback: "", pagePath: pathname });
+    setOpen(true);
+  }
 
   function close() {
     setOpen(false);
@@ -96,17 +106,13 @@ export function NavFeedbackPopover({ pathname }: Props) {
   return (
     <Popover.Root
       open={open}
-      onOpenChange={(details) => (details.open ? setOpen(true) : close())}
+      onOpenChange={(details) => (details.open ? show() : close())}
       positioning={{ placement: "bottom-end" }}
       ids={{ trigger: triggerId }}
     >
       {/* Both triggers use asChild, so their props merge onto the one button:
           hover shows the tooltip, click opens the popover. */}
-      <Tooltip.Root
-        openDelay={200}
-        positioning={{ placement: "top" }}
-        ids={{ trigger: triggerId }}
-      >
+      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
         <Tooltip.Trigger asChild>
           <Popover.Trigger asChild>
             <IconButton
@@ -135,88 +141,75 @@ export function NavFeedbackPopover({ pathname }: Props) {
             </Popover.Header>
             <Popover.Body>
               <form onSubmit={handleSubmit(submit)} noValidate>
-                  <Stack gap="4">
-                    {errors.root && (
-                      <Alert.Root status="error" size="sm">
-                        <Alert.Indicator />
-                        <Alert.Content>
-                          <Alert.Description>
-                            {errors.root.message}
-                          </Alert.Description>
-                        </Alert.Content>
-                      </Alert.Root>
-                    )}
+                <Stack gap="4">
+                  {errors.root && (
+                    <Alert.Root status="error" size="sm">
+                      <Alert.Indicator />
+                      <Alert.Content>
+                        <Alert.Description>{errors.root.message}</Alert.Description>
+                      </Alert.Content>
+                    </Alert.Root>
+                  )}
 
-                    <Field.Root invalid={!!errors.isPositive}>
-                      <Controller
-                        control={control}
-                        name="isPositive"
-                        render={({ field }) => (
-                          <HStack role="radiogroup" aria-label="Rating" gap="2">
-                            {RATINGS.map(({ value, label, hint, Icon }) => {
-                              const checked = field.value === value;
-                              return (
-                                <Tooltip.Root
-                                  key={label}
-                                  openDelay={200}
-                                  positioning={{ placement: "top" }}
-                                >
-                                  <Tooltip.Trigger asChild>
-                                    <IconButton
-                                      type="button"
-                                      role="radio"
-                                      aria-checked={checked}
-                                      aria-label={label}
-                                      variant={checked ? "subtle" : "ghost"}
-                                      color={
-                                        checked ? "nav.accent" : "nav.icon"
-                                      }
-                                      boxSize="11"
-                                      rounded="10px"
-                                      onClick={() => field.onChange(value)}
-                                      onBlur={field.onBlur}
-                                    >
-                                      <Icon fill={checked ? "currentColor" : "none"} />
-                                    </IconButton>
-                                  </Tooltip.Trigger>
-                                  <Portal>
-                                    <Tooltip.Positioner>
-                                      <Tooltip.Content>{hint}</Tooltip.Content>
-                                    </Tooltip.Positioner>
-                                  </Portal>
-                                </Tooltip.Root>
-                              );
-                            })}
-                          </HStack>
-                        )}
-                      />
-                      <Field.ErrorText>
-                        {errors.isPositive?.message}
-                      </Field.ErrorText>
-                    </Field.Root>
+                  <Field.Root invalid={!!errors.status}>
+                    <Controller
+                      control={control}
+                      name="status"
+                      render={({ field }) => (
+                        <HStack role="radiogroup" aria-label="Rating" gap="2">
+                          {RATINGS.map(({ value, label, hint, Icon }) => {
+                            const checked = field.value === value;
+                            return (
+                              <Tooltip.Root
+                                key={label}
+                                openDelay={200}
+                                positioning={{ placement: "top" }}
+                              >
+                                <Tooltip.Trigger asChild>
+                                  <IconButton
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={checked}
+                                    aria-label={label}
+                                    variant={checked ? "subtle" : "ghost"}
+                                    color={checked ? "nav.accent" : "nav.icon"}
+                                    boxSize="11"
+                                    rounded="10px"
+                                    onClick={() => field.onChange(value)}
+                                    onBlur={field.onBlur}
+                                  >
+                                    <Icon fill={checked ? "currentColor" : "none"} />
+                                  </IconButton>
+                                </Tooltip.Trigger>
+                                <Portal>
+                                  <Tooltip.Positioner>
+                                    <Tooltip.Content>{hint}</Tooltip.Content>
+                                  </Tooltip.Positioner>
+                                </Portal>
+                              </Tooltip.Root>
+                            );
+                          })}
+                        </HStack>
+                      )}
+                    />
+                    <Field.ErrorText>{errors.status?.message}</Field.ErrorText>
+                  </Field.Root>
 
-                    <Field.Root invalid={!!errors.feedback}>
-                      <Field.Label>
-                        Feedback
-                        <Text as="span" color="fg.muted" fontWeight="normal">
-                          (optional)
-                        </Text>
-                      </Field.Label>
-                      <Textarea rows={3} {...register("feedback")} />
-                      <Field.ErrorText>
-                        {errors.feedback?.message}
-                      </Field.ErrorText>
-                    </Field.Root>
+                  <Field.Root invalid={!!errors.feedback}>
+                    <Field.Label>
+                      Feedback
+                      <Text as="span" color="fg.muted" fontWeight="normal">
+                        (optional)
+                      </Text>
+                    </Field.Label>
+                    <Textarea rows={3} {...register("feedback")} />
+                    <Field.ErrorText>{errors.feedback?.message}</Field.ErrorText>
+                  </Field.Root>
 
-                    <Button
-                      type="submit"
-                      size="sm"
-                      loading={isSubmitting}
-                      alignSelf="flex-end"
-                    >
-                      Send
-                    </Button>
-                  </Stack>
+                  <Button type="submit" size="sm" loading={isSubmitting} alignSelf="flex-end">
+                    Send
+                  </Button>
+                </Stack>
               </form>
             </Popover.Body>
           </Popover.Content>

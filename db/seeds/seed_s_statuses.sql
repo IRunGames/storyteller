@@ -78,7 +78,17 @@
             (-6, 'WAITING', 'The player is in the waiting room, before the table opens.', ARRAY['AWAY', 'LEFT']),
             (-6, 'PRESENT', 'The player is at the table.',                               ARRAY['WAITING', 'AWAY', 'LEFT']),
             (-6, 'AWAY',    'The player''s page has gone quiet without them leaving.',   ARRAY['WAITING', 'PRESENT']),
-            (-6, 'LEFT',    'The player has left.',                                      ARRAY['WAITING', 'PRESENT', 'AWAY'])
+            (-6, 'LEFT',    'The player has left.',                                      ARRAY['WAITING', 'PRESENT', 'AWAY']),
+
+            -- Feedback: `feedback`. The status is the kind of feedback, set by
+            -- the button picked in the menu bar's feedback popover. Every
+            -- status leads to every other, so a thumbs down that was really
+            -- an idea can be filed again as one. THUMBS_UP is the default a
+            -- row is created with, so its list is the two it can return from
+            -- rather than empty.
+            (-7, 'THUMBS_UP',   'The page is working well for them.',     ARRAY['THUMBS_DOWN', 'IDEA']),
+            (-7, 'THUMBS_DOWN', 'The page is not working well for them.', ARRAY['THUMBS_UP', 'IDEA']),
+            (-7, 'IDEA',        'They have an idea to suggest.',          ARRAY['THUMBS_UP', 'THUMBS_DOWN'])
     ),
     numbered_statuses AS (
         SELECT -ROW_NUMBER() OVER () AS s_status_id, *

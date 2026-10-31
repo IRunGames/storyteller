@@ -747,12 +747,21 @@ export const vSceneElements = pgView("v_scene_elements", {
 export type Story = typeof stories.$inferSelect;
 export type System = typeof systems.$inferSelect;
 
-// Thumbs up / down left from the menu bar's feedback popover. The submitter is
-// id_created_by_user, the standard audit column, rather than a column of its
-// own.
+// Feedback left from the menu bar's feedback popover. status is the kind, the
+// button picked: THUMBS_UP, THUMBS_DOWN or IDEA, run by the feedback workflow
+// in s_statuses, so it is a plain varchar for the same reason
+// storySessions.status is (FEEDBACK_STATUSES in lib/feedback-schemas.ts lists
+// the three the form sends). The submitter is id_created_by_user, the
+// standard audit column, rather than a column of its own.
 export const feedback = pgTable("feedback", {
   idFeedback: integer("id_feedback").primaryKey().generatedByDefaultAsIdentity(),
-  isPositive: boolean("is_positive").notNull(),
+  // See storySessions.status for why sql`DEFAULT`.
+  status: varchar("status")
+    .notNull()
+    .default(sql`DEFAULT`),
+  thumbsUpAt: timestamp("thumbs_up_at", { withTimezone: true }),
+  thumbsDownAt: timestamp("thumbs_down_at", { withTimezone: true }),
+  ideaAt: timestamp("idea_at", { withTimezone: true }),
   pagePath: text("page_path").notNull(),
   feedback: text("feedback"),
   ipAddress: text("ip_address"),

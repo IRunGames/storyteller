@@ -616,6 +616,10 @@ describe("AppHeader", () => {
         "aria-checked",
         "false",
       );
+      expect(within(rating).getByRole("radio", { name: "Idea" })).toHaveAttribute(
+        "aria-checked",
+        "false",
+      );
       expect(within(dialog).getByRole("textbox", { name: /Feedback/ })).toBeInTheDocument();
       expect(within(dialog).getByRole("button", { name: "Send" })).toBeInTheDocument();
     });
@@ -627,7 +631,7 @@ describe("AppHeader", () => {
 
       await waitFor(() => expect(sa_submitFeedback.mock.callCount()).toBe(1));
       expect(sa_submitFeedback.mock.calls[0].arguments[0]).toEqual({
-        isPositive: true,
+        status: "THUMBS_UP",
         feedback: "",
         pagePath: "/stories",
       });
@@ -650,7 +654,7 @@ describe("AppHeader", () => {
 
       await waitFor(() => expect(sa_submitFeedback.mock.callCount()).toBe(1));
       expect(sa_submitFeedback.mock.calls[0].arguments[0]).toEqual({
-        isPositive: false,
+        status: "THUMBS_DOWN",
         feedback: "Nice cards",
         pagePath: "/library/42",
       });
@@ -665,6 +669,26 @@ describe("AppHeader", () => {
           screen.queryByRole("dialog", { name: "How is this page working for you?" }),
         ).not.toBeInTheDocument(),
       );
+    });
+
+    it("sends an idea when the lightbulb is picked", async () => {
+      const { u, dialog } = await openFeedback();
+
+      const idea = within(dialog).getByRole("radio", { name: "Idea" });
+      await u.hover(idea);
+      expect(await screen.findByText("I have an idea!")).toBeInTheDocument();
+      await u.click(idea);
+      expect(idea).toHaveAttribute("aria-checked", "true");
+
+      await u.type(within(dialog).getByRole("textbox", { name: /Feedback/ }), "Dice sounds");
+      await u.click(within(dialog).getByRole("button", { name: "Send" }));
+
+      await waitFor(() => expect(sa_submitFeedback.mock.callCount()).toBe(1));
+      expect(sa_submitFeedback.mock.calls[0].arguments[0]).toEqual({
+        status: "IDEA",
+        feedback: "Dice sounds",
+        pagePath: "/stories",
+      });
     });
 
     it("keeps the popover open when the action fails", async () => {

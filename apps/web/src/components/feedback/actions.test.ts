@@ -52,7 +52,7 @@ describe("feedback actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =
 
   it("stores a rating with its text, page and submitter", async () => {
     const result = await actions.sa_submitFeedback({
-      isPositive: true,
+      status: "THUMBS_UP",
       feedback: "  Loved the new cards.  ",
       pagePath: "/home",
     });
@@ -64,7 +64,7 @@ describe("feedback actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =
       .where(eq(tables.feedback.idCreatedByUser, testUser));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      isPositive: true,
+      status: "THUMBS_UP",
       feedback: "Loved the new cards.",
       pagePath: "/home",
       ipAddress: null,
@@ -74,13 +74,28 @@ describe("feedback actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =
   });
 
   it("stores an empty text as null", async () => {
-    await actions.sa_submitFeedback({ isPositive: false, feedback: "", pagePath: "/library" });
+    await actions.sa_submitFeedback({ status: "THUMBS_DOWN", feedback: "", pagePath: "/library" });
 
     const [row] = await db
-      .select({ feedback: tables.feedback.feedback, isPositive: tables.feedback.isPositive })
+      .select({ feedback: tables.feedback.feedback, status: tables.feedback.status })
       .from(tables.feedback)
       .where(eq(tables.feedback.pagePath, "/library"));
-    expect(row).toEqual({ feedback: null, isPositive: false });
+    expect(row).toEqual({ feedback: null, status: "THUMBS_DOWN" });
+  });
+
+  it("stores an idea, which the workflow stamps as it enters IDEA", async () => {
+    await actions.sa_submitFeedback({
+      status: "IDEA",
+      feedback: "Dice sounds",
+      pagePath: "/ideas",
+    });
+
+    const [row] = await db
+      .select({ status: tables.feedback.status, ideaAt: tables.feedback.ideaAt })
+      .from(tables.feedback)
+      .where(eq(tables.feedback.pagePath, "/ideas"));
+    expect(row.status).toBe("IDEA");
+    expect(row.ideaAt).toBeInstanceOf(Date);
   });
 
   it("returns field errors for an invalid submission and stores nothing", async () => {
@@ -92,7 +107,7 @@ describe("feedback actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =
     const result = await actions.sa_submitFeedback({ feedback: "", pagePath: "/home" });
     expect(result).toEqual({
       ok: false,
-      errors: { isPositive: "Pick thumbs up or thumbs down." },
+      errors: { status: "Pick thumbs up, thumbs down or an idea." },
     });
 
     const after = await db
