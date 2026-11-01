@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
+import { appIcons } from "@/lib/app-icons";
+import { currentEnvironment } from "@/lib/environment";
 import { Provider } from "@/components/ui/provider";
 import { Toaster } from "@/components/ui/toaster";
 
@@ -12,13 +14,11 @@ const figtree = Figtree({
 export const metadata: Metadata = {
   title: "Storyteller",
   description: "Real-time collaborative storytelling",
+  // The mark in production, the gold d20 everywhere else (lib/app-icons.ts).
+  icons: appIcons(currentEnvironment()),
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={figtree.variable}>

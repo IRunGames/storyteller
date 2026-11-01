@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { elementOrderBy } from "@/db/element-order";
+import { storyAccess } from "@/db/story-access";
 import { currentScene, sceneItems, type SceneItemRow } from "@/db/scene-items";
 import { requireAccount } from "@/lib/authorize";
 import {
@@ -38,7 +39,7 @@ import { publishLater } from "@/lib/realtime/publish";
 import { publishElementChanged, publishSceneChanged } from "@/lib/realtime/publish-scene";
 import { sessionHeading } from "@/lib/stories";
 
-const { elements, stories, storyPlayers, storyScenes, storySessions, vStoryScenes } = schema;
+const { elements, stories, storyScenes, storySessions, vStoryScenes } = schema;
 
 // The Prep Work board's own reads. The board is the storyteller's working
 // material, so every one of these proves the caller owns the story before it
@@ -60,6 +61,29 @@ const kindSchema = z.enum(ELEMENT_KINDS);
 const elementSortSchema = z.enum(ELEMENT_SORT_KEYS);
 
 /**
+ * The scene the story page's Build Scenes button opens on its live-edit
+ * page: the one the storyteller touched last, so the button picks up where
+ * they left off. Null for a story with no scenes yet, when the button leads
+ * to the library instead, and for anyone but the storyteller, whose page
+ * has no such button.
+ */
+export async function sa_getSceneToBuild(idStory: number): Promise<number | null> {
+  const user = await requireAccount();
+  const id = idStorySchema.safeParse(idStory);
+  if (!id.success || !(await ownsStory(user.id, id.data))) return null;
+
+  const [scene] = await db
+    .select({ idStoryScene: storyScenes.idStoryScene })
+    .from(storyScenes)
+    .where(eq(storyScenes.idStory, id.data))
+    // Scenes written in one statement share an updated_at, so the id
+    // breaks the tie.
+    .orderBy(desc(storyScenes.updatedAt), desc(storyScenes.idStoryScene))
+    .limit(1);
+  return scene?.idStoryScene ?? null;
+}
+
+/**
  * Whether the caller is the storyteller who created the story. The board and
  * everything on it is theirs alone — scenes are what the players are not
  * meant to see yet — so a story that is not there and a story that is
@@ -72,16 +96,6 @@ async function ownsStory(userId: string, idStory: number): Promise<boolean> {
     .where(eq(stories.idStory, idStory))
     .limit(1);
   return story?.owner === userId;
-}
-
-/** Whether the caller has a seat at the story, as one of its players. */
-async function playsInStory(userId: string, idStory: number): Promise<boolean> {
-  const [seat] = await db
-    .select({ one: storyPlayers.idStoryPlayer })
-    .from(storyPlayers)
-    .where(and(eq(storyPlayers.idStory, idStory), eq(storyPlayers.idUser, userId)))
-    .limit(1);
-  return Boolean(seat);
 }
 
 /**
@@ -320,6 +334,7 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
       sessionNumber: vStoryScenes.sessionNumber,
       sessionTitle: vStoryScenes.sessionTitle,
       owner: stories.idCreatedByUser,
+      isPublic: stories.isPublic,
     })
     .from(vStoryScenes)
     .innerJoin(stories, eq(stories.idStory, vStoryScenes.idStory))
@@ -328,12 +343,23 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
 
   if (!row) return null;
 
-  // The storyteller and the story's players may read a scene; anyone else
-  // gets the same answer as for a scene that is not there. Only the
-  // storyteller may change it, which the page and the panel learn from
-  // isStoryteller.
+  // The storyteller reads any scene of theirs. Anyone else reads only a
+  // completed scene, and only of a story they may read: its players, or
+  // anyone signed in when the story is public (db/story-access.ts). A scene
+  // still waiting or in play is prep, and both it and a scene of a story the
+  // caller has no part in get the same answer as a scene that is not there.
+  // Only the storyteller may change it, which the page and the panel learn
+  // from isStoryteller.
   const isStoryteller = row.owner === user.id;
-  if (!isStoryteller && !(await playsInStory(user.id, row.idStory!))) return null;
+  if (!isStoryteller) {
+    if (row.status !== SCENE_LOCKED_STATUS) return null;
+    const access = await storyAccess(user.id, {
+      idStory: row.idStory!,
+      idCreatedByUser: row.owner,
+      isPublic: row.isPublic,
+    });
+    if (access === null) return null;
+  }
 
   return {
     idStoryScene: row.idStoryScene!,

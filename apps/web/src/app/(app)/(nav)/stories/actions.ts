@@ -20,6 +20,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { createInvitation, emailInvitation } from "@/db/invitations";
+import { storyAccess } from "@/db/story-access";
 import { cardOrder, cardQuery, notArchived, playerName } from "@/db/story-cards";
 import { requireAccount, requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
@@ -27,6 +28,7 @@ import { safeRedirect } from "@/lib/safe-redirect";
 import {
   PAGE_SIZE,
   PLAYER_SEARCH_LIMIT,
+  SESSION_DONE_STATUS,
   SESSIONS_PAGE_SIZE,
   systemLabel,
   type PlayerMatch,
@@ -38,6 +40,7 @@ import {
   type UpdateSessionResult,
 } from "@/lib/stories";
 import { storyInviteSchema } from "@/lib/invitation-schemas";
+import { SCENE_LOCKED_STATUS } from "@/lib/scenes";
 import { sessionEditSchema } from "@/lib/session-schemas";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
 
@@ -572,11 +575,14 @@ export async function sa_countStorySessions(idStory: number): Promise<number> {
 
 /**
  * One session as the info popover shows it, or null when there is no such
- * session or the id is unusable. Any signed-in user may look, as with the
- * list, but the notes and lingering questions are the storyteller's working
- * material and come back null for anyone else. The number is the session's
- * place in the story's opening order, counted the same way the list sorts,
- * so the first row of the oldest page is session 1.
+ * session, the id is unusable, or the caller may not read the story's
+ * sessions: the storyteller and the story's players may, and anyone signed
+ * in when the story is public (db/story-access.ts). The notes and lingering
+ * questions are the table's, the storyteller's and the players', and come
+ * back null for a public reader; the scenes follow the rule on the type.
+ * The number is
+ * the session's place in the story's opening order, counted the same way
+ * the list sorts, so the first row of the oldest page is session 1.
  */
 export async function sa_getStorySession(
   idStorySession: number,
@@ -595,13 +601,30 @@ export async function sa_getStorySession(
       summary: vStorySessions.summary,
       notes: vStorySessions.notes,
       lingeringQuestions: vStorySessions.lingeringQuestions,
+      idStory: stories.idStory,
+      storyTitle: stories.title,
       idStoryteller: stories.idCreatedByUser,
+      isPublic: stories.isPublic,
     })
     .from(vStorySessions)
     .innerJoin(stories, eq(stories.idStory, vStorySessions.idStory))
     .where(eq(vStorySessions.idStorySession, id.data))
     .limit(1);
   if (!row) return null;
+
+  // A session of a story the caller has no part in reads as not there, the
+  // same answer as for an id that names nothing.
+  const access = await storyAccess(user.id, {
+    idStory: row.idStory,
+    idCreatedByUser: row.idStoryteller,
+    isPublic: row.isPublic,
+  });
+  if (access === null) return null;
+  const isStoryteller = access === "storyteller";
+  // The notes and lingering questions are written up at the table by the
+  // storyteller and the players alike (SessionNotesPopover), so both read
+  // them here; a reader of a public story gets neither.
+  const atTheTable = access !== "public";
 
   // Who came: the session's session_players rows that reached the table,
   // the same ones v_story_sessions counts, so the panel lists exactly the
@@ -619,13 +642,14 @@ export async function sa_getStorySession(
     )
     .orderBy(asc(playerName));
 
-  const isStoryteller = row.idStoryteller === user.id;
-
   // Scenes are prep: what the players have not been shown yet, and the same
-  // material the Prep Work board keeps behind the owner check. A reader who
-  // is not the storyteller gets none, as they get no notes, so the panel has
-  // nothing to fold open.
-  const scenes = isStoryteller
+  // material the Prep Work board keeps behind the owner check. The
+  // storyteller gets them all. Anyone else gets them only once the session
+  // is done, and then only the ones played to completion: a scene attached
+  // to the sitting but never run is still prep, so it stays behind with the
+  // notes. Before that the panel has nothing to fold open.
+  const canSeeScenes = isStoryteller || row.status === SESSION_DONE_STATUS;
+  const scenes = canSeeScenes
     ? await db
         .select({
           idStoryScene: storyScenes.idStoryScene,
@@ -633,7 +657,12 @@ export async function sa_getStorySession(
           status: storyScenes.status,
         })
         .from(storyScenes)
-        .where(eq(storyScenes.idStorySession, row.idStorySession))
+        .where(
+          and(
+            eq(storyScenes.idStorySession, row.idStorySession),
+            isStoryteller ? undefined : eq(storyScenes.status, SCENE_LOCKED_STATUS),
+          ),
+        )
         // The order they were played in, which is active_at: the workflow
         // trigger stamps it as the scene comes up at the table. A scene
         // attached to the sitting but never run has none, so it goes last.
@@ -649,6 +678,8 @@ export async function sa_getStorySession(
 
   return {
     idStorySession: row.idStorySession,
+    idStory: row.idStory,
+    storyTitle: row.storyTitle,
     startedAt: row.startedAt,
     number: row.number,
     title: row.title,
@@ -656,8 +687,8 @@ export async function sa_getStorySession(
     length: row.length,
     imageLink: row.imageLink,
     summary: row.summary,
-    notes: isStoryteller ? row.notes : null,
-    lingeringQuestions: isStoryteller ? row.lingeringQuestions : null,
+    notes: atTheTable ? row.notes : null,
+    lingeringQuestions: atTheTable ? row.lingeringQuestions : null,
     players,
     scenes,
     isStoryteller,
@@ -778,6 +809,7 @@ export async function sa_createStory(
       isLookingForPlayers: values.isLookingForPlayers,
       isActive: values.isActive,
       isArchived: values.isArchived,
+      isPublic: values.isPublic,
       idArchivedByUser: values.isArchived ? user.id : null,
       idCreatedByUser: user.id,
       idUpdatedByUser: user.id,
@@ -815,6 +847,7 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
       isLookingForPlayers: stories.isLookingForPlayers,
       isActive: stories.isActive,
       isArchived: stories.isArchived,
+      isPublic: stories.isPublic,
     })
     .from(stories)
     .where(and(eq(stories.idStory, id.data), eq(stories.idCreatedByUser, user.id)))
@@ -859,6 +892,7 @@ export async function sa_updateStory(idStory: number, input: unknown): Promise<S
       isLookingForPlayers: values.isLookingForPlayers,
       isActive: values.isActive,
       isArchived: values.isArchived,
+      isPublic: values.isPublic,
       // Only the creator gets here, so the archiver is always the caller.
       // Null on the way out is what the unarchive trigger would set anyway;
       // archived_at is the database's to stamp and clear.

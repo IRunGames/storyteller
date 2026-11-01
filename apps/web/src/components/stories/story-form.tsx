@@ -61,6 +61,7 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
       isLookingForPlayers: false,
       isActive: true,
       isArchived: false,
+      isPublic: false,
     },
   });
 
@@ -200,6 +201,31 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
                 <Checkbox.Control />
                 <Checkbox.Label>Active</Checkbox.Label>
               </Checkbox.Root>
+            )}
+          />
+
+          {/* Not tied to Archive like the two above: whether an archived
+              story's record may be read is a separate question from
+              whether it is still played. */}
+          <Controller
+            control={control}
+            name="isPublic"
+            render={({ field }) => (
+              <Field.Root>
+                <Checkbox.Root
+                  name={field.name}
+                  checked={field.value}
+                  onCheckedChange={(details) => field.onChange(details.checked === true)}
+                >
+                  <Checkbox.HiddenInput onBlur={field.onBlur} ref={field.ref} />
+                  <Checkbox.Control />
+                  <Checkbox.Label>Public</Checkbox.Label>
+                </Checkbox.Root>
+                <Field.HelperText>
+                  Anyone signed in can read its sessions and played scenes. Otherwise only you and
+                  its players can.
+                </Field.HelperText>
+              </Field.Root>
             )}
           />
 

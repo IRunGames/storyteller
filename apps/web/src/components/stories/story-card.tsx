@@ -214,7 +214,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
                       white-over-cover dressing it wears there. */}
                   <IconButton
                     asChild
-                    aria-label="Library: prep game"
+                    aria-label="Library: Full Story Resources"
                     variant="ghost"
                     size="sm"
                     rounded="full"
@@ -233,7 +233,7 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
                 </Tooltip.Trigger>
                 <Portal>
                   <Tooltip.Positioner>
-                    <Tooltip.Content>Library: prep game</Tooltip.Content>
+                    <Tooltip.Content>Library: Full Story Resources</Tooltip.Content>
                   </Tooltip.Positioner>
                 </Portal>
               </Tooltip.Root>

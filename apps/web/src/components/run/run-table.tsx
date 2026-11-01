@@ -46,6 +46,7 @@ import {
 } from "@/app/(app)/run/[id]/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { useUser } from "@/components/auth/user-provider";
+import { SessionNotesPopover } from "@/components/sessions/session-notes-popover";
 import { toaster } from "@/components/ui/toaster";
 import { canSeeDiagnostics } from "@/lib/diagnostics";
 import { PlayCharacterSpace } from "@/components/play/play-character-space";
@@ -462,6 +463,14 @@ export function RunTable({
         centerInMenu
         afterSession={
           <HStack gap="1" flexShrink="0">
+            {/* The session's notes and lingering questions, the same panel
+                the players have beside the heading at their table. */}
+            {session && (
+              <SessionNotesPopover
+                idStorySession={session.idStorySession}
+                heading={sessionHeading(session)}
+              />
+            )}
             {/* The session's status as a chip beside its title, and the
                 way to pause, resume or end it. Pausing keeps the storyteller
                 at the table: a pause is a break in play, and the same chip

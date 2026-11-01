@@ -1,6 +1,7 @@
 import { useId } from "react";
 import NextLink from "next/link";
 import {
+  Badge,
   Box,
   Container,
   Heading,
@@ -11,7 +12,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { BookOpen, Pencil } from "lucide-react";
+import { BookOpen, Clapperboard, Pencil } from "lucide-react";
 import {
   cssUrlValue,
   systemLabel,
@@ -33,13 +34,25 @@ type Props = {
   sessions: StorySession[];
   /** The story_sessions workflow, for the status pill on each row. */
   sessionStatusOptions: StatusOption[];
+  /**
+   * The scene the storyteller's Build Scenes door opens, or null for the
+   * library when the story has none (sa_getSceneToBuild). Only read for
+   * the storyteller, who alone has the door.
+   */
+  buildSceneId?: number | null;
 };
 
 // The story page's body: the cover as a full-bleed backdrop when there is one,
 // and the text in a dark panel over it. No hooks beyond useId, so the page can
 // render it on the server. Presentational only; stories/[id]/page.tsx loads
 // the data.
-export function StoryDetails({ story, players, sessions, sessionStatusOptions }: Props) {
+export function StoryDetails({
+  story,
+  players,
+  sessions,
+  sessionStatusOptions,
+  buildSceneId = null,
+}: Props) {
   const playersId = useId();
   const sessionsId = useId();
   const system = systemLabel(story);
@@ -87,70 +100,81 @@ export function StoryDetails({ story, players, sessions, sessionStatusOptions }:
           position="relative"
         >
           {story.isOwner && (
-            // Only the storyteller edits a story, and the button sits in the
-            // panel's top right corner, clear of the title, rather than in
-            // the text flow. A link styled as a button: the edit page is a
-            // page of its own, so the back button returns here.
-            <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-              <Tooltip.Trigger asChild>
-                <IconButton
-                  asChild
-                  aria-label="Edit story"
-                  variant="ghost"
-                  size="sm"
-                  rounded="full"
-                  position="absolute"
-                  top={story.imageUrl ? { base: "3", md: "5" } : "0"}
-                  right={story.imageUrl ? { base: "3", md: "5" } : "0"}
-                  color={story.imageUrl ? "whiteAlpha.900" : undefined}
-                  _hover={story.imageUrl ? { bg: "whiteAlpha.200" } : undefined}
-                >
-                  <NextLink href={`/stories/${story.idStory}/edit`}>
-                    <Pencil size={18} />
-                  </NextLink>
-                </IconButton>
-              </Tooltip.Trigger>
-              <Portal>
-                <Tooltip.Positioner>
-                  <Tooltip.Content>Edit story</Tooltip.Content>
-                </Tooltip.Positioner>
-              </Portal>
-            </Tooltip.Root>
-          )}
-
-          <Stack gap="2">
-            <HStack gap="3" align="center">
-              <Heading as="h1" size="3xl">
-                {story.title}
-              </Heading>
-              {story.isOwner && (
-                // The storyteller's library for the story, where the game is
-                // prepped: its scenes are what the players are not meant to
-                // see yet, so the door to it is theirs alone, like Edit. A
-                // book, as on the Library page's list. A link styled as a
-                // button, since the library is a page of its own.
-                <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+            // The storyteller's two doors, in the panel's top right corner,
+            // clear of the title rather than in the text flow: the library,
+            // where the game is prepped (its scenes are what the players are
+            // not meant to see yet, so it is theirs alone), and the edit
+            // page. Links styled as buttons: each is a page of its own, so
+            // the back button returns here.
+            <HStack
+              gap="1"
+              position="absolute"
+              top={story.imageUrl ? { base: "3", md: "5" } : "0"}
+              right={story.imageUrl ? { base: "3", md: "5" } : "0"}
+            >
+              {(
+                [
+                  {
+                    label: "Library: Full Story Resources",
+                    href: `/libraries/${story.idStory}`,
+                    icon: <BookOpen size={18} />,
+                  },
+                  {
+                    // The live-edit page of the scene the storyteller
+                    // touched last, as the library's scene cards open one;
+                    // the library itself while the story has no scenes.
+                    label: "Build Scenes",
+                    href:
+                      buildSceneId === null
+                        ? `/libraries/${story.idStory}`
+                        : `/scenes/${buildSceneId}/live`,
+                    icon: <Clapperboard size={18} />,
+                  },
+                  {
+                    label: "Edit story",
+                    href: `/stories/${story.idStory}/edit`,
+                    icon: <Pencil size={18} />,
+                  },
+                ] as const
+              ).map((door) => (
+                <Tooltip.Root key={door.label} openDelay={200} positioning={{ placement: "top" }}>
                   <Tooltip.Trigger asChild>
                     <IconButton
                       asChild
-                      aria-label="Library: prep game"
+                      aria-label={door.label}
                       variant="ghost"
-                      size="lg"
+                      size="sm"
                       rounded="full"
                       color={story.imageUrl ? "whiteAlpha.900" : undefined}
                       _hover={story.imageUrl ? { bg: "whiteAlpha.200" } : undefined}
                     >
-                      <NextLink href={`/libraries/${story.idStory}`}>
-                        <BookOpen size={24} />
-                      </NextLink>
+                      <NextLink href={door.href}>{door.icon}</NextLink>
                     </IconButton>
                   </Tooltip.Trigger>
                   <Portal>
                     <Tooltip.Positioner>
-                      <Tooltip.Content>Library: prep game</Tooltip.Content>
+                      <Tooltip.Content>{door.label}</Tooltip.Content>
                     </Tooltip.Positioner>
                   </Portal>
                 </Tooltip.Root>
+              ))}
+            </HStack>
+          )}
+
+          <Stack gap="2">
+            {/* Room on the right for the three doors above, which float
+                over this corner. */}
+            <HStack gap="3" align="center" pr={story.isOwner ? "28" : undefined}>
+              <Heading as="h1" size="3xl">
+                {story.title}
+              </Heading>
+              {story.isPublic && (
+                // Anyone signed in may read the story's sessions: said
+                // beside the title, since it is a fact about the whole
+                // story and not about any one section of the page.
+                <Badge variant="solid" colorPalette="blue" flexShrink="0">
+                  PUBLIC
+                </Badge>
               )}
             </HStack>
             <Stack gap="0" color={story.imageUrl ? "whiteAlpha.800" : "fg.muted"}>
@@ -179,11 +203,13 @@ export function StoryDetails({ story, players, sessions, sessionStatusOptions }:
               <Heading id={sessionsId} size="xl">
                 Recent sessions
               </Heading>
-              {story.isOwner && story.isActive && (
-                // The card's Play, under the card's rule: only the
-                // storyteller opens the table here, and not for a retired
-                // story. Its popover asks which session first, so the table
-                // never opens with none.
+              {(story.isOwner || story.isPlayer) && story.isActive && (
+                // The card's Play, for the storyteller and the story's
+                // players, and not for a retired story. The storyteller's
+                // opens the session popover, which asks which session
+                // first, so the table never opens with none; a player's is
+                // the link to the table. Someone only reading the page has
+                // no table to go to.
                 <PlayButton story={story} />
               )}
             </HStack>

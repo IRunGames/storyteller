@@ -23,3 +23,9 @@ export const sessionEditSchema = z.object({
 
 export type SessionEditInput = z.input<typeof sessionEditSchema>;
 export type SessionEditValues = z.infer<typeof sessionEditSchema>;
+
+// The tables' session panel (SessionNotesPopover): the two things written
+// up as a session is played, by the storyteller and the players alike.
+export const sessionNotesSchema = sessionEditSchema.pick({ notes: true, lingeringQuestions: true });
+
+export type SessionNotesValues = z.infer<typeof sessionNotesSchema>;

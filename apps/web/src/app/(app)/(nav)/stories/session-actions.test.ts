@@ -7,7 +7,7 @@
 // and left to the database, so they never collide with the seed's.
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 import { makeTestUser, removeTestUser } from "@/test/test-user";
 
@@ -113,7 +113,116 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     expect(row?.playerCount).toBe(2);
     const panel = await actions.sa_getStorySession(open);
     expect(panel?.players).toHaveLength(2);
+    expect(panel?.idStory).toBe(mine);
+    expect(panel?.storyTitle).toBe("Session actions fixture — mine");
     expect(listed.find((session) => session.idStorySession === done)?.playerCount).toBe(0);
+  });
+
+  it("opens a session to the storyteller, the story's players, and anyone on a public story", async () => {
+    // Read as the other user, who owns nothing here and has no seat in the
+    // test user's story.
+    getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
+    const byStory = eq(tables.stories.idStory, mine);
+    const theirSeat = and(
+      eq(tables.storyPlayers.idStory, mine),
+      eq(tables.storyPlayers.idUser, otherUserId),
+    );
+    await db
+      .update(tables.storySessions)
+      .set({ notes: "Kept at the table.", lingeringQuestions: "Who sent them?" })
+      .where(eq(tables.storySessions.idStorySession, done));
+    try {
+      expect(await actions.sa_getStorySession(done)).toBeNull();
+
+      // A player reads the notes, written up at the table by them as much
+      // as by the storyteller, but the pill is not theirs to move.
+      await db.insert(tables.storyPlayers).values({ idStory: mine, idUser: otherUserId });
+      expect(await actions.sa_getStorySession(done)).toMatchObject({
+        idStorySession: done,
+        isStoryteller: false,
+        notes: "Kept at the table.",
+        lingeringQuestions: "Who sent them?",
+      });
+      await db.delete(tables.storyPlayers).where(theirSeat);
+      expect(await actions.sa_getStorySession(done)).toBeNull();
+
+      // A reader of a public story sees the session, and none of the notes.
+      await db.update(tables.stories).set({ isPublic: true }).where(byStory);
+      expect(await actions.sa_getStorySession(done)).toMatchObject({
+        idStorySession: done,
+        isStoryteller: false,
+        notes: null,
+        lingeringQuestions: null,
+      });
+    } finally {
+      await db
+        .update(tables.storySessions)
+        .set({ notes: null, lingeringQuestions: null })
+        .where(eq(tables.storySessions.idStorySession, done));
+      await db.update(tables.stories).set({ isPublic: false }).where(byStory);
+      await db.delete(tables.storyPlayers).where(theirSeat);
+      getSession.mock.mockImplementation(async () => ({ user: { id: testUser } }));
+    }
+  });
+
+  it("gives a player only the completed scenes of a done session, and none of an open one", async () => {
+    // Two scenes on the done session, one played out and one never run,
+    // and a completed one on the open session.
+    const [playedOut] = await db
+      .insert(tables.storyScenes)
+      .values({
+        idStory: mine,
+        idStorySession: done,
+        sceneTitle: "Fixture played out",
+        status: "COMPLETE",
+        idCreatedByUser: testUser,
+      })
+      .returning({ id: tables.storyScenes.idStoryScene });
+    const [neverRun] = await db
+      .insert(tables.storyScenes)
+      .values({
+        idStory: mine,
+        idStorySession: done,
+        sceneTitle: "Fixture never run",
+        idCreatedByUser: testUser,
+      })
+      .returning({ id: tables.storyScenes.idStoryScene });
+    const [stillOpen] = await db
+      .insert(tables.storyScenes)
+      .values({
+        idStory: mine,
+        idStorySession: open,
+        sceneTitle: "Fixture complete but the session is not",
+        status: "COMPLETE",
+        idCreatedByUser: testUser,
+      })
+      .returning({ id: tables.storyScenes.idStoryScene });
+    const theirSeat = and(
+      eq(tables.storyPlayers.idStory, mine),
+      eq(tables.storyPlayers.idUser, otherUserId),
+    );
+    await db.insert(tables.storyPlayers).values({ idStory: mine, idUser: otherUserId });
+
+    try {
+      // The storyteller sees both of the done session's, run or not.
+      expect((await actions.sa_getStorySession(done))?.scenes.map((s) => s.title).sort()).toEqual([
+        "Fixture never run",
+        "Fixture played out",
+      ]);
+
+      getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
+      expect((await actions.sa_getStorySession(done))?.scenes.map((s) => s.title)).toEqual([
+        "Fixture played out",
+      ]);
+      // A scene of a session still being played is prep, however it stands.
+      expect((await actions.sa_getStorySession(open))?.scenes).toEqual([]);
+    } finally {
+      getSession.mock.mockImplementation(async () => ({ user: { id: testUser } }));
+      await db.delete(tables.storyPlayers).where(theirSeat);
+      await db
+        .delete(tables.storyScenes)
+        .where(inArray(tables.storyScenes.idStoryScene, [playedOut.id, neverRun.id, stillOpen.id]));
+    }
   });
 
   it("finds the sessions either side of one, and nothing past the ends", async () => {

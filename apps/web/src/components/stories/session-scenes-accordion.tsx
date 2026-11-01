@@ -9,8 +9,9 @@ import { StatusPill } from "@/components/status/status-pill";
 type Props = {
   /**
    * The session's scenes in the order they were played, each as its own
-   * panel loads it. The storyteller's alone: sa_getStorySession gives
-   * nobody else any, so for anyone else this is not drawn.
+   * panel loads it: every one for the storyteller, the completed ones of a
+   * done session for anyone else, as sa_getStorySession hands them out.
+   * With none, this is not drawn.
    */
   scenes: StorySceneDetail[];
   sceneStatusOptions: StatusOption[];

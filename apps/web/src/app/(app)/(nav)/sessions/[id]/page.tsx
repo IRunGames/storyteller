@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { Container, Heading, HStack, Stack } from "@chakra-ui/react";
+import NextLink from "next/link";
+import { Container, Heading, HStack, Link, Stack } from "@chakra-ui/react";
 import { sessionHeading } from "@/lib/stories";
 import { requireSession } from "@/lib/require-session";
 import { SessionNeighbourChevron } from "@/components/stories/session-neighbour-chevron";
@@ -13,10 +14,12 @@ import { sa_getStorySession, sa_getStorySessionNeighbours } from "../../stories/
 // panel's pop-out button, with arrows either side of the heading to the
 // sessions before and after it and every scene of the sitting opened out
 // below. requireSession() here rather than trusting the group layout; see
-// lib/require-session.ts for why. sa_getStorySession decides what the
-// caller sees, exactly as it does for the popover: the notes, the lingering
-// questions and the scenes are the storyteller's alone, so for anyone else
-// the scenes below are simply not there.
+// lib/require-session.ts for why. sa_getStorySession decides who sees the
+// page at all (the storyteller, the story's players, anyone when the story
+// is public) and what they see, exactly as it does for the popover: the
+// notes and the lingering questions are the storyteller's alone, and anyone
+// else gets the scenes only once the session is done, and only the
+// completed ones.
 export default async function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   await requireSession();
 
@@ -42,6 +45,12 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
   return (
     <Container maxW="lg" py="8">
       <Stack gap="6">
+        {/* The story the session belongs to, at the top left, as the way
+            back: the page opens in a tab of its own, so the panel it came
+            from is not behind it. */}
+        <Link asChild alignSelf="start" textStyle="sm" color="fg.muted">
+          <NextLink href={`/stories/${detail.idStory}`}>{detail.storyTitle}</NextLink>
+        </Link>
         <HStack gap="2" align="center">
           <SessionNeighbourChevron direction="previous" session={neighbours.previous} />
           <Heading as="h1" size="2xl" flex="1" textAlign="center">

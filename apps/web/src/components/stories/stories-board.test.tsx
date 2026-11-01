@@ -25,6 +25,8 @@ function stories(count: number, from = 1, isFavorite = false): StoryCardData[] {
     hasOpenSession: false,
     playerCount: 0,
     waitingCount: 0,
+    isPlayer: false,
+    isPublic: false,
     presentCount: 0,
   }));
 }

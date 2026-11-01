@@ -172,6 +172,19 @@ const storySessions: StorySession[] = [
 // Both panels open, for the tests about what is in them.
 const OPEN = { "play.showChat": true, "play.showCharacter": true };
 
+// The session's notes panel beside its heading reads and writes through its
+// own actions (components/sessions/actions.ts).
+const sa_getSessionNotes = mock.fn(async (_id: number) => ({
+  notes: "Kept so far.",
+  lingeringQuestions: null,
+}));
+const sa_setSessionNotes = mock.fn(
+  async (_id: number, values: { notes: string; lingeringQuestions: string }) => ({
+    ok: true as const,
+    notes: { notes: values.notes || null, lingeringQuestions: values.lingeringQuestions || null },
+  }),
+);
+
 function renderTable(
   preferences: Record<string, boolean | string> = {},
   session: string | null = "3. Kildealg",
@@ -186,6 +199,7 @@ function renderTable(
           idStory={7}
           title="Psychoneira"
           session={session}
+          idStorySession={session === null ? null : -30}
           initialScene={initialScene}
           storyCoverUrl={storyCoverUrl}
           sessions={storySessions}
@@ -230,6 +244,9 @@ describe("PlayTable", () => {
     });
     mock.module("@/components/elements/actions", {
       namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
+    });
+    mock.module("@/components/sessions/actions", {
+      namedExports: { sa_getSessionNotes, sa_setSessionNotes },
     });
     mock.module("@/app/(app)/play/[id]/actions", {
       namedExports: {
@@ -277,6 +294,38 @@ describe("PlayTable", () => {
 
   afterEach(() => {
     toaster.remove();
+  });
+
+  it("offers the session's notes beside its heading, for the players to write up", async () => {
+    const u = userEvent.setup();
+    renderTable();
+
+    await u.click(screen.getByRole("button", { name: "Session notes" }));
+    const notes = await screen.findByRole("textbox", { name: "Notes" });
+    expect(notes).toHaveValue("Kept so far.");
+    expect(sa_getSessionNotes.mock.calls.at(-1)?.arguments).toEqual([-30]);
+
+    await u.clear(notes);
+    await u.type(notes, "Written at the table.");
+    await u.type(screen.getByRole("textbox", { name: "Lingering questions" }), "Who sent them?");
+    await u.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(sa_setSessionNotes.mock.calls.at(-1)?.arguments).toEqual([
+        -30,
+        { notes: "Written at the table.", lingeringQuestions: "Who sent them?" },
+      ]),
+    );
+    expect(await screen.findByText("Session saved")).toBeInTheDocument();
+  });
+
+  it("offers no notes panel to a guest, nor with no session being played", () => {
+    const { unmount } = renderTable({}, "3. Kildealg", { ...user, isAnonymous: true });
+    expect(screen.queryByRole("button", { name: "Session notes" })).not.toBeInTheDocument();
+    unmount();
+
+    renderTable({}, null);
+    expect(screen.queryByRole("button", { name: "Session notes" })).not.toBeInTheDocument();
   });
 
   it("goes to the display table from the middle of the header", () => {

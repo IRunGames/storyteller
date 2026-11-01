@@ -19,6 +19,8 @@ const storyFields = z.object({
   isLookingForPlayers: z.boolean(),
   isActive: z.boolean(),
   isArchived: z.boolean(),
+  /** Anyone signed in may read its sessions; else only the storyteller and players. */
+  isPublic: z.boolean(),
 });
 
 /**

@@ -8,6 +8,7 @@ import { useUserPreferences } from "@/components/preferences/user-preferences-pr
 import { canSeeDiagnostics } from "@/lib/diagnostics";
 import type { PlayScene } from "@/lib/play-scene";
 import type { StorySession } from "@/lib/stories";
+import { SessionNotesPopover } from "@/components/sessions/session-notes-popover";
 import { StoryPlayingBox } from "@/components/stories/story-playing-box";
 import { DisplayModeButton } from "./display-mode-button";
 import { PlayCharacterSpace } from "./play-character-space";
@@ -58,6 +59,8 @@ type Props = {
   title: string;
   /** The heading of the session being played, or null when there is none. */
   session: string | null;
+  /** The id behind that heading, for the notes panel beside it; null with no session. */
+  idStorySession: number | null;
   /** The scene as the page loaded it; the table keeps it up to date from there. */
   initialScene: PlayScene;
   /** The story's cover, for the play space when the scene has none; see PlaySpace. */
@@ -70,6 +73,7 @@ export function PlayTable({
   idStory,
   title,
   session,
+  idStorySession,
   initialScene,
   storyCoverUrl,
   sessions,
@@ -149,7 +153,21 @@ export function PlayTable({
 
   return (
     <Flex direction="column" h="100vh">
-      <PlayHeader title={title} session={session} center={toggles} centerInMenu />
+      {/* The session's notes and lingering questions, written up beside
+          its heading by the players as well as the storyteller. Not for a
+          guest: every write is an account's (requireAccount), as the rest
+          of the table's are. */}
+      <PlayHeader
+        title={title}
+        session={session}
+        afterSession={
+          session !== null && idStorySession !== null && !user.isAnonymous ? (
+            <SessionNotesPopover idStorySession={idStorySession} heading={session} />
+          ) : undefined
+        }
+        center={toggles}
+        centerInMenu
+      />
 
       {/* minH 0 all the way down, so a long chat scrolls inside its panel
           instead of stretching the page past the window. */}

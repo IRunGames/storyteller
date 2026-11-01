@@ -24,6 +24,8 @@ const story: StoryCardData = {
   hasOpenSession: false,
   playerCount: 3,
   waitingCount: 0,
+  isPlayer: false,
+  isPublic: false,
   presentCount: 0,
 };
 

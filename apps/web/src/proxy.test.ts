@@ -89,12 +89,17 @@ describe("proxy", () => {
 
   it("never runs for the window icons", () => {
     // A browser asks for them on the login page too, with no cookie.
-    for (const url of ["/favicon.ico", "/icon.png", "/apple-icon.png"]) {
+    for (const url of [
+      "/icons/dev/favicon.ico",
+      "/icons/dev/icon.png",
+      "/icons/production/apple-icon.png",
+    ]) {
       expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);
     }
   });
 
   it("still runs for a page whose path starts like an icon", () => {
     expect(unstable_doesMiddlewareMatch({ config, url: "/iconography" })).toBe(true);
+    expect(unstable_doesMiddlewareMatch({ config, url: "/favicon.ico" })).toBe(true);
   });
 });

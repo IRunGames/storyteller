@@ -354,6 +354,12 @@ describe("RunTable", () => {
       namedExports: { sa_listStatusOptions, sa_setRowStatus },
     });
     // The diagnostics panel's channel: the broker is never reached from here.
+    mock.module("@/components/sessions/actions", {
+      namedExports: {
+        sa_getSessionNotes: mock.fn(async () => ({ notes: null, lingeringQuestions: null })),
+        sa_setSessionNotes: mock.fn(),
+      },
+    });
     mock.module("@/app/(app)/play/[id]/actions", {
       namedExports: {
         sa_getStoryChannel,

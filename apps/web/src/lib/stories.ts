@@ -19,8 +19,12 @@ export type StoryCardData = {
   systemVersion: string | null;
   variant: string | null;
   isFavorite: boolean;
-  /** The caller created this story; only they get the Play button. */
+  /** The caller created this story: their Play opens the session popover, and only they edit it. */
   isOwner: boolean;
+  /** The caller has a seat in story_players: their Play on the story page leads to the table. */
+  isPlayer: boolean;
+  /** Anyone signed in may read its sessions; the story page wears a PUBLIC badge. */
+  isPublic: boolean;
   /** False for a story the storyteller has retired; hidden from My Stories by default. */
   isActive: boolean;
   /** The storyteller has opened the story to new players; the story page offers Join. */
@@ -89,8 +93,19 @@ export type StorySession = {
 };
 
 /** What the session info popover shows for one session. */
+/**
+ * The status a session has once it has been played out. Named here, as
+ * SCENE_LOCKED_STATUS is in lib/scenes.ts, because the workflow has no
+ * mark the code could read it off: it is the point from which a player may
+ * read the session's completed scenes.
+ */
+export const SESSION_DONE_STATUS = "DONE";
+
 export type StorySessionDetail = {
   idStorySession: number;
+  /** The story the session belongs to, for the link back to it from the session's page. */
+  idStory: number;
+  storyTitle: string;
   /** When it was opened: the same date the Timeline shows for it. */
   startedAt: Date;
   /** 1 for the story's first session, counted in the order they opened. */
@@ -102,14 +117,19 @@ export type StorySessionDetail = {
   length: number | null;
   imageLink: string | null;
   summary: string | null;
-  /** The storyteller's own; null for anyone else, however the row reads. */
+  /**
+   * Written up at the table by the storyteller and the players, so both
+   * read them; null for a reader of a public story, however the row reads.
+   */
   notes: string | null;
   lingeringQuestions: string | null;
   /** Who came, resolved from the session's user ids; an id nobody matches is left out. */
   players: StoryPlayer[];
   /**
-   * The scenes played in this sitting, oldest first. The storyteller's own,
-   * like the notes: empty for anyone else, however the row reads.
+   * The scenes played in this sitting, oldest first. All of them for the
+   * storyteller; for anyone else only the completed scenes of a done
+   * session, and none at all before the session is done, since until then
+   * the scenes are prep the players have not been shown.
    */
   scenes: SessionScene[];
   /**

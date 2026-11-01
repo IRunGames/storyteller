@@ -40,6 +40,8 @@ const story: StoryCardData = {
   hasOpenSession: false,
   playerCount: 2,
   waitingCount: 0,
+  isPlayer: false,
+  isPublic: false,
   presentCount: 0,
 };
 
@@ -267,10 +269,12 @@ describe("StoryCard", () => {
   it("offers the owner the Library beside Play, and beside the Inactive pill", async () => {
     const user = userEvent.setup();
     renderWithProviders(<StoryCard story={story} />);
-    expect(screen.queryByRole("link", { name: "Library: prep game" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Library: Full Story Resources" }),
+    ).not.toBeInTheDocument();
 
     renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
-    const prep = screen.getByRole("link", { name: "Library: prep game" });
+    const prep = screen.getByRole("link", { name: "Library: Full Story Resources" });
     expect(prep).toHaveAttribute("href", "/libraries/-13");
     // Right of Play: it comes after it in document order.
     expect(
@@ -278,12 +282,12 @@ describe("StoryCard", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     await user.hover(prep);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Library: prep game");
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Library: Full Story Resources");
   });
 
   it("keeps the Library for the owner of a retired story", () => {
     renderWithProviders(<StoryCard story={{ ...story, isOwner: true, isActive: false }} />);
-    expect(screen.getByRole("link", { name: "Library: prep game" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Library: Full Story Resources" })).toHaveAttribute(
       "href",
       "/libraries/-13",
     );

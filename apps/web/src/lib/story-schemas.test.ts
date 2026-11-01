@@ -3,7 +3,10 @@ import { expect } from "expect";
 
 import { storySchema } from "./story-schemas";
 
-function messagesFor(result: { success: boolean; error?: { issues: { path: PropertyKey[]; message: string }[] } }) {
+function messagesFor(result: {
+  success: boolean;
+  error?: { issues: { path: PropertyKey[]; message: string }[] };
+}) {
   if (result.success || !result.error) return {};
   return Object.fromEntries(
     result.error.issues.map((issue) => [issue.path.join("."), issue.message]),
@@ -17,6 +20,7 @@ const good = {
   isLookingForPlayers: false,
   isActive: true,
   isArchived: false,
+  isPublic: false,
 };
 
 describe("storySchema", () => {

@@ -1,6 +1,6 @@
 import { before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { ReactElement } from "react";
@@ -41,6 +41,8 @@ const story: StoryCardData = {
   hasOpenSession: false,
   playerCount: 2,
   waitingCount: 0,
+  isPlayer: false,
+  isPublic: false,
   presentCount: 0,
 };
 
@@ -163,7 +165,72 @@ describe("StoryDetails", () => {
     );
   });
 
-  it("offers the storyteller a Library button after the title that leads to the library", () => {
+  it("offers the storyteller a Build Scenes door to the last scene's live-edit page, or the library with none", () => {
+    const { unmount } = renderWithProviders(
+      <StoryDetails
+        story={{ ...story, isOwner: true }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+        buildSceneId={-7}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Build Scenes" })).toHaveAttribute(
+      "href",
+      "/scenes/-7/live",
+    );
+    unmount();
+
+    renderWithProviders(
+      <StoryDetails
+        story={{ ...story, isOwner: true }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Build Scenes" })).toHaveAttribute(
+      "href",
+      "/libraries/-15",
+    );
+    cleanup();
+
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+        buildSceneId={-7}
+      />,
+    );
+    expect(screen.queryByRole("link", { name: "Build Scenes" })).not.toBeInTheDocument();
+  });
+
+  it("wears a PUBLIC badge beside the title when anyone may read the story's sessions", () => {
+    const { unmount } = renderWithProviders(
+      <StoryDetails
+        story={{ ...story, isPublic: true }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+    expect(screen.getByText("PUBLIC")).toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+    expect(screen.queryByText("PUBLIC")).not.toBeInTheDocument();
+  });
+
+  it("offers the storyteller a Library button in the top corner beside Edit that leads to the library", () => {
     renderWithProviders(
       <StoryDetails
         story={{ ...story, isOwner: true }}
@@ -173,11 +240,12 @@ describe("StoryDetails", () => {
       />,
     );
 
-    const link = screen.getByRole("link", { name: "Library: prep game" });
+    const link = screen.getByRole("link", { name: "Library: Full Story Resources" });
     expect(link).toHaveAttribute("href", "/libraries/-15");
-    // Right of the title: the button comes after the h1 in document order.
-    const title = screen.getByRole("heading", { level: 1, name: "Vampire" });
-    expect(title.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // In the corner's row with Edit: the same parent, the library first.
+    const edit = screen.getByRole("link", { name: "Edit story" });
+    expect(link.parentElement?.parentElement).toBe(edit.parentElement?.parentElement);
+    expect(link.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows no Library button to anyone but the storyteller", () => {
@@ -190,7 +258,9 @@ describe("StoryDetails", () => {
       />,
     );
 
-    expect(screen.queryByRole("link", { name: "Library: prep game" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Library: Full Story Resources" }),
+    ).not.toBeInTheDocument();
   });
 
   it("gives the storyteller an Attachments section at the foot of the page, for this story", () => {
@@ -271,7 +341,23 @@ describe("StoryDetails", () => {
     expect(await within(ask).findByRole("alert")).toHaveTextContent("Refused for the test.");
   });
 
-  it("shows no Play button to anyone but the storyteller, or on an inactive story", () => {
+  it("offers a player of an active story Play as the link to the table", () => {
+    renderWithProviders(
+      <StoryDetails
+        story={{ ...story, isPlayer: true }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+
+    expect(within(section("Recent sessions")).getByRole("link", { name: "Play" })).toHaveAttribute(
+      "href",
+      "/play/-15",
+    );
+  });
+
+  it("shows no Play button to anyone but the storyteller and the players, or on an inactive story", () => {
     const { unmount } = renderWithProviders(
       <StoryDetails
         story={story}

@@ -564,8 +564,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         length: null,
         imageLink: "https://x.test/hero.jpg",
         summary: "What happened.",
-        notes: null,
-        lingeringQuestions: null,
+        // The test user plays in A, and the notes are the table's: the
+        // players read what they and the storyteller wrote up there.
+        notes: "Private.",
+        lingeringQuestions: "Why?",
       });
       expect(detail?.players.map((p) => p.idUser).sort()).toEqual([otherUserId, testUser].sort());
       expect(detail?.players.find((p) => p.idUser === otherUserId)?.name).toBe("Other");
@@ -618,6 +620,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       isLookingForPlayers: false,
       isActive: true,
       isArchived: false,
+      isPublic: false,
     });
     expect(result).toEqual({ ok: false, errors: { title: "Please give the story a title." } });
   });
@@ -632,6 +635,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       isLookingForPlayers: false,
       isActive: false,
       isArchived: false,
+      isPublic: false,
     });
     expect(await actions.sa_getStoryForEdit(storyA)).toBeNull();
     expect(await actions.sa_getStoryForEdit(2 ** 40)).toBeNull();
@@ -647,6 +651,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       // relies on, and the edit tests only borrow it.
       isActive: false,
       isArchived: false,
+      isPublic: true,
     };
 
     // On success the action redirects, which Next implements by throwing.
@@ -680,6 +685,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       isLookingForPlayers: true,
       isActive: true,
       isArchived: true,
+      isPublic: false,
     };
     const archival = () =>
       db
@@ -903,9 +909,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .returning({ id: tables.storyScenes.idStoryScene });
 
     // storyA belongs to the other user, so the test user reading this session
-    // is a visitor: the scenes are prep, like the notes, and stay behind.
+    // is a player at it: the notes are theirs to read, but the scenes of a
+    // session still open are prep and stay behind.
     const detail = await actions.sa_getStorySession(openSessionId);
-    expect(detail?.notes).toBeNull();
+    expect(detail?.notes).toBe("Private.");
     expect(detail?.scenes).toEqual([]);
     // Nor is its status theirs to move.
     expect(detail?.isStoryteller).toBe(false);
@@ -1227,6 +1234,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
                 isLookingForPlayers: false,
                 isActive: true,
                 isArchived: false,
+                isPublic: false,
               },
               afterCreate,
             )
@@ -1256,6 +1264,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
           isLookingForPlayers: false,
           isActive: true,
           isArchived: false,
+          isPublic: false,
         })
         .then(
           () => null,

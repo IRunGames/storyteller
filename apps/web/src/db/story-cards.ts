@@ -14,6 +14,16 @@ import { presentCount, waitingCount } from "./session-player-counts";
 // a correlated EXISTS rather than a join so a favorite never duplicates or
 // drops a card, and it is scoped to the caller: nobody sees anyone else's
 // hearts.
+/** Whether userId has a seat in the story: a story_players row of theirs. */
+function playedBy(userId: string) {
+  return exists(
+    db
+      .select({ one: storyPlayers.idStoryPlayer })
+      .from(storyPlayers)
+      .where(and(eq(storyPlayers.idStory, stories.idStory), eq(storyPlayers.idUser, userId))),
+  ).mapWith(Boolean);
+}
+
 function favoritedBy(userId: string) {
   return exists(
     db
@@ -53,6 +63,8 @@ export function cardColumns(userId: string) {
     // NULL = userId is NULL in SQL, and Boolean(null) is false, so a story with
     // no recorded creator has no owner rather than an error.
     isOwner: eq(stories.idCreatedByUser, userId).mapWith(Boolean),
+    isPlayer: playedBy(userId),
+    isPublic: stories.isPublic,
     isActive: stories.isActive,
     isLookingForPlayers: stories.isLookingForPlayers,
     // Null when the left join found no creator row.

@@ -43,7 +43,7 @@ export function SessionInfoPopover({ idStorySession, color, onStatusChanged }: P
     const detail = await sa_getStorySession(idStorySession);
     if (!detail) return null;
     // The scenes' workflow is only worth asking for when there are scenes to
-    // colour, which is only ever for the storyteller.
+    // colour.
     const [sessionStatusOptions, sceneStatusOptions] = await Promise.all([
       sa_listStatusOptions("story_sessions"),
       detail.scenes.length > 0 ? sa_listStatusOptions("story_scenes") : [],

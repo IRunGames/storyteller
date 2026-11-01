@@ -13,6 +13,8 @@ const line = (text: string) => (_: string, element: Element | null) =>
 
 const detail: StorySessionDetail = {
   idStorySession: -3,
+  idStory: -1,
+  storyTitle: "An Eastern King",
   // Noon UTC, so the day is the same in whatever zone the tests run in.
   startedAt: new Date("2026-09-12T12:00:00Z"),
   number: 3,

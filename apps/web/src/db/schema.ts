@@ -203,6 +203,9 @@ export const stories = pgTable("stories", {
   idSystem: integer("id_system"),
   isActive: boolean("is_active").default(true).notNull(),
   isLookingForPlayers: boolean("is_looking_for_players").default(false).notNull(),
+  // Anyone signed in may read its sessions and played scenes; otherwise only
+  // the storyteller and its players (db/story-access.ts).
+  isPublic: boolean("is_public").default(false).notNull(),
   lastPlayed: timestamp("last_played", { withTimezone: true }).defaultNow().notNull(),
   // The session currently at the table, if any; null between sessions.
   // story_sessions keeps the history, this is only the one in progress.

@@ -31,6 +31,7 @@ const existing = {
     isLookingForPlayers: true,
     isActive: true,
     isArchived: false,
+    isPublic: false,
   },
 };
 
@@ -79,6 +80,7 @@ describe("StoryForm", () => {
     await user.selectOptions(screen.getByLabelText(/System/), "-26");
     await user.type(screen.getByLabelText(/Summary/), "A gala in Satyrine.");
     await user.click(screen.getByLabelText(/Looking for players/));
+    await user.click(screen.getByLabelText(/Public/));
     await user.click(screen.getByRole("button", { name: "Create story" }));
 
     await waitFor(() => expect(sa_createStory.mock.callCount()).toBe(1));
@@ -89,6 +91,7 @@ describe("StoryForm", () => {
       isLookingForPlayers: true,
       isActive: true,
       isArchived: false,
+      isPublic: true,
     });
     expect(sa_updateStory.mock.callCount()).toBe(0);
   });

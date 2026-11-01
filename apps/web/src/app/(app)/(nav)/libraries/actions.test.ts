@@ -10,7 +10,7 @@
 // column default and any move is found in the workflow (src/test/workflow.ts).
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 
 import { SCENE_LOCKED_STATUS, SCENES_PAGE_SIZE } from "@/lib/scenes";
@@ -309,6 +309,27 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(await actions.sa_countStoryScenes(2147483648)).toBe(0);
   });
 
+  it("points Build Scenes at the storyteller's last-touched scene, and nowhere for anyone else", async () => {
+    const [latest] = await db
+      .select({ id: tables.storyScenes.idStoryScene })
+      .from(tables.storyScenes)
+      .where(eq(tables.storyScenes.idStory, myStory))
+      .orderBy(desc(tables.storyScenes.updatedAt), desc(tables.storyScenes.idStoryScene))
+      .limit(1);
+    expect(await actions.sa_getSceneToBuild(myStory)).toBe(latest.id);
+
+    // Touching an older scene makes it the one to go on with.
+    const oldest = Math.min(...sceneIds);
+    await db
+      .update(tables.storyScenes)
+      .set({ sceneDescription: "Touched.", updatedAt: sql`now()` })
+      .where(eq(tables.storyScenes.idStoryScene, oldest));
+    expect(await actions.sa_getSceneToBuild(myStory)).toBe(oldest);
+
+    expect(await actions.sa_getSceneToBuild(theirStory)).toBeNull();
+    expect(await actions.sa_getSceneToBuild(2 ** 40)).toBeNull();
+  });
+
   it("gives one scene in full, with the sitting it was played in", async () => {
     const [newest] = await actions.sa_listStoryScenes(myStory, 0);
     const detail = await actions.sa_getStoryScene(newest.idStoryScene);
@@ -364,21 +385,53 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(await actions.sa_getStoryScene(2147483647)).toBeNull();
   });
 
-  it("gives a player of the story its scene, as someone who is not the storyteller", async () => {
+  it("gives a player of the story a completed scene, and nothing before it is complete", async () => {
     const [theirs] = await db
-      .select({ id: tables.storyScenes.idStoryScene })
+      .select({ id: tables.storyScenes.idStoryScene, status: tables.storyScenes.status })
       .from(tables.storyScenes)
       .where(eq(tables.storyScenes.idStory, theirStory));
+    const byId = eq(tables.storyScenes.idStoryScene, theirs.id);
     await db.insert(tables.storyPlayers).values({ idStory: theirStory, idUser: testUser });
 
     try {
+      // The fixture scene is still waiting on the board: prep, so a player
+      // gets the same answer as for a scene that is not there.
+      expect(theirs.status).not.toBe("COMPLETE");
+      expect(await actions.sa_getStoryScene(theirs.id)).toBeNull();
+
+      await db.update(tables.storyScenes).set({ status: "COMPLETE" }).where(byId);
       expect(await actions.sa_getStoryScene(theirs.id)).toMatchObject({
         idStoryScene: theirs.id,
         title: "Fixture scene of theirs",
         isStoryteller: false,
       });
     } finally {
+      await db.update(tables.storyScenes).set({ status: theirs.status }).where(byId);
       await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, theirStory));
+    }
+  });
+
+  it("gives anyone a completed scene of a public story", async () => {
+    const [theirs] = await db
+      .select({ id: tables.storyScenes.idStoryScene, status: tables.storyScenes.status })
+      .from(tables.storyScenes)
+      .where(eq(tables.storyScenes.idStory, theirStory));
+    const byId = eq(tables.storyScenes.idStoryScene, theirs.id);
+    const byStory = eq(tables.stories.idStory, theirStory);
+    await db.update(tables.storyScenes).set({ status: "COMPLETE" }).where(byId);
+
+    try {
+      // No seat, and the story is private: not there.
+      expect(await actions.sa_getStoryScene(theirs.id)).toBeNull();
+
+      await db.update(tables.stories).set({ isPublic: true }).where(byStory);
+      expect(await actions.sa_getStoryScene(theirs.id)).toMatchObject({
+        idStoryScene: theirs.id,
+        isStoryteller: false,
+      });
+    } finally {
+      await db.update(tables.stories).set({ isPublic: false }).where(byStory);
+      await db.update(tables.storyScenes).set({ status: theirs.status }).where(byId);
     }
   });
 
@@ -488,6 +541,11 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
 
     it("gives a player only what the table shows them", async () => {
       const made = await linkThree(theirStory, otherUserId);
+      // Played out, since a player reads no scene before it is.
+      await db
+        .update(tables.storyScenes)
+        .set({ status: "COMPLETE" })
+        .where(eq(tables.storyScenes.idStoryScene, made.idScene));
       await db.insert(tables.storyPlayers).values({ idStory: theirStory, idUser: testUser });
       try {
         const detail = await actions.sa_getStoryScene(made.idScene);
