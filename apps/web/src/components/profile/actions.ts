@@ -81,6 +81,8 @@ export async function sa_getProfile(): Promise<Profile> {
     bio: user.bio,
     image: user.image,
     createdAt: user.createdAt,
+    // Joined in by v_users, which requireAccount reads from.
+    userTypeName: user.userTypeName,
     systems: await likedSystems(user.id),
   };
 }

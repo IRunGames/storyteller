@@ -13,7 +13,9 @@ type Props = {
 
 // The session's own page, under its heading: the popover's body, holding the
 // detail in state so the pill's move shows without a reload. Whether the
-// pill is a menu is the detail's isStoryteller, as in the popover.
+// pill is a menu is the detail's isStoryteller, as in the popover. The
+// Scenes fold is left out: the page opens every scene below this
+// (SessionScenesAccordion).
 export function SessionPageDetail({ initial, sessionStatusOptions, sceneStatusOptions }: Props) {
   const [detail, setDetail] = useState(initial);
   return (
@@ -22,6 +24,7 @@ export function SessionPageDetail({ initial, sessionStatusOptions, sceneStatusOp
       sessionStatusOptions={sessionStatusOptions}
       sceneStatusOptions={sceneStatusOptions}
       onStatusChanged={(status) => setDetail((current) => ({ ...current, status }))}
+      withScenes={false}
     />
   );
 }

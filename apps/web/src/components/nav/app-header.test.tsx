@@ -54,6 +54,7 @@ const sa_getProfile = mock.fn(async () => ({
   bio: null,
   image: null,
   createdAt: new Date("2017-05-25T12:00:00Z"),
+  userTypeName: "Administrator",
   systems: [],
 }));
 
@@ -266,10 +267,12 @@ describe("AppHeader", () => {
     expect(screen.getByRole("link", { name: "Library" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("shows the notifications bell disabled", () => {
+  // The bell is commented out in nav-user-buttons.tsx until notifications
+  // exist; this keeps it from coming back by accident before then.
+  it("leaves the notifications bell out for now", () => {
     renderHeader();
 
-    expect(screen.getByRole("button", { name: "Notifications" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Notifications" })).not.toBeInTheDocument();
   });
 
   it("explains each icon in a tooltip on hover", async () => {
@@ -281,10 +284,6 @@ describe("AppHeader", () => {
 
     await u.hover(await screen.findByRole("button", { name: "Choose theme" }));
     await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent("Set your theme"));
-
-    // The bell is disabled, so the hover lands on the span wrapped round it.
-    await u.hover(screen.getByRole("button", { name: "Notifications" }).parentElement!);
-    await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent("Coming soon"));
   });
 
   it("lets the user pick a theme", async () => {

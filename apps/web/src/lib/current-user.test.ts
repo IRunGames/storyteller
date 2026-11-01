@@ -22,6 +22,8 @@ describe("toCurrentUser", () => {
       bio: "Runs the table on Thursdays.",
       isAnonymous: false,
       searchText: "Paul Stafford storyteller@irun.games Gandalf",
+      userTypeName: "Unpaid Player",
+      status: "active" as const,
     };
 
     expect(toCurrentUser(row)).toEqual({

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Avatar, Box, HStack, Stack, Text } from "@chakra-ui/react";
+import { Avatar, Badge, Box, HStack, Stack, Text } from "@chakra-ui/react";
 import { LocalDate } from "@/components/dates/local-date";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { PROFILE_PREFERENCE_KEYS, avatarSrc, profileColor, type Profile } from "@/lib/profile";
@@ -125,14 +125,27 @@ export function ProfileCard({ profile }: Props) {
         </HStack>
 
         <Stack gap="1">
-          <ProfileEditable
-            label="Name"
-            placeholder="Your name"
-            value={details.name}
-            onSave={(name) => saveDetails({ name })}
-            fontSize="2xl"
-            fontWeight="bold"
-          />
+          {/* The account's type beside the name, small and plain: a fact
+              about the account rather than something to edit here, so a
+              badge and not another ProfileEditable. The name keeps the
+              room; the badge never shrinks. */}
+          <HStack gap="3" align="center">
+            <Box flex="1" minW="0">
+              <ProfileEditable
+                label="Name"
+                placeholder="Your name"
+                value={details.name}
+                onSave={(name) => saveDetails({ name })}
+                fontSize="2xl"
+                fontWeight="bold"
+              />
+            </Box>
+            {profile.userTypeName && (
+              <Badge variant="subtle" size="sm" flexShrink="0">
+                {profile.userTypeName}
+              </Badge>
+            )}
+          </HStack>
           <HStack gap="2" color="fg.muted" textStyle="sm" flexWrap="wrap">
             <Text>{profile.email}</Text>
             <Text aria-hidden>•</Text>

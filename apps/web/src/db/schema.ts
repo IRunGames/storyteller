@@ -15,6 +15,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import type { UserPreferenceMap } from "@/lib/user-preference-schemas";
+import type { UserStatus } from "@/lib/user-types";
 
 // The exported names (user, session, account, verification) are Better Auth's
 // model names and must stay singular — the Drizzle adapter looks the tables up
@@ -64,6 +65,35 @@ export const user = pgTable("s_users", {
     sql`immutable_concat_ws(' ', name, email, nick_name)`,
   ),
 });
+
+// s_users with the name of each account's type and its status worked out
+// (db/views/v_users.sql). What requireUser() reads, so every server action's
+// user carries both, and what the administrators' Users page lists. The
+// columns repeat the table's, with the same nullability, so DbUser keeps the
+// types the table gave it; a column added to s_users is added here and the
+// view rebuilt (`just view v_users`).
+export const vUsers = pgView("v_users", {
+  id: uuid("id_user").notNull(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  emailVerified: boolean("email_verified").notNull(),
+  image: text("image"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  nickName: varchar("nick_name"),
+  lastLogin: timestamp("last_login", { withTimezone: true }).notNull(),
+  hoursPlayed: doublePrecision("hours_played").notNull(),
+  idUserType: integer("id_user_type").notNull(),
+  tags: integer("tags"),
+  isActive: boolean("is_active").notNull(),
+  bio: text("bio"),
+  isAnonymous: boolean("is_anonymous").notNull(),
+  searchText: text("search_text"),
+  // The s_user_types name for idUserType.
+  userTypeName: varchar("user_type_name").notNull(),
+  // 'guest', 'inactive' or 'active', from isAnonymous and isActive.
+  status: text("status").$type<UserStatus>().notNull(),
+}).existing();
 
 export const session = pgTable(
   "s_sessions",

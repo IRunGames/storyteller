@@ -349,7 +349,6 @@ describe("PlayTable", () => {
 
     expect(screen.getByRole("button", { name: "Account menu" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose theme" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Notifications" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
   });
 

@@ -33,7 +33,7 @@ export function InvitationsAdmin({ initial }: { initial: AdminInvitation[] }) {
       <Stack gap="1">
         <Heading size="2xl">Invitations</Heading>
         <Text color="fg.muted">
-          Invite someone to Storyteller with a paid account, and look after every invitation
+          Invite someone to Storyteller with any account type, and look after every invitation
           storytellers and administrators have sent.
         </Text>
       </Stack>

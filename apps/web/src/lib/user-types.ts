@@ -14,6 +14,15 @@ export const USER_TYPES = {
 } as const;
 
 /**
+ * The one-word states v_users gives an account (db/views/v_users.sql): a
+ * guest who came in by a join link, an account switched off, or an account
+ * in use. In the order the Users page lists them.
+ */
+export const USER_STATUSES = ["active", "inactive", "guest"] as const;
+
+export type UserStatus = (typeof USER_STATUSES)[number];
+
+/**
  * Who something is shown to, by s_user_types id: strictly below one type,
  * strictly above one, or between. "Above" is more powerful, so a smaller id.
  */

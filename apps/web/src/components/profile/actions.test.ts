@@ -110,6 +110,8 @@ describe("profile actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       nickName: "Fixture",
       bio: null,
       image: null,
+      // The fixture takes s_users' default type, -10.
+      userTypeName: "Unpaid Player",
       systems: [],
     });
     expect(profile.createdAt).toBeInstanceOf(Date);

@@ -2,8 +2,11 @@
 
 import { useState, useTransition } from "react";
 import NextLink from "next/link";
-import { Link } from "@chakra-ui/react";
+import { Button, Link } from "@chakra-ui/react";
 import { PAGE_SIZE, SECTION_TITLES, type StoryCardData } from "@/lib/stories";
+import { withRedirect } from "@/lib/safe-redirect";
+import { USER_TYPES } from "@/lib/user-types";
+import { UserTypeVisibility } from "@/components/auth/user-type-visibility";
 import { StorySection } from "@/components/stories/story-section";
 import { sa_listFavoriteStories, sa_setFavorite } from "@/app/(app)/(nav)/stories/actions";
 
@@ -77,6 +80,20 @@ export function HomeFavorites({ initial }: Props) {
           </Link>{" "}
           and it will show up here.
         </>
+      }
+      // A storyteller with nothing hearted yet is likely new, so the way to
+      // their first story is right here. New story lands on the story's own
+      // page as a rule; from here it goes on to the Stories page, where the
+      // story sits among the rest and the hearts are. Players never see
+      // it: they have no stories to create.
+      emptyAction={
+        <UserTypeVisibility showAbove={USER_TYPES.paidPlayer}>
+          <Button asChild size="sm" variant="outline">
+            <NextLink href={withRedirect("/stories/new", "/stories")}>
+              Go create your first story
+            </NextLink>
+          </Button>
+        </UserTypeVisibility>
       }
       stories={stories}
       hasMore={hasMore}

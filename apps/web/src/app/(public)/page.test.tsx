@@ -15,6 +15,15 @@ describe("LandingPage", () => {
     expect(screen.getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/login");
   });
 
+  it("shows About Storyteller, not yet in action", () => {
+    renderWithProviders(<LandingPage />);
+
+    expect(screen.getByRole("button", { name: "About Storyteller" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
   it("paints one of the welcome pictures behind the page", () => {
     const { container } = renderWithProviders(<LandingPage />);
 

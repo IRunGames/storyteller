@@ -32,13 +32,19 @@ type Props = {
    * story page: the same fields then start empty and create a story instead.
    */
   story?: { idStory: number; values: StoryValues };
+  /**
+   * Where to go once a new story is made, when the page that linked here
+   * said (stories/new/page.tsx); else the story's own page. Only read when
+   * creating.
+   */
+  afterCreate?: string;
 };
 
 // One form for New story and Edit story. The fields, the client check and
 // the way server errors land are the same either way; only the heading, the
 // button and the action differ. It imports both actions itself rather than
 // taking one as a prop, so the page that mounts it has nothing to relay.
-export function StoryForm({ systems, story }: Props) {
+export function StoryForm({ systems, story, afterCreate }: Props) {
   const {
     control,
     register,
@@ -78,7 +84,7 @@ export function StoryForm({ systems, story }: Props) {
   async function onSubmit(values: StoryValues) {
     const result = story
       ? await sa_updateStory(story.idStory, values)
-      : await sa_createStory(values);
+      : await sa_createStory(values, afterCreate);
 
     // On success the action redirects and this never runs. Anything that
     // comes back is a field error the client check did not catch.

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 // The administrators' Invitations page, behind the menu bar's wrench: every
 // invitation anyone has made, to search, edit, resend and delete, and the
-// form for inviting someone to the app with a paid account. Anyone short of
+// form for inviting someone to the app with any account type. Anyone short of
 // an administrator gets the not-found page rather than a refusal, so the
 // page does not say it exists. sa_listInvitations checks again.
 export default async function InvitationsPage() {

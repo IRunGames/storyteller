@@ -78,18 +78,21 @@ export function SessionInfoPopover({ idStorySession, color, onStatusChanged }: P
 
 /**
  * The body of a session's panel, shared by the popover and the session's own
- * page: everything but the heading.
+ * page: everything but the heading. The page lists the scenes in full below
+ * this, so it asks for the Scenes fold to be left out.
  */
 export function SessionDetail({
   detail,
   sessionStatusOptions,
   sceneStatusOptions,
   onStatusChanged,
+  withScenes = true,
 }: {
   detail: StorySessionDetail;
   sessionStatusOptions: StatusOption[];
   sceneStatusOptions: StatusOption[];
   onStatusChanged: (status: string) => void;
+  withScenes?: boolean;
 }) {
   const playersId = useId();
   const folds = [
@@ -163,13 +166,13 @@ export function SessionDetail({
 
       {detail.summary && <Text textStyle="sm">{detail.summary}</Text>}
 
-      {(folds.length > 0 || detail.scenes.length > 0) && (
+      {(folds.length > 0 || (withScenes && detail.scenes.length > 0)) && (
         <Accordion.Root collapsible multiple size="sm" variant="enclosed">
           {/* The scenes played in this sitting, folded away like the notes:
               a long session ran through a dozen of them and the panel is
               read for its summary first. Only the storyteller is given any,
               so for anyone else this fold is simply not there. */}
-          {detail.scenes.length > 0 && (
+          {withScenes && detail.scenes.length > 0 && (
             <Accordion.Item value="scenes">
               <Accordion.ItemTrigger>
                 <Text flex="1" textStyle="sm">

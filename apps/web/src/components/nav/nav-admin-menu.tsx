@@ -3,16 +3,17 @@
 import { useId } from "react";
 import NextLink from "next/link";
 import { IconButton, Menu, Portal, Tooltip } from "@chakra-ui/react";
-import { MailPlus, Wrench } from "lucide-react";
+import { MailPlus, Users, Wrench } from "lucide-react";
 import { UserTypeVisibility } from "@/components/auth/user-type-visibility";
 import { USER_TYPES } from "@/lib/user-types";
 
 /**
  * The administrators' tools, one item each, for the wrench menu and the
- * drawer. Invitations is the first; a new tool is one more entry here.
+ * drawer. A new tool is one more entry here.
  */
 export const ADMIN_ITEMS = [
   { href: "/admin/invitations", label: "Invitations", icon: <MailPlus /> },
+  { href: "/admin/users", label: "Users", icon: <Users /> },
 ] as const;
 
 /**

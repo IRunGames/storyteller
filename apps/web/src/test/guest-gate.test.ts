@@ -29,6 +29,7 @@ const GUEST_ACTIONS = new Set([
   "app/(app)/play/[id]/actions.ts sa_listChats",
   "app/(app)/play/[id]/actions.ts sa_leaveAsGuest",
   "app/(app)/(nav)/stories/actions.ts sa_getStorySession",
+  "app/(app)/(nav)/stories/actions.ts sa_getStorySessionNeighbours",
   "app/(app)/(nav)/stories/actions.ts sa_listStorySessions",
   "components/preferences/actions.ts sa_getUserPreferences",
   "app/(public)/join/[code]/actions.ts sa_joinByLink",

@@ -2,7 +2,22 @@ import { before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 
 const getSession = mock.fn<() => Promise<{ user: { id: string } } | null>>();
-const findFirst = mock.fn<(args: unknown) => Promise<unknown>>();
+// What the one lookup in requireUser() finds: a v_users row, or nothing.
+// The mock stands in for the whole select().from().where().limit() chain,
+// resolving at the end of it the way the real query does.
+const findFirst = mock.fn<() => Promise<unknown>>();
+const db = {
+  select: () => ({
+    from: () => ({
+      where: () => ({
+        limit: async () => {
+          const row = await findFirst();
+          return row ? [row] : [];
+        },
+      }),
+    }),
+  }),
+};
 
 const activeUser = {
   id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
@@ -21,8 +36,8 @@ describe("requireUser", () => {
     mock.module("@/lib/require-session", { namedExports: { getSession } });
     mock.module("@/db", {
       namedExports: {
-        db: { query: { user: { findFirst } } },
-        schema: { user: { id: "id_user" } },
+        db,
+        schema: { vUsers: { id: "id_user" } },
       },
     });
     ({ requireUser, requireAccount, requireAdmin, UnauthorizedError } =

@@ -23,6 +23,7 @@ import { createInvitation, emailInvitation } from "@/db/invitations";
 import { cardOrder, cardQuery, notArchived, playerName } from "@/db/story-cards";
 import { requireAccount, requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
+import { safeRedirect } from "@/lib/safe-redirect";
 import {
   PAGE_SIZE,
   PLAYER_SEARCH_LIMIT,
@@ -663,6 +664,58 @@ export async function sa_getStorySession(
   };
 }
 
+/** A session either side of one in its story's opening order, for the chevrons round its page's heading. */
+export type SessionNeighbour = { idStorySession: number; number: number; title: string | null };
+
+export type SessionNeighbours = {
+  previous: SessionNeighbour | null;
+  next: SessionNeighbour | null;
+};
+
+/**
+ * The sessions either side of one in its story: the one opened before it
+ * and the one opened after, by session number, which v_story_sessions
+ * counts in the same opening order the Timeline sorts by. Null on either
+ * side where there is none, and on both where the id is unusable or names
+ * no session. Any signed-in user may look, as with sa_getStorySession: the
+ * number and title are what every list of sessions shows.
+ */
+export async function sa_getStorySessionNeighbours(
+  idStorySession: number,
+): Promise<SessionNeighbours> {
+  await requireUser();
+
+  const none: SessionNeighbours = { previous: null, next: null };
+  const id = idStorySchema.safeParse(idStorySession);
+  if (!id.success) return none;
+
+  const [here] = await db
+    .select({ idStory: vStorySessions.idStory, number: vStorySessions.sessionNumber })
+    .from(vStorySessions)
+    .where(eq(vStorySessions.idStorySession, id.data))
+    .limit(1);
+  if (!here || here.idStory === null || here.number === null) return none;
+  const number = here.number;
+
+  const beside = await db
+    .select({
+      idStorySession: sql<number>`${vStorySessions.idStorySession}`,
+      number: sql<number>`${vStorySessions.sessionNumber}`.mapWith(Number),
+      title: vStorySessions.title,
+    })
+    .from(vStorySessions)
+    .where(
+      and(
+        eq(vStorySessions.idStory, here.idStory),
+        inArray(vStorySessions.sessionNumber, [number - 1, number + 1]),
+      ),
+    );
+  return {
+    previous: beside.find((session) => session.number === number - 1) ?? null,
+    next: beside.find((session) => session.number === number + 1) ?? null,
+  };
+}
+
 export async function sa_listSystems(): Promise<{ idSystem: number; label: string }[]> {
   await requireAccount();
 
@@ -699,10 +752,17 @@ function fieldErrors(parsed: z.ZodSafeParseError<unknown>): StoryFormResult {
  * Validates and inserts a new story owned by the caller, then redirects to
  * the story's own page, where its attachments are added: the New story form
  * has none, since there is no story to attach them to until this returns.
- * Validation failures come back as field errors for the form; on success the
- * redirect throws, so this never resolves with ok: true.
+ * `afterCreate` goes somewhere else instead, when the page that led to the
+ * form asked (the home page's first-story button, on to the Stories page);
+ * it came in by the query string, so it is narrowed to a same-origin path
+ * and anything else falls back to the story's page. Validation failures
+ * come back as field errors for the form; on success the redirect throws,
+ * so this never resolves with ok: true.
  */
-export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
+export async function sa_createStory(
+  input: unknown,
+  afterCreate?: unknown,
+): Promise<StoryFormResult> {
   const user = await requireAccount();
 
   const parsed = storySchema.safeParse(input);
@@ -724,7 +784,12 @@ export async function sa_createStory(input: unknown): Promise<StoryFormResult> {
     })
     .returning({ idStory: stories.idStory });
 
-  redirect(`/stories/${story.idStory}`);
+  redirect(
+    safeRedirect(
+      typeof afterCreate === "string" ? afterCreate : undefined,
+      `/stories/${story.idStory}`,
+    ),
+  );
 }
 
 /**

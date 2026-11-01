@@ -16,7 +16,8 @@ const noErrors = async (): Promise<Result> => ({ ok: false, errors: {} });
 
 // The form imports both actions itself; mocked so it can be rendered without
 // a database, and so each test can see which one it called and with what.
-const sa_createStory = mock.fn<(values: StoryValues) => Promise<Result>>(noErrors);
+const sa_createStory =
+  mock.fn<(values: StoryValues, afterCreate?: string) => Promise<Result>>(noErrors);
 const sa_updateStory = mock.fn<(idStory: number, values: StoryValues) => Promise<Result>>(noErrors);
 
 let StoryForm: typeof import("./story-form").StoryForm;
@@ -56,6 +57,17 @@ describe("StoryForm", () => {
 
     expect(await screen.findByText("Please give the story a title.")).toBeInTheDocument();
     expect(sa_createStory.mock.callCount()).toBe(0);
+  });
+
+  it("hands where to go afterwards on to the create action", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(<StoryForm systems={systems} afterCreate="/stories" />);
+    await user.type(screen.getByLabelText(/Title/), "Embers Leap");
+    await user.click(screen.getByRole("button", { name: "Create story" }));
+
+    await waitFor(() => expect(sa_createStory.mock.callCount()).toBe(1));
+    expect(sa_createStory.mock.calls[0].arguments[1]).toBe("/stories");
   });
 
   it("submits the typed values with the chosen system", async () => {

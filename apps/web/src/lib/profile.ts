@@ -81,5 +81,7 @@ export type Profile = {
   image: string | null;
   /** When the account was made: the card's "Member Since". */
   createdAt: Date;
+  /** The account's type as s_user_types names it ("Paid Storyteller"), shown beside the name. */
+  userTypeName: string;
   systems: LikedSystem[];
 };

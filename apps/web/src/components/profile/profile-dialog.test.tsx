@@ -28,6 +28,7 @@ const profile: Profile = {
   bio: null,
   image: null,
   createdAt: new Date("2017-05-25T12:00:00Z"),
+  userTypeName: "Paid Storyteller",
   systems: [{ idSystem: -1, label: "Dungeons & Dragons (5e)" }],
 };
 
@@ -117,6 +118,7 @@ describe("ProfileDialog", () => {
     const dialog = await openedDialog();
 
     expect(within(dialog).getByText("Paul Stafford")).toBeInTheDocument();
+    expect(within(dialog).getByText("Paid Storyteller")).toBeInTheDocument();
     expect(within(dialog).getByText("redaikidoka")).toBeInTheDocument();
     expect(within(dialog).getByText("Thoughts?")).toBeInTheDocument();
     expect(within(dialog).getByText(/Your vibe/)).toBeInTheDocument();

@@ -91,8 +91,8 @@ function fieldErrors(error: z.ZodError): Record<string, string> {
 }
 
 /**
- * The New invitation form: invites an address to the app with a paid type
- * and, when `send` is set, emails it. An address that already has an app
+ * The New invitation form: invites an address to the app with an account
+ * type and, when `send` is set, emails it. An address that already has an app
  * invitation waiting is refused (db/invitations.ts). A mail that does not
  * go out leaves the invitation in place and says so.
  */
@@ -144,7 +144,7 @@ export async function sa_updateInvitation(
 
   const isApp = current.idStory === null;
   if (isApp && parsed.data.idUserType === undefined) {
-    return { ok: false, errors: { idUserType: "Pick Paid Player or Paid Storyteller." } };
+    return { ok: false, errors: { idUserType: "Pick an account type." } };
   }
 
   // Another waiting invitation for the new address in the same scope would

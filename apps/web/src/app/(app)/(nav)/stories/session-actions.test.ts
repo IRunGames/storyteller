@@ -116,6 +116,23 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     expect(listed.find((session) => session.idStorySession === done)?.playerCount).toBe(0);
   });
 
+  it("finds the sessions either side of one, and nothing past the ends", async () => {
+    // open was inserted before done in the one statement, so it is session
+    // 1 and done is session 2; theirSession is another story's.
+    expect(await actions.sa_getStorySessionNeighbours(open)).toEqual({
+      previous: null,
+      next: { idStorySession: done, number: 2, title: null },
+    });
+    expect(await actions.sa_getStorySessionNeighbours(done)).toEqual({
+      previous: { idStorySession: open, number: 1, title: "Fixture open" },
+      next: null,
+    });
+    expect(await actions.sa_getStorySessionNeighbours(2 ** 40)).toEqual({
+      previous: null,
+      next: null,
+    });
+  });
+
   it("makes a session with the given title, SUSPENDED, without moving the story", async () => {
     const result = await actions.sa_createStorySession(mine, "Oct 22, 2026 session");
 

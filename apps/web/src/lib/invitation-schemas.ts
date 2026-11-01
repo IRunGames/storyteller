@@ -20,13 +20,19 @@ export const inviteEmailSchema = z
   .transform((email) => email.toLowerCase());
 
 /**
- * The types an administrator may invite someone to. Only the paid ones: an
- * unpaid account is what open signup already gives, and an administrator is
- * made by hand, not by a link anyone holding it could follow.
+ * The types an administrator may invite someone to: every one there is,
+ * named as s_user_types names them. An unpaid type is what open signup
+ * gives anyway, but an invitation still fixes the address and lets the
+ * administrator hand the link out. Administrator is here on purpose: the
+ * link makes whoever follows it an administrator, so it is for the
+ * administrator to send with care.
  */
 export const INVITE_USER_TYPES = [
+  { value: USER_TYPES.unpaidPlayer, label: "Unpaid Player" },
   { value: USER_TYPES.paidPlayer, label: "Paid Player" },
+  { value: USER_TYPES.unpaidStoryteller, label: "Unpaid Storyteller" },
   { value: USER_TYPES.paidStoryteller, label: "Paid Storyteller" },
+  { value: USER_TYPES.administrator, label: "Administrator" },
 ] as const;
 
 // A <select> posts a string, so the value is coerced before it is checked
@@ -34,7 +40,7 @@ export const INVITE_USER_TYPES = [
 const inviteUserTypeSchema = z.coerce
   .number()
   .refine((value) => INVITE_USER_TYPES.some((type) => type.value === value), {
-    message: "Pick Paid Player or Paid Storyteller.",
+    message: "Pick an account type.",
   });
 
 /** The storyteller's Invite by email form. */

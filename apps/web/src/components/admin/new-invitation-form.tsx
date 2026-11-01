@@ -16,8 +16,8 @@ import {
 import { USER_TYPES } from "@/lib/user-types";
 
 /**
- * The administrators' New invitation form: an address and the paid account
- * type to give it, Paid Player unless changed. Send invite mails it; Copy
+ * The administrators' New invitation form: an address and the account type
+ * to give it, Paid Player unless changed. Send invite mails it; Copy
  * link makes the same invitation and copies its link instead. Either way
  * the new row is handed up for the table to show.
  */

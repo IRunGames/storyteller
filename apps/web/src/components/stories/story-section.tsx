@@ -14,6 +14,8 @@ type Props = {
   headerAction?: ReactNode;
   /** What to say when there are no stories; a hint with a link, say. */
   emptyText?: ReactNode;
+  /** Drawn under emptyText while the list is empty: the home page's first-story button. */
+  emptyAction?: ReactNode;
   stories: StoryCardData[];
   hasMore: boolean;
   isLoadingMore: boolean;
@@ -31,6 +33,7 @@ export function StorySection({
   headerControl,
   headerAction,
   emptyText = "Nothing here yet.",
+  emptyAction,
   stories,
   hasMore,
   isLoadingMore,
@@ -55,7 +58,10 @@ export function StorySection({
       </HStack>
 
       {stories.length === 0 ? (
-        <Text color="fg.muted">{emptyText}</Text>
+        <Stack align="start" gap="3">
+          <Text color="fg.muted">{emptyText}</Text>
+          {emptyAction}
+        </Stack>
       ) : (
         // Two regimes. Up to lg the grid has a fixed column count and the
         // cards stretch to fill it: one wide card on a phone, two on a

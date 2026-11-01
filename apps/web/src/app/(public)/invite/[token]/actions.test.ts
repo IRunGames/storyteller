@@ -242,10 +242,10 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       await expect(adminActions.sa_listInvitations()).rejects.toThrow();
     });
 
-    it("only gives a paid player or a paid storyteller", async () => {
+    it("refuses a type that does not exist", async () => {
       caller = admin;
       const result = await adminActions.sa_inviteToApp(
-        { email: NEWCOMER, idUserType: -100 },
+        { email: NEWCOMER, idUserType: -999 },
         false,
       );
       expect(result).toMatchObject({ ok: false, errors: { idUserType: expect.any(String) } });

@@ -4,7 +4,9 @@ import { usePathname } from "next/navigation";
 import { NavFeedbackPopover } from "@/components/feedback/nav-feedback-popover";
 import { NavAccountMenu } from "./nav-account-menu";
 import { NavAdminMenu } from "./nav-admin-menu";
-import { NavNotificationsBell } from "./nav-notifications-bell";
+// Notifications are not built yet, so the bell is left out for now rather
+// than drawn disabled; nav-notifications-bell.tsx stays for when they are.
+// import { NavNotificationsBell } from "./nav-notifications-bell";
 import { NavThemeMenu } from "./nav-theme-menu";
 
 // The buttons that belong to the user rather than the page: feedback, theme,
@@ -18,7 +20,7 @@ export function NavUserButtons() {
       <NavFeedbackPopover pathname={pathname} />
       <NavThemeMenu />
       <NavAdminMenu />
-      <NavNotificationsBell />
+      {/* <NavNotificationsBell /> */}
       <NavAccountMenu />
     </>
   );

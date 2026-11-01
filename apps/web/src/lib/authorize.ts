@@ -4,7 +4,12 @@ import { db, schema } from "@/db";
 import { getSession } from "@/lib/require-session";
 import { USER_TYPES } from "@/lib/user-types";
 
-export type DbUser = typeof schema.user.$inferSelect;
+/**
+ * The signed-in user as v_users has them: the s_users row with the name of
+ * the account's type and its status beside it, so nothing downstream looks
+ * the type up again.
+ */
+export type DbUser = typeof schema.vUsers.$inferSelect;
 
 /** Thrown when an action is reached without a live session and active user. */
 export class UnauthorizedError extends Error {
@@ -31,9 +36,11 @@ export const requireUser = cache(async function requireUser(): Promise<DbUser> {
   const session = await getSession();
   if (!session) throw new UnauthorizedError();
 
-  const user = await db.query.user.findFirst({
-    where: eq(schema.user.id, session.user.id),
-  });
+  const [user] = await db
+    .select()
+    .from(schema.vUsers)
+    .where(eq(schema.vUsers.id, session.user.id))
+    .limit(1);
   if (!user || !user.isActive) throw new UnauthorizedError();
 
   return user;

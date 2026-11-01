@@ -8,8 +8,7 @@ import { renderWithProviders } from "@/test/render";
 type Credentials = { email: string; password: string };
 
 type SignInResult =
-  | { data: Record<string, unknown>; error: null }
-  | { data: null; error: { message?: string } };
+  { data: Record<string, unknown>; error: null } | { data: null; error: { message?: string } };
 
 const router = {
   push: mock.fn<(href: string) => void>(),
@@ -17,9 +16,10 @@ const router = {
 };
 
 const signIn = {
-  email: mock.fn<(credentials: Credentials) => Promise<SignInResult>>(
-    async () => ({ data: {}, error: null }),
-  ),
+  email: mock.fn<(credentials: Credentials) => Promise<SignInResult>>(async () => ({
+    data: {},
+    error: null,
+  })),
   social: mock.fn<() => Promise<SignInResult>>(async () => ({
     data: {},
     error: null,
@@ -52,6 +52,15 @@ describe("LoginForm", () => {
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign in/i })).toBeInTheDocument();
+  });
+
+  it("shows About Storyteller, not yet in action", () => {
+    renderWithProviders(<LoginForm redirectTo="/home" />);
+
+    expect(screen.getByRole("button", { name: "About Storyteller" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it("sends the typed credentials to better-auth", async () => {
@@ -102,9 +111,7 @@ describe("LoginForm", () => {
 
     await user.type(screen.getByLabelText(/email/i), "gandalf@irun.games");
 
-    await waitFor(() =>
-      expect(screen.queryByText(/enter your email/i)).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByText(/enter your email/i)).not.toBeInTheDocument());
     expect(screen.getByLabelText(/email/i)).not.toHaveAttribute("aria-invalid", "true");
   });
 
@@ -155,9 +162,7 @@ describe("LoginForm", () => {
     await user.type(screen.getByLabelText(/password/i), "wrong");
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
-    expect(
-      await screen.findByText(/could not sign you in/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/could not sign you in/i)).toBeInTheDocument();
   });
 
   it("sends the user to the redirect target once signed in", async () => {

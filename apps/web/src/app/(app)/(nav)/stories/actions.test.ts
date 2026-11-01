@@ -1212,6 +1212,37 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     }
   });
 
+  it("goes on to where the form was told instead, and never off the site", async () => {
+    const title = "Fixture G — made from the home page";
+
+    try {
+      const target = async (afterCreate: unknown) =>
+        (
+          (await actions
+            .sa_createStory(
+              {
+                title,
+                idSystem: null,
+                summary: "",
+                isLookingForPlayers: false,
+                isActive: true,
+                isArchived: false,
+              },
+              afterCreate,
+            )
+            .then(
+              () => null,
+              (error: unknown) => error,
+            )) as { digest?: string }
+        ).digest;
+
+      expect(await target("/stories")).toContain(";/stories;");
+      expect(await target("https://evil.example/")).toMatch(/;\/stories\/\d+;/);
+    } finally {
+      await db.delete(tables.stories).where(eq(tables.stories.title, title));
+    }
+  });
+
   it("creates the caller's story and redirects to its page", async () => {
     const title = "Fixture F — freshly created";
 

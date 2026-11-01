@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Alert,
   Button,
+  Center,
   Field,
   HStack,
   Heading,
@@ -19,6 +20,7 @@ import {
 import { signIn } from "@/lib/auth-client";
 import { signInSchema, type SignInValues } from "@/lib/auth-schemas";
 import { withRedirect } from "@/lib/safe-redirect";
+import { AboutStorytellerLink } from "@/components/about/about-storyteller-link";
 import { GoogleButton } from "@/components/auth/google-button";
 
 export function LoginForm({ redirectTo }: { redirectTo: string }) {
@@ -105,6 +107,10 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
           <NextLink href={withRedirect("/signup", redirectTo)}>Sign up</NextLink>
         </Link>
       </Text>
+
+      <Center>
+        <AboutStorytellerLink />
+      </Center>
     </Stack>
   );
 }
