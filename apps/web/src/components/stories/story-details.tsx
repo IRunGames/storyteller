@@ -12,7 +12,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { BookOpen, Clapperboard, Pencil } from "lucide-react";
+import { BookOpen, Clapperboard, GalleryHorizontalEnd, Pencil } from "lucide-react";
 import {
   cssUrlValue,
   systemLabel,
@@ -20,6 +20,7 @@ import {
   type StoryPlayer,
   type StorySession,
 } from "@/lib/stories";
+import { storyboardPath } from "@/lib/storyboard";
 import { LocalDate } from "@/components/dates/local-date";
 import { StoryAttachments } from "./story-attachments";
 import { StoryPlayers } from "./story-players";
@@ -99,44 +100,54 @@ export function StoryDetails({
           color={story.imageUrl ? "white" : undefined}
           position="relative"
         >
-          {story.isOwner && (
-            // The storyteller's two doors, in the panel's top right corner,
-            // clear of the title rather than in the text flow: the library,
-            // where the game is prepped (its scenes are what the players are
-            // not meant to see yet, so it is theirs alone), and the edit
-            // page. Links styled as buttons: each is a page of its own, so
-            // the back button returns here.
+          {
+            // The doors, in the panel's top right corner, clear of the title
+            // rather than in the text flow. The storyboard for everyone who
+            // can read the page: it shows each reader what the sessions
+            // below would. Then the storyteller's three: the library, where
+            // the game is prepped (its scenes are what the players are not
+            // meant to see yet, so it is theirs alone), Build Scenes and
+            // the edit page. Links styled as buttons: each is a page of its
+            // own, so the back button returns here.
             <HStack
               gap="1"
               position="absolute"
               top={story.imageUrl ? { base: "3", md: "5" } : "0"}
               right={story.imageUrl ? { base: "3", md: "5" } : "0"}
             >
-              {(
-                [
-                  {
-                    label: "Library: Full Story Resources",
-                    href: `/libraries/${story.idStory}`,
-                    icon: <BookOpen size={18} />,
-                  },
-                  {
-                    // The live-edit page of the scene the storyteller
-                    // touched last, as the library's scene cards open one;
-                    // the library itself while the story has no scenes.
-                    label: "Build Scenes",
-                    href:
-                      buildSceneId === null
-                        ? `/libraries/${story.idStory}`
-                        : `/scenes/${buildSceneId}/live`,
-                    icon: <Clapperboard size={18} />,
-                  },
-                  {
-                    label: "Edit story",
-                    href: `/stories/${story.idStory}/edit`,
-                    icon: <Pencil size={18} />,
-                  },
-                ] as const
-              ).map((door) => (
+              {[
+                {
+                  label: "Storyboard",
+                  href: storyboardPath(story.idStory),
+                  icon: <GalleryHorizontalEnd size={18} />,
+                },
+                ...(story.isOwner
+                  ? [
+                      {
+                        label: "Library: Full Story Resources",
+                        href: `/libraries/${story.idStory}`,
+                        icon: <BookOpen size={18} />,
+                      },
+                      {
+                        // The live-edit page of the scene the storyteller
+                        // touched last, as the library's scene cards open
+                        // one; the library itself while the story has no
+                        // scenes.
+                        label: "Build Scenes",
+                        href:
+                          buildSceneId === null
+                            ? `/libraries/${story.idStory}`
+                            : `/scenes/${buildSceneId}/live`,
+                        icon: <Clapperboard size={18} />,
+                      },
+                      {
+                        label: "Edit story",
+                        href: `/stories/${story.idStory}/edit`,
+                        icon: <Pencil size={18} />,
+                      },
+                    ]
+                  : []),
+              ].map((door) => (
                 <Tooltip.Root key={door.label} openDelay={200} positioning={{ placement: "top" }}>
                   <Tooltip.Trigger asChild>
                     <IconButton
@@ -159,12 +170,12 @@ export function StoryDetails({
                 </Tooltip.Root>
               ))}
             </HStack>
-          )}
+          }
 
           <Stack gap="2">
-            {/* Room on the right for the three doors above, which float
-                over this corner. */}
-            <HStack gap="3" align="center" pr={story.isOwner ? "28" : undefined}>
+            {/* Room on the right for the doors above, which float over this
+                corner: four for the storyteller, one for everyone else. */}
+            <HStack gap="3" align="center" pr={story.isOwner ? "36" : "10"}>
               <Heading as="h1" size="3xl">
                 {story.title}
               </Heading>

@@ -56,6 +56,20 @@ type Props = {
   withHistory?: boolean;
   /** The eye in the upper right that puts everything away to show the cover (BackgroundToggle). */
   withBackgroundToggle?: boolean;
+  /**
+   * False leaves out the overlay that says a pending or complete scene is
+   * not being played (SceneStateOverlay): the storyboard's cards show
+   * finished scenes by definition and say the status beside the space, so
+   * the word across every one would hide the pills for nothing.
+   */
+  withStateOverlay?: boolean;
+  /**
+   * False leaves out the title row: the scene's title, the info button
+   * with its text, and the connection's note. The storyboard's card says
+   * the title and the text on its face already, so under it the space is
+   * the stacks alone. The region keeps its name for a screen reader.
+   */
+  withTitle?: boolean;
   /** Drawn either side of the scene's title: the preview's chevrons to the scenes before and after. */
   titleStart?: ReactNode;
   titleEnd?: ReactNode;
@@ -131,6 +145,8 @@ export function PlaySpace({
   readOnly = false,
   withHistory = false,
   withBackgroundToggle = false,
+  withStateOverlay = true,
+  withTitle = true,
   titleStart,
   titleEnd,
   renderTitle,
@@ -193,51 +209,60 @@ export function PlaySpace({
       >
         {/* Room at the end of the row for the eye, so the connection badge
             and a long title never run under it. */}
-        <HStack
-          justify="space-between"
-          gap="3"
-          align="start"
-          pe={withBackgroundToggle ? "8" : undefined}
-        >
-          {/* The scene's title is what the space is about; the region keeps
+        {!withTitle && (
+          <Heading id="play-space-heading" srOnly>
+            Play space
+          </Heading>
+        )}
+        {withTitle && (
+          <HStack
+            justify="space-between"
+            gap="3"
+            align="start"
+            pe={withBackgroundToggle ? "8" : undefined}
+          >
+            {/* The scene's title is what the space is about; the region keeps
               its own name for a screen reader. Centred over the stacks, in
               small caps, as a scene's title is set on a page. */}
-          {/* With no scene and the story's box to show, the box says what
+            {/* With no scene and the story's box to show, the box says what
               is being played, so the heading is for a screen reader only. */}
-          {scene.scene === null ? (
-            <Heading id="play-space-heading" size="sm" srOnly={noSceneBox !== undefined}>
-              Play space
-            </Heading>
-          ) : (
-            <>
-              <Heading id="play-space-heading" srOnly>
+            {scene.scene === null ? (
+              <Heading id="play-space-heading" size="sm" srOnly={noSceneBox !== undefined}>
                 Play space
               </Heading>
-              <HStack flex="1" minW="0" justify="center" gap="1">
-                {titleStart}
-                {renderTitle ? (
-                  renderTitle(scene.scene.title, TITLE_PROPS)
-                ) : (
-                  <Heading {...TITLE_PROPS}>{scene.scene.title}</Heading>
-                )}
-                <SceneTextPopover
-                  title={scene.scene.title}
-                  text={scene.scene.text}
-                  save={(values) => sa_setPlaySceneText(idStory, scene.scene!.idStoryScene, values)}
-                  onSaved={onTextChange}
-                  readOnly={lookOnly}
-                  icon="info"
-                />
-                {titleEnd}
-              </HStack>
-            </>
-          )}
-          {note && (
-            <Badge variant="subtle" colorPalette="orange" flexShrink="0">
-              {note}
-            </Badge>
-          )}
-        </HStack>
+            ) : (
+              <>
+                <Heading id="play-space-heading" srOnly>
+                  Play space
+                </Heading>
+                <HStack flex="1" minW="0" justify="center" gap="1">
+                  {titleStart}
+                  {renderTitle ? (
+                    renderTitle(scene.scene.title, TITLE_PROPS)
+                  ) : (
+                    <Heading {...TITLE_PROPS}>{scene.scene.title}</Heading>
+                  )}
+                  <SceneTextPopover
+                    title={scene.scene.title}
+                    text={scene.scene.text}
+                    save={(values) =>
+                      sa_setPlaySceneText(idStory, scene.scene!.idStoryScene, values)
+                    }
+                    onSaved={onTextChange}
+                    readOnly={lookOnly}
+                    icon="info"
+                  />
+                  {titleEnd}
+                </HStack>
+              </>
+            )}
+            {note && (
+              <Badge variant="subtle" colorPalette="orange" flexShrink="0">
+                {note}
+              </Badge>
+            )}
+          </HStack>
+        )}
 
         {scene.idStorySession === null && !readOnly ? (
           <Text color="fg.muted">No session is being played.</Text>
@@ -293,7 +318,7 @@ export function PlaySpace({
           </Flex>
         )}
       </Stack>
-      {!detailsHidden && <SceneStateOverlay status={scene.scene?.status} />}
+      {withStateOverlay && !detailsHidden && <SceneStateOverlay status={scene.scene?.status} />}
       {/* Keyed by the item, so a change of picture is a fresh dialog rather
           than one whose image swaps under it. No tags: the picture's tags are
           the attachment's, not the element's, as the pill's preview says. */}

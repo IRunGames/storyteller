@@ -58,3 +58,25 @@ export function attachmentUrl(kind: AttachmentKind, source: string, column: stri
     limit 1
   )`;
 }
+
+/**
+ * The holder's cover, else the first of its pictures in the storyteller's
+ * order (sort_order, then the use's id), else null: for the storyboard's
+ * scene cards, where a scene with pictures but no cover still shows one
+ * rather than a grey box. Everywhere else attachmentUrl is the rule, for the
+ * reason it gives; this is the one deliberate exception, and
+ * lib/storyboard.ts says why. READY only, as there: a row still uploading
+ * or failed has no picture to show. The cover first, so the storyteller's
+ * choice stands when they have made one.
+ */
+export function attachmentOrFirstUrl(kind: AttachmentKind, source: string, column: string) {
+  return sql<string | null>`(
+    select ${vAttachmentUses.url}
+    from ${vAttachmentUses}
+    where ${vAttachmentUses.kind} = ${kind}
+      and ${vAttachmentUses.idExternal} = ${sql.identifier(source)}.${sql.identifier(column)}
+      and ${vAttachmentUses.status} = 'READY'
+    order by ${vAttachmentUses.isCover} desc, ${vAttachmentUses.sortOrder} asc, ${vAttachmentUses.idAttachmentUse} asc
+    limit 1
+  )`;
+}
