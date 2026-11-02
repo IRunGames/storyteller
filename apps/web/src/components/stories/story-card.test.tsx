@@ -266,6 +266,30 @@ describe("StoryCard", () => {
     expect(screen.getAllByRole("article")[3]).not.toHaveAttribute("data-live");
   });
 
+  it("offers everyone the Storyboard beside Play, before the owner's Library, with a tooltip", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<StoryCard story={story} />);
+    const board = screen.getByRole("link", { name: "Storyboard" });
+    expect(board).toHaveAttribute("href", "/stories/-13/storyboard");
+    // Right of Play (a player's is a link to the table): it comes after it
+    // in document order.
+    expect(
+      screen.getByRole("link", { name: "Play" }).compareDocumentPosition(board) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await user.hover(board);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Storyboard");
+
+    renderWithProviders(<StoryCard story={{ ...story, isOwner: true, isActive: false }} />);
+    const [, retired] = screen.getAllByRole("link", { name: "Storyboard" });
+    expect(retired).toHaveAttribute("href", "/stories/-13/storyboard");
+    expect(
+      retired.compareDocumentPosition(
+        screen.getByRole("link", { name: "Library: Full Story Resources" }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("offers the owner the Library beside Play, and beside the Inactive pill", async () => {
     const user = userEvent.setup();
     renderWithProviders(<StoryCard story={story} />);

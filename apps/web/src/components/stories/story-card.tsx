@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import NextLink from "next/link";
 import {
   Badge,
@@ -17,7 +18,8 @@ import {
   Tooltip,
 } from "@chakra-ui/react";
 import { SUMMARY_PREVIEW_CHARS, cssUrlValue, systemLabel, type StoryCardData } from "@/lib/stories";
-import { BookOpen, Heart } from "lucide-react";
+import { storyboardPath } from "@/lib/storyboard";
+import { BookOpen, GalleryHorizontalEnd, Heart } from "lucide-react";
 import { LocalDate } from "@/components/dates/local-date";
 import { PlayerCount } from "./player-count";
 import { PlayButton } from "./story-play-button";
@@ -177,9 +179,10 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         )}
 
         {/* Bottom row: on the left an Inactive pill for a retired story,
-            else Play for everyone (PlayButton), with the Library button
-            beside either for the owner; the player count in the middle; the
-            date on the right. A grid with equal outer
+            else Play for everyone (PlayButton), with the Storyboard door
+            beside either for everyone and the Library's after it for the
+            owner; the player count in the middle; the date on the right.
+            A grid with equal outer
             columns keeps the count centred whatever the sides hold, and
             justifyItems start stops the round Play button being stretched to
             its column's width. In the flow rather than floated like the
@@ -193,10 +196,12 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
           gap="2"
           mt="auto"
         >
-          {/* The storyteller's Library button rides beside whatever sits
-              here, the Inactive pill included: the story page offers it
-              whatever the story's state, and a retired story's library is
-              still worth opening. */}
+          {/* The doors ride beside whatever sits here, the Inactive pill
+              included: the story page offers them whatever the story's
+              state, and a retired story's board and library are still
+              worth opening. In the story page's order: the Storyboard,
+              which shows each reader what they may see of the story's
+              scenes, then the storyteller's Library. */}
           <HStack gap="1">
             {!story.isActive ? (
               <Badge size="sm" variant="solid" colorPalette="gray">
@@ -207,36 +212,13 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
               // popover, a player's goes to the table.
               <PlayButton story={story} />
             )}
+            <Door label="Storyboard" href={storyboardPath(story.idStory)}>
+              <GalleryHorizontalEnd size={18} />
+            </Door>
             {story.isOwner && (
-              <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-                <Tooltip.Trigger asChild>
-                  {/* The story page's own Library button, the book, in the
-                      white-over-cover dressing it wears there. */}
-                  <IconButton
-                    asChild
-                    aria-label="Library: Full Story Resources"
-                    variant="ghost"
-                    size="sm"
-                    rounded="full"
-                    color="whiteAlpha.900"
-                    _hover={{ bg: "whiteAlpha.200" }}
-                    position="relative"
-                    zIndex="1"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                    }}
-                  >
-                    <NextLink href={`/libraries/${story.idStory}`}>
-                      <BookOpen size={18} />
-                    </NextLink>
-                  </IconButton>
-                </Tooltip.Trigger>
-                <Portal>
-                  <Tooltip.Positioner>
-                    <Tooltip.Content>Library: Full Story Resources</Tooltip.Content>
-                  </Tooltip.Positioner>
-                </Portal>
-              </Tooltip.Root>
+              <Door label="Library: Full Story Resources" href={`/libraries/${story.idStory}`}>
+                <BookOpen size={18} />
+              </Door>
             )}
           </HStack>
           {/* The card's own dressing over the cover: a dark pill so the
@@ -303,5 +285,40 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         </Tooltip.Root>
       )}
     </LinkBox>
+  );
+}
+
+// One of the story page's doors on the card: a link styled as the page's
+// own round icon button, in the white-over-cover dressing it wears there,
+// with the label as its name and its tooltip. Above the LinkOverlay's
+// ::before, and stopping the click, so it is the door's and never the
+// card's.
+function Door({ label, href, children }: { label: string; href: string; children: ReactNode }) {
+  return (
+    <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+      <Tooltip.Trigger asChild>
+        <IconButton
+          asChild
+          aria-label={label}
+          variant="ghost"
+          size="sm"
+          rounded="full"
+          color="whiteAlpha.900"
+          _hover={{ bg: "whiteAlpha.200" }}
+          position="relative"
+          zIndex="1"
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          <NextLink href={href}>{children}</NextLink>
+        </IconButton>
+      </Tooltip.Trigger>
+      <Portal>
+        <Tooltip.Positioner>
+          <Tooltip.Content>{label}</Tooltip.Content>
+        </Tooltip.Positioner>
+      </Portal>
+    </Tooltip.Root>
   );
 }
