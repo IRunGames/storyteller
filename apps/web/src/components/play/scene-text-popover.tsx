@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { chakra, IconButton, Popover, Portal, Stack, Text, Tooltip } from "@chakra-ui/react";
-import { ChevronDown, Info } from "lucide-react";
+import { ChevronDown, Info, Pencil } from "lucide-react";
 import type { SceneTextValues } from "@/lib/scene-schemas";
 import type { SceneText, SetSceneTextResult } from "@/lib/scenes";
 import { toaster } from "@/components/ui/toaster";
@@ -25,9 +25,13 @@ type Props = {
   /**
    * What the button shows: the storyteller's table has a chevron, which
    * turns over while the panel is open, as its pills' panels do; the
-   * players' table and the preview an info button, as their pills' info is.
+   * players' table and the preview an info button, as their pills' info is;
+   * the storyboard's card a pencil, since there the panel is the one way to
+   * change the scene's words, and the button is named Edit for it.
    */
-  icon?: "chevron" | "info";
+  icon?: "chevron" | "info" | "pencil";
+  /** The button's colour; the storyboard's card passes its white. */
+  color?: string;
 };
 
 /**
@@ -48,6 +52,7 @@ export function SceneTextPopover({
   onSaved,
   readOnly = false,
   icon = "chevron",
+  color,
   editTitle = false,
   notesHint,
 }: Props) {
@@ -55,7 +60,7 @@ export function SceneTextPopover({
   // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [open, setOpen] = useState(false);
-  const label = `Describe ${title}`;
+  const label = icon === "pencil" ? `Edit ${title}` : `Describe ${title}`;
   // The description takes focus as the panel opens: zag would otherwise
   // settle focus on the panel itself a moment after opening, taking it off
   // whatever field was pressed first.
@@ -78,9 +83,12 @@ export function SceneTextPopover({
               size="xs"
               variant="ghost"
               rounded="full"
+              color={color}
             >
               {icon === "info" ? (
                 <Info />
+              ) : icon === "pencil" ? (
+                <Pencil />
               ) : (
                 <chakra.span
                   display="inline-flex"
@@ -95,7 +103,7 @@ export function SceneTextPopover({
         </Tooltip.Trigger>
         <Portal>
           <Tooltip.Positioner>
-            <Tooltip.Content>Description and notes</Tooltip.Content>
+            <Tooltip.Content>{icon === "pencil" ? label : "Description and notes"}</Tooltip.Content>
           </Tooltip.Positioner>
         </Portal>
       </Tooltip.Root>

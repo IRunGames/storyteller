@@ -15,10 +15,13 @@ import {
   chakra,
 } from "@chakra-ui/react";
 import { Layers, Maximize2, Minimize2 } from "lucide-react";
-import { formatSceneLength } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS, formatSceneLength } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import { cssUrlValue } from "@/lib/stories";
 import type { StoryboardScene } from "@/lib/storyboard";
+import { sa_setLiveSceneText } from "@/app/(app)/scenes/[id]/live/actions";
+import { sa_setSceneText } from "@/app/(app)/run/[id]/actions";
+import { SceneTextPopover } from "@/components/play/scene-text-popover";
 import { SceneElementsPanel } from "./scene-elements-panel";
 
 type Props = {
@@ -26,6 +29,8 @@ type Props = {
   scene: StoryboardScene;
   /** The story_scenes workflow, for the status as a word on the card. */
   statusOptions: StatusOption[];
+  /** The viewer tells the story: the card gets a pencil to change its words. */
+  canEdit: boolean;
 };
 
 // The least height of the face: square at its usual width, and kept when
@@ -52,7 +57,7 @@ const FACE_HEIGHT = { base: "80vw", md: "24rem" } as const;
  * title. The card goes nowhere, for the same reason the description is
  * whole.
  *
- * The two buttons on the face do something else, so each stops the touch
+ * The buttons on the face do something else, so each stops the touch
  * before the face sees it. The Elements button in the bottom row grows the
  * card downwards with the scene as the players' table showed it
  * (SceneElementsPanel), and puts it away again; a panel under the card
@@ -62,6 +67,16 @@ const FACE_HEIGHT = { base: "80vw", md: "24rem" } as const;
  * back, for a scene with many stacks or a long description; the face
  * keeps its height either way.
  *
+ * For the storyteller a pencil before the expand button opens the table's
+ * scene panel (SceneTextPopover) over the card: the title, description and
+ * notes for a scene still to be played, through the live-edit page's save;
+ * the description and notes alone for a complete one, through the run
+ * page's, which takes a complete scene where the live-edit page's refuses
+ * it, since notes are often written once a scene is done and a complete
+ * scene keeps its title everywhere else. The face then shows the words as
+ * saved, kept here rather than in the board's lists: a card's words are
+ * its own, and the board never hands a card new ones.
+ *
  * A fixed width rather than a share of a grid: the cards sit in a
  * side-to-side scroller, so each has to know its own size. Square at the
  * least rather than the story card's four by three: the board has the
@@ -70,20 +85,26 @@ const FACE_HEIGHT = { base: "80vw", md: "24rem" } as const;
  * Most of the viewport wide on a phone, where one card at a time is what
  * fits, so the expand button is for wider screens.
  */
-export function SceneCard({ idStory, scene, statusOptions }: Props) {
+export function SceneCard({ idStory, scene, statusOptions, canEdit }: Props) {
   const [open, setOpen] = useState(false);
   const [wide, setWide] = useState(false);
   const [showElements, setShowElements] = useState(false);
+  const [words, setWords] = useState({
+    title: scene.title,
+    description: scene.description,
+    notes: scene.notes,
+  });
   const textId = useId();
   const panelId = useId();
   const article = useRef<HTMLDivElement>(null);
   const status = statusOptions.find((option) => option.key === scene.status)?.label ?? scene.status;
+  const locked = scene.status === SCENE_LOCKED_STATUS;
   const played =
     scene.sceneNumber === null
       ? null
       : `Scene ${scene.sceneNumber}` +
         (scene.length === null ? "" : ` · ${formatSceneLength(scene.length)}`);
-  const size = wide ? `Shrink ${scene.title}` : `Expand ${scene.title}`;
+  const size = wide ? `Shrink ${words.title}` : `Expand ${words.title}`;
 
   function toggleWide() {
     setWide(!wide);
@@ -109,7 +130,7 @@ export function SceneCard({ idStory, scene, statusOptions }: Props) {
     <Stack
       ref={article}
       as="article"
-      aria-label={scene.title}
+      aria-label={words.title}
       gap="0"
       overflow="hidden"
       rounded="xl"
@@ -152,40 +173,63 @@ export function SceneCard({ idStory, scene, statusOptions }: Props) {
           gradientTo="blackAlpha.800"
         />
 
-        <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-          <Tooltip.Trigger asChild>
-            <IconButton
-              type="button"
-              aria-label={size}
-              aria-pressed={wide}
-              size="xs"
-              variant="ghost"
-              rounded="full"
+        {/* The corner's buttons. The touch is stopped on the row rather
+            than on each button: the pencil's panel is portalled out of the
+            card, but React still bubbles its events up through here, so a
+            touch inside the panel would otherwise open the card under it. */}
+        <HStack
+          gap="1"
+          position="absolute"
+          top="3"
+          right="3"
+          zIndex="1"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {canEdit && (
+            <SceneTextPopover
+              title={words.title}
+              text={{ description: words.description, notes: words.notes }}
+              save={(values) =>
+                locked
+                  ? sa_setSceneText(idStory, scene.idStoryScene, values)
+                  : sa_setLiveSceneText(idStory, scene.idStoryScene, values)
+              }
+              onSaved={(text, savedTitle) =>
+                setWords({ ...text, title: savedTitle ?? words.title })
+              }
+              editTitle={!locked}
+              icon="pencil"
               color="whiteAlpha.900"
-              _hover={{ bg: "blackAlpha.500" }}
-              position="absolute"
-              top="3"
-              right="3"
-              zIndex="1"
-              hideBelow="md"
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleWide();
-              }}
-            >
-              {wide ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </IconButton>
-          </Tooltip.Trigger>
-          <Portal>
-            <Tooltip.Positioner>
-              <Tooltip.Content>{size}</Tooltip.Content>
-            </Tooltip.Positioner>
-          </Portal>
-        </Tooltip.Root>
+            />
+          )}
+          <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+            <Tooltip.Trigger asChild>
+              <IconButton
+                type="button"
+                aria-label={size}
+                aria-pressed={wide}
+                size="xs"
+                variant="ghost"
+                rounded="full"
+                color="whiteAlpha.900"
+                _hover={{ bg: "blackAlpha.500" }}
+                hideBelow="md"
+                onClick={toggleWide}
+              >
+                {wide ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </IconButton>
+            </Tooltip.Trigger>
+            <Portal>
+              <Tooltip.Positioner>
+                <Tooltip.Content>{size}</Tooltip.Content>
+              </Tooltip.Positioner>
+            </Portal>
+          </Tooltip.Root>
+        </HStack>
 
         <Stack position="relative" minH={FACE_HEIGHT} p="4" gap="2">
-          {/* Room at the end of the title for the expand button. */}
-          <Stack gap="0" pe={{ md: "8" }}>
+          {/* Room at the end of the title for the corner's buttons. */}
+          <Stack gap="0" pe={canEdit ? { base: "8", md: "16" } : { md: "8" }}>
             <Text as="h3" textStyle="xl" fontWeight="semibold">
               <chakra.button
                 type="button"
@@ -200,7 +244,7 @@ export function SceneCard({ idStory, scene, statusOptions }: Props) {
                   setOpen(!open);
                 }}
               >
-                {scene.title}
+                {words.title}
               </chakra.button>
             </Text>
             {played && (
@@ -210,20 +254,20 @@ export function SceneCard({ idStory, scene, statusOptions }: Props) {
             )}
           </Stack>
 
-          {(scene.description || (open && scene.notes)) && (
+          {(words.description || (open && words.notes)) && (
             <Stack id={textId} gap="3" flex="1" minH="0">
-              {scene.description && (
+              {words.description && (
                 <Text textStyle="sm" whiteSpace="pre-wrap" color="whiteAlpha.900">
-                  {scene.description}
+                  {words.description}
                 </Text>
               )}
-              {open && scene.notes && (
+              {open && words.notes && (
                 <Stack gap="1">
                   <Heading size="xs" textTransform="uppercase" letterSpacing="wider">
                     Notes
                   </Heading>
                   <Text textStyle="sm" whiteSpace="pre-wrap" color="whiteAlpha.900">
-                    {scene.notes}
+                    {words.notes}
                   </Text>
                 </Stack>
               )}
@@ -262,7 +306,7 @@ export function SceneCard({ idStory, scene, statusOptions }: Props) {
           id={panelId}
           idStory={idStory}
           idStoryScene={scene.idStoryScene}
-          title={scene.title}
+          title={words.title}
         />
       )}
     </Stack>

@@ -32,10 +32,23 @@ import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
 import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
 
+/**
+ * The session as the save stored it: the title, and the three texts each
+ * null when left empty, as the row holds them. The Timeline shows the title;
+ * the storyboard's band shows the texts too, so both follow a save without
+ * reading the session again.
+ */
+export type SessionSaved = {
+  title: string | null;
+  summary: string | null;
+  notes: string | null;
+  lingeringQuestions: string | null;
+};
+
 type Props = {
   idStorySession: number;
-  /** The title as saved, for the row to show. */
-  onSaved: (title: string | null) => void;
+  /** The session as saved, for the row or the band to show. */
+  onSaved: (saved: SessionSaved) => void;
   onClose: () => void;
 };
 
@@ -114,7 +127,7 @@ function SessionEditForm({
 }: {
   session: SessionForEdit;
   onScenesChange: (scenes: SessionForEdit["scenes"]) => void;
-  onSaved: (title: string | null) => void;
+  onSaved: (saved: SessionSaved) => void;
   onClose: () => void;
 }) {
   const {
@@ -142,7 +155,14 @@ function SessionEditForm({
       return;
     }
     if (result.ok) {
-      onSaved(result.title);
+      // The action hands back the title alone; the texts are stored as the
+      // schema trimmed them, empty ones as null.
+      onSaved({
+        title: result.title,
+        summary: values.summary || null,
+        notes: values.notes || null,
+        lingeringQuestions: values.lingeringQuestions || null,
+      });
       onClose();
       toaster.create({ title: "Session saved", type: "success" });
       return;

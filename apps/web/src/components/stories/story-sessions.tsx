@@ -270,7 +270,7 @@ export function StorySessions({
                 <Box mt="2" mb="2" p="3" rounded="md" bg="bg.subtle">
                   <SessionEditPanel
                     idStorySession={session.idStorySession}
-                    onSaved={(title) => onSaved(session.idStorySession, title)}
+                    onSaved={(saved) => onSaved(session.idStorySession, saved.title)}
                     onClose={() => setEditing(null)}
                   />
                 </Box>

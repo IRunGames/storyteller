@@ -32,6 +32,7 @@ import {
 } from "@/app/(app)/(nav)/stories/[id]/storyboard/actions";
 import { LocalDate } from "@/components/dates/local-date";
 import { SceneCard } from "./scene-card";
+import { SessionEditPopover } from "./session-edit-popover";
 
 type Props = {
   board: StoryboardData;
@@ -204,6 +205,7 @@ export function Storyboard({ board, sceneStatusOptions }: Props) {
                 idStory={board.idStory}
                 session={session}
                 statusOptions={sceneStatusOptions}
+                canEdit={board.isStoryteller}
                 mutedColor={mutedColor}
               />
             ))}
@@ -223,6 +225,7 @@ export function Storyboard({ board, sceneStatusOptions }: Props) {
                         idStory={board.idStory}
                         scene={scene}
                         statusOptions={sceneStatusOptions}
+                        canEdit={board.isStoryteller}
                       />
                     ))}
                   </Grid>
@@ -299,18 +302,28 @@ function MoreButton({
  * board read for its pictures. A sitting with nothing written has neither
  * panel nor button: a panel that only said so would be a click for
  * nothing.
+ *
+ * For the storyteller a pencil follows, on every band, that opens the
+ * Timeline's session panel in a popover (SessionEditPopover), so a sitting
+ * can be written up from the board; the band and the write-up then show
+ * what was saved. That is kept here rather than in the board's lists: a
+ * lane's write-up is its own, and the board never hands a lane a new one.
  */
 function SessionLane({
   idStory,
-  session,
+  session: given,
   statusOptions,
+  canEdit,
   mutedColor,
 }: {
   idStory: number;
   session: StoryboardSession;
   statusOptions: StatusOption[];
+  /** The viewer tells the story: the band gets a pencil. */
+  canEdit: boolean;
   mutedColor: string;
 }) {
+  const [session, setSession] = useState(given);
   const heading = sessionHeading(session);
   const about = `About ${heading}`;
   const writeUp = [
@@ -364,6 +377,13 @@ function SessionLane({
               </Portal>
             </Tooltip.Root>
           )}
+          {canEdit && (
+            <SessionEditPopover
+              idStorySession={session.idStorySession}
+              heading={heading}
+              onSaved={(saved) => setSession({ ...session, ...saved })}
+            />
+          )}
           <HStack gap="3" flexShrink="0" textStyle="xs">
             <LocalDate value={session.startedAt} />
             {session.status !== SESSION_DONE_STATUS && (
@@ -416,6 +436,7 @@ function SessionLane({
               idStory={idStory}
               scene={scene}
               statusOptions={statusOptions}
+              canEdit={canEdit}
             />
           ))}
         </HStack>

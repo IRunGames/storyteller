@@ -191,6 +191,39 @@ const sa_getStoryboardUnplayed = mock.fn(async (): Promise<StoryboardScenesPage 
   more: false,
 }));
 
+const sa_getSessionForEdit = mock.fn(async (idStorySession: number) => ({
+  idStorySession,
+  idStory: 7,
+  status: "DONE",
+  values: { title: "", summary: "", notes: "", lingeringQuestions: "" },
+  scenes: [],
+}));
+const sa_updateStorySession = mock.fn(async (_id: number, values: { title: string | null }) => ({
+  ok: true as const,
+  title: values.title,
+}));
+const sa_setLiveSceneText = mock.fn(
+  async (
+    _idStory: number,
+    _idStoryScene: number,
+    values: { title: string; description: string; notes: string },
+  ) => ({
+    ok: true as const,
+    text: { description: values.description || null, notes: values.notes || null },
+    title: values.title,
+  }),
+);
+const sa_setSceneText = mock.fn(
+  async (
+    _idStory: number,
+    _idStoryScene: number,
+    values: { description: string; notes: string },
+  ) => ({
+    ok: true as const,
+    text: { description: values.description || null, notes: values.notes || null },
+  }),
+);
+
 let Storyboard: typeof import("./storyboard").Storyboard;
 
 describe("Storyboard", () => {
@@ -211,6 +244,22 @@ describe("Storyboard", () => {
     mock.module("@/components/elements/actions", {
       namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
+    // The storyteller's two pencils: the band's opens the Timeline's session
+    // panel, the card's the table's scene panel, each over its own actions.
+    mock.module("@/app/(app)/(nav)/stories/actions", {
+      namedExports: { sa_getSessionForEdit, sa_updateStorySession },
+    });
+    mock.module("@/app/(app)/scenes/[id]/live/actions", {
+      namedExports: { sa_setLiveSceneText, sa_setLiveSceneSession: mock.fn() },
+    });
+    mock.module("@/app/(app)/run/[id]/actions", { namedExports: { sa_setSceneText } });
+    // The session panel's cover pictures have test files of their own.
+    mock.module("@/components/uploads/attachment-list-field", {
+      namedExports: { AttachmentListField: () => <p>Pictures</p> },
+    });
+    mock.module("@/components/uploads/story-attachment-picker", {
+      namedExports: { StoryAttachmentPicker: () => <p>Picker</p> },
+    });
     ({ Storyboard } = await import("./storyboard"));
   });
 
@@ -219,6 +268,10 @@ describe("Storyboard", () => {
     sa_getStoryboardScene.mock.mockImplementation(async () => docks);
     sa_getStoryboardSessions.mock.resetCalls();
     sa_getStoryboardUnplayed.mock.resetCalls();
+    sa_getSessionForEdit.mock.resetCalls();
+    sa_updateStorySession.mock.resetCalls();
+    sa_setLiveSceneText.mock.resetCalls();
+    sa_setSceneText.mock.resetCalls();
   });
 
   afterEach(() => {
@@ -535,5 +588,101 @@ describe("Storyboard", () => {
     render({ ...board, sessions: [], unplayed: [] });
     expect(screen.getByText("No scenes have been played yet.")).toBeInTheDocument();
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
+  });
+  it("gives the storyteller a pencil on each band that opens the Timeline's session panel in a popover, and shows the write-up as saved", async () => {
+    const u = userEvent.setup();
+    render(tellersBoard);
+
+    const lane = screen.getByRole("region", { name: "Session 2" });
+    // Nothing written, so no info button; the pencil is there all the same.
+    expect(within(lane).queryByRole("button", { name: "About Session 2" })).not.toBeInTheDocument();
+    const pencil = within(lane).getByRole("button", { name: "Edit Session 2" });
+    expect(pencil).toHaveAttribute("aria-expanded", "false");
+    await u.click(pencil);
+    const panel = await screen.findByRole("dialog", { name: "Session 2" });
+    expect(pencil).toHaveAttribute("aria-expanded", "true");
+    expect(sa_getSessionForEdit.mock.calls[0]?.arguments).toEqual([22]);
+    const summary = await within(panel).findByRole("textbox", { name: "Summary (optional)" });
+    await u.type(within(panel).getByRole("textbox", { name: "Title (optional)" }), "Whitby");
+    await u.type(summary, "They crossed the moor.");
+    await u.click(within(panel).getByRole("button", { name: "Save session" }));
+
+    await waitFor(() => expect(sa_updateStorySession.mock.callCount()).toBe(1));
+    expect(sa_updateStorySession.mock.calls[0].arguments).toEqual([
+      22,
+      { title: "Whitby", summary: "They crossed the moor.", notes: "", lingeringQuestions: "" },
+    ]);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Session 2" })).toBeNull());
+    // The band and the write-up follow what was saved, with no reload.
+    const renamed = screen.getByRole("region", { name: "2. Whitby" });
+    const writeUp = within(renamed).getByRole("region", { name: "About 2. Whitby" });
+    expect(within(writeUp).getByText("Summary")).toBeInTheDocument();
+    expect(within(writeUp).getByText("They crossed the moor.")).toBeInTheDocument();
+    expect(within(writeUp).queryByText("Notes")).not.toBeInTheDocument();
+  });
+
+  it("gives the storyteller a pencil on each card that opens the table's scene panel, with the title for a scene not yet complete", async () => {
+    const u = userEvent.setup();
+    render(tellersBoard);
+
+    const card = screen.getByRole("article", { name: "The ford" });
+    const title = within(card).getByRole("button", { name: "The ford" });
+    const pencil = within(card).getByRole("button", { name: "Edit The ford" });
+    await u.click(pencil);
+    // The pencil's touch does not open the card under it.
+    expect(title).toHaveAttribute("aria-expanded", "false");
+    const panel = await screen.findByRole("dialog", { name: "The ford" });
+    // The description takes focus a moment after the panel opens; typing
+    // anywhere before then is pulled into it.
+    const description = within(panel).getByRole("textbox", { name: "Description" });
+    await waitFor(() => expect(description).toHaveFocus());
+    await u.type(within(panel).getByRole("textbox", { name: "Title" }), " of Sorrows");
+    await u.type(description, "Shallow water.");
+    await u.type(within(panel).getByRole("textbox", { name: "Notes" }), "Mind the horses.");
+    await u.click(within(panel).getByRole("button", { name: "Save scene" }));
+
+    await waitFor(() => expect(sa_setLiveSceneText.mock.callCount()).toBe(1));
+    expect(sa_setLiveSceneText.mock.calls[0].arguments).toEqual([
+      7,
+      4,
+      { title: "The ford of Sorrows", description: "Shallow water.", notes: "Mind the horses." },
+    ]);
+    expect(sa_setSceneText.mock.callCount()).toBe(0);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "The ford" })).toBeNull());
+    // The card follows what was saved, with no reload.
+    const renamed = screen.getByRole("article", { name: "The ford of Sorrows" });
+    expect(within(renamed).getByText("Shallow water.")).toBeInTheDocument();
+    await u.click(within(renamed).getByRole("button", { name: "The ford of Sorrows" }));
+    expect(within(renamed).getByText("Mind the horses.")).toBeInTheDocument();
+  });
+
+  it("keeps a complete scene's title, and saves its words through the table's action, which takes a complete scene", async () => {
+    const u = userEvent.setup();
+    render(tellersBoard);
+
+    const card = screen.getByRole("article", { name: "The docks" });
+    await u.click(within(card).getByRole("button", { name: "Edit The docks" }));
+    const panel = await screen.findByRole("dialog", { name: "The docks" });
+    expect(within(panel).queryByRole("textbox", { name: "Title" })).not.toBeInTheDocument();
+    const description = within(panel).getByRole("textbox", { name: "Description" });
+    expect(description).toHaveValue("Fog on the water.");
+    await waitFor(() => expect(description).toHaveFocus());
+    const notes = within(panel).getByRole("textbox", { name: "Notes" });
+    expect(notes).toHaveValue("Bring the lantern.");
+    await u.type(notes, " And oil.");
+    await u.click(within(panel).getByRole("button", { name: "Save scene" }));
+
+    await waitFor(() => expect(sa_setSceneText.mock.callCount()).toBe(1));
+    expect(sa_setSceneText.mock.calls[0].arguments).toEqual([
+      7,
+      3,
+      { description: "Fog on the water.", notes: "Bring the lantern. And oil." },
+    ]);
+    expect(sa_setLiveSceneText.mock.callCount()).toBe(0);
+  });
+
+  it("shows a player no pencils", () => {
+    render();
+    expect(screen.queryByRole("button", { name: /^Edit / })).not.toBeInTheDocument();
   });
 });
