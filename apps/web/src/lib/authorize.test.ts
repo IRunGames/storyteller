@@ -23,7 +23,7 @@ const activeUser = {
   id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
   name: "Paul",
   email: "storyteller@irun.games",
-  isActive: true,
+  status: "active" as const,
 };
 
 let requireUser: typeof import("./authorize").requireUser;
@@ -63,11 +63,23 @@ describe("requireUser", () => {
     await expect(requireUser()).rejects.toBeInstanceOf(UnauthorizedError);
   });
 
-  it("rejects an inactive user", async () => {
-    getSession.mock.mockImplementation(async () => ({ user: { id: activeUser.id } }));
-    findFirst.mock.mockImplementation(async () => ({ ...activeUser, isActive: false }));
+  // The three switched-off statuses of the Users Status Workflow refuse
+  // alike; which one the administrator picked is for them, not the gate.
+  for (const status of ["inactive", "suspended", "locked"] as const) {
+    it(`rejects a user whose account is ${status}`, async () => {
+      getSession.mock.mockImplementation(async () => ({ user: { id: activeUser.id } }));
+      findFirst.mock.mockImplementation(async () => ({ ...activeUser, status }));
 
-    await expect(requireUser()).rejects.toBeInstanceOf(UnauthorizedError);
+      await expect(requireUser()).rejects.toBeInstanceOf(UnauthorizedError);
+    });
+  }
+
+  it("lets a guest through, whose status the view sets apart from the workflow", async () => {
+    getSession.mock.mockImplementation(async () => ({ user: { id: activeUser.id } }));
+    const guest = { ...activeUser, status: "guest" as const, isAnonymous: true };
+    findFirst.mock.mockImplementation(async () => guest);
+
+    await expect(requireUser()).resolves.toEqual(guest);
   });
 
   it("returns the database row for an active user", async () => {

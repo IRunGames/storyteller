@@ -50,7 +50,17 @@ export const user = pgTable("s_users", {
   hoursPlayed: doublePrecision("hours_played").default(0).notNull(),
   idUserType: integer("id_user_type").default(-10).notNull(),
   tags: integer("tags"),
-  isActive: boolean("is_active").default(true).notNull(),
+  // The Users Status Workflow's key (db/STATUS_WORKFLOWS.md, seeded in
+  // db/seeds/seed_s_statuses.sql): ACTIVE, INACTIVE, SUSPENDED or LOCKED,
+  // upper case as every workflow key is. The database's CHECK and
+  // transition trigger guard it; v_users hands the app the lower-case word.
+  status: varchar("status").default("ACTIVE").notNull(),
+  // Added by the metatable (migrations/20261102183912). Null for a sign-up,
+  // which has no author; id_updated_by_user is the administrator who last
+  // changed the status, and the transition trigger copies it into the
+  // activity log entry it writes for the change.
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
   // What the user writes about themselves on their profile; null until then.
   bio: text("bio"),
   // A guest who came in by a story's join link without an account, made and
@@ -85,13 +95,15 @@ export const vUsers = pgView("v_users", {
   hoursPlayed: doublePrecision("hours_played").notNull(),
   idUserType: integer("id_user_type").notNull(),
   tags: integer("tags"),
-  isActive: boolean("is_active").notNull(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
   bio: text("bio"),
   isAnonymous: boolean("is_anonymous").notNull(),
   searchText: text("search_text"),
   // The s_user_types name for idUserType.
   userTypeName: varchar("user_type_name").notNull(),
-  // 'guest', 'inactive' or 'active', from isAnonymous and isActive.
+  // 'guest' for an anonymous user, else the row's workflow status in lower
+  // case: 'active', 'inactive', 'suspended' or 'locked'.
   status: text("status").$type<UserStatus>().notNull(),
 }).existing();
 

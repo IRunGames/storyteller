@@ -14,13 +14,27 @@ export const USER_TYPES = {
 } as const;
 
 /**
- * The one-word states v_users gives an account (db/views/v_users.sql): a
- * guest who came in by a join link, an account switched off, or an account
- * in use. In the order the Users page lists them.
+ * The one-word states v_users gives an account (db/views/v_users.sql): the
+ * four statuses of the Users Status Workflow (db/seeds/seed_s_statuses.sql)
+ * in lower case, and 'guest' for an anonymous user who came in by a join
+ * link, which the view puts in front of whatever the row's status says. In
+ * the order the Users page lists them.
  */
-export const USER_STATUSES = ["active", "inactive", "guest"] as const;
+export const USER_STATUSES = ["active", "inactive", "suspended", "locked", "guest"] as const;
 
 export type UserStatus = (typeof USER_STATUSES)[number];
+
+/**
+ * The statuses that refuse the app: requireUser() throws for any of them, so
+ * the account's pages and actions all answer the same way on its next
+ * request. Active and guest pass. The three differ only in what the
+ * administrator who set them meant, which the workflow's descriptions say.
+ */
+export const USER_BLOCKED_STATUSES = ["inactive", "suspended", "locked"] as const;
+
+export function isBlockedStatus(status: UserStatus): boolean {
+  return (USER_BLOCKED_STATUSES as readonly UserStatus[]).includes(status);
+}
 
 /**
  * Who something is shown to, by s_user_types id: strictly below one type,

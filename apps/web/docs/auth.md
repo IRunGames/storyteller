@@ -96,6 +96,25 @@ sends them straight back. Better Auth tries to clear the stale cookie from
 session against the database. This is the real boundary. It is wrapped in React
 `cache()`, so a layout and the page inside it share one lookup rather than two.
 
+### Account status
+
+`s_users.status` runs through the Users Status Workflow
+(`db/seeds/seed_s_statuses.sql`): `ACTIVE`, the default, and three ways of
+being switched off, `INACTIVE`, `SUSPENDED` and `LOCKED`. An administrator
+moves an account between them from the status chip on the Users page
+(`sa_setUserStatus`), which records who did it in the row's
+`id_updated_by_user` and in the activity log the transition trigger writes.
+`requireUser()` refuses any of the three switched-off statuses alike
+(`lib/user-types.ts`); which one was chosen is for the administrator, not the
+gate. A guest is never switched off: `v_users` reports `guest` for an
+anonymous user whatever the row's status, and a guest is deleted instead
+([Guests](#guests)).
+
+Better Auth knows nothing of the column, so a status change does not delete
+the account's sessions. It takes effect on the account's next request, when
+`requireUser()` reads the row and throws, and `(app)/error.tsx` offers the
+sign-out.
+
 ### Why protected pages call `requireSession()` themselves
 
 [`(app)/layout.tsx`](<../src/app/(app)/layout.tsx>) calls it, but that is only a

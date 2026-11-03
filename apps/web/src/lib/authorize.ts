@@ -2,7 +2,7 @@ import { cache } from "react";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { getSession } from "@/lib/require-session";
-import { USER_TYPES } from "@/lib/user-types";
+import { isBlockedStatus, USER_TYPES } from "@/lib/user-types";
 
 /**
  * The signed-in user as v_users has them: the s_users row with the name of
@@ -21,8 +21,11 @@ export class UnauthorizedError extends Error {
 
 /**
  * The gate every server action passes through. A session cookie alone is not
- * enough: the user must still exist in `users` and be active, so a deleted or
- * deactivated account cannot keep acting on a cookie that has not expired.
+ * enough: the user must still exist in `users` and hold a status that allows
+ * the app (lib/user-types.ts), so a deleted, deactivated, suspended or
+ * locked account cannot keep acting on a cookie that has not expired. The
+ * session itself is not deleted when a status changes; the change takes
+ * effect here, on the account's next request.
  *
  * Returns the database row, so callers use `user.id` from here and never an id
  * sent by the client.
@@ -41,7 +44,7 @@ export const requireUser = cache(async function requireUser(): Promise<DbUser> {
     .from(schema.vUsers)
     .where(eq(schema.vUsers.id, session.user.id))
     .limit(1);
-  if (!user || !user.isActive) throw new UnauthorizedError();
+  if (!user || isBlockedStatus(user.status)) throw new UnauthorizedError();
 
   return user;
 });

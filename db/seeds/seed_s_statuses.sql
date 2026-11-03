@@ -88,7 +88,23 @@
             -- rather than empty.
             (-7, 'THUMBS_UP',   'The page is working well for them.',     ARRAY['THUMBS_DOWN', 'IDEA']),
             (-7, 'THUMBS_DOWN', 'The page is not working well for them.', ARRAY['THUMBS_UP', 'IDEA']),
-            (-7, 'IDEA',        'They have an idea to suggest.',          ARRAY['THUMBS_UP', 'THUMBS_DOWN'])
+            (-7, 'IDEA',        'They have an idea to suggest.',          ARRAY['THUMBS_UP', 'THUMBS_DOWN']),
+
+            -- Users: `s_users`. Read as transitions FROM each status: active
+            -- -> inactive, suspended or locked; inactive, suspended and
+            -- locked -> active; and any status -> suspended or locked, so an
+            -- account can be suspended or locked whatever state it is in.
+            -- Nothing but active leads to inactive. ACTIVE is the default an
+            -- account is created with, so its list is the three it can
+            -- return from rather than empty. Only active accounts (and
+            -- guests, which the view sets apart) can use the app; the other
+            -- three refuse requireUser() alike and differ only in what the
+            -- administrator means by them. A guest is deleted rather than
+            -- moved, so no status is for guests.
+            (-8, 'ACTIVE',    'The account is in use.',                                            ARRAY['INACTIVE', 'SUSPENDED', 'LOCKED']),
+            (-8, 'INACTIVE',  'The account has been switched off.',                                ARRAY['ACTIVE']),
+            (-8, 'SUSPENDED', 'The account is suspended by an administrator, to be restored.',     ARRAY['ACTIVE', 'INACTIVE', 'LOCKED']),
+            (-8, 'LOCKED',    'The account is locked by an administrator and cannot be used.',     ARRAY['ACTIVE', 'INACTIVE', 'SUSPENDED'])
     ),
     numbered_statuses AS (
         SELECT -ROW_NUMBER() OVER () AS s_status_id, *

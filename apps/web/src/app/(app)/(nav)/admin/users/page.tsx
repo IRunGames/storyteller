@@ -5,7 +5,7 @@ import { UsersAdmin } from "@/components/admin/users-admin";
 import { requireUser } from "@/lib/authorize";
 import { defaultUserListQuery } from "@/lib/user-list-schemas";
 import { USER_TYPES } from "@/lib/user-types";
-import { sa_listUserTypes, sa_listUsers } from "./actions";
+import { sa_listUserStatusOptions, sa_listUserTypes, sa_listUsers } from "./actions";
 
 export const metadata: Metadata = {
   title: "Users · Storyteller",
@@ -21,12 +21,20 @@ export default async function UsersPage() {
   const user = await requireUser();
   if (user.isAnonymous || user.idUserType > USER_TYPES.administrator) notFound();
 
-  const types = await sa_listUserTypes();
+  const [types, statusOptions] = await Promise.all([
+    sa_listUserTypes(),
+    sa_listUserStatusOptions(),
+  ]);
   const initial = await sa_listUsers(defaultUserListQuery(types.map((type) => type.idUserType)));
 
   return (
     <Container maxW="6xl" py="8">
-      <UsersAdmin types={types} initial={initial} />
+      <UsersAdmin
+        types={types}
+        statusOptions={statusOptions}
+        viewerId={user.id}
+        initial={initial}
+      />
     </Container>
   );
 }

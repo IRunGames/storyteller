@@ -209,7 +209,7 @@ function seatable(idStory: number, storytellerId: string) {
     .select({ one: storyPlayers.idStoryPlayer })
     .from(storyPlayers)
     .where(and(eq(storyPlayers.idStory, idStory), eq(storyPlayers.idUser, users.id)));
-  return and(eq(users.isActive, true), not(eq(users.id, storytellerId)), not(exists(seated)));
+  return and(eq(users.status, "ACTIVE"), not(eq(users.id, storytellerId)), not(exists(seated)));
 }
 
 const querySchema = z.string().max(200);

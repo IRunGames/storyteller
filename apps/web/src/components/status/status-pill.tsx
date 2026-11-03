@@ -1,21 +1,14 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
-import {
-  Button,
-  chakra,
-  HStack,
-  Menu,
-  Popover,
-  Portal,
-  Span,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
+import { useState, useTransition } from "react";
+import { Span } from "@chakra-ui/react";
 import { statusLabel, transitionsFrom, type StatusOption, type StatusTable } from "@/lib/status";
 import { sa_setRowStatus } from "./actions";
 import { pillStyle } from "./pill-style";
+import { StatusMenuPill, type StatusConfirmation } from "./status-menu-pill";
 import { toaster } from "@/components/ui/toaster";
+
+export type { StatusConfirmation };
 
 type Props = {
   /** Which table the row is in; the action checks it against its own list. */
@@ -44,19 +37,11 @@ type Props = {
   confirm?: (next: string) => StatusConfirmation | null;
 };
 
-/** What the pill's confirmation popover says before a move. */
-export type StatusConfirmation = { title: string; body: string; confirmLabel: string };
-
-// The interactive pill is a real button: Span polymorphed with `as` keeps
-// the span's own prop types, which have no `type`, and a trigger inside a
-// form must not default to submitting it.
-const PillButton = chakra("button");
-
 /**
- * A row's status, coloured by how far through its workflow it has come. For
- * the owner it is also the way to move it: the menu lists the transitions the
- * workflow allows out of the status the row holds, and choosing one takes
- * effect immediately. A status with no way out opens a note saying so.
+ * A row's status. For the owner it is also the way to move it: the menu
+ * lists the transitions the workflow allows out of the status the row holds
+ * (StatusMenuPill draws it), and choosing one takes effect immediately
+ * through sa_setRowStatus.
  *
  * The change is shown before the action answers, because the menu closing on
  * a pill that still reads the old word looks like nothing happened. A refusal
@@ -74,11 +59,6 @@ export function StatusPill({
 }: Props) {
   const [shown, setShown] = useState(status);
   const [, startTransition] = useTransition();
-  // The status waiting on the confirmation popover, and what it says.
-  const [pending, setPending] = useState<{ next: string; ask: StatusConfirmation } | null>(null);
-  // Tooltip and menu each look their trigger up by id; sharing one keeps the
-  // menu from opening at the page corner (nav-theme-menu.tsx).
-  const triggerId = useId();
 
   // The row's own status wins when it changes underneath: a list that
   // reloaded, or another pill's change to the same row.
@@ -88,7 +68,6 @@ export function StatusPill({
     setShown(status);
   }
 
-  const moves = transitionsFrom(shown, options);
   // The workflow's own label, falling back to the key for a status the
   // options do not list — a row loaded before a status was renamed, say.
   const label = options.find((option) => option.key === shown)?.label ?? statusLabel(shown);
@@ -120,139 +99,14 @@ export function StatusPill({
     );
   }
 
-  // The owner pressing a status the workflow leads nowhere out of would
-  // otherwise get nothing at all, which reads as broken. Say why instead:
-  // this one is final, and the database would refuse any move out of it.
-  if (moves.length === 0) {
-    return (
-      <Popover.Root positioning={{ placement: "bottom-start" }}>
-        <Popover.Trigger asChild>
-          <PillButton
-            type="button"
-            data-status={shown}
-            cursor="pointer"
-            {...pillStyle()}
-            _hover={{ borderColor: "status.contrast" }}
-          >
-            {label}
-          </PillButton>
-        </Popover.Trigger>
-        <Portal>
-          <Popover.Positioner>
-            <Popover.Content w="xs">
-              <Popover.Arrow />
-              <Popover.Body>
-                <Popover.Title fontWeight="semibold">{label} is final</Popover.Title>
-                <Text textStyle="sm" color="fg.muted" mt="1">
-                  Nothing in this workflow leads out of {label.toLowerCase()}, so it cannot be moved
-                  to another status.
-                </Text>
-              </Popover.Body>
-            </Popover.Content>
-          </Popover.Positioner>
-        </Portal>
-      </Popover.Root>
-    );
-  }
-
-  const trigger = (
-    <PillButton
-      type="button"
-      data-status={shown}
-      cursor="pointer"
-      {...pillStyle()}
-      // The only thing that changes on hover is the edge, since the fill
-      // is already the highlight at full strength.
-      _hover={{ borderColor: "status.contrast" }}
-    >
-      {label}
-    </PillButton>
-  );
-
-  const menu = (
-    <Menu.Root
-      ids={{ trigger: triggerId }}
-      onSelect={(details) => {
-        const ask = confirm?.(details.value) ?? null;
-        if (ask) setPending({ next: details.value, ask });
-        else choose(details.value);
-      }}
-    >
-      {tooltip ? (
-        <Tooltip.Root
-          openDelay={200}
-          positioning={{ placement: "top" }}
-          ids={{ trigger: triggerId }}
-        >
-          <Tooltip.Trigger asChild>
-            <Menu.Trigger asChild>{trigger}</Menu.Trigger>
-          </Tooltip.Trigger>
-          <Portal>
-            <Tooltip.Positioner>
-              <Tooltip.Content>{tooltip}</Tooltip.Content>
-            </Tooltip.Positioner>
-          </Portal>
-        </Tooltip.Root>
-      ) : (
-        <Menu.Trigger asChild>{trigger}</Menu.Trigger>
-      )}
-      {/* Through a Portal like every other floating layer, so a pill inside a
-          scrolling Prep Work column is not clipped by it. */}
-      <Portal>
-        <Menu.Positioner>
-          <Menu.Content minW="10rem">
-            {moves.map((move) => (
-              <Menu.Item key={move.key} value={move.key}>
-                {move.label}
-              </Menu.Item>
-            ))}
-          </Menu.Content>
-        </Menu.Positioner>
-      </Portal>
-    </Menu.Root>
-  );
-
-  if (!confirm) return menu;
-
-  // The confirmation is anchored to the pill rather than opened by it: the
-  // pill already opens the menu, and the question follows a choice made in
-  // the menu (run-scene-select.tsx does the same).
   return (
-    <Popover.Root
-      open={pending !== null}
-      onOpenChange={(details) => {
-        if (!details.open) setPending(null);
-      }}
-      positioning={{ placement: "bottom-start" }}
-    >
-      <Popover.Anchor display="inline-flex">{menu}</Popover.Anchor>
-      <Portal>
-        <Popover.Positioner>
-          <Popover.Content w="xs">
-            <Popover.Arrow />
-            <Popover.Body>
-              <Popover.Title fontWeight="semibold">{pending?.ask.title}</Popover.Title>
-              <Text textStyle="sm" color="fg.muted" mt="1">
-                {pending?.ask.body}
-              </Text>
-              <HStack gap="2" mt="3" justify="flex-end">
-                <Button size="sm" variant="outline" onClick={() => setPending(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    if (pending) choose(pending.next);
-                    setPending(null);
-                  }}
-                >
-                  {pending?.ask.confirmLabel}
-                </Button>
-              </HStack>
-            </Popover.Body>
-          </Popover.Content>
-        </Popover.Positioner>
-      </Portal>
-    </Popover.Root>
+    <StatusMenuPill
+      label={label}
+      value={shown}
+      moves={transitionsFrom(shown, options)}
+      onChoose={choose}
+      tooltip={tooltip}
+      confirm={confirm}
+    />
   );
 }

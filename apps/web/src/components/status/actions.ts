@@ -1,8 +1,9 @@
 "use server";
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { listStatusOptions } from "@/db/status-options";
 import { requireAccount } from "@/lib/authorize";
 import { removeGuestsFrom } from "@/lib/guests";
 import { publishLater } from "@/lib/realtime/publish";
@@ -19,8 +20,7 @@ import {
   type StatusTable,
 } from "@/lib/status";
 
-const { sStatuses, tablesMeta, stories, storyScenes, storySessions, elements, sceneElements } =
-  schema;
+const { stories, storyScenes, storySessions, elements, sceneElements } = schema;
 
 // The status pill belongs to no one page — it sits on scenes, on sessions and
 // on whatever gets a workflow next — so its actions live beside it rather
@@ -42,40 +42,16 @@ const statusSchema = z.string().min(1).max(64);
 
 /**
  * The statuses of the workflow mapped to a table, in the order the workflow
- * lists them, which is the order the pill ramps its colour through. Read from
- * the metatables rather than restated here, so the moves the pill offers are
- * exactly the ones the database's transition trigger will accept.
+ * lists them (db/status-options.ts says how they are read), so the moves
+ * the pill offers are exactly the ones the database's transition trigger
+ * will accept.
  *
  * Any signed-in user may ask: a workflow's shape is not private, and a reader
  * who cannot change a status still sees its pill.
  */
 export async function sa_listStatusOptions(table: StatusTable): Promise<StatusOption[]> {
   await requireAccount();
-  const name = tableSchema.parse(table);
-
-  const rows = await db
-    .select({
-      key: sStatuses.statusKey,
-      description: sStatuses.description,
-      from: sStatuses.transitionFromStatusKeys,
-    })
-    .from(tablesMeta)
-    .innerJoin(sStatuses, sql`${sStatuses.idStatusWorkflow} = any(${tablesMeta.idStatusWorkflows})`)
-    .where(eq(tablesMeta.tableName, name))
-    // s_status_id counts down from -1 in the order the seed lists them, so
-    // descending is the workflow's own order: the first status first.
-    .orderBy(desc(sStatuses.idStatus));
-
-  // status_key is nullable on the metatable but a status without one is not a
-  // status; it would only ever be a half-written seed row, so it is left out.
-  return rows
-    .filter((row): row is typeof row & { key: string } => row.key !== null)
-    .map((row) => ({
-      key: row.key,
-      label: statusLabel(row.key),
-      description: row.description,
-      from: row.from,
-    }));
+  return listStatusOptions(tableSchema.parse(table));
 }
 
 export type SetStatusResult = { ok: true; status: string } | { ok: false; error: string };

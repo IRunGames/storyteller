@@ -84,7 +84,14 @@ create table users
     -- Signup inserts no user type, so the column needs a default of its own.
     id_user_type   integer                  default 1                 not null,
     tags           integer,
-    is_active      boolean                  default true              not null,
+    -- Run by the Users Status Workflow (-8, seeds/seed_s_statuses.sql):
+    -- ACTIVE, INACTIVE, SUSPENDED or LOCKED. The seeds run after this
+    -- script, so the workflow's CHECK, <status>_at columns, triggers and the
+    -- id_created_by_user / id_updated_by_user columns are attached by
+    -- migrations/20261102183912_convert_s_users_is_active_to_status.sql,
+    -- which also made the change on databases built with the is_active
+    -- boolean this column replaced.
+    status         varchar                  default 'ACTIVE'          not null,
 
     created_at     timestamp with time zone default now()             not null,
     updated_at     timestamp with time zone default now()             not null

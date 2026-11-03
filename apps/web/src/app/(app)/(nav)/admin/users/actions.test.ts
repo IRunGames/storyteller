@@ -5,7 +5,7 @@
 // the database never changes an answer. Everything is removed in `after`.
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 import { defaultUserListQuery, type UserListQuery } from "@/lib/user-list-schemas";
 import { makeTestUser, removeTestUser } from "@/test/test-user";
@@ -54,12 +54,14 @@ describe("admin users actions", { skip: !hasDb && "DATABASE_URL is not set" }, (
       .set({ idUserType: -25, nickName: "Zebra" })
       .where(eq(tables.user.id, player));
     await db.update(tables.user).set({ isAnonymous: true }).where(eq(tables.user.id, guest));
-    await db.update(tables.user).set({ isActive: false }).where(eq(tables.user.id, retired));
+    await db.update(tables.user).set({ status: "INACTIVE" }).where(eq(tables.user.id, retired));
     caller = admin;
   });
 
   after(async () => {
-    for (const email of EMAILS) await removeTestUser(db, tables, email);
+    // The admin goes last: the rows it changed the status of name it in
+    // id_updated_by_user, whose foreign key holds it back until they are gone.
+    for (const email of [...EMAILS].reverse()) await removeTestUser(db, tables, email);
   });
 
   it("is refused to anyone short of an administrator", async () => {
@@ -111,5 +113,88 @@ describe("admin users actions", { skip: !hasDb && "DATABASE_URL is not set" }, (
 
   it("refuses a query it does not understand", async () => {
     await expect(actions.sa_listUsers(ours({ pageSize: 7 as never }))).rejects.toThrow();
+  });
+
+  // The status tests come after the listing ones, since they move the player
+  // fixture about and put it back only at the end.
+  it("lists the four statuses of the users workflow in its order", async () => {
+    const options = await actions.sa_listUserStatusOptions();
+    expect(options.map((option) => option.key)).toEqual([
+      "ACTIVE",
+      "INACTIVE",
+      "SUSPENDED",
+      "LOCKED",
+    ]);
+    caller = player;
+    try {
+      await expect(actions.sa_listUserStatusOptions()).rejects.toThrow();
+      await expect(actions.sa_setUserStatus(admin, "LOCKED")).rejects.toThrow();
+    } finally {
+      caller = admin;
+    }
+  });
+
+  it("refuses the administrator's own row, a guest and a status the workflow lacks", async () => {
+    expect(await actions.sa_setUserStatus(admin, "LOCKED")).toEqual({
+      ok: false,
+      error: "You cannot change your own status.",
+    });
+    const [guest] = await db
+      .select({ id: tables.user.id })
+      .from(tables.user)
+      .where(eq(tables.user.email, GUEST_EMAIL));
+    expect(await actions.sa_setUserStatus(guest.id, "LOCKED")).toEqual({
+      ok: false,
+      error: "That account's status cannot be changed.",
+    });
+    expect(await actions.sa_setUserStatus(player, "BANNED")).toEqual({
+      ok: false,
+      error: "Banned is not a status of this workflow.",
+    });
+    await expect(actions.sa_setUserStatus("not-a-uuid", "LOCKED")).rejects.toThrow();
+  });
+
+  it("moves an account along the workflow, recording who did it, and refuses a move it lacks", async () => {
+    expect(await actions.sa_setUserStatus(player, "SUSPENDED")).toEqual({
+      ok: true,
+      status: "suspended",
+    });
+    const [row] = await db
+      .select({
+        status: tables.user.status,
+        idUpdatedByUser: tables.user.idUpdatedByUser,
+        // The log the transition trigger appends to; not a column the app
+        // declares, since nothing but this test reads it.
+        log: sql<{ userId: string | null; activityData: Record<string, string> }[]>`activity_log`,
+      })
+      .from(tables.user)
+      .where(eq(tables.user.id, player));
+    expect(row.status).toBe("SUSPENDED");
+    expect(row.idUpdatedByUser).toBe(admin);
+    const entry = row.log.at(-1);
+    expect(entry?.userId).toBe(admin);
+    expect(entry?.activityData).toMatchObject({
+      previous_status: "ACTIVE",
+      new_status: "SUSPENDED",
+    });
+
+    // Nothing but active leads to inactive.
+    expect(await actions.sa_setUserStatus(player, "INACTIVE")).toEqual({
+      ok: false,
+      error: "Suspended cannot move to inactive.",
+    });
+    // The same status again is not a move, and not an error either.
+    expect(await actions.sa_setUserStatus(player, "SUSPENDED")).toEqual({
+      ok: true,
+      status: "suspended",
+    });
+    expect(
+      (await actions.sa_listUsers(ours({ statuses: ["suspended"] }))).rows.map((r) => r.email),
+    ).toEqual([PLAYER_EMAIL]);
+
+    expect(await actions.sa_setUserStatus(player, "ACTIVE")).toEqual({
+      ok: true,
+      status: "active",
+    });
   });
 });

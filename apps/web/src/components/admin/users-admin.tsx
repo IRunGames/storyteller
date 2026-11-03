@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Badge,
   Box,
   Button,
   Heading,
@@ -28,7 +27,9 @@ import {
   type UserListPage,
   type UserTypeOption,
 } from "@/app/(app)/(nav)/admin/users/actions";
+import { UserStatusChip } from "@/components/admin/user-status-chip";
 import { LocalDate } from "@/components/dates/local-date";
+import type { StatusOption } from "@/lib/status";
 import {
   USER_PAGE_SIZES,
   type UserListQuery,
@@ -45,15 +46,14 @@ export const USER_SEARCH_DELAY_MS = 500;
 // and nothing sorts the page again in the browser.
 const features = tableFeatures({ rowSortingFeature });
 
+// For the Status filters. The chip on each row takes its label from the
+// workflow itself (statusOptions), which has no word for a guest.
 const STATUS_LABEL: Record<UserStatus, string> = {
   active: "Active",
   inactive: "Inactive",
+  suspended: "Suspended",
+  locked: "Locked",
   guest: "Guest",
-};
-const STATUS_PALETTE: Record<UserStatus, string> = {
-  active: "green",
-  inactive: "gray",
-  guest: "blue",
 };
 
 const DEFAULT_SORT: SortingState = [{ id: "createdAt", desc: true }];
@@ -61,6 +61,10 @@ const DEFAULT_SORT: SortingState = [{ id: "createdAt", desc: true }];
 type Props = {
   /** Every account type, for the Type filters. */
   types: UserTypeOption[];
+  /** The Users Status Workflow's statuses, for the chip on each row. */
+  statusOptions: StatusOption[];
+  /** The administrator looking at the page, whose own row's chip never opens. */
+  viewerId: string;
   /** The first page, loaded by the page with the default query. */
   initial: UserListPage;
 };
@@ -101,7 +105,7 @@ function FilterPill({
  * after that asks again, the search half a second after the last keystroke
  * and the rest at once.
  */
-export function UsersAdmin({ types, initial }: Props) {
+export function UsersAdmin({ types, statusOptions, viewerId, initial }: Props) {
   const [search, setSearch] = useState("");
   const [needle, setNeedle] = useState("");
   const [statuses, setStatuses] = useState<UserStatus[]>([...USER_STATUSES]);
@@ -205,10 +209,25 @@ export function UsersAdmin({ types, initial }: Props) {
       helper.accessor("userTypeName", { header: "Type" }),
       helper.accessor("status", {
         header: "Status",
+        // The chip changes the status itself; the row it is in is patched
+        // here so the page need not ask the server for what it just did.
+        // A row that no longer matches the status filters stays until the
+        // next query, which is when the filters are read again.
         cell: (info) => (
-          <Badge colorPalette={STATUS_PALETTE[info.getValue()]}>
-            {STATUS_LABEL[info.getValue()]}
-          </Badge>
+          <UserStatusChip
+            idUser={info.row.original.id}
+            status={info.getValue()}
+            options={statusOptions}
+            readOnly={info.row.original.id === viewerId}
+            onChanged={(status) =>
+              setListed((current) => ({
+                ...current,
+                rows: current.rows.map((row) =>
+                  row.id === info.row.original.id ? { ...row, status } : row,
+                ),
+              }))
+            }
+          />
         ),
       }),
       helper.accessor("createdAt", {
@@ -224,7 +243,7 @@ export function UsersAdmin({ types, initial }: Props) {
         cell: (info) => info.getValue().toFixed(1),
       }),
     ]);
-  }, []);
+  }, [statusOptions, viewerId]);
 
   const table = useTable({
     features,
