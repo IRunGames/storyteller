@@ -1,6 +1,6 @@
 import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
@@ -294,6 +294,25 @@ describe("Storyboard", () => {
       </UserProvider>,
     );
   }
+
+  it("puts the story's doors beside its name: the story page for anyone, the library and Edit story for the storyteller", () => {
+    render(tellersBoard);
+    expect(screen.getByRole("link", { name: "Story" })).toHaveAttribute("href", "/stories/7");
+    expect(screen.getByRole("link", { name: "Library: Full Story Resources" })).toHaveAttribute(
+      "href",
+      "/libraries/7",
+    );
+    expect(screen.getByRole("link", { name: "Edit story" })).toHaveAttribute(
+      "href",
+      "/stories/7/edit",
+    );
+    cleanup();
+
+    render();
+    expect(screen.getByRole("link", { name: "Story" })).toHaveAttribute("href", "/stories/7");
+    expect(screen.queryByRole("link", { name: /Library/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Edit story" })).not.toBeInTheDocument();
+  });
 
   it("lays the sittings side by side, each a band over its scenes in play order, on the story's cover", () => {
     render();

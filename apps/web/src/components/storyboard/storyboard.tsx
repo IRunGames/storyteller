@@ -18,7 +18,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { ChevronsLeft, ChevronsRight, Info } from "lucide-react";
+import { BookOpen, ChevronsLeft, ChevronsRight, Info, Pencil, ScrollText } from "lucide-react";
 import type { StatusOption } from "@/lib/status";
 import { SESSION_DONE_STATUS, cssUrlValue, sessionHeading, sessionStatusText } from "@/lib/stories";
 import type {
@@ -189,6 +189,53 @@ export function Storyboard({ board, sceneStatusOptions }: Props) {
           <Badge variant="solid" colorPalette="blue" flexShrink="0">
             STORYBOARD
           </Badge>
+          {/* The story's doors, as its page has them beside its name: the
+              page itself for anyone who can see the board, and the library
+              and Edit story for the storyteller, whose pages those are. */}
+          <HStack gap="1" flexShrink="0">
+            {[
+              {
+                label: "Story",
+                href: `/stories/${board.idStory}`,
+                icon: <ScrollText size={18} />,
+              },
+              ...(board.isStoryteller
+                ? [
+                    {
+                      label: "Library: Full Story Resources",
+                      href: `/libraries/${board.idStory}`,
+                      icon: <BookOpen size={18} />,
+                    },
+                    {
+                      label: "Edit story",
+                      href: `/stories/${board.idStory}/edit`,
+                      icon: <Pencil size={18} />,
+                    },
+                  ]
+                : []),
+            ].map((door) => (
+              <Tooltip.Root key={door.label} openDelay={200} positioning={{ placement: "top" }}>
+                <Tooltip.Trigger asChild>
+                  <IconButton
+                    asChild
+                    aria-label={door.label}
+                    variant="ghost"
+                    size="sm"
+                    rounded="full"
+                    color={board.imageUrl ? "whiteAlpha.900" : undefined}
+                    _hover={board.imageUrl ? { bg: "whiteAlpha.200" } : undefined}
+                  >
+                    <NextLink href={door.href}>{door.icon}</NextLink>
+                  </IconButton>
+                </Tooltip.Trigger>
+                <Portal>
+                  <Tooltip.Positioner>
+                    <Tooltip.Content>{door.label}</Tooltip.Content>
+                  </Tooltip.Positioner>
+                </Portal>
+              </Tooltip.Root>
+            ))}
+          </HStack>
           {failed && (
             <Text role="alert" textStyle="sm" color={mutedColor}>
               More could not be loaded right now.
