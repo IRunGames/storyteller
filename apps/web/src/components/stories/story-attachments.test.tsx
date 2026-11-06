@@ -31,7 +31,7 @@ describe("StoryAttachments", () => {
     ({ StoryAttachments } = await import("./story-attachments"));
   });
 
-  it("opens on the cards, and the chevron toggle shows and hides the adding controls", async () => {
+  it("opens on the cards, and the + shows and hides the adding controls", async () => {
     const user = userEvent.setup();
 
     renderWithProviders(<StoryAttachments idStory={-15} onImage={false} />);

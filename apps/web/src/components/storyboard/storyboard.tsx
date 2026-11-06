@@ -115,6 +115,19 @@ export function Storyboard({ board, sceneStatusOptions }: Props) {
     }
   }
 
+  // A sitting the storyteller deleted from its panel: its lane goes, and
+  // the scenes that were in it go to the front of the unplayed grid, since
+  // the database leaves them in the story with no sitting
+  // (sa_deleteStorySession). The front is where the next load would put
+  // them: a scene that was played has a number, and the grid's order puts
+  // numbered scenes before the never-run ones it held.
+  function removeSession(idStorySession: number) {
+    const gone = sessions.find((session) => session.idStorySession === idStorySession);
+    if (!gone) return;
+    setSessions(sessions.filter((session) => session !== gone));
+    setUnplayed([...gone.scenes, ...unplayed]);
+  }
+
   async function loadMoreUnplayed() {
     if (loading) return;
     setLoading("unplayed");
@@ -207,6 +220,7 @@ export function Storyboard({ board, sceneStatusOptions }: Props) {
                 statusOptions={sceneStatusOptions}
                 canEdit={board.isStoryteller}
                 mutedColor={mutedColor}
+                onDeleted={() => removeSession(session.idStorySession)}
               />
             ))}
             {unplayed.length > 0 && (
@@ -308,6 +322,9 @@ function MoreButton({
  * can be written up from the board; the band and the write-up then show
  * what was saved. That is kept here rather than in the board's lists: a
  * lane's write-up is its own, and the board never hands a lane a new one.
+ * The panel's bin is the one thing that reaches the board: a deleted
+ * sitting's lane is the board's to take away, and its scenes the board's
+ * to move (onDeleted).
  */
 function SessionLane({
   idStory,
@@ -315,6 +332,7 @@ function SessionLane({
   statusOptions,
   canEdit,
   mutedColor,
+  onDeleted,
 }: {
   idStory: number;
   session: StoryboardSession;
@@ -322,6 +340,7 @@ function SessionLane({
   /** The viewer tells the story: the band gets a pencil. */
   canEdit: boolean;
   mutedColor: string;
+  onDeleted: () => void;
 }) {
   const [session, setSession] = useState(given);
   const heading = sessionHeading(session);
@@ -382,6 +401,7 @@ function SessionLane({
               idStorySession={session.idStorySession}
               heading={heading}
               onSaved={(saved) => setSession({ ...session, ...saved })}
+              onDeleted={onDeleted}
             />
           )}
           <HStack gap="3" flexShrink="0" textStyle="xs">

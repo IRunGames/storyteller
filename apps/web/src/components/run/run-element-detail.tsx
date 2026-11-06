@@ -23,6 +23,7 @@ import { StatusPill } from "@/components/status/status-pill";
 import { sa_setElementImage, sa_setElementTags } from "@/app/(app)/run/[id]/actions";
 import { toaster } from "@/components/ui/toaster";
 import { TagsPopover } from "@/components/popovers/tags-popover";
+import { ElementStatBlocks } from "@/components/stat-blocks/stat-block-view";
 import { RunElementImagePicker } from "./run-element-image-popover";
 import { RunPictureCell } from "./run-picture-cell";
 
@@ -40,6 +41,10 @@ import { RunPictureCell } from "./run-picture-cell";
  * opens it full size, with a − to take it away, or a + (RunPictureCell),
  * which opens the pill's picker in place below the rows. Either change is
  * reported, so the popover and the pill keep up.
+ *
+ * Under the rows, the element's stat blocks (ElementStatBlocks), loaded as
+ * the rows mount, with their pools, stacks and racks changeable in place
+ * unless the panel is locked.
  */
 export function ElementDetailRows({
   element,
@@ -49,6 +54,7 @@ export function ElementDetailRows({
   idStoryScene,
   onImageChange,
   onTagsChange,
+  locked = false,
 }: {
   element: ElementDetail;
   statusOptions: StatusOption[];
@@ -60,6 +66,8 @@ export function ElementDetailRows({
   idStoryScene: number | null;
   /** The element's picture has changed: its address, or null for none. */
   onImageChange: (imageUrl: string | null) => void;
+  /** The scene is complete: the stat blocks are shown without their controls. */
+  locked?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -162,6 +170,7 @@ export function ElementDetailRows({
           />
         </Box>
       )}
+      <ElementStatBlocks idStory={idStory} idElement={element.idElement} canEdit={!locked} />
     </Stack>
   );
 }

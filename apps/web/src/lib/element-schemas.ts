@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { ELEMENT_KINDS, isWebUrl } from "./elements";
+import { statBlocksSchema } from "./stat-block-schemas";
+import type { StatBlockFormValues, StatBlockSystem } from "./stat-blocks";
 
 // An external link on an element, or on its link to a scene: a full web
 // address or nothing, and the words to show for it. The address is checked
@@ -34,9 +36,39 @@ export const elementSchema = z.object({
   notes: z.string().trim().max(8000, "Keep the notes under 8000 characters."),
   url: linkUrlSchema,
   urlText: linkTextSchema,
+  // The element's stat blocks, keyed by system id, as the board's form posts
+  // them with the rest; each is checked against its system's definition by
+  // the action, which has the definitions (statBlocksSchema). Optional, so
+  // the run page's forms, which extend this schema and never show the
+  // blocks, leave the column alone. removedSystems names the blocks the
+  // form took off, since a key that is simply absent is one the form never
+  // showed.
+  statBlocks: z.record(z.string(), z.unknown()).optional(),
+  removedSystems: z.array(z.number().int().min(-2147483648).max(2147483647)).max(50).optional(),
 });
 
 export type ElementValues = z.infer<typeof elementSchema>;
+
+/**
+ * The board's element form as its inputs hold it: every stat block part as
+ * text (lib/stat-blocks.ts, StatBlockFormValues), which the block schema
+ * turns into numbers on the way to the action. The run forms, which show
+ * no blocks, use ElementValues as before.
+ */
+export type ElementFormInput = Omit<ElementValues, "statBlocks" | "removedSystems"> & {
+  statBlocks: StatBlockFormValues;
+  removedSystems: number[];
+};
+
+/**
+ * The board's element form schema with the blocks checked against their
+ * systems' definitions, as the action checks them, so the browser refuses
+ * what the server would. Given no systems, the blocks pass through to the
+ * action untouched.
+ */
+export function elementFormSchema(systems: StatBlockSystem[]) {
+  return elementSchema.extend({ statBlocks: statBlocksSchema(systems).optional() });
+}
 
 // The run page's element form, for a new element from a stack's + and for
 // editing one from its info popover: every field the board's form has, and

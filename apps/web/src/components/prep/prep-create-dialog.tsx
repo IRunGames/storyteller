@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 import { Alert, CloseButton, Dialog, Portal, Skeleton, Stack } from "@chakra-ui/react";
 import { ELEMENT_KIND_LABELS, type ElementKind } from "@/lib/elements";
 import type { SceneSessionOption } from "@/lib/scenes";
-import { sa_listSceneSessionOptions } from "@/app/(app)/(nav)/libraries/actions";
+import {
+  sa_listSceneSessionOptions,
+  sa_listStatBlockSystems,
+  type StatBlockSystems,
+} from "@/app/(app)/(nav)/libraries/actions";
 import { ElementForm } from "./element-form";
 import { SceneForm } from "./scene-form";
 
@@ -62,7 +66,7 @@ export function PrepCreateDialog({
                 <NewScene idStory={idStory} onCreated={onSceneCreated} onCancel={onClose} />
               )}
               {creating?.type === "element" && (
-                <ElementForm
+                <NewElement
                   idStory={idStory}
                   kind={creating.kind}
                   onCreated={onElementCreated}
@@ -129,5 +133,66 @@ function NewScene({
   }
   return (
     <SceneForm idStory={idStory} sessions={sessions} onCreated={onCreated} onCancel={onCancel} />
+  );
+}
+
+/**
+ * The New element form, once the systems with stat blocks are in, so a new
+ * element starts with the story's system's block and the form can offer the
+ * others. Fetched as the dialog opens, as the sittings are for a scene: the
+ * definitions are not the board's to carry.
+ */
+function NewElement({
+  idStory,
+  kind,
+  onCreated,
+  onCancel,
+}: {
+  idStory: number;
+  kind: ElementKind;
+  onCreated: (kind: ElementKind) => void;
+  onCancel: () => void;
+}) {
+  const [systems, setSystems] = useState<StatBlockSystems | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    sa_listStatBlockSystems(idStory).then(
+      (found) => current && setSystems(found),
+      () => current && setError(true),
+    );
+    return () => {
+      current = false;
+    };
+  }, [idStory]);
+
+  if (error) {
+    return (
+      <Alert.Root role="alert" status="error" size="sm">
+        <Alert.Indicator />
+        <Alert.Content>
+          <Alert.Description>Could not load the systems&apos; stat blocks.</Alert.Description>
+        </Alert.Content>
+      </Alert.Root>
+    );
+  }
+  if (systems === null) {
+    return (
+      <Stack gap="3">
+        <Skeleton h="10" />
+        <Skeleton h="10" />
+        <Skeleton h="24" />
+      </Stack>
+    );
+  }
+  return (
+    <ElementForm
+      idStory={idStory}
+      kind={kind}
+      statBlockSystems={systems}
+      onCreated={onCreated}
+      onCancel={onCancel}
+    />
   );
 }

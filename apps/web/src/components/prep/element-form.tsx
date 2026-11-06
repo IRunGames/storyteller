@@ -1,7 +1,7 @@
 "use client";
 
 import NextLink from "next/link";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Alert,
@@ -14,9 +14,25 @@ import {
   Stack,
   Textarea,
 } from "@chakra-ui/react";
-import { elementSchema, type ElementValues } from "@/lib/element-schemas";
+import {
+  elementFormSchema,
+  type ElementFormInput,
+  type ElementValues,
+} from "@/lib/element-schemas";
 import type { ElementKind } from "@/lib/elements";
-import { sa_createElement, sa_updateElement } from "@/app/(app)/(nav)/libraries/actions";
+import {
+  emptyStatBlock,
+  hasStats,
+  systemKey,
+  toStatBlockFields,
+  type StatBlock,
+} from "@/lib/stat-blocks";
+import {
+  sa_createElement,
+  sa_updateElement,
+  type StatBlockSystems,
+} from "@/app/(app)/(nav)/libraries/actions";
+import { StatBlockFields } from "@/components/stat-blocks/stat-block-fields";
 import { DeleteElementButton } from "./delete-element-button";
 import { ElementKindSelect } from "./element-kind-select";
 
@@ -37,37 +53,100 @@ type Props = {
   onCreated?: (kind: ElementKind) => void;
   /** New element only: the dialog's Cancel. */
   onCancel?: () => void;
+  /**
+   * The systems the Stat blocks section may draw, and the story's own, which
+   * a new element starts with a block for. Left out, the section is not
+   * drawn and the form posts no blocks, so the element's are left alone.
+   */
+  statBlockSystems?: StatBlockSystems;
 };
+
+/**
+ * What the blocks start as: the element's own, each read against its
+ * definition, for an edit; for a new element, the story's system's empty
+ * block when that system has stats, else none. A stored block for a system
+ * the list does not know is not drawn and not posted, which leaves it as it
+ * is.
+ */
+function initialBlocks(
+  systems: StatBlockSystems | undefined,
+  element: Props["element"],
+): ElementFormInput["statBlocks"] {
+  if (!systems) return {};
+  const blocks: ElementFormInput["statBlocks"] = {};
+  if (element) {
+    for (const system of systems.systems) {
+      // Read against the definition as it is drawn, so the type the schema
+      // gives the column (anything) is narrowed here and nowhere else.
+      const stored = element.values.statBlocks?.[systemKey(system.idSystem)] as
+        StatBlock | undefined;
+      if (stored) blocks[systemKey(system.idSystem)] = toStatBlockFields(system.definition, stored);
+    }
+    return blocks;
+  }
+  const own = systems.systems.find((system) => system.idSystem === systems.storySystem);
+  if (own && hasStats(own.definition)) {
+    blocks[systemKey(own.idSystem)] = toStatBlockFields(
+      own.definition,
+      emptyStatBlock(own.definition),
+    );
+  }
+  return blocks;
+}
 
 // One form for a new element and an edited one, as SceneForm is for scenes:
 // a new element is written in the board's dialog, which carries the title
 // and closes when it is done, and an edited one on a page of its own, which
 // goes back to the board when it saves. The status is not here; it moves by
 // its pill.
-export function ElementForm({ idStory, kind = "PERSON", element, onCreated, onCancel }: Props) {
+export function ElementForm({
+  idStory,
+  kind = "PERSON",
+  element,
+  onCreated,
+  onCancel,
+  statBlockSystems,
+}: Props) {
   const {
     register,
+    control,
+    setValue,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting, isSubmitSuccessful },
-  } = useForm<ElementValues>({
-    resolver: zodResolver(elementSchema),
-    defaultValues: element?.values ?? {
-      kind,
-      name: "",
-      initialName: "",
-      title: "",
-      description: "",
-      notes: "",
-      url: "",
-      urlText: "",
+  } = useForm<ElementFormInput, unknown, ElementValues>({
+    // The schema's input has the blocks optional, since the run forms post
+    // none; this form always holds them, so the resolver is told so.
+    resolver: zodResolver(elementFormSchema(statBlockSystems?.systems ?? [])) as Resolver<
+      ElementFormInput,
+      unknown,
+      ElementValues
+    >,
+    defaultValues: {
+      ...(element?.values ?? {
+        kind,
+        name: "",
+        initialName: "",
+        title: "",
+        description: "",
+        notes: "",
+        url: "",
+        urlText: "",
+      }),
+      statBlocks: initialBlocks(statBlockSystems, element),
+      removedSystems: [],
     },
   });
 
   async function onSubmit(values: ElementValues) {
+    // Without the section, the blocks are not the form's to post: the
+    // action leaves the column alone for a form that says nothing of them.
+    const posted = statBlockSystems
+      ? values
+      : { ...values, statBlocks: undefined, removedSystems: undefined };
     const result = element
-      ? await sa_updateElement(element.idElement, values)
-      : await sa_createElement(idStory, values);
+      ? await sa_updateElement(element.idElement, posted)
+      : await sa_createElement(idStory, posted);
     if (result.ok) {
       onCreated?.(values.kind);
       return;
@@ -78,7 +157,9 @@ export function ElementForm({ idStory, kind = "PERSON", element, onCreated, onCa
     let anyField = false;
     for (const [field, message] of Object.entries(result.errors)) {
       if (field === "") continue;
-      setError(field as keyof ElementValues, { message });
+      // A stat's error is keyed by its path, statBlocks.<system>.<group>.<stat>.<part>,
+      // which is the field's own name.
+      setError(field as keyof ElementFormInput, { message });
       anyField = true;
     }
     if (!anyField) {
@@ -142,6 +223,16 @@ export function ElementForm({ idStory, kind = "PERSON", element, onCreated, onCa
             <Textarea rows={5} {...register("notes")} />
             <Field.ErrorText>{errors.notes?.message}</Field.ErrorText>
           </Field.Root>
+
+          {statBlockSystems && (
+            <StatBlockFields
+              systems={statBlockSystems}
+              control={control}
+              register={register}
+              setValue={setValue}
+              errors={errors}
+            />
+          )}
 
           <Field.Root invalid={!!errors.url}>
             <Field.Label>Link (optional)</Field.Label>

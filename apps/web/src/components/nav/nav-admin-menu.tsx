@@ -3,7 +3,7 @@
 import { useId } from "react";
 import NextLink from "next/link";
 import { IconButton, Menu, Portal, Tooltip } from "@chakra-ui/react";
-import { MailPlus, Users, Wrench } from "lucide-react";
+import { Dices, MailPlus, Users, Wrench } from "lucide-react";
 import { UserTypeVisibility } from "@/components/auth/user-type-visibility";
 import { USER_TYPES } from "@/lib/user-types";
 
@@ -14,6 +14,7 @@ import { USER_TYPES } from "@/lib/user-types";
 export const ADMIN_ITEMS = [
   { href: "/admin/invitations", label: "Invitations", icon: <MailPlus /> },
   { href: "/admin/users", label: "Users", icon: <Users /> },
+  { href: "/admin/systems", label: "Systems", icon: <Dices /> },
 ] as const;
 
 /**

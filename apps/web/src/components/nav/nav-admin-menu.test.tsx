@@ -20,7 +20,7 @@ const as = (idUserType: number): CurrentUser => ({
 });
 
 describe("NavAdminMenu", () => {
-  it("gives an administrator the wrench, with Invitations in its menu", async () => {
+  it("gives an administrator the wrench, with every tool in its menu", async () => {
     const u = userEvent.setup();
     renderWithProviders(
       <UserProvider user={as(USER_TYPES.administrator)}>
@@ -31,6 +31,11 @@ describe("NavAdminMenu", () => {
     await u.click(screen.getByRole("button", { name: "Admin tools" }));
     const item = await screen.findByRole("menuitem", { name: "Invitations" });
     expect(item).toHaveAttribute("href", "/admin/invitations");
+    expect(screen.getByRole("menuitem", { name: "Users" })).toHaveAttribute("href", "/admin/users");
+    expect(screen.getByRole("menuitem", { name: "Systems" })).toHaveAttribute(
+      "href",
+      "/admin/systems",
+    );
   });
 
   it("is not drawn for a paid storyteller", () => {

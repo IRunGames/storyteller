@@ -319,6 +319,7 @@ describe("PrepBoard", () => {
         sa_getStoryScene: async () => null,
         // What the board's create dialog and its forms ask for.
         sa_listSceneSessionOptions: async () => [{ idStorySession: 3, label: "2. Kildealg" }],
+        sa_listStatBlockSystems: async () => ({ storySystem: null, systems: [] }),
         sa_createStoryScene: createScene,
         sa_updateStoryScene: async () => ({ ok: false, errors: {} }),
         sa_deleteStoryScene: async () => ({ ok: true }),

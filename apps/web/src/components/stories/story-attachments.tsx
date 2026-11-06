@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { Heading, HStack, IconButton, Portal, Stack, Tooltip } from "@chakra-ui/react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { Plus } from "lucide-react";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
 
 type Props = {
@@ -12,11 +12,12 @@ type Props = {
 };
 
 /**
- * The story page's Attachments section: the heading, a chevron toggle beside it,
- * and the story's attachment cards. The link input and dropzone stay hidden
- * until the toggle opens them, so the section opens on the pictures rather
- * than on the controls for adding more. A client component of its own because
- * StoryDetails renders on the server and the toggle is state.
+ * The story page's Attachments section: the heading, a + beside it, and the
+ * story's attachment cards. The link input and dropzone stay hidden until
+ * the + opens them, and the + closes them again, so the section opens on
+ * the pictures rather than on the controls for adding more. A client
+ * component of its own because StoryDetails renders on the server and the
+ * toggle is state.
  */
 export function StoryAttachments({ idStory, onImage }: Props) {
   const headingId = useId();
@@ -33,8 +34,8 @@ export function StoryAttachments({ idStory, onImage }: Props) {
           <Tooltip.Trigger asChild>
             {/* A disclosure, so aria-expanded and aria-controls rather than
                 aria-pressed: it shows and hides a block, it does not hold a
-                setting. The name stays the same either way. The chevron
-                points the way the block will move, and open is solid in the
+                setting. The name and the + stay the same either way, as the
+                session panel's cover image + does; open is solid in the
                 theme's accent, as the Cover button is when it is on. Closed,
                 it is coloured like the Library button over a cover. */}
             <IconButton
@@ -48,7 +49,7 @@ export function StoryAttachments({ idStory, onImage }: Props) {
               _hover={onImage && !isAdding ? { bg: "whiteAlpha.200" } : undefined}
               onClick={() => setIsAdding((open) => !open)}
             >
-              {isAdding ? <ChevronUp /> : <ChevronDown />}
+              <Plus />
             </IconButton>
           </Tooltip.Trigger>
           <Portal>

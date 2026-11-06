@@ -997,6 +997,8 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
           kind: "PLACE",
           name: NAME,
           title: "Under the dun",
+          // Read against the systems' definitions by the form; none yet.
+          statBlocks: {},
         },
       });
 

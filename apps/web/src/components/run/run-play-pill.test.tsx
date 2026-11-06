@@ -253,6 +253,10 @@ function withOverflowingTitle(run: () => Promise<void>) {
 
 describe("RunPlayPill", () => {
   before(async () => {
+    // The element panel's rows load the element's stat blocks as they mount.
+    mock.module("@/components/stat-blocks/actions", {
+      namedExports: { sa_getElementStatBlocks: async () => [], sa_setElementStat: mock.fn() },
+    });
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
         sa_setSceneElementStatus,

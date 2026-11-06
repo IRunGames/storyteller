@@ -1,8 +1,9 @@
 "use client";
 
 import { useId, useState } from "react";
-import { IconButton, Popover, Portal, Tooltip } from "@chakra-ui/react";
+import { HStack, IconButton, Popover, Portal, Tooltip } from "@chakra-ui/react";
 import { Pencil } from "lucide-react";
+import { DeleteSessionButton } from "@/components/stories/delete-session-button";
 import { SessionEditPanel, type SessionSaved } from "@/components/stories/session-edit-panel";
 
 type Props = {
@@ -11,6 +12,8 @@ type Props = {
   heading: string;
   /** The session as saved, for the band to show. */
   onSaved: (saved: SessionSaved) => void;
+  /** The session is gone; the lane goes with it. */
+  onDeleted: () => void;
 };
 
 /**
@@ -20,8 +23,13 @@ type Props = {
  * under it that is not its scenes. The panel is only drawn while open, so
  * each opening reads the session as stored now. The panel itself closes
  * on a save and says so; the band follows what was saved.
+ *
+ * The Timeline's bin (DeleteSessionButton) sits at the top right of the
+ * popover, beside the sitting's name: on the Timeline it is on the row,
+ * and a band has no room for a second button that is not seen before it
+ * is wanted. Deleting takes the lane away, popover and all.
  */
-export function SessionEditPopover({ idStorySession, heading, onSaved }: Props) {
+export function SessionEditPopover({ idStorySession, heading, onSaved, onDeleted }: Props) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps
   // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
@@ -64,7 +72,14 @@ export function SessionEditPopover({ idStorySession, heading, onSaved }: Props) 
           <Popover.Content w="md" maxH="80vh" overflowY="auto">
             <Popover.Arrow />
             <Popover.Header>
-              <Popover.Title fontWeight="semibold">{heading}</Popover.Title>
+              <HStack justify="space-between" gap="2">
+                <Popover.Title fontWeight="semibold">{heading}</Popover.Title>
+                <DeleteSessionButton
+                  idStorySession={idStorySession}
+                  heading={heading}
+                  onDeleted={onDeleted}
+                />
+              </HStack>
             </Popover.Header>
             <Popover.Body>
               {open && (

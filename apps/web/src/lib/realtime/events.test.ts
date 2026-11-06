@@ -28,6 +28,7 @@ const element: ElementRow = {
   tags: ["docks"],
   searchText: "READY A hooded figure Zed Harbourmaster",
   activityLog: [{ at: "x" }],
+  statBlocks: {},
   pendingAt: null,
   readyAt: when,
   inactiveAt: null,

@@ -307,6 +307,7 @@ export function RunElementPanel({
           <ElementDetailRows
             element={loaded.element}
             statusOptions={loaded.elementOptions}
+            locked={locked}
             onStatusChange={(status) => patchElement({ status })}
             onTagsChange={(tags) => {
               patchElement({ tags });

@@ -101,6 +101,11 @@ describe("StoryForm", () => {
 
     expect(screen.getByLabelText(/Active/)).toBeChecked();
     expect(screen.queryByRole("button", { name: /Archive/ })).not.toBeInTheDocument();
+    // Among the fields, after the title.
+    expect(
+      screen.getByLabelText(/Title/).compareDocumentPosition(screen.getByLabelText(/Active/)) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("shows server-side field errors", async () => {
@@ -122,6 +127,16 @@ describe("StoryForm", () => {
 
     renderWithProviders(<StoryForm systems={systems} story={existing} />);
     expect(screen.getByRole("heading", { name: "Edit story" })).toBeInTheDocument();
+    // Active is on the heading's line, before the fields, beside Archive.
+    const active = screen.getByLabelText(/Active/);
+    expect(
+      active.compareDocumentPosition(screen.getByLabelText(/Title/)) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      active.compareDocumentPosition(screen.getByRole("button", { name: "Archive" })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.getByLabelText(/Title/)).toHaveValue("Vampire");
     expect(screen.getByLabelText(/System/)).toHaveValue("-6");
     expect(screen.getByLabelText(/Summary/)).toHaveValue("A city of the dead.");

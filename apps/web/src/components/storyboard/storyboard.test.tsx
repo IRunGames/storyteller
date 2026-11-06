@@ -202,6 +202,7 @@ const sa_updateStorySession = mock.fn(async (_id: number, values: { title: strin
   ok: true as const,
   title: values.title,
 }));
+const sa_deleteStorySession = mock.fn(async (_id: number) => ({ ok: true as const }));
 const sa_setLiveSceneText = mock.fn(
   async (
     _idStory: number,
@@ -247,7 +248,7 @@ describe("Storyboard", () => {
     // The storyteller's two pencils: the band's opens the Timeline's session
     // panel, the card's the table's scene panel, each over its own actions.
     mock.module("@/app/(app)/(nav)/stories/actions", {
-      namedExports: { sa_getSessionForEdit, sa_updateStorySession },
+      namedExports: { sa_getSessionForEdit, sa_updateStorySession, sa_deleteStorySession },
     });
     mock.module("@/app/(app)/scenes/[id]/live/actions", {
       namedExports: { sa_setLiveSceneText, sa_setLiveSceneSession: mock.fn() },
@@ -270,6 +271,7 @@ describe("Storyboard", () => {
     sa_getStoryboardUnplayed.mock.resetCalls();
     sa_getSessionForEdit.mock.resetCalls();
     sa_updateStorySession.mock.resetCalls();
+    sa_deleteStorySession.mock.resetCalls();
     sa_setLiveSceneText.mock.resetCalls();
     sa_setSceneText.mock.resetCalls();
   });
@@ -447,7 +449,12 @@ describe("Storyboard", () => {
       "src",
       "https://x.test/docks.png",
     );
+    // The dialog takes focus a moment after it opens; an Escape before then
+    // goes to the page and closes nothing, and the dialog still holds the
+    // page when the card is clicked.
+    await waitFor(() => expect(cover.contains(document.activeElement)).toBe(true));
     await u.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "The docks" })).toBeNull());
     // The other cards are untouched.
     expect(
       within(screen.getByRole("article", { name: "The abbey" })).queryByRole("region", {
@@ -619,6 +626,58 @@ describe("Storyboard", () => {
     expect(within(writeUp).getByText("Summary")).toBeInTheDocument();
     expect(within(writeUp).getByText("They crossed the moor.")).toBeInTheDocument();
     expect(within(writeUp).queryByText("Notes")).not.toBeInTheDocument();
+  });
+
+  it("deletes a sitting from its panel once asked, and moves its scenes to the unplayed grid", async () => {
+    const u = userEvent.setup();
+    render(tellersBoard);
+
+    await u.click(screen.getByRole("button", { name: "Edit 1. Kildealg" }));
+    const panel = await screen.findByRole("dialog", { name: "1. Kildealg" });
+    // The bin is at the top, beside the name, before the form's fields.
+    const bin = within(panel).getByRole("button", { name: "Delete 1. Kildealg" });
+    const title = await within(panel).findByRole("textbox", { name: "Title (optional)" });
+    expect(bin.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await u.click(bin);
+    const ask = await screen.findByRole("dialog", { name: "Delete 1. Kildealg?" });
+    expect(ask).toHaveTextContent("each loses its link to this session");
+    expect(sa_deleteStorySession.mock.callCount()).toBe(0);
+    // Asking did not close the panel under it.
+    expect(screen.getByRole("dialog", { name: "1. Kildealg" })).toBeInTheDocument();
+
+    await u.click(within(ask).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(sa_deleteStorySession.mock.calls[0]?.arguments).toEqual([21]));
+    await waitFor(() =>
+      expect(lanes().map((region) => region.getAttribute("aria-label"))).toEqual([
+        "Session 2",
+        "3. Lindisfarne",
+        "Not yet played",
+      ]),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // Its scenes are in the story still, with no sitting: first in the
+    // grid, before the ones that were there.
+    const grid = screen.getByRole("region", { name: "Not yet played" });
+    expect(
+      within(grid)
+        .getAllByRole("article")
+        .map((card) => card.getAttribute("aria-label")),
+    ).toEqual(["The abbey", "The docks", "The crossing"]);
+  });
+
+  it("deletes the last sitting and leaves the board saying nothing was played", async () => {
+    const u = userEvent.setup();
+    render({ ...tellersBoard, sessions: [tellersBoard.sessions[1]], unplayed: [] });
+
+    await u.click(screen.getByRole("button", { name: "Edit Session 2" }));
+    const panel = await screen.findByRole("dialog", { name: "Session 2" });
+    await u.click(within(panel).getByRole("button", { name: "Delete Session 2" }));
+    const ask = await screen.findByRole("dialog", { name: "Delete Session 2?" });
+    await u.click(within(ask).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(sa_deleteStorySession.mock.callCount()).toBe(1));
+    // No scenes to move, so no grid appears.
+    expect(await screen.findByText("No scenes have been played yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 
   it("gives the storyteller a pencil on each card that opens the table's scene panel, with the title for a scene not yet complete", async () => {

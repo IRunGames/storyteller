@@ -37,6 +37,9 @@ import {
 } from "@/lib/run";
 import { publishLater } from "@/lib/realtime/publish";
 import { publishElementChanged, publishSceneChanged } from "@/lib/realtime/publish-scene";
+import { statBlockSystems } from "@/db/stat-block-systems";
+import { readStatBlocks, statBlocksSchema } from "@/lib/stat-block-schemas";
+import type { StatBlocks, StatBlockSystem } from "@/lib/stat-blocks";
 import { sessionHeading } from "@/lib/stories";
 
 const { elements, stories, storyScenes, storySessions, vStoryScenes } = schema;
@@ -660,6 +663,49 @@ export async function sa_deleteStoryScene(idStoryScene: number): Promise<DeleteS
 
 export type ElementFormResult = SceneFormResult;
 
+/** What the element form needs to draw stat blocks: the story's own system, and every system that has stats. */
+export type StatBlockSystems = { storySystem: number | null; systems: StatBlockSystem[] };
+
+/**
+ * For the element form: the story's system, so a new element starts with
+ * that system's block, and every system with stats, for the cards and the
+ * "add a stat block" select. The story's system is only told to its
+ * storyteller; the systems are reference data anyone signed in may read.
+ */
+export async function sa_listStatBlockSystems(idStory: number): Promise<StatBlockSystems> {
+  const user = await requireAccount();
+  const id = idStorySchema.safeParse(idStory);
+  const [story] = id.success
+    ? await db
+        .select({ idSystem: stories.idSystem, owner: stories.idCreatedByUser })
+        .from(stories)
+        .where(eq(stories.idStory, id.data))
+        .limit(1)
+    : [];
+  return {
+    storySystem: story?.owner === user.id ? story.idSystem : null,
+    systems: await statBlockSystems(),
+  };
+}
+
+/**
+ * The blocks a form posted, checked against their systems' definitions, or
+ * the field errors keyed under statBlocks as the form names its inputs.
+ * Nothing when the form posted none.
+ */
+async function parseStatBlocks(
+  posted: Record<string, unknown> | undefined,
+): Promise<{ blocks: StatBlocks | undefined } | SceneFormResult> {
+  if (posted === undefined) return { blocks: undefined };
+  const parsed = statBlocksSchema(await statBlockSystems()).safeParse(posted);
+  if (!parsed.success) {
+    return formErrors(
+      parsed.error.issues.map((issue) => ({ ...issue, path: ["statBlocks", ...issue.path] })),
+    );
+  }
+  return { blocks: parsed.data };
+}
+
 /**
  * Validates and adds an element to a story the caller created, from the
  * board's New element dialog. The status is left to the column default, the
@@ -675,8 +721,10 @@ export async function sa_createElement(idStory: number, input: unknown): Promise
 
   const parsed = elementSchema.safeParse(input);
   if (!parsed.success) return formErrors(parsed.error.issues);
-
   const values = parsed.data;
+  const statBlocks = await parseStatBlocks(values.statBlocks);
+  if ("ok" in statBlocks) return statBlocks;
+
   await db.insert(elements).values({
     idStory: id,
     kind: values.kind,
@@ -687,6 +735,7 @@ export async function sa_createElement(idStory: number, input: unknown): Promise
     notes: values.notes || null,
     url: values.url || null,
     urlText: values.urlText || null,
+    statBlocks: statBlocks.blocks ?? {},
     idCreatedByUser: user.id,
     idUpdatedByUser: user.id,
   });
@@ -711,6 +760,8 @@ export async function sa_getElementForEdit(idElement: number): Promise<{
     notes: string;
     url: string;
     urlText: string;
+    /** As stored; the form reads each stat against its definition (lib/stat-blocks.ts). */
+    statBlocks: StatBlocks;
   };
 } | null> {
   const user = await requireAccount();
@@ -729,6 +780,7 @@ export async function sa_getElementForEdit(idElement: number): Promise<{
       notes: elements.notes,
       url: elements.url,
       urlText: elements.urlText,
+      statBlocks: elements.statBlocks,
       owner: stories.idCreatedByUser,
     })
     .from(elements)
@@ -749,6 +801,7 @@ export async function sa_getElementForEdit(idElement: number): Promise<{
       notes: row.notes ?? "",
       url: row.url ?? "",
       urlText: row.urlText ?? "",
+      statBlocks: readStatBlocks(row.statBlocks),
     },
   };
 }
@@ -813,8 +866,23 @@ export async function sa_updateElement(
 
   const parsed = elementSchema.safeParse(input);
   if (!parsed.success) return formErrors(parsed.error.issues);
-
   const values = parsed.data;
+  const statBlocks = await parseStatBlocks(values.statBlocks);
+  if ("ok" in statBlocks) return statBlocks;
+
+  // The blocks are written per system: the keys the form took off go, the
+  // blocks it carries replace the stored ones, and a system the form never
+  // showed is left as it was. Within one system the form's block replaces
+  // the stored one whole, which is last write wins against the table: an
+  // edit page left open through a session and saved afterwards puts that
+  // system's pools back as they were. Accepted for now; a per-stat merge is
+  // the change if it bites.
+  // Spelled out as ARRAY[...] rather than bound as one parameter, which the
+  // driver would flatten into its elements.
+  const removed = sql.join(
+    (values.removedSystems ?? []).map((idSystem) => sql`${String(idSystem)}`),
+    sql`, `,
+  );
   await db
     .update(elements)
     .set({
@@ -826,6 +894,11 @@ export async function sa_updateElement(
       notes: values.notes || null,
       url: values.url || null,
       urlText: values.urlText || null,
+      ...(statBlocks.blocks !== undefined
+        ? {
+            statBlocks: sql`(${elements.statBlocks} - ARRAY[${removed}]::text[]) || ${JSON.stringify(statBlocks.blocks)}::jsonb`,
+          }
+        : {}),
       idUpdatedByUser: user.id,
     })
     .where(eq(elements.idElement, id));

@@ -101,6 +101,30 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
     }
   }
 
+  // Controller rather than register() for every checkbox: Chakra's hidden
+  // input carries a value="on" attribute, and react-hook-form reads that
+  // attribute instead of the checked flag, so register() would hand the
+  // schema the string "on" and z.boolean() would reject it. Active is drawn
+  // in two places by mode (below), so it is made once here.
+  const activeCheckbox = (
+    <Controller
+      control={control}
+      name="isActive"
+      render={({ field }) => (
+        <Checkbox.Root
+          name={field.name}
+          checked={field.value}
+          disabled={isArchived}
+          onCheckedChange={(details) => field.onChange(details.checked === true)}
+        >
+          <Checkbox.HiddenInput onBlur={field.onBlur} ref={field.ref} />
+          <Checkbox.Control />
+          <Checkbox.Label>Active</Checkbox.Label>
+        </Checkbox.Root>
+      )}
+    />
+  );
+
   return (
     <Stack gap="6">
       <HStack justify="space-between" align="flex-start" gap="4">
@@ -108,20 +132,27 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
           <Heading size="2xl">{story ? "Edit story" : "New story"}</Heading>
           {!story && <Text color="fg.muted">Give it a name and a system; the rest can wait.</Text>}
         </Stack>
-        {/* A story that does not exist yet has nothing to archive, so the
-            New story page goes without. aria-pressed says which way the
-            toggle currently points; the label says what pressing it does. */}
+        {/* On Edit story, whether the story is still played sits on the
+            heading's line with Archive, the two things about the story as a
+            whole rather than its text; a new story is active to begin with
+            and has nothing to archive, so the New story page keeps Active
+            among the fields and goes without Archive. aria-pressed says
+            which way the toggle currently points; the label says what
+            pressing it does. */}
         {story && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            aria-pressed={isArchived}
-            onClick={toggleArchived}
-          >
-            {isArchived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
-            {isArchived ? "Unarchive" : "Archive"}
-          </Button>
+          <HStack gap="4" flexShrink="0">
+            {activeCheckbox}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-pressed={isArchived}
+              onClick={toggleArchived}
+            >
+              {isArchived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
+              {isArchived ? "Unarchive" : "Archive"}
+            </Button>
+          </HStack>
         )}
       </HStack>
 
@@ -164,12 +195,6 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
             <Field.ErrorText>{errors.summary?.message}</Field.ErrorText>
           </Field.Root>
 
-          {/*
-            Controller rather than register(): Chakra's hidden input carries a
-            value="on" attribute, and react-hook-form reads that attribute
-            instead of the checked flag, so register() would hand the schema
-            the string "on" and z.boolean() would reject it.
-          */}
           <Controller
             control={control}
             name="isLookingForPlayers"
@@ -187,22 +212,7 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
             )}
           />
 
-          <Controller
-            control={control}
-            name="isActive"
-            render={({ field }) => (
-              <Checkbox.Root
-                name={field.name}
-                checked={field.value}
-                disabled={isArchived}
-                onCheckedChange={(details) => field.onChange(details.checked === true)}
-              >
-                <Checkbox.HiddenInput onBlur={field.onBlur} ref={field.ref} />
-                <Checkbox.Control />
-                <Checkbox.Label>Active</Checkbox.Label>
-              </Checkbox.Root>
-            )}
-          />
+          {!story && activeCheckbox}
 
           {/* Not tied to Archive like the two above: whether an archived
               story's record may be read is a separate question from

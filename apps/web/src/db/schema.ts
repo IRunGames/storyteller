@@ -199,6 +199,13 @@ export const systems = pgTable("systems", {
     .array()
     .notNull()
     .default(sql`'{}'`),
+  // The groups of stats an element run in this system can carry
+  // (lib/stat-blocks.ts). Read through statBlockDefinitionSchema rather than
+  // typed here, as chats.roll is, since a row's jsonb is only as sound as
+  // what last wrote it.
+  statBlockDefinition: jsonb("stat_block_definition")
+    .default(sql`'{"groups":[]}'::jsonb`)
+    .notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
@@ -690,6 +697,12 @@ export const elements = pgTable("elements", {
   ),
   activityLog: jsonb("activity_log")
     .default(sql`'[]'::jsonb`)
+    .notNull(),
+  // The element's stat values per system, keyed by id_system, filling in
+  // that system's statBlockDefinition (lib/stat-blocks.ts). Untyped for the
+  // reason statBlockDefinition is.
+  statBlocks: jsonb("stat_blocks")
+    .default(sql`'{}'::jsonb`)
     .notNull(),
   pendingAt: timestamp("pending_at", { withTimezone: true }),
   readyAt: timestamp("ready_at", { withTimezone: true }),

@@ -9,7 +9,7 @@ type Props = {
   /**
    * Set when the button shows and hides something: it then reports
    * aria-expanded, and is solid in the theme's accent while open, as the story
-   * page's Add Attachments chevron is. Absent for a button that just acts.
+   * page's Add Attachments + is. Absent for a button that just acts.
    */
   expanded?: boolean;
   /**

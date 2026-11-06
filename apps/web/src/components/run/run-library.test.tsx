@@ -198,6 +198,10 @@ describe("RunLibrary", () => {
     mock.module("@/components/elements/actions", {
       namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
+    // The element panel's rows load the element's stat blocks as they mount.
+    mock.module("@/components/stat-blocks/actions", {
+      namedExports: { sa_getElementStatBlocks: async () => [], sa_setElementStat: mock.fn() },
+    });
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
         sa_setElementTags: mock.fn(),
