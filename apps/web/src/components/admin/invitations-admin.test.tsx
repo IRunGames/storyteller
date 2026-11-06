@@ -113,7 +113,7 @@ describe("InvitationsAdmin", () => {
     await u.click(
       screen.getByRole("button", { name: "Delete the invitation to two@example.test" }),
     );
-    const dialog = await screen.findByRole("alertdialog");
+    const dialog = await screen.findByRole("dialog");
     await u.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(sa_deleteInvitation.mock.callCount()).toBe(1));

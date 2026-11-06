@@ -19,7 +19,7 @@ type Props = {
    * status is the plain word, as the players' table shows it.
    */
   sessionStatusOptions?: StatusOption[];
-  /** The viewer is the story's owner, so each row has its pencil and bin. */
+  /** The viewer is the story's owner, so each row has its pencil and trashcan. */
   canManage: boolean;
 };
 
@@ -32,7 +32,7 @@ type Props = {
  *
  * The list is the library's Timeline (StorySessions, with the same page
  * size, players and titles), so a session reads the same in both places.
- * The pencil and the bin are for the story's owner only, as there, so the
+ * The pencil and the trashcan are for the story's owner only, as there, so the
  * players' table has none. Each row's status is a plain pill here rather
  * than a menu: the session chip in the run table's header is where the
  * table's session changes status, and a second control for it here would

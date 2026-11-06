@@ -154,7 +154,7 @@ describe("AttachmentListField", () => {
     toaster.remove();
   });
 
-  /** Presses the one card's bin button and confirms in the popover it opens. */
+  /** Presses the one card's trashcan button and confirms in the popover it opens. */
   async function confirmRemove(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByRole("button", { name: /^remove /i }));
     const dialog = await screen.findByRole("dialog", { name: "Remove this attachment?" });

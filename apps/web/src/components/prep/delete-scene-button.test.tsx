@@ -47,16 +47,14 @@ describe("DeleteSceneButton", () => {
 
   const open = async (user = userEvent.setup()) => {
     await user.click(screen.getByRole("button", { name: "Delete scene" }));
-    return { user, dialog: await screen.findByRole("alertdialog") };
+    return { user, dialog: await screen.findByRole("dialog") };
   };
 
   it("asks before it does anything", async () => {
     render();
     const { dialog } = await open();
 
-    expect(
-      await screen.findByRole("alertdialog", { name: "Delete The vault?" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Delete The vault?" })).toBeInTheDocument();
     expect(within(dialog).getByText(/cannot be undone/)).toBeInTheDocument();
     // A scene still to play is only preparation, so there is no word about
     // a session.
@@ -87,7 +85,7 @@ describe("DeleteSceneButton", () => {
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
     expect(sa_deleteStoryScene.mock.callCount()).toBe(0);
     expect(deleted).toBe(0);
@@ -102,7 +100,7 @@ describe("DeleteSceneButton", () => {
 
     await waitFor(() => expect(sa_deleteStoryScene.mock.callCount()).toBe(1));
     await waitFor(() => {
-      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
     expect(deleted).toBe(1);
     expect(await screen.findByText("The vault has been deleted.")).toBeInTheDocument();
@@ -122,7 +120,7 @@ describe("DeleteSceneButton", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "That scene is not one of your story's.",
     );
-    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(deleted).toBe(0);
   });
 

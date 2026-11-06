@@ -164,7 +164,7 @@ describe("StoryPlayers", () => {
     renderWithProviders(<StoryPlayers idStory={-1} headingId="h" initial={players} isOwner />);
 
     await user.click(screen.getByRole("button", { name: `Remove ${players[0].name}` }));
-    const dialog = await screen.findByRole("alertdialog");
+    const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Remove" }));
 
     await waitFor(() => {

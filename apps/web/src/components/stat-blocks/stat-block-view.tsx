@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, Minus, Plus, RotateCcw } from "lucide-react"
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { DetailSection } from "@/components/run/run-element-detail";
-import type { EvaluatedStat } from "@/lib/stat-blocks";
+import { isRepeating, type EvaluatedGroup, type EvaluatedStat } from "@/lib/stat-blocks";
 import {
   sa_getElementStatBlocks,
   sa_setElementStat,
@@ -68,11 +68,14 @@ export function ElementStatBlocks({
 
 /**
  * One system's block as the table shows it: the system's name, then each
- * group as a section of label / value rows. With canEdit, a pool has − +
- * and a refill, a stack − +, a rack ◀ ▶; a display and a computed stat are
- * shown as they are, the computed one dimmer. Every control sends one
- * change (sa_setElementStat), which comes back clamped and worked out, so
- * a + at the max simply stays; a refusal is toasted, as the Tags row's is.
+ * group as a section of label / value rows. A group that repeats is drawn
+ * as its label and then one block per row, headed by the row's key, with
+ * the row's other stats under it; the key is set on the prep form, not
+ * here. With canEdit, a pool has − + and a refill, a stack − +, a rack
+ * ◀ ▶; a display and a computed stat are shown as they are, the computed
+ * one dimmer. Every control sends one change (sa_setElementStat), a row's
+ * with the row's key, which comes back clamped and worked out, so a + at
+ * the max simply stays; a refusal is toasted, as the Tags row's is.
  */
 export function StatBlockView({
   idStory,
@@ -89,7 +92,7 @@ export function StatBlockView({
 }) {
   const [busy, setBusy] = useState(false);
 
-  async function change(group: string, stat: string, patch: StatPatch) {
+  async function change(group: string, stat: string, patch: StatPatch, rowKey?: string) {
     setBusy(true);
     try {
       const result = await sa_setElementStat(
@@ -99,6 +102,7 @@ export function StatBlockView({
         group,
         stat,
         patch,
+        rowKey,
       );
       if (result.ok) onChange(result.block);
       else toaster.create({ title: result.error, type: "error" });
@@ -114,21 +118,82 @@ export function StatBlockView({
       <Heading as="h3" size="xs">
         {block.label}
       </Heading>
-      {block.groups.map((group) => (
-        <DetailSection
-          key={group.name}
-          title={group.label}
-          rows={group.stats.map((stat) => [
-            stat.label,
-            <StatCell
-              key={stat.name}
-              stat={stat}
-              canEdit={canEdit && !busy}
-              onChange={(patch) => void change(group.name, stat.name, patch)}
-            />,
-          ])}
-        />
-      ))}
+      {block.groups.map((group) =>
+        isRepeating(group) ? (
+          <RepeatingGroupView
+            key={group.name}
+            group={group}
+            canEdit={canEdit && !busy}
+            onChange={(stat, patch, rowKey) => void change(group.name, stat, patch, rowKey)}
+          />
+        ) : (
+          <DetailSection
+            key={group.name}
+            title={group.label}
+            rows={group.stats.map((stat) => [
+              stat.label,
+              <StatCell
+                key={stat.name}
+                stat={stat}
+                canEdit={canEdit && !busy}
+                onChange={(patch) => void change(group.name, stat.name, patch)}
+              />,
+            ])}
+          />
+        ),
+      )}
+    </Stack>
+  );
+}
+
+/**
+ * A repeating group at the table: the group's label, then each row headed
+ * by its key with the row's other stats as label / value lines under it,
+ * and one quiet line when there are no rows yet. Rows reach the table
+ * tidied, so every key is there and distinct.
+ */
+function RepeatingGroupView({
+  group,
+  canEdit,
+  onChange,
+}: {
+  group: EvaluatedGroup;
+  canEdit: boolean;
+  onChange: (stat: string, patch: StatPatch, rowKey: string) => void;
+}) {
+  return (
+    <Stack gap="2">
+      <Text fontSize="xs" fontWeight="semibold" color="fg.muted" textTransform="uppercase">
+        {group.label}
+      </Text>
+      {group.rows.length === 0 && (
+        <Text fontSize="sm" color="fg.muted">
+          No {group.label} yet
+        </Text>
+      )}
+      {group.rows.map((row) => {
+        const key = String(row.key);
+        return (
+          <Stack key={key} gap="1" data-testid={`stat-row-${key}`}>
+            <Text fontSize="sm" fontWeight="semibold">
+              {key}
+            </Text>
+            <DetailSection
+              rows={row.stats
+                .filter((stat) => stat.name !== group.keyedBy)
+                .map((stat) => [
+                  stat.label,
+                  <StatCell
+                    key={stat.name}
+                    stat={stat}
+                    canEdit={canEdit}
+                    onChange={(patch) => onChange(stat.name, patch, key)}
+                  />,
+                ])}
+            />
+          </Stack>
+        );
+      })}
     </Stack>
   );
 }

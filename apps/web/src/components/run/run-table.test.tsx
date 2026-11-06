@@ -635,14 +635,14 @@ describe("RunTable", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(within(sessions).getByText("3. Kildealg")).toBeVisible();
     expect(within(sessions).getByText("2. The Drowned Gate")).toBeVisible();
-    // The owner's pencil and bin, as on the library's Timeline.
+    // The owner's pencil and trashcan, as on the library's Timeline.
     expect(
       within(sessions).getByRole("button", { name: "Delete 2. The Drowned Gate" }),
     ).toBeInTheDocument();
     expect(within(sessions).getAllByRole("button", { name: /^Edit / }).length).toBeGreaterThan(0);
   });
 
-  it("leaves the pencils and bins off the sessions list for anyone but the owner", async () => {
+  it("leaves the pencils and trashcans off the sessions list for anyone but the owner", async () => {
     const u = userEvent.setup();
     renderTable({}, kildealg, EMPTY_PLAY_SPACE, user, null, false);
     const sessions = within(screen.getByTestId("story-playing-box")).getByRole("region", {

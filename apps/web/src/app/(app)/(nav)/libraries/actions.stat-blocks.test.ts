@@ -41,6 +41,7 @@ const definition: StatBlockDefinition = {
     {
       name: "stats",
       label: "Stats",
+      keyedBy: "",
       stats: [
         { name: "str", label: "", type: "display", rack: [], connectedTo: "", computedAs: "" },
       ],
@@ -48,6 +49,7 @@ const definition: StatBlockDefinition = {
     {
       name: "combat",
       label: "Combat",
+      keyedBy: "",
       stats: [
         {
           name: "hp",
@@ -111,7 +113,7 @@ describe("libraries stat block actions", { skip: !hasDb && "DATABASE_URL is not 
         {
           systemName: "Fixture Stat Blocks",
           variant: "empty group",
-          statBlockDefinition: { groups: [{ name: "saves", label: "", stats: [] }] },
+          statBlockDefinition: { groups: [{ name: "saves", label: "", keyedBy: "", stats: [] }] },
         },
         { systemName: "Fixture Stat Blocks", variant: "bare" },
       ])

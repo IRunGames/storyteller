@@ -31,3 +31,11 @@ engineering skills consume this file.
 - **Formula**: the arithmetic a computed stat is worked out with, written
   over references such as `defense.sdc.value`; see
   `apps/web/src/lib/stat-formula.ts`.
+- **Repeating group**: a group whose definition names one of its stats as
+  the key (`keyedBy`); an element carries any number of rows of it, added and
+  removed on the prep form. Palladium's attack group, one row per weapon.
+- **Key**: the stat whose value tells one row of a repeating group from
+  another; a display or a rack that is not connected, filled on every row
+  and unique within the group. The table addresses a row by it.
+- **Row**: one set of a repeating group's values on an element, stored as
+  one entry of the group's array.

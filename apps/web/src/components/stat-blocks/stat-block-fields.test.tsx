@@ -32,6 +32,7 @@ const systems: StatBlockSystems = {
           {
             name: "defense",
             label: "Defense",
+            keyedBy: "",
             stats: [
               {
                 name: "ar",
@@ -68,6 +69,39 @@ const systems: StatBlockSystems = {
               },
             ],
           },
+          // Repeats by weapon, with a computed stat reading its own row and
+          // the defense group.
+          {
+            name: "attack",
+            label: "Attack",
+            keyedBy: "weapon",
+            stats: [
+              {
+                name: "weapon",
+                label: "Weapon",
+                type: "display",
+                rack: [],
+                connectedTo: "",
+                computedAs: "",
+              },
+              {
+                name: "strike",
+                label: "Strike",
+                type: "display",
+                rack: [],
+                connectedTo: "",
+                computedAs: "",
+              },
+              {
+                name: "total",
+                label: "Total",
+                type: "computed",
+                rack: [],
+                connectedTo: "",
+                computedAs: "attack.strike.value + defense.ar.value",
+              },
+            ],
+          },
         ],
       },
     },
@@ -79,6 +113,7 @@ const systems: StatBlockSystems = {
           {
             name: "traits",
             label: "Traits",
+            keyedBy: "",
             stats: [
               {
                 name: "agility",
@@ -170,8 +205,87 @@ describe("ElementForm stat blocks", () => {
           current_ar: {},
           rage: { value: 0 },
         },
+        attack: [],
       },
     });
+  });
+
+  it("adds a row to a repeating group, keys it, works its computed stat out, and posts the rows", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ElementForm idStory={-15} kind="PERSON" statBlockSystems={systems} />);
+
+    expect(screen.queryAllByRole("row")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Add Attack" }));
+    const row = screen.getAllByRole("row")[1];
+    await user.type(within(row).getByLabelText("Weapon"), "Sword");
+    await user.type(within(row).getByLabelText("Strike"), "4");
+    const ar = screen.getByRole("textbox", { name: "AR" });
+    await user.clear(ar);
+    await user.type(ar, "10");
+    expect(within(row).getByTestId("computed-Total")).toHaveTextContent("14");
+
+    await user.type(screen.getByRole("textbox", { name: /^Name/ }), "Grok");
+    await user.click(screen.getByRole("button", { name: "Create element" }));
+    await waitFor(() => expect(sa_createElement.mock.callCount()).toBe(1));
+    const [, values] = sa_createElement.mock.calls[0].arguments;
+    expect((values.statBlocks as Record<string, Record<string, unknown>>)["-90"].attack).toEqual([
+      { weapon: { value: "Sword" }, strike: { value: 4 }, total: {} },
+    ]);
+  });
+
+  it("refuses two rows with one key in the browser, on the later row, and removes a row by its trashcan", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ElementForm idStory={-15} kind="PERSON" statBlockSystems={systems} />);
+
+    await user.click(screen.getByRole("button", { name: "Add Attack" }));
+    await user.click(screen.getByRole("button", { name: "Add Attack" }));
+    const rows = () => screen.getAllByRole("row").slice(1);
+    expect(rows()).toHaveLength(2);
+    await user.type(within(rows()[0]).getByLabelText("Weapon"), "Sword");
+    await user.type(within(rows()[1]).getByLabelText("Weapon"), "Sword");
+    await user.type(screen.getByRole("textbox", { name: /^Name/ }), "Grok");
+    await user.click(screen.getByRole("button", { name: "Create element" }));
+    expect(await screen.findAllByText("Another row has this Weapon.")).toHaveLength(1);
+    expect(within(rows()[1]).getByText("Another row has this Weapon.")).toBeInTheDocument();
+    expect(sa_createElement.mock.callCount()).toBe(0);
+
+    await user.click(screen.getAllByRole("button", { name: "Remove Sword" })[1]);
+    await waitFor(() => expect(rows()).toHaveLength(1));
+  });
+
+  it("starts an edit from stored rows, dropping one whose key is gone", () => {
+    renderWithProviders(
+      <ElementForm
+        idStory={-15}
+        statBlockSystems={systems}
+        element={{
+          idElement: 9,
+          values: {
+            kind: "PERSON",
+            name: "Grok",
+            initialName: "",
+            title: "",
+            description: "",
+            notes: "",
+            url: "",
+            urlText: "",
+            statBlocks: {
+              "-90": {
+                defense: { ar: { value: 12 } },
+                attack: [
+                  { weapon: { value: "Sword" }, strike: { value: 4 } },
+                  { strike: { value: 9 } },
+                ],
+              },
+            },
+          },
+        }}
+      />,
+    );
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    expect(screen.getByDisplayValue("Sword")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("9")).not.toBeInTheDocument();
+    expect(screen.getByTestId("computed-Total")).toHaveTextContent("16");
   });
 
   it("refuses a pool above its max in the browser, and shows the action's error on the stat", async () => {

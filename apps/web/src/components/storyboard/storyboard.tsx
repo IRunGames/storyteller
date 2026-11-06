@@ -322,7 +322,7 @@ function MoreButton({
  * can be written up from the board; the band and the write-up then show
  * what was saved. That is kept here rather than in the board's lists: a
  * lane's write-up is its own, and the board never hands a lane a new one.
- * The panel's bin is the one thing that reaches the board: a deleted
+ * The panel's trashcan is the one thing that reaches the board: a deleted
  * sitting's lane is the board's to take away, and its scenes the board's
  * to move (onDeleted).
  */
@@ -383,7 +383,17 @@ function SessionLane({
                     variant="ghost"
                     rounded="full"
                     color="inherit"
+                    // Open, the ghost recipe would fill it with the gray
+                    // palette's subtle shade, against which the band's
+                    // contrast colour vanishes. Inverted instead: a solid
+                    // circle in the band's contrast colour with the icon in
+                    // its accent, which reads as switched on in any theme.
                     _hover={{ bg: "blackAlpha.200" }}
+                    _expanded={{
+                      bg: "play.contrast",
+                      color: "play.accent",
+                      _hover: { bg: "play.contrast" },
+                    }}
                   >
                     <Info size={16} />
                   </IconButton>

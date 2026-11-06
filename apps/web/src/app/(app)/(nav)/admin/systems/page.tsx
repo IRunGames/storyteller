@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Container } from "@chakra-ui/react";
-import { SystemsAdmin } from "@/components/admin/systems-admin";
+import { SystemsAdmin } from "./systems-admin";
 import { requireUser } from "@/lib/authorize";
 import { USER_TYPES } from "@/lib/user-types";
 import { sa_listAdminSystems } from "./actions";

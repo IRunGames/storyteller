@@ -1,11 +1,16 @@
 import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
-import { evaluateStatBlock, type StatBlock, type StatBlockDefinition } from "@/lib/stat-blocks";
+import {
+  evaluateStatBlock,
+  type StatBlock,
+  type StatBlockDefinition,
+  type StatRow,
+} from "@/lib/stat-blocks";
 import type { ElementStatBlock, SetElementStatResult, StatPatch } from "./actions";
 
 const definition: StatBlockDefinition = {
@@ -13,6 +18,7 @@ const definition: StatBlockDefinition = {
     {
       name: "combat",
       label: "Combat",
+      keyedBy: "",
       stats: [
         { name: "hp", label: "HP", type: "pool", rack: [], connectedTo: "", computedAs: "" },
         { name: "rage", label: "Rage", type: "stack", rack: [], connectedTo: "", computedAs: "" },
@@ -32,6 +38,30 @@ const definition: StatBlockDefinition = {
           rack: [],
           connectedTo: "",
           computedAs: "combat.ar - 10",
+        },
+      ],
+    },
+    {
+      name: "attack",
+      label: "Attack",
+      keyedBy: "weapon",
+      stats: [
+        {
+          name: "weapon",
+          label: "Weapon",
+          type: "display",
+          rack: [],
+          connectedTo: "",
+          computedAs: "",
+        },
+        { name: "uses", label: "Uses", type: "pool", rack: [], connectedTo: "", computedAs: "" },
+        {
+          name: "strike",
+          label: "Strike",
+          type: "display",
+          rack: [],
+          connectedTo: "",
+          computedAs: "",
         },
       ],
     },
@@ -58,12 +88,30 @@ const sa_setElementStat = mock.fn(
     group: string,
     stat: string,
     patch: StatPatch,
+    rowKey?: string,
   ): Promise<SetElementStatResult> => {
-    const current = stored[group][stat] ?? { value: 0 };
+    // Rows are found by their weapon, and uses is held between 0 and 3.
+    if (rowKey !== undefined) {
+      const rows = stored[group] as StatRow[];
+      const index = rows.findIndex((row) => row.weapon.value === rowKey);
+      const current = rows[index][stat];
+      let value = patch.value ?? current.value;
+      if (typeof value === "number") value = Math.min(Math.max(value, 0), 3);
+      const changed = { ...current, value };
+      stored = {
+        ...stored,
+        [group]: rows.map((row, i) => (i === index ? { ...row, [stat]: changed } : row)),
+      };
+      return { ok: true, block: blockOf() };
+    }
+    const current = (stored[group] as StatRow)[stat] ?? { value: 0 };
     let value = patch.value ?? current.value;
     if (stat === "hp" && typeof value === "number") value = Math.min(Math.max(value, 0), 14);
     if (stat === "rage" && typeof value === "number") value = Math.min(Math.max(value, 0), 3);
-    stored = { ...stored, [group]: { ...stored[group], [stat]: { ...current, value } } };
+    stored = {
+      ...stored,
+      [group]: { ...(stored[group] as StatRow), [stat]: { ...current, value } },
+    };
     return { ok: true, block: blockOf() };
   },
 );
@@ -84,6 +132,10 @@ describe("ElementStatBlocks", () => {
         die: { value: "d6" },
         ar: { value: 12 },
       },
+      attack: [
+        { weapon: { value: "Sword" }, uses: { value: 2, min: 0, max: 3 }, strike: { value: 4 } },
+        { weapon: { value: "Fist" }, uses: { value: 0, min: 0, max: 3 }, strike: { value: 1 } },
+      ],
     };
     sa_setElementStat.mock.resetCalls();
   });
@@ -127,6 +179,34 @@ describe("ElementStatBlocks", () => {
     expect(sa_setElementStat.mock.callCount()).toBe(5);
     await user.click(screen.getByRole("button", { name: "Die down" }));
     await waitFor(() => expect(screen.getByTestId("stat-die")).toHaveTextContent("d6"));
+  });
+
+  it("draws each row of a repeating group under its key and moves a row's pool by its own controls", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ElementStatBlocks idStory={1} idElement={5} canEdit />);
+
+    expect(await screen.findByText("Sword")).toBeInTheDocument();
+    expect(screen.getByText("Fist")).toBeInTheDocument();
+    const sword = screen.getByTestId("stat-row-Sword");
+    expect(within(sword).getByTestId("stat-uses")).toHaveTextContent("2 / 3");
+    await user.click(within(sword).getByRole("button", { name: "Uses +1" }));
+    await waitFor(() => expect(within(sword).getByTestId("stat-uses")).toHaveTextContent("3 / 3"));
+    expect(sa_setElementStat.mock.calls[0].arguments.slice(3)).toEqual([
+      "attack",
+      "uses",
+      { value: 3 },
+      "Sword",
+    ]);
+    expect(within(screen.getByTestId("stat-row-Fist")).getByTestId("stat-uses")).toHaveTextContent(
+      "0 / 3",
+    );
+  });
+
+  it("draws a repeating group with no rows as one quiet line", async () => {
+    stored = { ...stored, attack: [] };
+    renderWithProviders(<ElementStatBlocks idStory={1} idElement={5} canEdit />);
+    expect(await screen.findByText("No Attack yet")).toBeInTheDocument();
+    expect(screen.queryByTestId(/^stat-row-/)).not.toBeInTheDocument();
   });
 
   it("shows no controls when it cannot edit", async () => {

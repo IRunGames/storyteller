@@ -36,6 +36,8 @@ can carry one per system). `GLOSSARY.md` has the words.
   blocks a save of the element's other fields.
 - The prep form writes per system and leaves systems it never showed alone;
   within a system, last write wins against the table.
+- A group may repeat, keyed by one of its stats, so an element carries rows
+  of it: see `2026-11-05-repeating-groups-design.md`.
 
 Out of scope: the players' table, dice rolls off a stat, stat history, moving
 a block between systems, and the seeds carrying definitions (see Risks).

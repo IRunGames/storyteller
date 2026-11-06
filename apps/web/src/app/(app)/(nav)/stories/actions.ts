@@ -1127,7 +1127,7 @@ export type DeleteSessionResult = { ok: true } | { ok: false; error: string };
 
 /**
  * The Timeline's delete, for any session of a story the caller tells,
- * finished ones included; the bin asks first and says what is lost. The
+ * finished ones included; the trashcan asks first and says what is lost. The
  * database lets go of what pointed at it: its scenes keep their place in
  * the story with no sitting (story_scenes.id_story_session is ON DELETE SET
  * NULL), the story's current session is cleared if it was this one

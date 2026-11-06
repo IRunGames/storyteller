@@ -2,14 +2,18 @@
 
 import { useMemo } from "react";
 import {
+  useFieldArray,
   useWatch,
+  type ArrayPath,
   type Control,
   type FieldErrors,
+  type UseFieldArrayReturn,
   type UseFormRegister,
   type UseFormSetValue,
 } from "react-hook-form";
 import {
   Box,
+  Button,
   Card,
   Field,
   Heading,
@@ -18,20 +22,27 @@ import {
   NativeSelect,
   SimpleGrid,
   Stack,
+  Table,
   Text,
 } from "@chakra-ui/react";
-import { X } from "lucide-react";
+import { Plus, Trash2, X } from "lucide-react";
 import type { StatBlockSystems } from "@/app/(app)/(nav)/libraries/actions";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import type { ElementFormInput, ElementValues } from "@/lib/element-schemas";
 import {
   emptyStatBlock,
+  emptyStatRowFields,
   evaluateStatBlock,
+  isRepeating,
+  rowKeyText,
   statBlockFromFields,
   systemKey,
   toStatBlockFields,
+  type EvaluatedGroup,
   type EvaluatedStat,
   type StatBlockSystem,
+  type StatGroupDefinition,
+  type StatRowFieldValues,
 } from "@/lib/stat-blocks";
 
 type Props = {
@@ -97,6 +108,7 @@ export function StatBlockFields({ systems, control, register, setValue, errors }
           systemKey={key}
           system={byKey.get(key)!}
           fields={blocks[key]}
+          control={control}
           register={register}
           errors={errors}
           onRemove={() => remove(key)}
@@ -126,11 +138,17 @@ export function StatBlockFields({ systems, control, register, setValue, errors }
   );
 }
 
-/** One system's card: its groups, each stat a field by its type. */
+type PartErrors = Partial<Record<"value" | "min" | "max", { message?: string }>>;
+type RowErrors = Record<string, PartErrors>;
+/** A group's errors: by stat for a plain group, by row index then stat for one that repeats, plus the array's own message. */
+type GroupErrors = RowErrors & RowErrors[] & { message?: string; root?: { message?: string } };
+
+/** One system's card: its groups, each stat a field by its type, or a table of rows for a group that repeats. */
 function SystemCard({
   systemKey: key,
   system,
   fields,
+  control,
   register,
   errors,
   onRemove,
@@ -138,6 +156,7 @@ function SystemCard({
   systemKey: string;
   system: StatBlockSystem;
   fields: ElementFormInput["statBlocks"][string];
+  control: Control<ElementFormInput, unknown, ElementValues>;
   register: UseFormRegister<ElementFormInput>;
   errors: FieldErrors<ElementFormInput>;
   onRemove: () => void;
@@ -145,9 +164,7 @@ function SystemCard({
   // Worked out from the fields as typed: the computed values, and the max a
   // connection feeds, which the pool's own field then does not ask for.
   const groups = evaluateStatBlock(system.definition, statBlockFromFields(fields));
-  const errorsAt = errors.statBlocks?.[key] as
-    | Record<string, Record<string, Partial<Record<"value" | "min" | "max", { message?: string }>>>>
-    | undefined;
+  const errorsAt = errors.statBlocks?.[key] as Record<string, GroupErrors> | undefined;
 
   return (
     <Card.Root size="sm" data-testid={`stat-block-${key}`}>
@@ -168,17 +185,28 @@ function SystemCard({
               <Text fontSize="xs" fontWeight="semibold" color="fg.muted" textTransform="uppercase">
                 {group.label}
               </Text>
-              <SimpleGrid columns={{ base: 1, sm: 2 }} gap="3">
-                {group.stats.map((stat) => (
-                  <StatField
-                    key={stat.name}
-                    stat={stat}
-                    path={`statBlocks.${key}.${group.name}.${stat.name}`}
-                    register={register}
-                    errors={errorsAt?.[group.name]?.[stat.name]}
-                  />
-                ))}
-              </SimpleGrid>
+              {isRepeating(group) ? (
+                <RepeatingGroupFields
+                  systemKey={key}
+                  definition={system.definition.groups.find((g) => g.name === group.name)!}
+                  group={group}
+                  control={control}
+                  register={register}
+                  errors={errorsAt?.[group.name]}
+                />
+              ) : (
+                <SimpleGrid columns={{ base: 1, sm: 2 }} gap="3">
+                  {group.stats.map((stat) => (
+                    <StatField
+                      key={stat.name}
+                      stat={stat}
+                      path={`statBlocks.${key}.${group.name}.${stat.name}`}
+                      register={register}
+                      errors={errorsAt?.[group.name]?.[stat.name]}
+                    />
+                  ))}
+                </SimpleGrid>
+              )}
             </Stack>
           ))}
         </Stack>
@@ -187,19 +215,136 @@ function SystemCard({
   );
 }
 
-type StatPath = `statBlocks.${string}.${string}.${string}`;
+/**
+ * A repeating group on the form: a table with the key stat's column first,
+ * whatever its order in the group, then the other stats, a trashcan on each row
+ * and a button beneath that adds one. The rows are a field array on the
+ * group's path, so the block posts them as an array; the evaluation of the
+ * typed fields is positional, so row i's computed stats are read from it by
+ * the same index. A new row starts empty but for its racks, and the key's
+ * required message shows on save until it is typed.
+ */
+function RepeatingGroupFields({
+  systemKey: key,
+  definition,
+  group,
+  control,
+  register,
+  errors,
+}: {
+  systemKey: string;
+  definition: StatGroupDefinition;
+  group: EvaluatedGroup;
+  control: Control<ElementFormInput, unknown, ElementValues>;
+  register: UseFormRegister<ElementFormInput>;
+  errors: GroupErrors | undefined;
+}) {
+  // The path's type is a record of records or arrays, so react-hook-form
+  // cannot see an array path here; the definition says this group is one,
+  // and the return is typed as the array of rows it holds.
+  const name = `statBlocks.${key}.${group.name}` as ArrayPath<ElementFormInput>;
+  const rows = useFieldArray({ control, name }) as unknown as UseFieldArrayReturn<
+    { rows: StatRowFieldValues[] },
+    "rows"
+  >;
+  const typed = (useWatch({ control, name: name as `statBlocks.${string}.${string}` }) ??
+    []) as StatRowFieldValues[];
+  const ordered = [
+    ...definition.stats.filter((stat) => stat.name === group.keyedBy),
+    ...definition.stats.filter((stat) => stat.name !== group.keyedBy),
+  ];
+  const labelOf = (statName: string) =>
+    group.rows[0]?.stats.find((stat) => stat.name === statName)?.label ??
+    definition.stats.find((stat) => stat.name === statName)?.label ??
+    statName;
+  const arrayError = errors?.root?.message ?? errors?.message;
 
-/** One stat's field or fields, by its type. */
+  return (
+    <Stack gap="2" data-testid={`stat-rows-${key}-${group.name}`}>
+      {rows.fields.length > 0 && (
+        <Table.Root size="sm" variant="line">
+          <Table.Header>
+            <Table.Row>
+              {ordered.map((stat) => (
+                <Table.ColumnHeader key={stat.name}>
+                  {labelOf(stat.name) || stat.name}
+                </Table.ColumnHeader>
+              ))}
+              <Table.ColumnHeader />
+            </Table.Row>
+          </Table.Header>
+          <Table.Body>
+            {rows.fields.map((field, i) => {
+              const evaluated = group.rows[i];
+              const keyText = rowKeyText(typed[i]?.[group.keyedBy]?.value) ?? "row";
+              return (
+                <Table.Row key={field.id}>
+                  {ordered.map((stat) => {
+                    const shown = evaluated?.stats.find((s) => s.name === stat.name);
+                    return (
+                      <Table.Cell key={stat.name} verticalAlign="top">
+                        {shown && (
+                          <StatField
+                            stat={shown}
+                            path={`statBlocks.${key}.${group.name}.${i}.${stat.name}`}
+                            register={register}
+                            errors={errors?.[i]?.[stat.name]}
+                            inline
+                          />
+                        )}
+                      </Table.Cell>
+                    );
+                  })}
+                  <Table.Cell verticalAlign="top">
+                    <PrepIconButton label={`Remove ${keyText}`} onClick={() => rows.remove(i)}>
+                      <Trash2 />
+                    </PrepIconButton>
+                  </Table.Cell>
+                </Table.Row>
+              );
+            })}
+          </Table.Body>
+        </Table.Root>
+      )}
+      {arrayError && (
+        <Text fontSize="sm" color="fg.error">
+          {arrayError}
+        </Text>
+      )}
+      <Box>
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          onClick={() => rows.append(emptyStatRowFields(definition))}
+        >
+          <Plus /> Add {group.label}
+        </Button>
+      </Box>
+    </Stack>
+  );
+}
+
+type StatPath =
+  `statBlocks.${string}.${string}.${string}` | `statBlocks.${string}.${string}.${number}.${string}`;
+
+/**
+ * One stat's field or fields, by its type. Inline, in a table cell, the
+ * stat's label is the column's header, so the inputs carry it as their
+ * accessible name and draw none of their own.
+ */
 function StatField({
   stat,
   path,
   register,
   errors,
+  inline = false,
 }: {
   stat: EvaluatedStat;
   path: StatPath;
   register: UseFormRegister<ElementFormInput>;
-  errors: Partial<Record<"value" | "min" | "max", { message?: string }>> | undefined;
+  errors: PartErrors | undefined;
+  inline?: boolean;
 }) {
   const shown = (value: EvaluatedStat["value"]) => (value === null ? "—" : String(value));
 
@@ -207,24 +352,39 @@ function StatField({
     case "display":
       if (stat.valueFrom !== undefined) {
         return (
-          <ReadOnly label={stat.label} value={shown(stat.value)} note={`from ${stat.valueFrom}`} />
+          <ReadOnly
+            label={stat.label}
+            value={shown(stat.value)}
+            note={`from ${stat.valueFrom}`}
+            inline={inline}
+          />
         );
       }
       return (
         <Field.Root invalid={!!errors?.value}>
-          <Field.Label>{stat.label}</Field.Label>
-          <Input size="sm" autoComplete="off" {...register(`${path}.value`)} />
+          {!inline && <Field.Label>{stat.label}</Field.Label>}
+          <Input
+            size="sm"
+            autoComplete="off"
+            aria-label={inline ? stat.label : undefined}
+            {...register(`${path}.value`)}
+          />
           <Field.ErrorText>{errors?.value?.message}</Field.ErrorText>
         </Field.Root>
       );
     case "computed":
-      return <ReadOnly label={stat.label} value={shown(stat.value)} note="computed" />;
+      return (
+        <ReadOnly label={stat.label} value={shown(stat.value)} note="computed" inline={inline} />
+      );
     case "rack":
       return (
         <Field.Root invalid={!!errors?.value}>
-          <Field.Label>{stat.label}</Field.Label>
+          {!inline && <Field.Label>{stat.label}</Field.Label>}
           <NativeSelect.Root size="sm">
-            <NativeSelect.Field {...register(`${path}.value`)}>
+            <NativeSelect.Field
+              aria-label={inline ? stat.label : undefined}
+              {...register(`${path}.value`)}
+            >
               {(stat.rack ?? []).map((entry) => (
                 <option key={String(entry)} value={String(entry)}>
                   {String(entry)}
@@ -241,9 +401,11 @@ function StatField({
       const isPool = stat.type === "pool";
       return (
         <Box>
-          <Text as="label" fontSize="sm" fontWeight="medium" display="block" mb="1">
-            {stat.label}
-          </Text>
+          {!inline && (
+            <Text as="label" fontSize="sm" fontWeight="medium" display="block" mb="1">
+              {stat.label}
+            </Text>
+          )}
           <HStack gap="2" align="flex-start">
             <Field.Root invalid={!!errors?.value}>
               <Input
@@ -290,12 +452,24 @@ function StatField({
 }
 
 /** A stat the storyteller does not type: a computed value, or one fed by a connection. */
-function ReadOnly({ label, value, note }: { label: string; value: string; note: string }) {
+function ReadOnly({
+  label,
+  value,
+  note,
+  inline = false,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  inline?: boolean;
+}) {
   return (
     <Box>
-      <Text fontSize="sm" fontWeight="medium" mb="1">
-        {label}
-      </Text>
+      {!inline && (
+        <Text fontSize="sm" fontWeight="medium" mb="1">
+          {label}
+        </Text>
+      )}
       <HStack gap="2" pt="1">
         <Text fontSize="sm" data-testid={`computed-${label}`}>
           {value}

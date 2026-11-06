@@ -18,7 +18,7 @@ type Props = {
    * a symbol rather than something to press.
    */
   outlined?: boolean;
-} & Pick<ComponentProps<typeof IconButton>, "size">;
+} & Pick<ComponentProps<typeof IconButton>, "size" | "disabled">;
 
 // A column's small ghost icon button with the tooltip every icon button
 // carries. The board has three per column, so the tooltip wrapper lives here
@@ -30,6 +30,7 @@ export function PrepIconButton({
   size = "xs",
   expanded,
   outlined = false,
+  disabled,
 }: Props) {
   return (
     <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
@@ -40,6 +41,7 @@ export function PrepIconButton({
           variant={expanded ? "solid" : outlined ? "outline" : "ghost"}
           size={size}
           rounded="full"
+          disabled={disabled}
           onClick={onClick}
         >
           {children}

@@ -651,7 +651,7 @@ describe("PrepBoard", () => {
     const items = within(column("Scenes")).getAllByRole("listitem");
     expect(items).toHaveLength(3);
     await user.click(within(items[2]).getByRole("button", { name: "Delete scene" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "Delete The arrival?" });
+    const dialog = await screen.findByRole("dialog", { name: "Delete The arrival?" });
     await user.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {

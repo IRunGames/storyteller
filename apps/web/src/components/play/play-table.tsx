@@ -179,7 +179,7 @@ export function PlayTable({
             fallbackCoverUrl={storyCoverUrl}
             withBackgroundToggle={!user.isAnonymous}
             // The storyteller's box from the run table, without the pencils
-            // and bins: only the story's owner manages its sessions, and the
+            // and trashcans: only the story's owner manages its sessions, and the
             // owner is sent to /run rather than here.
             noSceneBox={
               <StoryPlayingBox

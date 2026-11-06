@@ -19,14 +19,50 @@ let SystemStatBlockEditor: typeof import("./system-stat-block-editor").SystemSta
 const system: AdminSystemDetail = {
   idSystem: -90,
   label: "Palladium Fantasy Role-Playing Game (2e)",
+  systemName: "Palladium Fantasy Role-Playing Game",
+  systemVersion: "2e",
+  variant: null,
   definition: {
     groups: [
       {
         name: "defense",
         label: "Defense",
+        keyedBy: "",
         stats: [
           { name: "ar", label: "AR", type: "display", rack: [], connectedTo: "", computedAs: "" },
           { name: "sdc", label: "SDC", type: "pool", rack: [], connectedTo: "", computedAs: "" },
+        ],
+      },
+    ],
+  },
+};
+
+// A group with every kind of stat a key may or may not be: a display, a
+// pool, a rack and a display fed by a connection.
+const keyable: AdminSystemDetail = {
+  idSystem: -91,
+  label: "Keyable",
+  systemName: "Keyable",
+  systemVersion: null,
+  variant: null,
+  definition: {
+    groups: [
+      {
+        name: "attack",
+        label: "Attack",
+        keyedBy: "",
+        stats: [
+          { name: "ar", label: "AR", type: "display", rack: [], connectedTo: "", computedAs: "" },
+          { name: "sdc", label: "", type: "pool", rack: [], connectedTo: "", computedAs: "" },
+          { name: "die", label: "", type: "rack", rack: ["d4"], connectedTo: "", computedAs: "" },
+          {
+            name: "shown",
+            label: "",
+            type: "display",
+            rack: [],
+            connectedTo: "ar",
+            computedAs: "",
+          },
         ],
       },
     ],
@@ -83,6 +119,85 @@ describe("SystemStatBlockEditor", () => {
     await user.click(screen.getAllByRole("button", { name: "Remove group" })[0]);
     expect(screen.getAllByRole("textbox", { name: "Group name" })).toHaveLength(1);
     expect(screen.getByRole("textbox", { name: "Group name" })).toHaveValue("");
+  });
+
+  it("moves a stat up or down its group, and saves the stats in that order", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SystemStatBlockEditor system={system} />);
+
+    const names = () =>
+      screen
+        .getAllByRole("textbox", { name: "Name" })
+        .map((input) => (input as HTMLInputElement).value);
+    // The first row cannot go up and the last cannot go down.
+    expect(screen.getAllByRole("button", { name: "Move up" })[0]).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Move down" })[1]).toBeDisabled();
+
+    await user.click(screen.getAllByRole("button", { name: "Move up" })[1]);
+    expect(names()).toEqual(["sdc", "ar"]);
+    await user.click(screen.getAllByRole("button", { name: "Move down" })[0]);
+    expect(names()).toEqual(["ar", "sdc"]);
+    await user.click(screen.getAllByRole("button", { name: "Move down" })[0]);
+
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    await waitFor(() => expect(sa_setSystemStatBlockDefinition.mock.callCount()).toBe(1));
+    const saved = sa_setSystemStatBlockDefinition.mock.calls[0].arguments[1];
+    expect(saved.groups[0].stats.map((stat) => stat.name)).toEqual(["sdc", "ar"]);
+  });
+
+  it("moves a group up or down the definition, and saves the groups in that order", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SystemStatBlockEditor system={system} />);
+
+    await user.click(screen.getByRole("button", { name: "Add group" }));
+    await user.type(screen.getAllByRole("textbox", { name: "Group name" })[1], "saves");
+    const groupNames = () =>
+      screen
+        .getAllByRole("textbox", { name: "Group name" })
+        .map((input) => (input as HTMLInputElement).value);
+    expect(screen.getAllByRole("button", { name: "Move group up" })[0]).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Move group down" })[1]).toBeDisabled();
+
+    await user.click(screen.getAllByRole("button", { name: "Move group up" })[1]);
+    expect(groupNames()).toEqual(["saves", "defense"]);
+    await user.click(screen.getAllByRole("button", { name: "Move group down" })[0]);
+    expect(groupNames()).toEqual(["defense", "saves"]);
+    await user.click(screen.getAllByRole("button", { name: "Move group down" })[0]);
+
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    await waitFor(() => expect(sa_setSystemStatBlockDefinition.mock.callCount()).toBe(1));
+    const saved = sa_setSystemStatBlockDefinition.mock.calls[0].arguments[1];
+    expect(saved.groups.map((group) => group.name)).toEqual(["saves", "defense"]);
+  });
+
+  it("lets a group repeat by one of its displays or racks that is not connected", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SystemStatBlockEditor system={keyable} />);
+
+    const select = screen.getByRole("combobox", { name: "Repeats by" });
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Does not repeat", "AR", "die"]);
+    await user.selectOptions(select, "ar");
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    await waitFor(() => expect(sa_setSystemStatBlockDefinition.mock.calls.length).toBe(1));
+    expect(sa_setSystemStatBlockDefinition.mock.calls[0].arguments[1].groups[0].keyedBy).toBe("ar");
+  });
+
+  it("says on the group when its key stat is gone", async () => {
+    const user = userEvent.setup();
+    const keyed: AdminSystemDetail = {
+      ...keyable,
+      definition: { groups: [{ ...keyable.definition.groups[0], keyedBy: "ar" }] },
+    };
+    renderWithProviders(<SystemStatBlockEditor system={keyed} />);
+
+    await user.click(screen.getAllByRole("button", { name: "Remove stat" })[0]);
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    expect(await screen.findByText("There is no stat ar in this group.")).toBeInTheDocument();
+    expect(sa_setSystemStatBlockDefinition.mock.calls.length).toBe(0);
   });
 
   it("says in the browser where a formula points at nothing, and does not save", async () => {

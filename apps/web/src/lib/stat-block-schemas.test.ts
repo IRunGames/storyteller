@@ -11,7 +11,7 @@ import {
   statBlockSchema,
   statBlocksSchema,
 } from "./stat-block-schemas";
-import type { StatBlock, StatBlockDefinition, StatDefinition } from "./stat-blocks";
+import type { StatBlock, StatBlockDefinition, StatDefinition, StatRow } from "./stat-blocks";
 
 const stat = (
   over: Partial<StatDefinition> & Pick<StatDefinition, "name" | "type">,
@@ -28,6 +28,7 @@ const definition: StatBlockDefinition = {
     {
       name: "stats",
       label: "Stats",
+      keyedBy: "",
       stats: [
         stat({ name: "str", type: "display" }),
         stat({ name: "mod", type: "computed", computedAs: "floor((stats.str - 10) / 2)" }),
@@ -36,15 +37,40 @@ const definition: StatBlockDefinition = {
     {
       name: "combat",
       label: "Combat",
+      keyedBy: "",
       stats: [
         stat({ name: "hp", type: "pool", connectedTo: "stats.str" }),
         stat({ name: "mana", type: "pool" }),
         stat({ name: "rage", type: "stack" }),
         stat({ name: "die", type: "rack", rack: ["d4", "d6", 8] }),
+        stat({ name: "fed_label", type: "display", connectedTo: "stats.str" }),
+      ],
+    },
+    // A group that repeats by its weapon, with a pool fed from its own row.
+    {
+      name: "attack",
+      label: "Attack",
+      keyedBy: "weapon",
+      stats: [
+        stat({ name: "weapon", type: "display", label: "Weapon" }),
+        stat({ name: "strike", type: "display" }),
+        stat({ name: "die", type: "rack", rack: ["d4", "d6"] }),
+        stat({ name: "sides", type: "rack", rack: [4, 6] }),
+        stat({ name: "uses", type: "pool", connectedTo: "strike" }),
       ],
     },
   ],
 };
+
+/** The definition with one group keyed by another of its stats. */
+const withKey = (base: StatBlockDefinition, group: string, keyedBy: string) => ({
+  groups: base.groups.map((g) => (g.name === group ? { ...g, keyedBy } : g)),
+});
+
+/** The definition with one more stat on a group. */
+const withStat = (base: StatBlockDefinition, group: string, added: StatDefinition) => ({
+  groups: base.groups.map((g) => (g.name === group ? { ...g, stats: [...g.stats, added] } : g)),
+});
 
 /** The messages of a refusal keyed by path, as an action would hand them to a form. */
 function errorsOf(result: {
@@ -67,7 +93,7 @@ describe("statBlockDefinitionSchema", () => {
     expect(statBlockDefinitionSchema.safeParse({ groups: [] }).success).toBe(true);
     expect(
       statBlockDefinitionSchema.safeParse({
-        groups: [{ name: "saves", label: "Saves", stats: [] }],
+        groups: [{ name: "saves", label: "Saves", keyedBy: "", stats: [] }],
       }).success,
     ).toBe(true);
   });
@@ -76,13 +102,14 @@ describe("statBlockDefinitionSchema", () => {
     const errors = errorsOf(
       statBlockDefinitionSchema.safeParse({
         groups: [
-          { name: "Stats", label: "", stats: [] },
+          { name: "Stats", label: "", keyedBy: "", stats: [] },
           {
             name: "a",
             label: "",
+            keyedBy: "",
             stats: [stat({ name: "x", type: "display" }), stat({ name: "x", type: "display" })],
           },
-          { name: "a", label: "", stats: [] },
+          { name: "a", label: "", keyedBy: "", stats: [] },
         ],
       }),
     );
@@ -98,6 +125,7 @@ describe("statBlockDefinitionSchema", () => {
           {
             name: "g",
             label: "",
+            keyedBy: "",
             stats: [
               stat({ name: "a", type: "rack" }),
               stat({ name: "b", type: "display", rack: ["d4"] }),
@@ -127,6 +155,7 @@ describe("statBlockDefinitionSchema", () => {
           {
             name: "g",
             label: "",
+            keyedBy: "",
             stats: [
               stat({ name: "a", type: "display", connectedTo: "nothing" }),
               stat({ name: "b", type: "display", connectedTo: "b" }),
@@ -157,6 +186,7 @@ describe("statBlockDefinitionSchema", () => {
           {
             name: "g",
             label: "",
+            keyedBy: "",
             stats: [
               stat({ name: "a", type: "computed", computedAs: "g.b + 1" }),
               stat({ name: "b", type: "display", connectedTo: "c" }),
@@ -173,6 +203,72 @@ describe("statBlockDefinitionSchema", () => {
     expect(errors["groups.0.stats.3.connectedTo"]).toBeUndefined();
   });
 
+  it("lets a group repeat by one of its displays or racks that is not connected", () => {
+    expect(statBlockDefinitionSchema.safeParse(definition).success).toBe(true);
+    expect(statBlockDefinitionSchema.safeParse(withKey(definition, "attack", "die")).success).toBe(
+      true,
+    );
+  });
+
+  it("refuses a key that is not there, is a pool, stack or computed stat, or is fed", () => {
+    expect(
+      errorsOf(statBlockDefinitionSchema.safeParse(withKey(definition, "attack", "nope"))),
+    ).toEqual({ "groups.2.keyedBy": "There is no stat nope in this group." });
+    expect(
+      errorsOf(statBlockDefinitionSchema.safeParse(withKey(definition, "combat", "mana"))),
+    ).toEqual({
+      "groups.1.keyedBy":
+        "A key is a display or a rack; a pool, stack or computed stat cannot tell rows apart.",
+    });
+    expect(
+      errorsOf(statBlockDefinitionSchema.safeParse(withKey(definition, "combat", "fed_label"))),
+    ).toEqual({
+      "groups.1.keyedBy":
+        "A fed display is the same on every row; choose a stat the row holds itself.",
+    });
+  });
+
+  it("refuses a reference or a connection into a repeating group from outside it", () => {
+    const outside = withStat(
+      definition,
+      "stats",
+      stat({ name: "best", type: "computed", computedAs: "attack.strike.value" }),
+    );
+    expect(errorsOf(statBlockDefinitionSchema.safeParse(outside))).toEqual({
+      "groups.0.stats.2.computedAs":
+        "attack repeats; only a stat in attack can read attack.strike.",
+    });
+    const connected = withStat(
+      definition,
+      "stats",
+      stat({ name: "shown", type: "display", connectedTo: "attack.strike" }),
+    );
+    expect(errorsOf(statBlockDefinitionSchema.safeParse(connected))).toEqual({
+      "groups.0.stats.2.connectedTo":
+        "attack repeats; only a stat in attack can read attack.strike.",
+    });
+  });
+
+  it("lets a stat in a repeating group read its own row and any plain group", () => {
+    const inside = withStat(
+      definition,
+      "attack",
+      stat({
+        name: "total",
+        type: "computed",
+        computedAs: "attack.strike.value + stats.str.value",
+      }),
+    );
+    expect(statBlockDefinitionSchema.safeParse(inside).success).toBe(true);
+  });
+
+  it("reads a stored group with no keyedBy as plain", () => {
+    const stored = { groups: [{ name: "stats", label: "", stats: [] }] };
+    expect(readStatBlockDefinition(stored)).toEqual({
+      groups: [{ name: "stats", label: "", keyedBy: "", stats: [] }],
+    });
+  });
+
   it("reads a column back, and the empty definition for anything else", () => {
     expect(readStatBlockDefinition(definition)).toEqual(definition);
     expect(readStatBlockDefinition(null)).toEqual({ groups: [] });
@@ -187,6 +283,7 @@ describe("statBlockDefinitionFormSchema", () => {
         {
           name: "g",
           label: "",
+          keyedBy: "",
           stats: [
             stat({ name: "die", type: "rack", rack: " d4, d6 ,8,, " as unknown as never }),
             stat({
@@ -244,7 +341,7 @@ describe("statBlockSchema", () => {
       },
     });
     expect(parsed.success).toBe(true);
-    expect((parsed.data as StatBlock).stats.str).toEqual({ value: "mighty" });
+    expect((parsed.data as StatBlock).stats).toEqual({ str: { value: "mighty" } });
   });
 
   it("refuses what the stats cannot hold, on the field", () => {
@@ -302,6 +399,99 @@ describe("statBlockSchema", () => {
   });
 });
 
+describe("statBlockSchema with a repeating group", () => {
+  const schema = statBlockSchema(definition);
+  const plain = {
+    stats: { str: { value: "14" } },
+    combat: {
+      hp: { value: "9" },
+      mana: { value: 3, min: 1, max: 5 },
+      rage: { value: "0" },
+      die: { value: "d4" },
+      fed_label: {},
+    },
+  };
+  const row = (weapon: string, strike: string, over: Record<string, unknown> = {}) => ({
+    weapon: { value: weapon },
+    strike: { value: strike },
+    die: { value: "d4" },
+    sides: { value: 4 },
+    uses: { value: "0", min: "" },
+    ...over,
+  });
+
+  it("takes rows, each checked as the group's stats are, with the key filled and distinct", () => {
+    const parsed = schema.safeParse({
+      ...plain,
+      attack: [row(" Sword ", "4", { die: { value: "d6" } }), row("sword", "1")],
+    });
+    expect(parsed.success).toBe(true);
+    const uses = { value: 0, min: 0 };
+    expect((parsed.data as StatBlock).attack).toEqual([
+      {
+        weapon: { value: "Sword" },
+        strike: { value: 4 },
+        die: { value: "d6" },
+        sides: { value: 4 },
+        uses,
+      },
+      {
+        weapon: { value: "sword" },
+        strike: { value: 1 },
+        die: { value: "d4" },
+        sides: { value: 4 },
+        uses,
+      },
+    ]);
+  });
+
+  it("takes no rows at all, posted as an empty array or left out", () => {
+    expect(schema.safeParse({ ...plain, attack: [] }).success).toBe(true);
+    expect(schema.safeParse(plain).success).toBe(true);
+  });
+
+  it("refuses an empty key and a duplicate, on the later row's key field", () => {
+    const result = schema.safeParse({
+      ...plain,
+      attack: [row("Sword", "4"), row("", "1"), row("Sword", "2")],
+    });
+    expect(errorsOf(result)).toEqual({
+      "attack.1.weapon.value": "Every row needs one.",
+      "attack.2.weapon.value": "Another row has this Weapon.",
+    });
+  });
+
+  it('treats 6 and "6" as one key when the key is a rack', () => {
+    const keyedBySides = statBlockSchema(withKey(definition, "attack", "sides"));
+    const result = keyedBySides.safeParse({
+      ...plain,
+      attack: [row("a", "1", { sides: { value: 6 } }), row("b", "1", { sides: { value: "6" } })],
+    });
+    expect(errorsOf(result)).toEqual({ "attack.1.sides.value": "Another row has this sides." });
+  });
+
+  it("refuses an object where rows are expected, rows where one record is, and more than 50 rows", () => {
+    expect(errorsOf(schema.safeParse({ ...plain, attack: {} }))).toHaveProperty("attack");
+    expect(errorsOf(schema.safeParse({ ...plain, stats: [] }))).toHaveProperty("stats");
+    const many = Array.from({ length: 51 }, (_, i) => row(`w${i}`, "1"));
+    expect(errorsOf(schema.safeParse({ ...plain, attack: many }))).toEqual({
+      attack: "Keep it under 50 rows.",
+    });
+  });
+
+  it("holds a row's pool to the max its own row feeds", () => {
+    const result = schema.safeParse({
+      ...plain,
+      attack: [row("Sword", "4", { uses: { value: "5", min: "" } })],
+    });
+    expect(errorsOf(result)).toEqual({ "attack.0.uses.value": "That is above the max of 4." });
+    expect(
+      schema.safeParse({ ...plain, attack: [row("Sword", "4", { uses: { value: "4", min: "" } })] })
+        .success,
+    ).toBe(true);
+  });
+});
+
 describe("statBlocksSchema", () => {
   const systems = [{ idSystem: -90, label: "Palladium", definition }];
 
@@ -318,7 +508,7 @@ describe("statBlocksSchema", () => {
       },
     });
     expect(good.success).toBe(true);
-    expect(good.data?.["-90"].combat.hp).toEqual({ value: 1, min: 0 });
+    expect((good.data?.["-90"].combat as StatRow).hp).toEqual({ value: 1, min: 0 });
 
     const bad = statBlocksSchema(systems).safeParse({
       "-90": {
@@ -340,6 +530,12 @@ describe("statBlocksSchema", () => {
 });
 
 describe("readStatBlocks", () => {
+  it("keeps an array of records under a group, and drops a system whose rows are not records", () => {
+    const rows = { "-90": { attack: [{ weapon: { value: "Sword" } }, {}] } };
+    expect(readStatBlocks(rows)).toEqual(rows);
+    expect(readStatBlocks({ "-90": { attack: [3] } })).toEqual({});
+  });
+
   it("keeps the outer shape and lets each stat be judged later", () => {
     const blocks = { "-90": { stats: { str: { value: "anything" }, odd: { nothing: true } } } };
     expect(readStatBlocks(blocks)).toEqual(blocks);

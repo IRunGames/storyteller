@@ -24,7 +24,7 @@ type Props = {
  * each opening reads the session as stored now. The panel itself closes
  * on a save and says so; the band follows what was saved.
  *
- * The Timeline's bin (DeleteSessionButton) sits at the top right of the
+ * The Timeline's trashcan (DeleteSessionButton) sits at the top right of the
  * popover, beside the sitting's name: on the Timeline it is on the row,
  * and a band has no room for a second button that is not seen before it
  * is wanted. Deleting takes the lane away, popover and all.

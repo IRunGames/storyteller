@@ -22,7 +22,8 @@ how we use it. Authentication has its own page, [`auth.md`](auth.md).
 | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/app/(public)`, `(auth)`, `(app)`, `(app)/(nav)` | Route groups by access tier; `(nav)` is every signed-in page that carries the menu bar. The group name is not part of the URL.                                                     |
 | `src/app/<route>/actions.ts`                         | Server actions for that route. A component no single page owns keeps its action beside itself instead ([`components/feedback/actions.ts`](../src/components/feedback/actions.ts)). |
-| `src/components/<area>/`                             | Client and server components grouped by feature (`nav`, `stories`, `auth`).                                                                                                        |
+| `src/app/<route>/`                                   | A component only that page uses lives beside its `page.tsx` (the admin Systems page's `systems-admin.tsx`): it is the page's implementation, not a component.                      |
+| `src/components/<area>/`                             | Components more than one page shares, grouped by feature (`nav`, `stories`, `auth`). Never a page's own body.                                                                      |
 | `src/components/ui/`                                 | Only Chakra's generated snippets (`provider.tsx`, `color-mode.tsx`, `toaster.tsx`), added with `npx @chakra-ui/cli snippet add <name>`. Never a component library of our own.      |
 | `src/lib/`                                           | Shared code with no React in it: zod schemas (`<feature>-schemas.ts`), view types and formatters, auth helpers.                                                                    |
 | `src/db/`                                            | The Drizzle client and the hand-written schema.                                                                                                                                    |
@@ -70,6 +71,14 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
 - **State the server cannot know is rendered inside `ClientOnly`** with a
   `Skeleton` fallback, as the theme menu does: the resolved theme is unknown
   during SSR.
+- **Deleting asks first, through one component.** Anything taken away for
+  good gets [`DeleteButton`](../src/components/confirm/delete-button.tsx):
+  the trigger (an icon on a row or card, a full button on a page), the
+  popover that names the thing and says what goes with it, the Cancel and
+  Delete pair, the inline refusal and the success toast. A feature wraps it
+  with its own words and its own action, as
+  [`delete-scene-button.tsx`](../src/components/prep/delete-scene-button.tsx)
+  does; it does not draw the popover itself.
 - **Errors are inline, confirmations are toasts.** A form-level failure is an
   `Alert.Root status="error"`; a field failure is `Field.Root invalid` plus
   `Field.ErrorText`, and the form stays open so the user can fix it. A
@@ -83,7 +92,7 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
 - **Prefer `aria-disabled` over `disabled`** when the control must stay
   focusable; a disabled button also swallows pointer events, which is why the
 - **Every icon button has a tooltip, placed above it:** `Tooltip.Root
-  openDelay={200} positioning={{ placement: "top" }}`. When the button also
+openDelay={200} positioning={{ placement: "top" }}`. When the button also
   opens a menu or popover, nest `Tooltip.Trigger asChild` around
   `Menu.Trigger asChild` so both merge onto the one button, **and give both
   roots the same `ids={{ trigger }}`** from `useId()`. Each machine looks its

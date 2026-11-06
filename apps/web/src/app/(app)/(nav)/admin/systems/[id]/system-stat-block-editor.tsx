@@ -25,7 +25,7 @@ import {
   Tabs,
   Text,
 } from "@chakra-ui/react";
-import { Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import {
   sa_setSystemStatBlockDefinition,
   type AdminSystemDetail,
@@ -42,6 +42,7 @@ import {
   canConnect,
   STAT_TYPE_LABELS,
   STAT_TYPES,
+  statLabel,
   type StatBlockDefinition,
   type StatType,
 } from "@/lib/stat-blocks";
@@ -124,11 +125,12 @@ export function SystemStatBlockEditor({ system }: { system: AdminSystemDetail })
   return (
     <Stack gap="6">
       <Stack gap="1">
-        <Heading size="2xl">{system.label}</Heading>
+        <Heading size="lg">Stat block</Heading>
         <Text color="fg.muted">
           The stat block every element run in this system can carry: its groups, and the stats in
           each. Formulas and connections name a stat as <Code>stat</Code> within its group or{" "}
-          <Code>group.stat</Code>.
+          <Code>group.stat</Code>. A group that repeats by one of its stats holds a list of rows on
+          each element, told apart by that stat.
         </Text>
       </Stack>
 
@@ -173,11 +175,31 @@ export function SystemStatBlockEditor({ system }: { system: AdminSystemDetail })
                           <Input size="sm" autoComplete="off" {...register(`groups.${g}.label`)} />
                           <Field.ErrorText>{errors.groups?.[g]?.label?.message}</Field.ErrorText>
                         </Field.Root>
-                        <Box pt="6">
+                        <KeyedBySelect
+                          control={control}
+                          register={register}
+                          errors={errors}
+                          g={g}
+                        />
+                        <HStack pt="6" gap="0">
+                          <PrepIconButton
+                            label="Move group up"
+                            disabled={g === 0}
+                            onClick={() => groups.move(g, g - 1)}
+                          >
+                            <ArrowUp />
+                          </PrepIconButton>
+                          <PrepIconButton
+                            label="Move group down"
+                            disabled={g === groups.fields.length - 1}
+                            onClick={() => groups.move(g, g + 1)}
+                          >
+                            <ArrowDown />
+                          </PrepIconButton>
                           <PrepIconButton label="Remove group" onClick={() => groups.remove(g)}>
                             <Trash2 />
                           </PrepIconButton>
-                        </Box>
+                        </HStack>
                       </HStack>
                     </Card.Header>
                     <Card.Body>
@@ -196,7 +218,7 @@ export function SystemStatBlockEditor({ system }: { system: AdminSystemDetail })
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={() => groups.append({ name: "", label: "", stats: [] })}
+                    onClick={() => groups.append({ name: "", label: "", keyedBy: "", stats: [] })}
                   >
                     <Plus /> Add group
                   </Button>
@@ -227,8 +249,54 @@ export function SystemStatBlockEditor({ system }: { system: AdminSystemDetail })
 }
 
 /**
- * One group's stats, each a row of fields with the ones its type uses. A
- * child component rather than a loop in the editor, since a field array
+ * The group's key: the stat whose value tells one row from another, which
+ * is what makes the group repeat. Only a display or a rack that is not
+ * connected is offered, since a pool or stack is spent and refilled, a
+ * computed stat stores nothing, and a fed display is the same on every row.
+ * Watches the group's stats itself so the options follow a type or a
+ * connection as it is changed.
+ */
+function KeyedBySelect({
+  control,
+  register,
+  errors,
+  g,
+}: {
+  control: Control<FormInput, unknown, StatBlockDefinition>;
+  register: UseFormRegister<FormInput>;
+  errors: FieldErrors<FormInput>;
+  g: number;
+}) {
+  const stats = useWatch({ control, name: `groups.${g}.stats` }) ?? [];
+  const eligible = stats.filter(
+    (stat) =>
+      (stat.type === "display" || stat.type === "rack") &&
+      stat.connectedTo.trim() === "" &&
+      stat.name.trim() !== "",
+  );
+  return (
+    <Field.Root invalid={!!errors.groups?.[g]?.keyedBy} w="48">
+      <Field.Label>Repeats by</Field.Label>
+      <NativeSelect.Root size="sm">
+        <NativeSelect.Field {...register(`groups.${g}.keyedBy`)}>
+          <option value="">Does not repeat</option>
+          {eligible.map((stat) => (
+            <option key={stat.name} value={stat.name}>
+              {statLabel(stat)}
+            </option>
+          ))}
+        </NativeSelect.Field>
+        <NativeSelect.Indicator />
+      </NativeSelect.Root>
+      <Field.ErrorText>{errors.groups?.[g]?.keyedBy?.message}</Field.ErrorText>
+    </Field.Root>
+  );
+}
+
+/**
+ * One group's stats, each a row of fields with the ones its type uses, and
+ * arrows that move the row up or down, since the order here is the order the
+ * block is drawn in. A child component rather than a loop in the editor, since a field array
  * must be hooked per group: useFieldArray takes one name, and hooks cannot
  * run in a loop.
  */
@@ -295,7 +363,7 @@ function StatRows({
                 <Input
                   size="sm"
                   autoComplete="off"
-                  placeholder="stats.str"
+                  placeholder="field reference like stats.dex"
                   {...register(`groups.${g}.stats.${s}.connectedTo`)}
                 />
                 <Field.ErrorText>{at?.connectedTo?.message}</Field.ErrorText>
@@ -313,11 +381,25 @@ function StatRows({
                 <Field.ErrorText>{at?.computedAs?.message}</Field.ErrorText>
               </Field.Root>
             )}
-            <Box pt="6">
+            <HStack pt="6" gap="0">
+              <PrepIconButton
+                label="Move up"
+                disabled={s === 0}
+                onClick={() => stats.move(s, s - 1)}
+              >
+                <ArrowUp />
+              </PrepIconButton>
+              <PrepIconButton
+                label="Move down"
+                disabled={s === stats.fields.length - 1}
+                onClick={() => stats.move(s, s + 1)}
+              >
+                <ArrowDown />
+              </PrepIconButton>
               <PrepIconButton label="Remove stat" onClick={() => stats.remove(s)}>
                 <Trash2 />
               </PrepIconButton>
-            </Box>
+            </HStack>
           </HStack>
         );
       })}

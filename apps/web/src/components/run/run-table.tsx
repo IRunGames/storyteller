@@ -96,7 +96,7 @@ type Props = {
    * or on one without a cover of its own.
    */
   storyCoverUrl: string | null;
-  /** The viewer is the story's owner, for the sessions list's pencils and bins. */
+  /** The viewer is the story's owner, for the sessions list's pencils and trashcans. */
   isOwner: boolean;
   /**
    * The first page of the story's sessions, for the list in the box the play
@@ -851,7 +851,7 @@ export function RunTable({
               )
             )}
             {/* After the overlays, so it stays above a SUSPENDED one and
-                its chevron, pencils and bins keep working. */}
+                its chevron, pencils and trashcans keep working. */}
             {scene === null && (
               <StoryPlayingBox
                 idStory={idStory}

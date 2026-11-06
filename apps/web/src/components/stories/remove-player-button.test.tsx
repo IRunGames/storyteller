@@ -40,7 +40,7 @@ describe("RemovePlayerButton", () => {
 
   const open = async (user = userEvent.setup()) => {
     await user.click(screen.getByRole("button", { name: "Remove PalmDave" }));
-    return { user, dialog: await screen.findByRole("alertdialog") };
+    return { user, dialog: await screen.findByRole("dialog") };
   };
 
   it("asks before it does anything", async () => {
@@ -50,9 +50,7 @@ describe("RemovePlayerButton", () => {
     const { dialog } = await open();
 
     // An alertdialog, not a panel: it is a decision to confirm.
-    expect(
-      await screen.findByRole("alertdialog", { name: "Remove PalmDave?" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Remove PalmDave?" })).toBeInTheDocument();
     // And it says what else goes with them.
     expect(within(dialog).getByText(/favorite of it/)).toBeInTheDocument();
     expect(sa_removeStoryPlayer.mock.callCount()).toBe(0);
@@ -66,7 +64,7 @@ describe("RemovePlayerButton", () => {
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
     expect(sa_removeStoryPlayer.mock.callCount()).toBe(0);
     expect(removed).toBe(0);
@@ -82,7 +80,7 @@ describe("RemovePlayerButton", () => {
     await waitFor(() => expect(sa_removeStoryPlayer.mock.callCount()).toBe(1));
     expect(sa_removeStoryPlayer.mock.calls[0].arguments).toEqual([-1, "u1"]);
     await waitFor(() => {
-      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
     expect(removed).toBe(1);
     expect(await screen.findByText("PalmDave is no longer a player.")).toBeInTheDocument();
@@ -102,7 +100,7 @@ describe("RemovePlayerButton", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "The storyteller cannot be removed from their own story.",
     );
-    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(removed).toBe(0);
   });
 

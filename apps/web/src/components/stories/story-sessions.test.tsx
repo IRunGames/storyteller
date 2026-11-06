@@ -25,7 +25,7 @@ const sa_listStorySessions = mock.fn<
   (idStory: number, offset: number, limit?: number) => Promise<StorySession[]>
 >(async () => []);
 
-// The storyteller's controls: the edit panel's read and save, the bin, and
+// The storyteller's controls: the edit panel's read and save, the trashcan, and
 // moving a scene in or out of the session.
 const forEdit = (idStorySession: number): SessionForEdit => ({
   idStorySession,
@@ -439,9 +439,9 @@ describe("StorySessions", () => {
         </>,
       );
 
-      const bin = screen.getByRole("button", { name: "Delete 1. Session 1 title" });
-      expect(bin).not.toHaveAttribute("aria-disabled");
-      await user.click(bin);
+      const trashcan = screen.getByRole("button", { name: "Delete 1. Session 1 title" });
+      expect(trashcan).not.toHaveAttribute("aria-disabled");
+      await user.click(trashcan);
       const ask = await screen.findByRole("dialog", { name: "Delete 1. Session 1 title?" });
       expect(ask).toHaveTextContent("each loses its link to this session");
       expect(ask).toHaveTextContent("the record of who came to it");

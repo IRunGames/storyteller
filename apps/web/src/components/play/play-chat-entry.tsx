@@ -52,12 +52,12 @@ type Props = {
 //
 // The viewer's own lines carry a pencil at the end of the name's line,
 // which turns the text into a field to rewrite it in (PlayChatEdit), and a
-// bin beside it that takes the line back once a popover has asked
+// trashcan beside it that takes the line back once a popover has asked
 // (PlayChatDelete); a line that has been rewritten says "edited" there, for
 // everyone.
 //
 // Compact leaves the picture out, takes every font a size down and the
-// pencil and bin with them, so more of the conversation fits the panel; the
+// pencil and trashcan with them, so more of the conversation fits the panel; the
 // name, in its colour, still says who spoke.
 export function PlayChatEntry({ entry, idStory, onEdited, onDeleted, compact = false }: Props) {
   const user = useUser();

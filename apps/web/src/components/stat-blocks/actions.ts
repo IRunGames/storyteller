@@ -13,13 +13,18 @@ import {
   emptyStatBlock,
   evaluateStatBlock,
   findStat,
+  isRepeating,
   matchRackEntry,
   resolveConnection,
+  rowKeyText,
+  rowsOf,
   systemKey,
+  tidyStatBlock,
   type EvaluatedGroup,
   type StatBlock,
   type StatBlockDefinition,
   type StatBlockSystem,
+  type StatRow,
   type StatValue,
 } from "@/lib/stat-blocks";
 
@@ -48,6 +53,7 @@ export type SetElementStatResult =
 
 const idSchema = z.number().int().min(-2147483648).max(2147483647);
 const nameSchema = z.string().min(1).max(40);
+const rowKeySchema = z.string().trim().min(1).max(200).optional();
 const patchSchema = z.object({
   value: z.union([z.number().finite(), z.string().max(200)]).optional(),
   min: z.number().finite().optional(),
@@ -85,7 +91,10 @@ function evaluated(
     label: system.label,
     definition: system.definition,
     stored,
-    groups: evaluateStatBlock(system.definition, block ?? emptyStatBlock(system.definition)),
+    groups: evaluateStatBlock(
+      system.definition,
+      block ? tidyStatBlock(system.definition, block) : emptyStatBlock(system.definition),
+    ),
   };
 }
 
@@ -141,12 +150,15 @@ function clamped(
   statName: string,
   block: StatBlock,
   patch: StatPatch,
+  rowIndex: number | null,
 ): StatValue | null {
   const stat = findStat(system.definition, groupName, statName);
   if (!stat) return null;
-  const current = evaluateStatBlock(system.definition, block)
-    .find((group) => group.name === groupName)!
-    .stats.find((candidate) => candidate.name === statName)!;
+  const group = evaluateStatBlock(system.definition, block).find((g) => g.name === groupName)!;
+  const current = (rowIndex === null ? group.stats : (group.rows[rowIndex]?.stats ?? [])).find(
+    (candidate) => candidate.name === statName,
+  );
+  if (!current) return null;
   const connected = canConnect(stat.type)
     ? resolveConnection(system.definition, groupName, stat.connectedTo) !== null
     : false;
@@ -189,11 +201,18 @@ function clamped(
 /**
  * Changes one stat of one block at the table: a pool spent or refilled, a
  * stack counted, a rack moved, a display set. The value is clamped against
- * the definition (see clamped). Written in one UPDATE that merges the
+ * the definition (see clamped). For a plain group, one UPDATE merges the
  * system, group and stat levels with ||, so two stats changed at once do
  * not overwrite each other and a first change on an element with no block
- * creates the keys above it, which jsonb_set would not. The table is told,
- * as any change to an element is. The block comes back worked out.
+ * creates the keys above it, which jsonb_set would not. A repeating group
+ * takes the row's key as well, and is written differently: jsonb has no
+ * operator that replaces one element of an array by the value of one of
+ * its fields, so the system's block is read with the row locked, the row
+ * found by its key, and the block written back whole inside one
+ * transaction; a row the prep form has since removed is refused rather
+ * than landing on another. The key stat itself is set on the prep form,
+ * not here. The table is told, as any change to an element is. The block
+ * comes back worked out.
  */
 export async function sa_setElementStat(
   idStory: number,
@@ -202,6 +221,7 @@ export async function sa_setElementStat(
   group: string,
   stat: string,
   patch: StatPatch,
+  rowKey?: string,
 ): Promise<SetElementStatResult> {
   const user = await requireAccount();
   const story = idSchema.parse(idStory);
@@ -210,7 +230,9 @@ export async function sa_setElementStat(
   const groupName = nameSchema.parse(group);
   const statName = nameSchema.parse(stat);
   const change = patchSchema.parse(patch);
+  const key = rowKeySchema.parse(rowKey);
   const gone = "That element is not one of your story's.";
+  const notSettable = { ok: false as const, error: "That stat is not one that can be set." };
   if (!(await ownsStory(user.id, story))) return { ok: false, error: gone };
 
   const found = await loadElement(story, element);
@@ -218,24 +240,83 @@ export async function sa_setElementStat(
   const systems = await statBlockSystems();
   const target = systems.find((candidate) => candidate.idSystem === system);
   if (!target) return { ok: false, error: "That system has no stats to fill in." };
+  const groupDefinition = target.definition.groups.find((g) => g.name === groupName);
+  if (!groupDefinition) return notSettable;
 
-  const key = systemKey(system);
-  const block = found.blocks[key] ?? emptyStatBlock(target.definition);
-  const next = clamped(target, groupName, statName, block, change);
-  if (next === null) return { ok: false, error: "That stat is not one that can be set." };
+  const systemKeyText = systemKey(system);
+  const repeating = isRepeating(groupDefinition);
+  // A row key belongs to a repeating group and to no other; the key stat is
+  // the row's name, changed on the prep form rather than at the table.
+  if (repeating !== (key !== undefined)) return notSettable;
+  if (repeating && statName === groupDefinition.keyedBy) return notSettable;
 
-  const [row] = await db
-    .update(elements)
-    .set({
-      statBlocks: sql`${elements.statBlocks} || jsonb_build_object(${key}::text,
-        coalesce(${elements.statBlocks} -> ${key}, '{}'::jsonb) || jsonb_build_object(${groupName}::text,
-          coalesce(${elements.statBlocks} -> ${key} -> ${groupName}, '{}'::jsonb) || jsonb_build_object(${statName}::text, ${JSON.stringify(next)}::jsonb)))`,
-      idUpdatedByUser: user.id,
-    })
-    .where(and(eq(elements.idElement, element), eq(elements.idStory, story)))
-    .returning({ statBlocks: elements.statBlocks });
-  if (!row) return { ok: false, error: gone };
+  if (!repeating) {
+    const block = found.blocks[systemKeyText]
+      ? tidyStatBlock(target.definition, found.blocks[systemKeyText])
+      : emptyStatBlock(target.definition);
+    const next = clamped(target, groupName, statName, block, change, null);
+    if (next === null) return notSettable;
+
+    // The group level merges only into an object: a group made plain again
+    // may still hold a row array on this element, and || on an array would
+    // append the stat as one more element and lose the change. Such an
+    // array reads as nothing stored, so it is replaced.
+    const [row] = await db
+      .update(elements)
+      .set({
+        statBlocks: sql`${elements.statBlocks} || jsonb_build_object(${systemKeyText}::text,
+          coalesce(${elements.statBlocks} -> ${systemKeyText}, '{}'::jsonb) || jsonb_build_object(${groupName}::text,
+            CASE WHEN jsonb_typeof(${elements.statBlocks} -> ${systemKeyText} -> ${groupName}) = 'object' THEN ${elements.statBlocks} -> ${systemKeyText} -> ${groupName} ELSE '{}'::jsonb END || jsonb_build_object(${statName}::text, ${JSON.stringify(next)}::jsonb)))`,
+        idUpdatedByUser: user.id,
+      })
+      .where(and(eq(elements.idElement, element), eq(elements.idStory, story)))
+      .returning({ statBlocks: elements.statBlocks });
+    if (!row) return { ok: false, error: gone };
+
+    publishLater(() => publishElementChanged(story, element));
+    return {
+      ok: true,
+      block: evaluated(target, readStatBlocks(row.statBlocks)[systemKeyText], true),
+    };
+  }
+
+  const label = groupDefinition.label || groupDefinition.name;
+  const result = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({ statBlocks: elements.statBlocks })
+      .from(elements)
+      .where(and(eq(elements.idElement, element), eq(elements.idStory, story)))
+      .for("update");
+    if (!locked) return { ok: false as const, error: gone };
+    const stored = readStatBlocks(locked.statBlocks)[systemKeyText];
+    const block = stored
+      ? tidyStatBlock(target.definition, stored)
+      : emptyStatBlock(target.definition);
+    const rows = rowsOf(groupDefinition, block[groupName]);
+    const index = rows.findIndex((row) => rowKeyText(row[groupDefinition.keyedBy]?.value) === key);
+    if (index === -1) return { ok: false as const, error: `That ${label} is no longer there.` };
+    const next = clamped(target, groupName, statName, block, change, index);
+    if (next === null) return notSettable;
+
+    const written: StatRow[] = rows.map((row, i) =>
+      i === index ? { ...row, [statName]: next } : row,
+    );
+    const [row] = await tx
+      .update(elements)
+      .set({
+        statBlocks: sql`${elements.statBlocks} || jsonb_build_object(${systemKeyText}::text, ${JSON.stringify({ ...block, [groupName]: written })}::jsonb)`,
+        idUpdatedByUser: user.id,
+      })
+      .where(and(eq(elements.idElement, element), eq(elements.idStory, story)))
+      .returning({ statBlocks: elements.statBlocks });
+    if (!row) return { ok: false as const, error: gone };
+    return { ok: true as const, statBlocks: row.statBlocks };
+  });
+  if (!result.ok) return result;
 
   publishLater(() => publishElementChanged(story, element));
-  return { ok: true, block: evaluated(target, readStatBlocks(row.statBlocks)[key], true) };
+  return {
+    ok: true,
+    block: evaluated(target, readStatBlocks(result.statBlocks)[systemKeyText], true),
+  };
 }

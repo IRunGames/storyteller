@@ -50,7 +50,7 @@ type Props = {
   showPlayers?: boolean;
   /**
    * The storyteller's controls on each row: a pencil that opens the
-   * session's edit panel in place under it (SessionEditPanel), and a bin
+   * session's edit panel in place under it (SessionEditPanel), and a trashcan
    * that deletes it once asked (DeleteSessionButton). The Prep Work
    * timeline's, for the story's owner.
    */

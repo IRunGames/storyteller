@@ -154,7 +154,7 @@ export type AttachmentRowsView = {
   /** As the card's Cover button calls it; resolves false on a refusal. */
   setCover: (idAttachment: number, isCover: boolean) => Promise<boolean>;
   /**
-   * As the card's bin calls it: the row goes at once and comes back, with
+   * As the card's trashcan calls it: the row goes at once and comes back, with
    * the field's error, if the delete is refused.
    */
   remove: (idAttachment: number) => Promise<void>;

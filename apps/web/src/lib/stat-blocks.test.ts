@@ -4,13 +4,17 @@ import { expect } from "expect";
 import {
   emptyStatBlock,
   evaluateStatBlock,
+  emptyStatRowFields,
   fitStatValue,
   resolveConnection,
+  rowKeyText,
   statBlockFromFields,
+  tidyStatBlock,
   toStatBlockFields,
   type StatBlock,
   type StatBlockDefinition,
   type StatDefinition,
+  type StatRowFieldValues,
 } from "./stat-blocks";
 
 const stat = (
@@ -31,6 +35,7 @@ const definition: StatBlockDefinition = {
     {
       name: "stats",
       label: "Stats",
+      keyedBy: "",
       stats: [
         stat({ name: "str", type: "display", label: "Strength" }),
         stat({ name: "size", type: "display" }),
@@ -40,6 +45,7 @@ const definition: StatBlockDefinition = {
     {
       name: "combat",
       label: "",
+      keyedBy: "",
       stats: [
         stat({ name: "hp", type: "pool", label: "HP", connectedTo: "stats.str" }),
         stat({ name: "mana", type: "pool" }),
@@ -50,6 +56,23 @@ const definition: StatBlockDefinition = {
         stat({ name: "level", type: "rack", rack: [1, 2, 3] }),
         stat({ name: "shown_mod", type: "display", connectedTo: "stats.mod" }),
         stat({ name: "reach", type: "computed", computedAs: "combat.hp.max + combat.rage.value" }),
+      ],
+    },
+    // A group that repeats: each row a weapon, with a computed stat reading
+    // its own row and a plain group, and a pool fed from its own row.
+    {
+      name: "attack",
+      label: "Attack",
+      keyedBy: "weapon",
+      stats: [
+        stat({ name: "weapon", type: "display", label: "Weapon" }),
+        stat({ name: "strike", type: "display", label: "Strike" }),
+        stat({
+          name: "total",
+          type: "computed",
+          computedAs: "attack.strike.value + stats.str.value",
+        }),
+        stat({ name: "uses", type: "pool", connectedTo: "strike" }),
       ],
     },
   ],
@@ -66,6 +89,10 @@ const block = {
     die: { value: "d6" },
     level: { value: "2" },
   },
+  attack: [
+    { weapon: { value: "Sword" }, strike: { value: 4 }, uses: { value: 2, min: 0 } },
+    { weapon: { value: "Fist" }, strike: { value: 1 }, uses: { value: 0, min: 0 } },
+  ],
 };
 
 const find = (groups: ReturnType<typeof evaluateStatBlock>, group: string, name: string) =>
@@ -78,6 +105,7 @@ describe("evaluateStatBlock", () => {
     expect(groups.map((g) => [g.name, g.label])).toEqual([
       ["stats", "Stats"],
       ["combat", "combat"],
+      ["attack", "Attack"],
     ]);
     expect(groups[0].stats.map((s) => s.label)).toEqual(["Strength", "size", "mod"]);
   });
@@ -156,12 +184,45 @@ describe("evaluateStatBlock", () => {
     expect(find(stale, "combat", "shown_mod")).toMatchObject({ value: null, stored: null });
   });
 
+  it("draws a repeating group as rows in order, each worked out on its own", () => {
+    const attack = groups.find((g) => g.name === "attack")!;
+    expect(attack.keyedBy).toBe("weapon");
+    expect(attack.stats).toEqual([]);
+    expect(attack.rows.map((row) => row.key)).toEqual(["Sword", "Fist"]);
+    const total = (i: number) => attack.rows[i].stats.find((s) => s.name === "total")!.value;
+    expect(total(0)).toBe(18);
+    expect(total(1)).toBe(15);
+    const uses = attack.rows[0].stats.find((s) => s.name === "uses")!;
+    expect(uses.max).toBe(4);
+    expect(uses.maxFrom).toBe("Strike");
+  });
+
+  it("keeps a row whose key is empty or wrong, with a null key, so a form can draw it", () => {
+    const rows = evaluateStatBlock(definition, {
+      ...block,
+      attack: [{ strike: { value: 2 } }, { weapon: { value: "" }, strike: { value: 3 } }],
+    }).find((g) => g.name === "attack")!.rows;
+    expect(rows.map((row) => row.key)).toEqual([null, null]);
+    expect(rows[1].stats.find((s) => s.name === "strike")!.value).toBe(3);
+  });
+
+  it("shows no rows for an object under a repeating group, and nothing for an array under a plain one", () => {
+    const groups = evaluateStatBlock(definition, {
+      ...block,
+      attack: { strike: { value: 4 } } as never,
+      stats: [{ str: { value: 1 } }] as never,
+    });
+    expect(groups.find((g) => g.name === "attack")!.rows).toEqual([]);
+    expect(find(groups, "stats", "str").value).toBeNull();
+  });
+
   it("survives a definition that feeds a stat from itself", () => {
     const loop: StatBlockDefinition = {
       groups: [
         {
           name: "g",
           label: "",
+          keyedBy: "",
           stats: [
             stat({ name: "a", type: "display", connectedTo: "b" }),
             stat({ name: "b", type: "display", connectedTo: "a" }),
@@ -171,6 +232,44 @@ describe("evaluateStatBlock", () => {
     };
     const evaluated = evaluateStatBlock(loop, { g: { a: { value: 1 }, b: { value: 2 } } });
     expect(evaluated[0].stats.map((s) => s.value)).toEqual([null, null]);
+  });
+});
+
+describe("tidyStatBlock", () => {
+  it("drops rows with no usable key and keeps the first of two with one key", () => {
+    const tidy = tidyStatBlock(definition, {
+      ...block,
+      attack: [
+        { weapon: { value: "Sword" }, strike: { value: 4 } },
+        { strike: { value: 9 } },
+        { weapon: { value: " Sword " }, strike: { value: 5 } },
+        { weapon: { value: "Fist" }, strike: { value: 1 } },
+      ],
+    });
+    expect(tidy.attack).toEqual([
+      { weapon: { value: "Sword" }, strike: { value: 4 } },
+      { weapon: { value: "Fist" }, strike: { value: 1 } },
+    ]);
+  });
+
+  it("turns an object under a repeating group into no rows, and drops an array under a plain one", () => {
+    const tidy = tidyStatBlock(definition, {
+      attack: { strike: { value: 4 } } as never,
+      stats: [{ str: { value: 1 } }] as never,
+    });
+    expect(tidy.attack).toEqual([]);
+    expect(tidy.stats).toBeUndefined();
+  });
+});
+
+describe("rowKeyText", () => {
+  it("reads a number or a word as text, and nothing for the rest", () => {
+    expect(rowKeyText(6)).toBe("6");
+    expect(rowKeyText(" Sword ")).toBe("Sword");
+    expect(rowKeyText("")).toBeNull();
+    expect(rowKeyText("   ")).toBeNull();
+    expect(rowKeyText(null)).toBeNull();
+    expect(rowKeyText(NaN)).toBeNull();
   });
 });
 
@@ -221,6 +320,7 @@ describe("emptyStatBlock", () => {
         die: { value: "d4" },
         level: { value: 1 },
       },
+      attack: [],
     });
   });
 });
@@ -232,6 +332,7 @@ describe("toStatBlockFields and statBlockFromFields", () => {
         {
           name: "combat",
           label: "",
+          keyedBy: "",
           stats: [
             stat({ name: "hp", type: "pool" }),
             stat({ name: "rage", type: "stack" }),
@@ -250,7 +351,11 @@ describe("toStatBlockFields and statBlockFromFields", () => {
         die: { value: "d6", min: "", max: "" },
       },
     });
-    expect(toStatBlockFields(small, undefined).combat.hp).toEqual({ value: "", min: "", max: "" });
+    expect((toStatBlockFields(small, undefined).combat as StatRowFieldValues).hp).toEqual({
+      value: "",
+      min: "",
+      max: "",
+    });
     expect(
       statBlockFromFields({
         combat: {
@@ -260,5 +365,51 @@ describe("toStatBlockFields and statBlockFromFields", () => {
         },
       }),
     ).toEqual({ combat: { hp: { value: 3, min: 1 }, die: { value: "d6" } } });
+  });
+
+  it("lays a repeating group out as an array of row fields and reads it back", () => {
+    const fields = toStatBlockFields(definition, block);
+    expect(fields.attack).toEqual([
+      {
+        weapon: { value: "Sword", min: "", max: "" },
+        strike: { value: "4", min: "", max: "" },
+        total: { value: "", min: "", max: "" },
+        uses: { value: "2", min: "0", max: "" },
+      },
+      {
+        weapon: { value: "Fist", min: "", max: "" },
+        strike: { value: "1", min: "", max: "" },
+        total: { value: "", min: "", max: "" },
+        uses: { value: "0", min: "0", max: "" },
+      },
+    ]);
+    // A row with no usable key is tidied away before the form starts.
+    expect(
+      toStatBlockFields(definition, { ...block, attack: [{ strike: { value: 9 } }] }).attack,
+    ).toEqual([]);
+    expect(statBlockFromFields(fields).attack).toEqual([
+      { weapon: { value: "Sword" }, strike: { value: 4 }, uses: { value: 2, min: 0 } },
+      { weapon: { value: "Fist" }, strike: { value: 1 }, uses: { value: 0, min: 0 } },
+    ]);
+  });
+
+  it("starts a new row with every field empty but a rack on its first entry", () => {
+    const group = {
+      name: "g",
+      label: "",
+      keyedBy: "name",
+      stats: [
+        stat({ name: "name", type: "display" }),
+        stat({ name: "hp", type: "pool" }),
+        stat({ name: "die", type: "rack", rack: ["d4", "d6"] }),
+        stat({ name: "mod", type: "computed", computedAs: "g.hp.value" }),
+      ],
+    };
+    expect(emptyStatRowFields(group)).toEqual({
+      name: { value: "", min: "", max: "" },
+      hp: { value: "", min: "", max: "" },
+      die: { value: "d4", min: "", max: "" },
+      mod: { value: "", min: "", max: "" },
+    });
   });
 });

@@ -457,7 +457,7 @@ describe("PlayChat", () => {
     expect(within(mine).getByRole("button", { name: "Edit message" })).toBeInTheDocument();
   });
 
-  it("puts a bin beside the pencil on the viewer's own said lines only", () => {
+  it("puts a trashcan beside the pencil on the viewer's own said lines only", () => {
     render(
       chatOf([
         toChatEntry(line({ idChat: 1, text: "Theirs" })),

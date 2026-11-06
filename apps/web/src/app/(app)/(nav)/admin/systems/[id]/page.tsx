@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Container } from "@chakra-ui/react";
-import { SystemStatBlockEditor } from "@/components/admin/system-stat-block-editor";
+import { Container, Heading, Stack } from "@chakra-ui/react";
+import { SystemDetailsForm } from "./system-details-form";
+import { SystemStatBlockEditor } from "./system-stat-block-editor";
 import { requireUser } from "@/lib/authorize";
 import { USER_TYPES } from "@/lib/user-types";
 import { sa_getAdminSystem } from "../actions";
@@ -10,9 +11,10 @@ export const metadata: Metadata = {
   title: "System · Storyteller",
 };
 
-// One system's stat block definition in its editor. The gate is the Systems
-// page's; a system that is not there lands on the not-found page as anyone
-// short of an administrator does.
+// One system: its own fields in a card, and its stat block definition in
+// its editor under them. The gate is the Systems page's; a system that is
+// not there lands on the not-found page as anyone short of an administrator
+// does.
 export default async function SystemPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   if (user.isAnonymous || user.idUserType > USER_TYPES.administrator) notFound();
@@ -24,7 +26,11 @@ export default async function SystemPage({ params }: { params: Promise<{ id: str
 
   return (
     <Container maxW="6xl" py="8">
-      <SystemStatBlockEditor system={system} />
+      <Stack gap="8">
+        <Heading size="2xl">{system.label}</Heading>
+        <SystemDetailsForm system={system} />
+        <SystemStatBlockEditor system={system} />
+      </Stack>
     </Container>
   );
 }

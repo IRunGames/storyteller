@@ -566,7 +566,7 @@ function RunAttachments({
                   />
                   {/* A failed upload holds no file and does nothing at the
                       table, so its one move is out of the list. No question
-                      asked, unlike the card's bin: there is nothing in it to
+                      asked, unlike the card's trashcan: there is nothing in it to
                       lose. */}
                   {row.status === "ERROR" && (
                     <PrepIconButton

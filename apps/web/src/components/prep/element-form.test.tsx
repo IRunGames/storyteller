@@ -69,7 +69,7 @@ describe("ElementForm", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Delete element" }));
-    const ask = await screen.findByRole("alertdialog", { name: "Delete Glenys?" });
+    const ask = await screen.findByRole("dialog", { name: "Delete Glenys?" });
     expect(ask).toHaveTextContent("from every scene it is in");
     expect(ask).toHaveTextContent("cannot be undone");
     expect(sa_deleteElement.mock.callCount()).toBe(0);
@@ -90,13 +90,13 @@ describe("ElementForm", () => {
     renderWithProviders(<ElementForm idStory={-15} element={editing} />);
 
     await user.click(screen.getByRole("button", { name: "Delete element" }));
-    let ask = await screen.findByRole("alertdialog", { name: "Delete Glenys?" });
+    let ask = await screen.findByRole("dialog", { name: "Delete Glenys?" });
     await user.click(within(ask).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(sa_deleteElement.mock.callCount()).toBe(0);
 
     await user.click(screen.getByRole("button", { name: "Delete element" }));
-    ask = await screen.findByRole("alertdialog", { name: "Delete Glenys?" });
+    ask = await screen.findByRole("dialog", { name: "Delete Glenys?" });
     await user.click(within(ask).getByRole("button", { name: "Delete" }));
     expect(await within(ask).findByRole("alert")).toHaveTextContent(
       "That element is not one of your story's.",

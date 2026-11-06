@@ -8,7 +8,7 @@ import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 
-import type { StatBlockDefinition } from "@/lib/stat-blocks";
+import type { StatBlockDefinition, StatBlocks, StatRow } from "@/lib/stat-blocks";
 import { makeTestUser, removeTestUser } from "@/test/test-user";
 
 loadEnvConfig(process.cwd());
@@ -39,6 +39,7 @@ const definition: StatBlockDefinition = {
     {
       name: "stats",
       label: "Stats",
+      keyedBy: "",
       stats: [
         {
           name: "str",
@@ -61,6 +62,7 @@ const definition: StatBlockDefinition = {
     {
       name: "combat",
       label: "Combat",
+      keyedBy: "",
       stats: [
         {
           name: "hp",
@@ -82,6 +84,24 @@ const definition: StatBlockDefinition = {
         },
       ],
     },
+    // Repeats by weapon, with a pool fed from its own row's strike.
+    {
+      name: "attack",
+      label: "Attack",
+      keyedBy: "weapon",
+      stats: [
+        {
+          name: "weapon",
+          label: "Weapon",
+          type: "display",
+          rack: [],
+          connectedTo: "",
+          computedAs: "",
+        },
+        { name: "strike", label: "", type: "display", rack: [], connectedTo: "", computedAs: "" },
+        { name: "uses", label: "", type: "pool", rack: [], connectedTo: "strike", computedAs: "" },
+      ],
+    },
   ],
 };
 
@@ -95,6 +115,12 @@ async function stored(): Promise<unknown> {
 
 const statOf = (block: ElementStatBlock, group: string, name: string) =>
   block.groups.find((g) => g.name === group)!.stats.find((s) => s.name === name)!;
+const rowsOf = (block: ElementStatBlock, group: string) =>
+  block.groups.find((g) => g.name === group)!.rows;
+const rowStatOf = (block: ElementStatBlock, group: string, key: string, name: string) =>
+  rowsOf(block, group)
+    .find((row) => row.key === key)!
+    .stats.find((s) => s.name === name)!;
 
 describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   before(async () => {
@@ -264,5 +290,116 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       ok: false,
       error: "That system has no stats to fill in.",
     });
+  });
+
+  it("changes one row's stat by its key and leaves the other rows and groups alone", async () => {
+    const current = (await stored()) as StatBlocks;
+    await db
+      .update(tables.elements)
+      .set({
+        statBlocks: {
+          ...current,
+          [idSystem]: {
+            ...current[idSystem],
+            attack: [
+              { weapon: { value: "Sword" }, strike: { value: 4 }, uses: { value: 2, min: 0 } },
+              { weapon: { value: "Fist" }, strike: { value: 1 }, uses: { value: 0, min: 0 } },
+            ],
+          },
+        },
+      })
+      .where(eq(tables.elements.idElement, idElement));
+
+    const result = await actions.sa_setElementStat(
+      myStory,
+      idElement,
+      idSystem,
+      "attack",
+      "uses",
+      { value: 9 },
+      "Sword",
+    );
+    expect(result.ok).toBe(true);
+    const block = (result as { ok: true; block: ElementStatBlock }).block;
+    expect(rowsOf(block, "attack").map((row) => row.key)).toEqual(["Sword", "Fist"]);
+    // Clamped to the row's own strike.
+    expect(rowStatOf(block, "attack", "Sword", "uses")).toMatchObject({ value: 4, max: 4 });
+    expect(rowStatOf(block, "attack", "Fist", "uses").value).toBe(0);
+    expect(statOf(block, "stats", "str").value).toBe(12);
+    const rows = ((await stored()) as StatBlocks)[idSystem].attack as StatRow[];
+    expect(rows[1]).toEqual({
+      weapon: { value: "Fist" },
+      strike: { value: 1 },
+      uses: { value: 0, min: 0 },
+    });
+    expect(((await stored()) as StatBlocks)[idSystem].stats).toEqual({ str: { value: 12 } });
+  });
+
+  it("refuses a change to a row that is no longer there, changing nothing", async () => {
+    const before = await stored();
+    expect(
+      await actions.sa_setElementStat(
+        myStory,
+        idElement,
+        idSystem,
+        "attack",
+        "uses",
+        { value: 1 },
+        "Axe",
+      ),
+    ).toEqual({ ok: false, error: "That Attack is no longer there." });
+    expect(await stored()).toEqual(before);
+  });
+
+  it("replaces a row array left under a plain group rather than appending to it", async () => {
+    // The group was made plain again after rows were stored on this element.
+    const current = (await stored()) as StatBlocks;
+    await db
+      .update(tables.elements)
+      .set({
+        statBlocks: {
+          ...current,
+          [idSystem]: { ...current[idSystem], combat: [{ mana: { value: 1, min: 0, max: 5 } }] },
+        },
+      })
+      .where(eq(tables.elements.idElement, idElement));
+
+    const result = await actions.sa_setElementStat(myStory, idElement, idSystem, "combat", "mana", {
+      value: 2,
+      max: 5,
+    });
+    expect(result.ok && statOf(result.block, "combat", "mana")).toMatchObject({ value: 2, max: 5 });
+    expect(((await stored()) as StatBlocks)[idSystem].combat).toEqual({
+      mana: { value: 2, min: 0, max: 5 },
+    });
+  });
+
+  it("refuses a change to the key stat, and a row key on a plain group", async () => {
+    const refused = { ok: false, error: "That stat is not one that can be set." };
+    expect(
+      await actions.sa_setElementStat(
+        myStory,
+        idElement,
+        idSystem,
+        "attack",
+        "weapon",
+        { value: "Axe" },
+        "Sword",
+      ),
+    ).toEqual(refused);
+    expect(
+      await actions.sa_setElementStat(myStory, idElement, idSystem, "attack", "uses", { value: 1 }),
+    ).toEqual(refused);
+    expect(
+      await actions.sa_setElementStat(
+        myStory,
+        idElement,
+        idSystem,
+        "stats",
+        "str",
+        { value: 1 },
+        "Sword",
+      ),
+    ).toEqual(refused);
   });
 });

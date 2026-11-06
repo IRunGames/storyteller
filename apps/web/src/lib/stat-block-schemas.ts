@@ -4,15 +4,21 @@ import {
   EMPTY_DEFINITION,
   evaluateStatBlock,
   findStat,
+  isRepeating,
   matchRackEntry,
   resolveConnection,
+  rowKeyText,
   STAT_TYPES,
+  statLabel,
   type RackEntry,
   type StatBlock,
   type StatBlockDefinition,
   type StatBlocks,
   type StatBlockSystem,
+  type EvaluatedStat,
+  type StatGroupDefinition,
   type StatDefinition,
+  type StatRow,
 } from "./stat-blocks";
 import { formulaReferences, parseFormula } from "./stat-formula";
 
@@ -24,6 +30,7 @@ import { formulaReferences, parseFormula } from "./stat-formula";
 const MAX_GROUPS = 20;
 const MAX_STATS = 50;
 const MAX_RACK = 50;
+const MAX_ROWS = 50;
 const MAX_LABEL = 60;
 const MAX_FORMULA = 500;
 /** On the serialised definition, as a user preference is capped (user-preference-schemas.ts). */
@@ -64,6 +71,7 @@ export const statDefinitionSchema = z.object({
 export const statGroupDefinitionSchema = z.object({
   name: identifierSchema,
   label: labelSchema,
+  keyedBy: z.string().trim().max(40, "Keep the key under 40 characters."),
   stats: z.array(statDefinitionSchema).max(MAX_STATS, `Keep a group under ${MAX_STATS} stats.`),
 });
 
@@ -80,6 +88,15 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
   const groupNames = new Set<string>();
   // Who each stat depends on, for the cycle walk below.
   const dependencies = new Map<string, string[]>();
+  const groupOf = (name: string) => definition.groups.find((group) => group.name === name);
+  // A repeating group has no one value to read, so only its own stats, which
+  // read their own row, may name one of them.
+  const readsIntoRows = (from: string, target: { group: string }) => {
+    const targetGroup = groupOf(target.group);
+    return targetGroup !== undefined && isRepeating(targetGroup) && target.group !== from;
+  };
+  const rowsMessage = (target: { group: string; stat: string }) =>
+    `${target.group} repeats; only a stat in ${target.group} can read ${target.group}.${target.stat}.`;
 
   definition.groups.forEach((group, g) => {
     if (groupNames.has(group.name)) {
@@ -87,6 +104,29 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
     }
     groupNames.add(group.name);
     const statNames = new Set<string>();
+
+    if (isRepeating(group)) {
+      const key = group.stats.find((stat) => stat.name === group.keyedBy);
+      if (!key) {
+        issues.push({
+          path: ["groups", g, "keyedBy"],
+          message: `There is no stat ${group.keyedBy} in this group.`,
+        });
+      } else if (key.type !== "display" && key.type !== "rack") {
+        // A pool or stack is spent and refilled and a computed stat stores
+        // nothing, so none of them can tell one row from another.
+        issues.push({
+          path: ["groups", g, "keyedBy"],
+          message:
+            "A key is a display or a rack; a pool, stack or computed stat cannot tell rows apart.",
+        });
+      } else if (resolveConnection(definition, group.name, key.connectedTo) !== null) {
+        issues.push({
+          path: ["groups", g, "keyedBy"],
+          message: "A fed display is the same on every row; choose a stat the row holds itself.",
+        });
+      }
+    }
 
     group.stats.forEach((stat, s) => {
       const at = (field: keyof StatDefinition) => ["groups", g, "stats", s, field];
@@ -121,6 +161,8 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
                   path: at("computedAs"),
                   message: `There is no stat ${reference.group}.${reference.stat}.`,
                 });
+              } else if (readsIntoRows(group.name, reference)) {
+                issues.push({ path: at("computedAs"), message: rowsMessage(reference) });
               } else if (
                 reference.part !== "value" &&
                 target.type !== "pool" &&
@@ -155,6 +197,8 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
             });
           } else if (target.group === group.name && target.stat === stat.name) {
             issues.push({ path: at("connectedTo"), message: "A stat cannot feed itself." });
+          } else if (readsIntoRows(group.name, target)) {
+            issues.push({ path: at("connectedTo"), message: rowsMessage(target) });
           } else {
             deps.push(`${target.group}.${target.stat}`);
           }
@@ -260,8 +304,30 @@ export type StatBlockDefinitionFormInput = z.input<typeof statBlockDefinitionFor
  * what last wrote it and a page is better empty than broken.
  */
 export function readStatBlockDefinition(raw: unknown): StatBlockDefinition {
-  const parsed = statBlockDefinitionSchema.safeParse(raw);
+  const parsed = statBlockDefinitionSchema.safeParse(withKeys(raw));
   return parsed.success ? parsed.data : EMPTY_DEFINITION;
+}
+
+/**
+ * A stored definition with keyedBy on every group: columns written before
+ * groups could repeat have none, and read as plain groups rather than
+ * failing whole. Anything that is not the expected shape is handed on as it
+ * is for the schema to refuse.
+ */
+function withKeys(raw: unknown): unknown {
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    !Array.isArray((raw as { groups?: unknown }).groups)
+  ) {
+    return raw;
+  }
+  const groups = (raw as { groups: unknown[] }).groups.map((group) =>
+    typeof group === "object" && group !== null && !("keyedBy" in group)
+      ? { ...group, keyedBy: "" }
+      : group,
+  );
+  return { ...raw, groups };
 }
 
 // A number as an input posts it: "" and whitespace for nothing, digits for
@@ -386,11 +452,12 @@ export function statBlockSchema(definition: StatBlockDefinition) {
           ? schema.optional()
           : schema;
     }
-    groups[group.name] = z.object(stats);
+    const row = z.object(stats);
+    groups[group.name] = isRepeating(group) ? rowsSchema(group, row).optional() : row;
   }
   return z.object(groups).superRefine((block, ctx) => {
     for (const group of evaluateStatBlock(definition, block as StatBlock)) {
-      for (const stat of group.stats) {
+      const checkFedMax = (stat: EvaluatedStat, path: (string | number)[]) => {
         // A stored max was held to above; here only the max a connection feeds.
         if (
           (stat.type === "pool" || stat.type === "stack") &&
@@ -401,13 +468,53 @@ export function statBlockSchema(definition: StatBlockDefinition) {
         ) {
           ctx.addIssue({
             code: "custom",
-            path: [group.name, stat.name, "value"],
+            path: [...path, stat.name, "value"],
             message: `That is above the max of ${stat.max}.`,
           });
         }
-      }
+      };
+      for (const stat of group.stats) checkFedMax(stat, [group.name]);
+      group.rows.forEach((row, i) => {
+        for (const stat of row.stats) checkFedMax(stat, [group.name, i]);
+      });
     }
   });
+}
+
+/**
+ * A repeating group's rows: each a row as a plain group is checked, with
+ * the key stat filled on every row and no two rows sharing a key. A
+ * duplicate is reported on the later row, where the storyteller just typed
+ * it. The array is optional in the block, since a field array with no rows
+ * posts nothing for its key; absent and empty both mean no rows.
+ */
+function rowsSchema(group: StatGroupDefinition, row: z.ZodType) {
+  const keyStat = group.stats.find((stat) => stat.name === group.keyedBy);
+  return z
+    .array(row)
+    .max(MAX_ROWS, `Keep it under ${MAX_ROWS} rows.`)
+    .superRefine((rows, ctx) => {
+      if (!keyStat) return;
+      const seen = new Set<string>();
+      (rows as StatRow[]).forEach((stored, i) => {
+        const text = rowKeyText(stored[keyStat.name]?.value);
+        if (text === null) {
+          ctx.addIssue({
+            code: "custom",
+            path: [i, keyStat.name, "value"],
+            message: "Every row needs one.",
+          });
+        } else if (seen.has(text)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [i, keyStat.name, "value"],
+            message: `Another row has this ${statLabel(keyStat)}.`,
+          });
+        } else {
+          seen.add(text);
+        }
+      });
+    });
 }
 
 /**
@@ -442,12 +549,15 @@ export function statBlocksSchema(systems: StatBlockSystem[]) {
 
 /**
  * What an elements.stat_blocks column holds, loosely: system keys to groups
- * to stats to objects. Each stat is then read against its definition by
- * evaluateStatBlock, which is where a value that no longer fits is let go.
+ * to stats to objects, or to an array of such records for a group that
+ * repeats. Each stat is then read against its definition by
+ * evaluateStatBlock, and each row by tidyStatBlock, which is where a value
+ * that no longer fits is let go.
  */
+const looseRow = z.record(z.string(), z.record(z.string(), z.unknown()));
 const looseBlocksSchema = z.record(
   z.string(),
-  z.record(z.string(), z.record(z.string(), z.record(z.string(), z.unknown()))),
+  z.record(z.string(), z.union([looseRow, z.array(looseRow)])),
 );
 
 export function readStatBlocks(raw: unknown): StatBlocks {

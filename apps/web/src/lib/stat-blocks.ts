@@ -40,8 +40,24 @@ export type StatDefinition = {
   computedAs: string;
 };
 
-export type StatGroupDefinition = { name: string; label: string; stats: StatDefinition[] };
+export type StatGroupDefinition = {
+  name: string;
+  label: string;
+  /**
+   * "" for a plain group. The name of one of this group's stats for a group
+   * that repeats: an element then carries any number of rows of the group,
+   * and that stat's value tells one row from another. Naming the stat is
+   * what makes the group repeat, so there is no second flag to keep in step.
+   */
+  keyedBy: string;
+  stats: StatDefinition[];
+};
 export type StatBlockDefinition = { groups: StatGroupDefinition[] };
+
+/** Whether a group stores rows rather than one record. */
+export function isRepeating(group: Pick<StatGroupDefinition, "keyedBy">): boolean {
+  return group.keyedBy !== "";
+}
 
 export const EMPTY_DEFINITION: StatBlockDefinition = { groups: [] };
 
@@ -59,9 +75,40 @@ export type StatValue = {
   max?: number;
 };
 
-export type StatBlock = Record<string, Record<string, StatValue>>;
+/** One group's stored values, or one row of a repeating group: stat name to value. */
+export type StatRow = Record<string, StatValue>;
+/** A plain group stores one row; a repeating group an array of them. */
+export type StatBlock = Record<string, StatRow | StatRow[]>;
 /** Keyed by id_system as a string, since it is a JSON key. */
 export type StatBlocks = Record<string, StatBlock>;
+
+/**
+ * A row's key as the text it is compared and addressed by: a number's
+ * digits, a word trimmed. Null for nothing usable, which is an empty or
+ * blank word, or anything that is not a finite number or a string. Two
+ * rows whose keys read the same here are one key, so 6 and "6" collide, as
+ * a rack already matches them.
+ */
+export function rowKeyText(value: unknown): string | null {
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+  }
+  return null;
+}
+
+/**
+ * The rows stored for a repeating group: the array when one is there, and
+ * none for a plain group or for an object left from before the group
+ * repeated.
+ */
+export function rowsOf(
+  group: Pick<StatGroupDefinition, "keyedBy">,
+  stored: StatRow | StatRow[] | undefined,
+): StatRow[] {
+  return isRepeating(group) && Array.isArray(stored) ? stored : [];
+}
 
 /** A system an element can carry a block for: its definition has at least one group. */
 export type StatBlockSystem = { idSystem: number; label: string; definition: StatBlockDefinition };
@@ -194,7 +241,26 @@ export type EvaluatedStat = {
   stored: StatValue | null;
 };
 
-export type EvaluatedGroup = { name: string; label: string; stats: EvaluatedStat[] };
+/** One row of a repeating group as shown; key null when the row's key is empty or does not fit. */
+export type EvaluatedRow = { key: number | string | null; stats: EvaluatedStat[] };
+
+/**
+ * A group as shown. A plain group has its stats and no rows; a repeating
+ * group has its rows and no stats. The rows are positional, one per row
+ * given, in order: the prep form draws its rows from the evaluation of what
+ * is being typed, and a row just added has no key yet while one mid-rename
+ * may collide with another, so dropping rows here would leave the form
+ * unable to draw them and would put errors keyed by position on the wrong
+ * rows. Stale rows are let go once, by tidyStatBlock, when a stored block
+ * is read.
+ */
+export type EvaluatedGroup = {
+  name: string;
+  label: string;
+  keyedBy: string;
+  stats: EvaluatedStat[];
+  rows: EvaluatedRow[];
+};
 
 /**
  * A block worked out against its definition: every group and stat in the
@@ -213,10 +279,19 @@ export function evaluateStatBlock(
   const visiting = new Set<string>();
   const trees = new Map<string, FormulaNode | null>();
 
-  const key = (group: string, stat: string) => `${group}.${stat}`;
+  type Row = { index: number; stored: StatRow };
+  const groupOf = (name: string) => definition.groups.find((group) => group.name === name);
+  // A plain group's record; nothing when an array was left there by a
+  // definition that used to repeat the group.
+  const plainStored = (groupName: string): StatRow | undefined => {
+    const stored = block?.[groupName];
+    return stored !== undefined && !Array.isArray(stored) ? stored : undefined;
+  };
 
-  function evaluate(groupName: string, stat: StatDefinition): EvaluatedStat {
-    const id = key(groupName, stat.name);
+  function evaluate(groupName: string, stat: StatDefinition, row?: Row): EvaluatedStat {
+    // A row's stats are memoised by the row's position as well, so two rows'
+    // computed stats do not share one result.
+    const id = row ? `${groupName}[${row.index}].${stat.name}` : `${groupName}.${stat.name}`;
     const known = done.get(id);
     if (known) return known;
     const base: EvaluatedStat = {
@@ -229,13 +304,27 @@ export function evaluateStatBlock(
     if (visiting.has(id)) return base;
     visiting.add(id);
 
+    // Where a connection or a formula reference reads from: the same row
+    // when it names this row's own group, a plain group's record otherwise.
+    // Another repeating group has no one value to read; the definition
+    // schema refuses that, and null here keeps the walk safe should such a
+    // definition arrive some other way.
+    const lookup = (group: string, name: string): EvaluatedStat | null => {
+      const target = findStat(definition, group, name);
+      const targetGroup = groupOf(group);
+      if (!target || !targetGroup) return null;
+      if (isRepeating(targetGroup)) {
+        return row && group === groupName ? evaluate(group, target, row) : null;
+      }
+      return evaluate(group, target);
+    };
+
     const connection = canConnect(stat.type)
       ? resolveConnection(definition, groupName, stat.connectedTo)
       : null;
-    const fed = connection
-      ? evaluate(connection.group, findStat(definition, connection.group, connection.stat)!)
-      : null;
-    const stored = fitStatValue(stat, connection !== null, block?.[groupName]?.[stat.name]);
+    const fed = connection ? lookup(connection.group, connection.stat) : null;
+    const raw = row ? row.stored[stat.name] : plainStored(groupName)?.[stat.name];
+    const stored = fitStatValue(stat, connection !== null, raw);
     const result: EvaluatedStat = { ...base, stored };
 
     switch (stat.type) {
@@ -273,16 +362,16 @@ export function evaluateStatBlock(
         result.rackIndex = stored ? stat.rack.indexOf(stored.value) : -1;
         break;
       case "computed": {
-        if (!trees.has(id)) {
+        const treeId = `${groupName}.${stat.name}`;
+        if (!trees.has(treeId)) {
           const parsed = parseFormula(stat.computedAs);
-          trees.set(id, parsed.ok ? parsed.tree : null);
+          trees.set(treeId, parsed.ok ? parsed.tree : null);
         }
-        const tree = trees.get(id);
+        const tree = trees.get(treeId);
         if (tree) {
           const computed = evaluateFormula(tree, ({ group, stat: name, part }) => {
-            const target = findStat(definition, group, name);
-            if (!target) return null;
-            const evaluated = evaluate(group, target);
+            const evaluated = lookup(group, name);
+            if (!evaluated) return null;
             return part === "value" ? evaluated.value : evaluated[part];
           });
           result.value = Number.isFinite(computed) ? computed : null;
@@ -296,11 +385,55 @@ export function evaluateStatBlock(
     return result;
   }
 
-  return definition.groups.map((group) => ({
-    name: group.name,
-    label: group.label || group.name,
-    stats: group.stats.map((stat) => evaluate(group.name, stat)),
-  }));
+  return definition.groups.map((group) => {
+    const shown = { name: group.name, label: group.label || group.name, keyedBy: group.keyedBy };
+    if (!isRepeating(group)) {
+      return { ...shown, stats: group.stats.map((stat) => evaluate(group.name, stat)), rows: [] };
+    }
+    const keyStat = group.stats.find((stat) => stat.name === group.keyedBy);
+    const rows = rowsOf(group, block?.[group.name]).map((stored, index) => ({
+      key: keyStat ? rowKey(keyStat, stored) : null,
+      stats: group.stats.map((stat) => evaluate(group.name, stat, { index, stored })),
+    }));
+    return { ...shown, stats: [], rows };
+  });
+}
+
+/** A row's key as stored, when it fits the key stat and reads as something; a word trimmed. */
+function rowKey(keyStat: StatDefinition, row: StatRow): number | string | null {
+  const fitted = fitStatValue(keyStat, false, row[keyStat.name]);
+  if (!fitted || rowKeyText(fitted.value) === null) return null;
+  return typeof fitted.value === "string" ? fitted.value.trim() : fitted.value;
+}
+
+/**
+ * A stored block as far as its definition can use it today, worked out per
+ * group: an array under a plain group is nothing stored; an object under a
+ * repeating group is no rows; a row whose key is empty or no longer fits
+ * the key stat is dropped, and of two rows with one key the first is kept.
+ * Run once, where a stored block is read, so the forms and the table only
+ * ever see rows with distinct, fitting keys, or rows being typed. A group
+ * the definition no longer has is dropped with the rest of what is stale.
+ */
+export function tidyStatBlock(definition: StatBlockDefinition, block: StatBlock): StatBlock {
+  const tidy: StatBlock = {};
+  for (const group of definition.groups) {
+    const stored = block[group.name];
+    if (stored === undefined) continue;
+    if (!isRepeating(group)) {
+      if (!Array.isArray(stored)) tidy[group.name] = stored;
+      continue;
+    }
+    const keyStat = group.stats.find((stat) => stat.name === group.keyedBy);
+    const seen = new Set<string>();
+    tidy[group.name] = rowsOf(group, stored).filter((row) => {
+      const text = keyStat ? rowKeyText(rowKey(keyStat, row)) : null;
+      if (text === null || seen.has(text)) return false;
+      seen.add(text);
+      return true;
+    });
+  }
+  return tidy;
 }
 
 /**
@@ -312,7 +445,12 @@ export function evaluateStatBlock(
 export function emptyStatBlock(definition: StatBlockDefinition): StatBlock {
   const block: StatBlock = {};
   for (const group of definition.groups) {
-    const values: Record<string, StatValue> = {};
+    // A repeating group starts with no rows; the storyteller adds them.
+    if (isRepeating(group)) {
+      block[group.name] = [];
+      continue;
+    }
+    const values: StatRow = {};
     for (const stat of group.stats) {
       const connected = canConnect(stat.type)
         ? resolveConnection(definition, group.name, stat.connectedTo) !== null
@@ -349,8 +487,39 @@ export function statFieldText(value: number | string | null | undefined): string
 
 /** One stat's inputs on a form: every part as text, "" for none. */
 export type StatFieldValues = { value: string; min: string; max: string };
-/** A form's blocks: system key to group to stat to its inputs. */
-export type StatBlockFormValues = Record<string, Record<string, Record<string, StatFieldValues>>>;
+/** One group's inputs, or one row's: stat name to its parts. */
+export type StatRowFieldValues = Record<string, StatFieldValues>;
+/** A form's blocks: system key to group to its inputs, or to its rows' inputs when the group repeats. */
+export type StatBlockFormValues = Record<
+  string,
+  Record<string, StatRowFieldValues | StatRowFieldValues[]>
+>;
+
+/** One stat's parts as text, from what is stored for it. */
+function statFields(stored: StatValue | null): StatFieldValues {
+  return {
+    value: statFieldText(stored?.value),
+    min: statFieldText(stored?.min),
+    max: statFieldText(stored?.max),
+  };
+}
+
+/**
+ * The inputs of a row being added to a repeating group: every field empty,
+ * but a rack on its first entry, since a select with nothing chosen would
+ * show its first option while posting nothing.
+ */
+export function emptyStatRowFields(group: StatGroupDefinition): StatRowFieldValues {
+  const fields: StatRowFieldValues = {};
+  for (const stat of group.stats) {
+    fields[stat.name] = {
+      value: stat.type === "rack" && stat.rack.length > 0 ? String(stat.rack[0]) : "",
+      min: "",
+      max: "",
+    };
+  }
+  return fields;
+}
 
 /**
  * A block as a form's inputs hold it: every stat of the definition with its
@@ -361,17 +530,15 @@ export type StatBlockFormValues = Record<string, Record<string, Record<string, S
 export function toStatBlockFields(
   definition: StatBlockDefinition,
   block: StatBlock | undefined,
-): Record<string, Record<string, StatFieldValues>> {
-  const fields: Record<string, Record<string, StatFieldValues>> = {};
-  for (const group of evaluateStatBlock(definition, block)) {
-    fields[group.name] = {};
-    for (const stat of group.stats) {
-      fields[group.name][stat.name] = {
-        value: statFieldText(stat.stored?.value),
-        min: statFieldText(stat.stored?.min),
-        max: statFieldText(stat.stored?.max),
-      };
-    }
+): Record<string, StatRowFieldValues | StatRowFieldValues[]> {
+  const fields: Record<string, StatRowFieldValues | StatRowFieldValues[]> = {};
+  const rowFields = (stats: EvaluatedStat[]): StatRowFieldValues =>
+    Object.fromEntries(stats.map((stat) => [stat.name, statFields(stat.stored)]));
+  const tidy = block ? tidyStatBlock(definition, block) : undefined;
+  for (const group of evaluateStatBlock(definition, tidy)) {
+    fields[group.name] = isRepeating(group)
+      ? group.rows.map((row) => rowFields(row.stats))
+      : rowFields(group.stats);
   }
   return fields;
 }
@@ -387,12 +554,13 @@ const asStored = (text: string): number | string | undefined => {
  * out while the storyteller types; a field that is not a number yet is left
  * out, so the evaluation shows "—" rather than a guess.
  */
+type PartialRowFields = Record<string, Partial<StatFieldValues>>;
+
 export function statBlockFromFields(
-  fields: Record<string, Record<string, Partial<StatFieldValues>>> | undefined,
+  fields: Record<string, PartialRowFields | PartialRowFields[]> | undefined,
 ): StatBlock {
-  const block: StatBlock = {};
-  for (const [groupName, stats] of Object.entries(fields ?? {})) {
-    block[groupName] = {};
+  const rowFromFields = (stats: PartialRowFields): StatRow => {
+    const row: StatRow = {};
     for (const [statName, parts] of Object.entries(stats)) {
       const value = asStored(parts.value ?? "");
       if (value === undefined) continue;
@@ -401,8 +569,13 @@ export function statBlockFromFields(
       const max = asStored(parts.max ?? "");
       if (typeof min === "number") stored.min = min;
       if (typeof max === "number") stored.max = max;
-      block[groupName][statName] = stored;
+      row[statName] = stored;
     }
+    return row;
+  };
+  const block: StatBlock = {};
+  for (const [groupName, stats] of Object.entries(fields ?? {})) {
+    block[groupName] = Array.isArray(stats) ? stats.map(rowFromFields) : rowFromFields(stats);
   }
   return block;
 }

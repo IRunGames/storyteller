@@ -634,11 +634,11 @@ describe("Storyboard", () => {
 
     await u.click(screen.getByRole("button", { name: "Edit 1. Kildealg" }));
     const panel = await screen.findByRole("dialog", { name: "1. Kildealg" });
-    // The bin is at the top, beside the name, before the form's fields.
-    const bin = within(panel).getByRole("button", { name: "Delete 1. Kildealg" });
+    // The trashcan is at the top, beside the name, before the form's fields.
+    const trashcan = within(panel).getByRole("button", { name: "Delete 1. Kildealg" });
     const title = await within(panel).findByRole("textbox", { name: "Title (optional)" });
-    expect(bin.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await u.click(bin);
+    expect(trashcan.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await u.click(trashcan);
     const ask = await screen.findByRole("dialog", { name: "Delete 1. Kildealg?" });
     expect(ask).toHaveTextContent("each loses its link to this session");
     expect(sa_deleteStorySession.mock.callCount()).toBe(0);
