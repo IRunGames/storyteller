@@ -77,6 +77,11 @@ const sa_setUserStatus = mock.fn(async (_idUser: string, status: string) => ({
   ok: true as const,
   status: status.toLowerCase() as UserStatus,
 }));
+const sa_setUserType = mock.fn(async (_idUser: string, idUserType: number) => ({
+  ok: true as const,
+  idUserType,
+  userTypeName: types.find((type) => type.idUserType === idUserType)?.label ?? "?",
+}));
 
 let UsersAdmin: typeof import("./users-admin").UsersAdmin;
 
@@ -93,7 +98,7 @@ function bodyEmails() {
 describe("UsersAdmin", () => {
   before(async () => {
     mock.module("@/app/(app)/(nav)/admin/users/actions", {
-      namedExports: { sa_listUsers, sa_setUserStatus },
+      namedExports: { sa_listUsers, sa_setUserStatus, sa_setUserType },
     });
     ({ UsersAdmin } = await import("./users-admin"));
   });
@@ -263,6 +268,46 @@ describe("UsersAdmin", () => {
       expect(within(table).getByRole("button", { name: "Suspended" })).toBeInTheDocument();
     });
     expect(sa_setUserStatus.mock.calls[0].arguments).toEqual([rows[1].id, "SUSPENDED"]);
+    expect(sa_listUsers.mock.callCount()).toBe(0);
+  });
+  it("shows each type as a pill that opens, except on the viewer's own row and a guest's, and keeps a change in the row", async () => {
+    const u = userEvent.setup();
+    renderWithProviders(
+      <UsersAdmin
+        types={types}
+        statusOptions={statusOptions}
+        viewerId={VIEWER}
+        initial={{ rows, total: 3 }}
+      />,
+    );
+
+    const table = screen.getByRole("table", { name: "Users" });
+    const [, body] = within(table).getAllByRole("rowgroup");
+    const [ada, bram, guest] = within(body).getAllByRole("row");
+    expect(within(ada).getByText("Unpaid Player")).toBeInTheDocument();
+    expect(within(ada).queryByRole("button", { name: "Unpaid Player" })).not.toBeInTheDocument();
+    expect(within(guest).getByText("Unpaid Player")).toBeInTheDocument();
+    expect(within(guest).queryByRole("button")).not.toBeInTheDocument();
+
+    await u.click(within(bram).getByRole("button", { name: "Paid Storyteller" }));
+    const items = await screen.findAllByRole("menuitemradio");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Unpaid Player",
+      "Paid Storyteller",
+      "Administrator",
+    ]);
+    let step = 0;
+    await waitFor(async () => {
+      step += 1;
+      await u.pointer({ target: items[2], coords: { clientX: step, clientY: step } });
+      expect(items[2]).toHaveAttribute("data-highlighted");
+    });
+    await u.click(items[2]);
+
+    await waitFor(() => {
+      expect(within(bram).getByRole("button", { name: "Administrator" })).toBeInTheDocument();
+    });
+    expect(sa_setUserType.mock.calls[0].arguments).toEqual([rows[1].id, -100]);
     expect(sa_listUsers.mock.callCount()).toBe(0);
   });
 });

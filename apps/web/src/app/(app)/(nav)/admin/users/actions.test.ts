@@ -197,4 +197,47 @@ describe("admin users actions", { skip: !hasDb && "DATABASE_URL is not set" }, (
       status: "active",
     });
   });
+  it("gives an account another type, recording who did it, and refuses its own row, a guest and a type that is not one", async () => {
+    expect(await actions.sa_setUserType(admin, -10)).toEqual({
+      ok: false,
+      error: "You cannot change your own type.",
+    });
+    const [guest] = await db
+      .select({ id: tables.user.id })
+      .from(tables.user)
+      .where(eq(tables.user.email, GUEST_EMAIL));
+    expect(await actions.sa_setUserType(guest.id, -20)).toEqual({
+      ok: false,
+      error: "That account's type cannot be changed.",
+    });
+    expect(await actions.sa_setUserType(player, -999)).toEqual({
+      ok: false,
+      error: "That is not an account type.",
+    });
+    await expect(actions.sa_setUserType("not-a-uuid", -20)).rejects.toThrow();
+    caller = player;
+    try {
+      await expect(actions.sa_setUserType(player, -20)).rejects.toThrow();
+    } finally {
+      caller = admin;
+    }
+
+    expect(await actions.sa_setUserType(player, -20)).toEqual({
+      ok: true,
+      idUserType: -20,
+      userTypeName: "Unpaid Storyteller",
+    });
+    const [row] = await db
+      .select({ idUserType: tables.user.idUserType, idUpdatedByUser: tables.user.idUpdatedByUser })
+      .from(tables.user)
+      .where(eq(tables.user.id, player));
+    expect(row).toEqual({ idUserType: -20, idUpdatedByUser: admin });
+    expect(
+      (await actions.sa_listUsers(ours({ idUserTypes: [-20] }))).rows.map((r) => r.email),
+    ).toEqual([PLAYER_EMAIL]);
+
+    // The same type again is not a change, and not an error either.
+    expect(await actions.sa_setUserType(player, -20)).toMatchObject({ ok: true, idUserType: -20 });
+    expect(await actions.sa_setUserType(player, -25)).toMatchObject({ ok: true, idUserType: -25 });
+  });
 });

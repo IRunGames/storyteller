@@ -27,6 +27,7 @@ import {
   type UserListPage,
   type UserTypeOption,
 } from "@/app/(app)/(nav)/admin/users/actions";
+import { UserTypeChip } from "@/app/(app)/(nav)/admin/users/user-type-chip";
 import { UserStatusChip } from "@/components/admin/user-status-chip";
 import { LocalDate } from "@/components/dates/local-date";
 import type { StatusOption } from "@/lib/status";
@@ -59,11 +60,11 @@ const STATUS_LABEL: Record<UserStatus, string> = {
 const DEFAULT_SORT: SortingState = [{ id: "createdAt", desc: true }];
 
 type Props = {
-  /** Every account type, for the Type filters. */
+  /** Every account type, for the Type filters and the pill on each row. */
   types: UserTypeOption[];
   /** The Users Status Workflow's statuses, for the chip on each row. */
   statusOptions: StatusOption[];
-  /** The administrator looking at the page, whose own row's chip never opens. */
+  /** The administrator looking at the page, whose own row's chips never open. */
   viewerId: string;
   /** The first page, loaded by the page with the default query. */
   initial: UserListPage;
@@ -206,7 +207,28 @@ export function UsersAdmin({ types, statusOptions, viewerId, initial }: Props) {
         ),
       }),
       helper.accessor("email", { header: "Email" }),
-      helper.accessor("userTypeName", { header: "Type" }),
+      helper.accessor("userTypeName", {
+        header: "Type",
+        // The pill changes the type itself and the row is patched here, as
+        // the status chip's is below. A row that no longer matches the type
+        // filters stays until the next query.
+        cell: (info) => (
+          <UserTypeChip
+            idUser={info.row.original.id}
+            idUserType={info.row.original.idUserType}
+            types={types}
+            readOnly={info.row.original.id === viewerId || info.row.original.status === "guest"}
+            onChanged={(type) =>
+              setListed((current) => ({
+                ...current,
+                rows: current.rows.map((row) =>
+                  row.id === info.row.original.id ? { ...row, ...type } : row,
+                ),
+              }))
+            }
+          />
+        ),
+      }),
       helper.accessor("status", {
         header: "Status",
         // The chip changes the status itself; the row it is in is patched
@@ -243,7 +265,7 @@ export function UsersAdmin({ types, statusOptions, viewerId, initial }: Props) {
         cell: (info) => info.getValue().toFixed(1),
       }),
     ]);
-  }, [statusOptions, viewerId]);
+  }, [types, statusOptions, viewerId]);
 
   const table = useTable({
     features,

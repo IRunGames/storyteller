@@ -198,3 +198,45 @@ export async function sa_setUserStatus(
     return { ok: false, error: "The database refused that change." };
   }
 }
+
+export type SetUserTypeResult =
+  { ok: true; idUserType: number; userTypeName: string } | { ok: false; error: string };
+
+const idUserTypeSchema = z.number().int();
+
+/**
+ * Give one account another s_user_types type, taking effect on that
+ * account's next request (requireUser reads the row every time). The
+ * administrator's own row is refused, so no one demotes themself off this
+ * page; a guest's is refused because a guest is deleted rather than kept.
+ * The type is looked up first, which checks it exists and gives the name the
+ * row's Type cell shows. There is no workflow between types, so the last
+ * change wins without the status action's compare-and-set: two
+ * administrators setting one account's type at once both meant the type
+ * they chose, and the second to land is the one that stands.
+ */
+export async function sa_setUserType(
+  idUser: string,
+  idUserType: number,
+): Promise<SetUserTypeResult> {
+  const admin = await requireAdmin();
+  const id = idUserSchema.parse(idUser);
+  const next = idUserTypeSchema.parse(idUserType);
+
+  if (id === admin.id) return { ok: false, error: "You cannot change your own type." };
+
+  const [type] = await db
+    .select({ userTypeName: userTypes.userTypeName })
+    .from(userTypes)
+    .where(eq(userTypes.idUserType, next))
+    .limit(1);
+  if (!type) return { ok: false, error: "That is not an account type." };
+
+  const updated = await db
+    .update(user)
+    .set({ idUserType: next, idUpdatedByUser: admin.id })
+    .where(and(eq(user.id, id), eq(user.isAnonymous, false)))
+    .returning({ idUserType: user.idUserType });
+  if (updated.length === 0) return { ok: false, error: "That account's type cannot be changed." };
+  return { ok: true, idUserType: updated[0].idUserType, userTypeName: type.userTypeName };
+}
