@@ -180,6 +180,9 @@ export function RunTable({
   const [sessionStatus, setSessionStatus] = useState(session?.status ?? null);
   const [tags, setTags] = useState<string[]>(initialSpace.tags);
   const [coverUrl, setCoverUrl] = useState<string | null>(initialSpace.coverUrl);
+  // Bumped when the scene editor's Pictures change them, so the library's
+  // Attachments tab reads them again; see RunLibrary's attachmentsVersion.
+  const [picturesVersion, setPicturesVersion] = useState(0);
   const [inPlay, setInPlay] = useState<PlayItem[]>(initialSpace.inPlay);
   // The library's In select: the stack what the library adds goes in. Held
   // as a name and checked against the scene's stacks on every render, so a
@@ -636,6 +639,7 @@ export function RunTable({
                 sceneStacks={tags}
                 locked={isComplete}
                 onSceneCoverChange={setCoverUrl}
+                attachmentsVersion={picturesVersion}
               />
             </Box>
             {/* Below the list and outside its scroll, under a rule: the
@@ -777,6 +781,12 @@ export function RunTable({
                         setScene((current) => (current ? { ...current, text } : current))
                       }
                       readOnly={isComplete}
+                      pictures={{
+                        idStory,
+                        idStoryScene: scene.idStoryScene,
+                        onCoverChange: setCoverUrl,
+                        onPicturesChange: () => setPicturesVersion((version) => version + 1),
+                      }}
                     />
                   </HStack>
                 </>

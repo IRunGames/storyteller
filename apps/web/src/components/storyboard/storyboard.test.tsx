@@ -203,25 +203,15 @@ const sa_updateStorySession = mock.fn(async (_id: number, values: { title: strin
   title: values.title,
 }));
 const sa_deleteStorySession = mock.fn(async (_id: number) => ({ ok: true as const }));
-const sa_setLiveSceneText = mock.fn(
-  async (
-    _idStory: number,
-    _idStoryScene: number,
-    values: { title: string; description: string; notes: string },
-  ) => ({
-    ok: true as const,
-    text: { description: values.description || null, notes: values.notes || null },
-    title: values.title,
-  }),
-);
 const sa_setSceneText = mock.fn(
   async (
     _idStory: number,
     _idStoryScene: number,
-    values: { description: string; notes: string },
+    values: { title?: string; description: string; notes: string },
   ) => ({
     ok: true as const,
     text: { description: values.description || null, notes: values.notes || null },
+    title: values.title,
   }),
 );
 
@@ -246,12 +236,9 @@ describe("Storyboard", () => {
       namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
     // The storyteller's two pencils: the band's opens the Timeline's session
-    // panel, the card's the table's scene panel, each over its own actions.
+    // panel, the card's the table's scene panel, each over its own action.
     mock.module("@/app/(app)/(nav)/stories/actions", {
       namedExports: { sa_getSessionForEdit, sa_updateStorySession, sa_deleteStorySession },
-    });
-    mock.module("@/app/(app)/scenes/[id]/live/actions", {
-      namedExports: { sa_setLiveSceneText, sa_setLiveSceneSession: mock.fn() },
     });
     mock.module("@/app/(app)/run/[id]/actions", { namedExports: { sa_setSceneText } });
     // The session panel's cover pictures have test files of their own.
@@ -272,7 +259,6 @@ describe("Storyboard", () => {
     sa_getSessionForEdit.mock.resetCalls();
     sa_updateStorySession.mock.resetCalls();
     sa_deleteStorySession.mock.resetCalls();
-    sa_setLiveSceneText.mock.resetCalls();
     sa_setSceneText.mock.resetCalls();
   });
 
@@ -699,7 +685,7 @@ describe("Storyboard", () => {
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 
-  it("gives the storyteller a pencil on each card that opens the table's scene panel, with the title for a scene not yet complete", async () => {
+  it("gives the storyteller a pencil on each card that opens the table's scene panel with the title, and the card follows what was saved", async () => {
     const u = userEvent.setup();
     render(tellersBoard);
 
@@ -719,13 +705,12 @@ describe("Storyboard", () => {
     await u.type(within(panel).getByRole("textbox", { name: "Notes" }), "Mind the horses.");
     await u.click(within(panel).getByRole("button", { name: "Save scene" }));
 
-    await waitFor(() => expect(sa_setLiveSceneText.mock.callCount()).toBe(1));
-    expect(sa_setLiveSceneText.mock.calls[0].arguments).toEqual([
+    await waitFor(() => expect(sa_setSceneText.mock.callCount()).toBe(1));
+    expect(sa_setSceneText.mock.calls[0].arguments).toEqual([
       7,
       4,
       { title: "The ford of Sorrows", description: "Shallow water.", notes: "Mind the horses." },
     ]);
-    expect(sa_setSceneText.mock.callCount()).toBe(0);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "The ford" })).toBeNull());
     // The card follows what was saved, with no reload.
     const renamed = screen.getByRole("article", { name: "The ford of Sorrows" });
@@ -734,19 +719,23 @@ describe("Storyboard", () => {
     expect(within(renamed).getByText("Mind the horses.")).toBeInTheDocument();
   });
 
-  it("keeps a complete scene's title, and saves its words through the table's action, which takes a complete scene", async () => {
+  it("lets the storyteller rename a complete scene too, through the table's action, which takes one", async () => {
     const u = userEvent.setup();
     render(tellersBoard);
 
     const card = screen.getByRole("article", { name: "The docks" });
     await u.click(within(card).getByRole("button", { name: "Edit The docks" }));
     const panel = await screen.findByRole("dialog", { name: "The docks" });
-    expect(within(panel).queryByRole("textbox", { name: "Title" })).not.toBeInTheDocument();
+    const title = within(panel).getByRole("textbox", { name: "Title" });
+    expect(title).toHaveValue("The docks");
     const description = within(panel).getByRole("textbox", { name: "Description" });
     expect(description).toHaveValue("Fog on the water.");
     await waitFor(() => expect(description).toHaveFocus());
     const notes = within(panel).getByRole("textbox", { name: "Notes" });
     expect(notes).toHaveValue("Bring the lantern.");
+    // The same editor as the tables', pictures included.
+    expect(within(panel).getByRole("heading", { name: "Pictures" })).toBeInTheDocument();
+    await u.type(title, " at dusk");
     await u.type(notes, " And oil.");
     await u.click(within(panel).getByRole("button", { name: "Save scene" }));
 
@@ -754,9 +743,14 @@ describe("Storyboard", () => {
     expect(sa_setSceneText.mock.calls[0].arguments).toEqual([
       7,
       3,
-      { description: "Fog on the water.", notes: "Bring the lantern. And oil." },
+      {
+        title: "The docks at dusk",
+        description: "Fog on the water.",
+        notes: "Bring the lantern. And oil.",
+      },
     ]);
-    expect(sa_setLiveSceneText.mock.callCount()).toBe(0);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "The docks" })).toBeNull());
+    expect(screen.getByRole("article", { name: "The docks at dusk" })).toBeInTheDocument();
   });
 
   it("shows a player no pencils", () => {

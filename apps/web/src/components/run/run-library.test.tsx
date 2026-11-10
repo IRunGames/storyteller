@@ -656,21 +656,33 @@ describe("RunLibrary", () => {
     expect(onSceneCoverChange.mock.callCount()).toBe(0);
   });
 
-  it("detaches a scene attachment, its cover leaving the play space", async () => {
+  it("takes a scene attachment off the scene from its Recycle, asking first, its cover leaving the play space", async () => {
     const u = userEvent.setup();
     render(() => {}, 15, true);
     const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
 
     await u.click(
-      await within(panel).findByRole("button", { name: "Detach Docks map from the scene" }),
+      await within(panel).findByRole("button", { name: "Remove Docks map from the scene" }),
     );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Remove this picture from the scene?",
+    });
+    expect(dialog).toHaveTextContent("stays in the story's library");
+    // Nothing moves until the question is answered.
+    expect(sa_detachFromHolder.mock.callCount()).toBe(0);
+    await u.click(within(dialog).getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(sa_detachFromHolder.mock.callCount()).toBe(1));
     expect(sa_detachFromHolder.mock.calls[0].arguments).toEqual(["STORY_SCENE", 15, [70]]);
     expect(onSceneCoverChange.mock.callCount()).toBe(0);
 
     await u.click(
-      await within(panel).findByRole("button", { name: "Detach Tide chart from the scene" }),
+      await within(panel).findByRole("button", { name: "Remove Tide chart from the scene" }),
     );
+    const again = await screen.findByRole("dialog", {
+      name: "Remove this picture from the scene?",
+    });
+    expect(again).toHaveTextContent("It is the cover");
+    await u.click(within(again).getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(onSceneCoverChange.mock.callCount()).toBe(1));
     expect(onSceneCoverChange.mock.calls[0].arguments).toEqual([null]);
   });

@@ -22,6 +22,7 @@ import { sa_searchLiveScenes } from "@/app/(app)/scenes/[id]/live/actions";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { StatusPills } from "@/components/status/status-search";
 import { RunNewSceneDialog } from "@/components/run/run-new-scene-dialog";
+import { DuplicateSceneButton } from "./duplicate-scene-button";
 
 type Props = {
   idStory: number;
@@ -31,7 +32,7 @@ type Props = {
   sessions: SceneSessionOption[];
   /** The story_scenes workflow, for the pills and each scene's status. */
   statusOptions: StatusOption[];
-  /** A scene was chosen, or made with the +: the page goes to it. */
+  /** A scene was chosen, made with the +, or copied with Duplicate: the page goes to it. */
   onChoose: (idStoryScene: number) => void;
 };
 
@@ -39,8 +40,10 @@ type Props = {
  * The scene selector in the live-edit page's header. The statuses as pills
  * on top, as the library's columns have them over their search boxes, all on
  * to start with; under them a Sessions filter, a box to type a scene's name
- * into, and a + beside it that makes a new one (RunNewSceneDialog with
- * sa_createLiveScene) and goes to it.
+ * into, a + beside it that makes a new one (RunNewSceneDialog with
+ * sa_createLiveScene) and goes to it, and a Duplicate after the + that
+ * makes a copy of the scene the page is on, asking first
+ * (DuplicateSceneButton), and goes to that.
  *
  * What is typed, the pills and the sessions chosen go to the database
  * together (sa_searchLiveScenes), a moment after the last change, as the
@@ -242,6 +245,7 @@ export function LiveSceneSelect({ idStory, scene, sessions, statusOptions, onCho
           <PrepIconButton label="New scene" onClick={() => setCreating(true)}>
             <Plus />
           </PrepIconButton>
+          <DuplicateSceneButton idStory={idStory} scene={scene} onDuplicated={onChoose} />
         </HStack>
       </Stack>
 

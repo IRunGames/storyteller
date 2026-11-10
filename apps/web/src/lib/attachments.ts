@@ -73,3 +73,19 @@ export type Attachment = {
   createdAt: string | null;
   updatedAt: string | null;
 };
+
+/**
+ * The one pill over an attachments search box, on the Prep Work board's
+ * Attachments column and the story page's section. Not a status, but a pill
+ * like the status ones, so the filters read the same as a column of rows
+ * with statuses: on to begin with, outlined when switched off, and off leaves
+ * the story's cover out of the cards. Shaped as a StatusOption for
+ * StatusSearch, so it is one here rather than in a component a test might
+ * replace.
+ */
+export const COVERS_FILTER = {
+  key: "COVER",
+  label: "Covers",
+  description: "Show the story's cover among its attachments",
+  from: null,
+} as const;

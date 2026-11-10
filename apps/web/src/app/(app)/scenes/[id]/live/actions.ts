@@ -3,16 +3,22 @@
 import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { COVER_TAG } from "@/lib/attachments";
 import { requireAccount } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
 import type { RunScene } from "@/lib/run";
 import { publishLater } from "@/lib/realtime/publish";
 import { publishSceneChanged } from "@/lib/realtime/publish-scene";
 import { liveSceneTextSchema } from "@/lib/scene-schemas";
-import { SCENE_LOCKED_STATUS, type SetSceneTextResult } from "@/lib/scenes";
+import {
+  duplicateSceneTitle,
+  SCENE_LOCKED_STATUS,
+  SCENE_PENDING_STATUS,
+  type SetSceneTextResult,
+} from "@/lib/scenes";
 import { sessionHeading } from "@/lib/stories";
 
-const { stories, storyScenes, storySessions, vStoryScenes } = schema;
+const { attachmentUses, sceneElements, stories, storyScenes, storySessions, vStoryScenes } = schema;
 
 // The same int4 range as everywhere a story or scene id comes in.
 const idSchema = z.number().int().min(-2147483648).max(2147483647);
@@ -141,6 +147,186 @@ export async function sa_setLiveSceneSession(
     .set({ idStorySession: session.data, idUpdatedByUser: user.id })
     .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.data)));
   return { ok: true, idStorySession: session.data };
+}
+
+export type DuplicateLiveSceneResult =
+  { ok: true; idStoryScene: number } | { ok: false; error: string };
+
+/**
+ * The Duplicate beside the header's selector: a new scene made from this
+ * one, to be prepared, named with " (copy)" after the title
+ * (duplicateSceneTitle) and carrying the scene's description, notes,
+ * stacks and pictures, and every element in it with its link as it stands
+ * in the scene: standing, stack, which field its pill shows, whether its
+ * info and its picture are shown, its link, and the link's own pictures.
+ * A scene is often split in two or run again with the same cast, and
+ * building the second by hand is the work this saves. The copy is pending
+ * whatever the original's status, said outright rather than left to the
+ * column's default, since it is a scene still to be played, and it is in
+ * the original's sitting, except that a
+ * complete original's sitting is history, so its copy waits in no session
+ * for the storyteller to place. One transaction, so the copy is whole or
+ * not there. Nothing is published: no table is on a scene that did not
+ * exist a moment ago.
+ *
+ * Refused for a scene that is not this story's or the caller is not its
+ * storyteller.
+ */
+export async function sa_duplicateLiveScene(
+  idStory: number,
+  idStoryScene: number,
+): Promise<DuplicateLiveSceneResult> {
+  const user = await requireAccount();
+  const story = idSchema.safeParse(idStory);
+  const scene = idSchema.safeParse(idStoryScene);
+  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
+  const status = await ownedSceneStatus(user.id, story.data, scene.data);
+  if (status === null) return { ok: false, error: NOT_THIS_STORY };
+
+  const created = await db.transaction(async (tx) => {
+    const [source] = await tx
+      .select({
+        title: storyScenes.sceneTitle,
+        description: storyScenes.sceneDescription,
+        notes: storyScenes.notes,
+        tags: storyScenes.tags,
+        idStorySession: storyScenes.idStorySession,
+      })
+      .from(storyScenes)
+      .where(eq(storyScenes.idStoryScene, scene.data))
+      .limit(1);
+    // The tags are written out even when empty: the standard-tags trigger
+    // fills an empty array with the story's, and a copy keeps its original's.
+    const [copy] = await tx
+      .insert(storyScenes)
+      .values({
+        idStory: story.data,
+        status: SCENE_PENDING_STATUS,
+        idStorySession: status === SCENE_LOCKED_STATUS ? null : source.idStorySession,
+        sceneTitle: duplicateSceneTitle(source.title),
+        sceneDescription: source.description,
+        notes: source.notes,
+        tags: source.tags,
+        idCreatedByUser: user.id,
+        idUpdatedByUser: user.id,
+      })
+      .returning({ idStoryScene: storyScenes.idStoryScene });
+
+    const links = await tx
+      .select({
+        idSceneElement: sceneElements.idSceneElement,
+        idElement: sceneElements.idElement,
+        status: sceneElements.status,
+        tags: sceneElements.tags,
+        elementShowing: sceneElements.elementShowing,
+        showInfo: sceneElements.showInfo,
+        showImage: sceneElements.showImage,
+        url: sceneElements.url,
+        urlText: sceneElements.urlText,
+      })
+      .from(sceneElements)
+      .where(eq(sceneElements.idStoryScene, scene.data));
+    // Which new link stands for which old one, for the links' pictures
+    // below: an element is linked to a scene once, so the element says.
+    const copied = new Map<number, number>();
+    if (links.length > 0) {
+      const made = await tx
+        .insert(sceneElements)
+        .values(
+          links.map(({ idSceneElement: _, ...link }) => ({
+            ...link,
+            idStoryScene: copy.idStoryScene,
+            idCreatedByUser: user.id,
+            idUpdatedByUser: user.id,
+          })),
+        )
+        .returning({
+          idSceneElement: sceneElements.idSceneElement,
+          idElement: sceneElements.idElement,
+        });
+      const byElement = new Map(made.map((link) => [link.idElement, link.idSceneElement]));
+      for (const link of links) copied.set(link.idSceneElement, byElement.get(link.idElement)!);
+    }
+
+    // The scene's pictures and the links', each use on the copy of its
+    // holder, in the holder's own order (sort_order kept). id_story is the
+    // trigger's to fill, as every insert here leaves it.
+    const uses = await tx
+      .select({
+        idAttachment: attachmentUses.idAttachment,
+        kind: attachmentUses.kind,
+        idExternal: attachmentUses.idExternal,
+        sortOrder: attachmentUses.sortOrder,
+        tags: attachmentUses.tags,
+      })
+      .from(attachmentUses)
+      .where(
+        or(
+          and(eq(attachmentUses.kind, "STORY_SCENE"), eq(attachmentUses.idExternal, scene.data)),
+          and(
+            eq(attachmentUses.kind, "SCENE_ELEMENT"),
+            inArray(attachmentUses.idExternal, [...copied.keys(), -1]),
+          ),
+        ),
+      );
+    if (uses.length > 0) {
+      await tx.insert(attachmentUses).values(
+        uses.map((use) => ({
+          idAttachment: use.idAttachment,
+          kind: use.kind,
+          idExternal: use.kind === "STORY_SCENE" ? copy.idStoryScene : copied.get(use.idExternal)!,
+          sortOrder: use.sortOrder,
+          tags: use.tags,
+          idCreatedByUser: user.id,
+          idUpdatedByUser: user.id,
+        })),
+      );
+    }
+    return copy.idStoryScene;
+  });
+
+  return { ok: true, idStoryScene: created };
+}
+
+export type ClearLiveSceneCoverResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * The cover icon in the corner of the live-edit page's play space: takes the
+ * cover off the scene. The picture stays among the scene's pictures, only
+ * its use loses the cover tag, as the Cover button on its card would take it
+ * off (sa_setAttachmentCover), so nothing is lost that was not asked for; it
+ * can be made the cover again from the scene's Pictures. A scene with no
+ * cover is left as it is. Nothing is published: the cover behind a players'
+ * table is read with the scene, and this page is not at a table.
+ *
+ * Refused for a scene that is not this story's or the caller is not its
+ * storyteller.
+ */
+export async function sa_clearLiveSceneCover(
+  idStory: number,
+  idStoryScene: number,
+): Promise<ClearLiveSceneCoverResult> {
+  const user = await requireAccount();
+  const story = idSchema.safeParse(idStory);
+  const scene = idSchema.safeParse(idStoryScene);
+  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
+  const status = await ownedSceneStatus(user.id, story.data, scene.data);
+  if (status === null) return { ok: false, error: NOT_THIS_STORY };
+
+  await db
+    .update(attachmentUses)
+    .set({
+      tags: sql`array_remove(${attachmentUses.tags}, ${COVER_TAG})`,
+      idUpdatedByUser: user.id,
+    })
+    .where(
+      and(
+        eq(attachmentUses.kind, "STORY_SCENE"),
+        eq(attachmentUses.idExternal, scene.data),
+        sql`${COVER_TAG} = ANY(${attachmentUses.tags})`,
+      ),
+    );
+  return { ok: true };
 }
 
 // How many scenes the header's selector lists for one search.

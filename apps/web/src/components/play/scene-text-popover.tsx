@@ -6,6 +6,7 @@ import { ChevronDown, Info, Pencil } from "lucide-react";
 import type { SceneTextValues } from "@/lib/scene-schemas";
 import type { SceneText, SetSceneTextResult } from "@/lib/scenes";
 import { toaster } from "@/components/ui/toaster";
+import type { ScenePicturesProps } from "./scene-pictures";
 import { SceneTextForm } from "./scene-text-form";
 
 type Props = {
@@ -20,6 +21,8 @@ type Props = {
   editTitle?: boolean;
   /** A line under Notes; see SceneTextForm. */
   notesHint?: string;
+  /** The scene's pictures under the fields, for the storyteller's panels; see SceneTextForm. */
+  pictures?: ScenePicturesProps;
   /** A look at the scene (/preview/scene): the text is shown as it is, with no form. */
   readOnly?: boolean;
   /**
@@ -36,9 +39,10 @@ type Props = {
 
 /**
  * The chevron beside the scene's title at either table, and the panel it
- * opens: the scene's description and notes in a form (SceneTextForm), for
+ * opens: the scene editor (SceneTextForm), the description and notes for
  * the storyteller at /run and the players at /play alike, so what the scene
- * is and what is being kept about it can be written up as it is played.
+ * is and what is being kept about it can be written up as it is played, and
+ * for the storyteller the title and the scene's pictures as well.
  * The chevron turns over while the panel is open. The form is only drawn
  * while the panel is open, so each opening starts from the text as the
  * table holds it now; the title stays in the page while closed, for the
@@ -55,6 +59,7 @@ export function SceneTextPopover({
   color,
   editTitle = false,
   notesHint,
+  pictures,
 }: Props) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps
   // the popover from opening at the page corner (nav-theme-menu.tsx).
@@ -137,6 +142,7 @@ export function SceneTextPopover({
                   save={save}
                   title={editTitle ? title : undefined}
                   notesHint={notesHint}
+                  pictures={pictures}
                   onSaved={(saved, savedTitle) => {
                     onSaved(saved, savedTitle);
                     setOpen(false);

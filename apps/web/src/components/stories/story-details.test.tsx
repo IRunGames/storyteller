@@ -92,6 +92,19 @@ const sa_startPlaying = mock.fn(
   }),
 );
 
+const sa_setFavorite = mock.fn(async (_idStory: number, isFavorite: boolean) => ({ isFavorite }));
+// The Build Scenes door makes the first scene of a story without one.
+const sa_createLiveScene = mock.fn(async (_idStory: number, values: { title: string }) => ({
+  ok: true as const,
+  space: {
+    scene: { idStoryScene: -70, title: values.title, status: "PENDING" },
+    tags: [],
+    coverUrl: null,
+    inPlay: [],
+  },
+}));
+const push = mock.fn((_href: string) => {});
+
 const section = (name: string) => screen.getByRole("region", { name });
 
 describe("StoryDetails", () => {
@@ -107,7 +120,13 @@ describe("StoryDetails", () => {
         sa_inviteToStory: async () => ({ ok: false, errors: {} }),
         sa_listStoryInvitations: async () => [],
         sa_revokeStoryInvitation: async () => ({ ok: true }),
+        sa_setFavorite,
       },
+    });
+    // The attachments section's search goes to the database; the section's
+    // own test file covers it.
+    mock.module("@/components/uploads/actions", {
+      namedExports: { sa_searchAttachments: async () => [] },
     });
     // The attachments field uploads to Blob and has a test file of its own;
     // here it only has to show which parent it was pointed at.
@@ -128,6 +147,13 @@ describe("StoryDetails", () => {
     });
     mock.module("@/app/(app)/(nav)/play/actions", {
       namedExports: { sa_listUnfinishedSessions, sa_startPlaying },
+    });
+    mock.module("@/app/(app)/run/[id]/actions", { namedExports: { sa_createLiveScene } });
+    mock.module("next/navigation", {
+      namedExports: {
+        useRouter: () => ({ push, refresh: mock.fn() }),
+        usePathname: () => "/stories/-15",
+      },
     });
     ({ StoryDetails } = await import("./story-details"));
   });
@@ -165,7 +191,8 @@ describe("StoryDetails", () => {
     );
   });
 
-  it("offers the storyteller a Build Scenes door to the last scene's live-edit page, or the library with none", () => {
+  it("offers the storyteller a Build Scenes door to the last scene's live-edit page, and with none a button that makes the first scene and goes to it", async () => {
+    const user = userEvent.setup();
     const { unmount } = renderWithProviders(
       <StoryDetails
         story={{ ...story, isOwner: true }}
@@ -189,10 +216,14 @@ describe("StoryDetails", () => {
         sessionStatusOptions={sessionStatusOptions}
       />,
     );
-    expect(screen.getByRole("link", { name: "Build Scenes" })).toHaveAttribute(
-      "href",
-      "/libraries/-15",
-    );
+    expect(screen.queryByRole("link", { name: "Build Scenes" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Build Scenes" }));
+    await waitFor(() => expect(sa_createLiveScene.mock.callCount()).toBe(1));
+    expect(sa_createLiveScene.mock.calls[0].arguments).toEqual([
+      -15,
+      { title: "New scene", description: "" },
+    ]);
+    await waitFor(() => expect(push.mock.calls.at(-1)?.arguments).toEqual(["/scenes/-70/live"]));
     cleanup();
 
     renderWithProviders(
@@ -205,6 +236,26 @@ describe("StoryDetails", () => {
       />,
     );
     expect(screen.queryByRole("link", { name: "Build Scenes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Build Scenes" })).not.toBeInTheDocument();
+  });
+
+  it("follows the title with the Storyboard door, for everyone", () => {
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+
+    const title = screen.getByRole("heading", { level: 1, name: "Vampire" });
+    const storyboard = screen.getByRole("link", { name: "Storyboard" });
+    expect(storyboard).toHaveAttribute("href", "/stories/-15/storyboard");
+    expect(title.parentElement).toContainElement(storyboard);
+    expect(
+      title.compareDocumentPosition(storyboard) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("wears a PUBLIC badge beside the title when anyone may read the story's sessions", () => {
@@ -550,5 +601,72 @@ describe("StoryDetails", () => {
     );
 
     expect(within(section("Recent sessions")).getByText("No sessions yet.")).toBeInTheDocument();
+  });
+
+  it("puts the card's heart at the end of the title's line, which saves the favorite and shows the answer", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+
+    const title = screen.getByRole("heading", { level: 1, name: "Vampire" });
+    const heart = screen.getByRole("button", { name: "Add to Favorites" });
+    expect(heart).toHaveAttribute("aria-pressed", "false");
+    // On the title's line, after the title and before the expand button.
+    expect(title.parentElement!.parentElement).toContainElement(heart);
+    expect(title.compareDocumentPosition(heart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const expand = screen.getByRole("button", { name: "Expand page" });
+    expect(heart.parentElement).toContainElement(expand);
+    expect(heart.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(heart);
+    await waitFor(() => expect(sa_setFavorite.mock.callCount()).toBe(1));
+    expect(sa_setFavorite.mock.calls[0].arguments).toEqual([-15, true]);
+    expect(await screen.findByRole("button", { name: "Remove from Favorites" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("widens the column to the window from the expand button in the top corner, and back", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <StoryDetails
+        story={{ ...story, isOwner: true }}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+      />,
+    );
+
+    const expand = screen.getByRole("button", { name: "Expand page" });
+    expect(expand).toHaveAttribute("aria-pressed", "false");
+    // At the end of the title's line, to the right of the heart; the doors
+    // are on the line below, across from the game system.
+    const title = screen.getByRole("heading", { level: 1, name: "Vampire" });
+    expect(title.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const edit = screen.getByRole("link", { name: "Edit story" });
+    expect(expand.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const system = screen.getByText("Vampire: The Masquerade (5th)");
+    expect(system.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(edit.parentElement!.parentElement).toContainElement(system);
+    expect(document.querySelector("[data-wide]")).toBeNull();
+
+    await user.click(expand);
+    const shrink = screen.getByRole("button", { name: "Shrink page" });
+    expect(shrink).toHaveAttribute("aria-pressed", "true");
+    expect(document.querySelector("[data-wide]")).not.toBeNull();
+
+    await user.click(shrink);
+    expect(screen.getByRole("button", { name: "Expand page" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(document.querySelector("[data-wide]")).toBeNull();
   });
 });

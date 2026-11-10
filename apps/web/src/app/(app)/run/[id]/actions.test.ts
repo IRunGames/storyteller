@@ -1201,6 +1201,44 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     ).toEqual({ ok: false, errors: { root: "That scene is not part of this story." } });
   });
 
+  it("renames the scene from the panel when a title comes with the text, and leaves the name alone when none does", async () => {
+    const target = await sceneIn("COMPLETE", "Fixture scene to rename");
+    const titleOf = async () =>
+      (
+        await db
+          .select({ title: tables.storyScenes.sceneTitle })
+          .from(tables.storyScenes)
+          .where(eq(tables.storyScenes.idStoryScene, target))
+      )[0].title;
+
+    // The storyboard's card: title, description and notes together, the
+    // title trimmed and handed back for the card, on a complete scene too.
+    expect(
+      await actions.sa_setSceneText(mine, target, {
+        title: " Fixture scene renamed ",
+        description: "Fog.",
+        notes: "",
+      }),
+    ).toEqual({
+      ok: true,
+      text: { description: "Fog.", notes: null },
+      title: "Fixture scene renamed",
+    });
+    expect(await titleOf()).toBe("Fixture scene renamed");
+
+    // The tables' panel: no title among the values, so the name stays.
+    expect(
+      await actions.sa_setSceneText(mine, target, { description: "Mist.", notes: "" }),
+    ).toEqual({ ok: true, text: { description: "Mist.", notes: null } });
+    expect(await titleOf()).toBe("Fixture scene renamed");
+
+    // A title given has to be a title, as the scene forms require.
+    expect(
+      await actions.sa_setSceneText(mine, target, { title: "  ", description: "", notes: "" }),
+    ).toEqual({ ok: false, errors: { title: "Please give the scene a title." } });
+    expect(await titleOf()).toBe("Fixture scene renamed");
+  });
+
   it("sets a scene's stacks, and the story's default stacks only when asked", async () => {
     const target = await sceneIn("ACTIVE", "Fixture scene for stacks");
     const sceneTags = async () =>

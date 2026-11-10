@@ -9,6 +9,7 @@ import { formatDay } from "@/lib/dates";
 import type { ElementKind, StoryElement } from "@/lib/elements";
 import { newSessionTitle } from "@/lib/play";
 import type { StoryScene } from "@/lib/scenes";
+import { COVERS_FILTER } from "@/lib/attachments";
 import type { StatusOption } from "@/lib/status";
 import { PREP_SESSIONS_PAGE_SIZE, type StoryCardData, type StorySession } from "@/lib/stories";
 import { sa_createStorySession } from "@/app/(app)/(nav)/stories/actions";
@@ -51,17 +52,6 @@ type Props = {
   sessionStatusOptions: StatusOption[];
   sceneStatusOptions: StatusOption[];
   elementStatusOptions: StatusOption[];
-};
-
-// The Attachments column's one pill over its search box. Not a status, but a
-// pill like the status ones, so the column's filters read the same as its
-// neighbours': on to begin with, outlined when switched off, and off leaves
-// the story's cover out of the cards.
-const COVERS_FILTER: StatusOption = {
-  key: "COVER",
-  label: "Covers",
-  description: "Show the story's cover among its attachments",
-  from: null,
 };
 
 // How long the board waits after the last change before saving it, so typing

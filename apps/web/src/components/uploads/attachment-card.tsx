@@ -21,6 +21,8 @@ type Props = {
   onRemove: () => void;
   onCoverChange: (isCover: boolean) => Promise<boolean>;
   onTagsChange: (tags: string[]) => Promise<boolean>;
+  /** The trashcan only takes the picture off its scene; see AttachmentRemoveButton. */
+  removeDetaches?: boolean;
 };
 
 /** The address without its scheme: the band is narrow, and https:// says nothing. */
@@ -43,6 +45,7 @@ export function AttachmentCard({
   onRemove,
   onCoverChange,
   onTagsChange,
+  removeDetaches = false,
 }: Props) {
   const isReady = row.status === "READY";
   const canCover = isReady && canTag;
@@ -163,6 +166,7 @@ export function AttachmentCard({
           isUploaded={row.isUploaded}
           isCover={row.isCover}
           onRemove={onRemove}
+          detaches={removeDetaches}
         />
       </HStack>
     </Box>

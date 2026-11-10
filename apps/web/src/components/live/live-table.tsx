@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Box,
   Flex,
+  Grid,
   Heading,
   HStack,
   SegmentGroup,
@@ -13,7 +14,7 @@ import {
   Switch,
   Text,
 } from "@chakra-ui/react";
-import { Settings } from "lucide-react";
+import { Image as ImageIcon, Settings } from "lucide-react";
 import {
   DEFAULT_ATTACHMENT_SORT,
   DEFAULT_ELEMENT_SORT,
@@ -38,7 +39,8 @@ import { EMPTY_SCENE_TEXT, SCENE_LOCKED_STATUS, type SceneSessionOption } from "
 import type { StackRename } from "@/lib/stack-schemas";
 import { cssUrlValue } from "@/lib/stories";
 import { sa_linkSceneElement } from "@/app/(app)/run/[id]/actions";
-import { sa_setLiveSceneText } from "@/app/(app)/scenes/[id]/live/actions";
+import { sa_clearLiveSceneCover, sa_setLiveSceneText } from "@/app/(app)/scenes/[id]/live/actions";
+import { DeleteButton } from "@/components/confirm/delete-button";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { toaster } from "@/components/ui/toaster";
 import { PlayHeader } from "@/components/play/play-header";
@@ -113,6 +115,10 @@ export function LiveTable({
   const [libraryTab, setLibraryTab] = useState<RunLibrarySource>("ATTACHMENT");
   const [tags, setTags] = useState<string[]>(initialTags);
   const [coverUrl, setCoverUrl] = useState<string | null>(initialCoverUrl);
+  // Bumped when the scene's pictures change outside the library, from the
+  // editor's Pictures or the cover icon, so the library reads them again.
+  const [picturesVersion, setPicturesVersion] = useState(0);
+  const picturesChanged = () => setPicturesVersion((version) => version + 1);
   const [inPlay, setInPlay] = useState<PlayItem[]>(initialInPlay);
   // The library's In select, as on the run page.
   const [chosenStack, setChosenStack] = useState<string | null>(null);
@@ -264,7 +270,10 @@ export function LiveTable({
           as="section"
           id={LIBRARY_ID}
           aria-labelledby="live-library-heading"
-          w={{ base: "72", md: "sm" }}
+          // A size wider than the run page's library: this page has no chat
+          // or sheet to make room for, and a scene's attachments carry a
+          // Recycle beside the tags and Cover on every line.
+          w={{ base: "72", md: "md" }}
           flexShrink="0"
           minH="0"
           display="flex"
@@ -326,6 +335,7 @@ export function LiveTable({
               sceneStacks={tags}
               locked={isComplete}
               onSceneCoverChange={setCoverUrl}
+              attachmentsVersion={picturesVersion}
             />
           </Box>
           <Stack gap="3" flexShrink="0">
@@ -412,70 +422,135 @@ export function LiveTable({
             <Heading id="play-space-heading" srOnly>
               Play space
             </Heading>
-            {/* The scene's title on the panel colour, part see-through, as
-                the run page has it, with its status chip after it and the
-                chevron that opens its title, description and notes at the
-                end. The chip stays a menu on a complete scene, as the
+            {/* The top line: the scene's title at the start on the panel
+                colour, part see-through, as the run page has it, with its
+                status chip after it and the chevron that opens its title,
+                description and notes at the end; and PREVIEWING in the
+                middle of the line, on the same colour, since this page
+                shows the scene as the players' table will without being
+                that table, and a storyteller with both open should never
+                mistake one for the other. A grid of three columns rather
+                than a row, so the word sits at the centre of the line
+                whatever the title's length, which the first column truncates
+                as before. The chip stays a menu on a complete scene, as the
                 workflow allows: moving it back lifts the overlay and the
                 locks, which all follow the status. */}
-            <HStack
-              gap="1"
-              alignSelf="flex-start"
-              maxW="full"
-              rounded="2xl"
-              bg="bg.panel/55"
-              backdropFilter="blur(6px)"
-              ps="3"
-              pe="1"
-              py="1"
-            >
-              <Heading as="h2" size="md" minW="0" truncate title={scene.title}>
-                {scene.title}
-              </Heading>
-              {/* A little room either side, so the chip stands apart from
-                  the title before it and the chevron after it. */}
-              <Box mx="1.5" flexShrink="0">
-                <StatusPill
-                  table="story_scenes"
-                  id={scene.idStoryScene}
-                  status={scene.status}
-                  options={sceneStatusOptions}
-                  canEdit
-                  tooltip="Set scene status"
-                  confirm={(next) => {
-                    if (next === SCENE_LOCKED_STATUS) {
-                      return {
-                        title: "Complete this scene?",
-                        body: "A complete scene is locked: nothing can be added to it or taken out of it.",
-                        confirmLabel: "Complete scene",
-                      };
-                    }
-                    if (isComplete) {
-                      const label =
-                        sceneStatusOptions.find((option) => option.key === next)?.label ?? next;
-                      return {
-                        title: "Resume this scene?",
-                        body: `This scene is complete. Resuming it makes it ${label.toLowerCase()} again, so its elements and stacks can be changed.`,
-                        confirmLabel: "Resume scene",
-                      };
-                    }
-                    return null;
+            <Grid templateColumns="1fr auto 1fr" alignItems="center" gap="3">
+              <HStack
+                gap="1"
+                justifySelf="start"
+                maxW="full"
+                minW="0"
+                rounded="2xl"
+                bg="bg.panel/55"
+                backdropFilter="blur(6px)"
+                ps="3"
+                pe="1"
+                py="1"
+              >
+                <Heading as="h2" size="md" minW="0" truncate title={scene.title}>
+                  {scene.title}
+                </Heading>
+                {/* A little room either side, so the chip stands apart from
+                    the title before it and the chevron after it. */}
+                <Box mx="1.5" flexShrink="0">
+                  <StatusPill
+                    table="story_scenes"
+                    id={scene.idStoryScene}
+                    status={scene.status}
+                    options={sceneStatusOptions}
+                    canEdit
+                    tooltip="Set scene status"
+                    confirm={(next) => {
+                      if (next === SCENE_LOCKED_STATUS) {
+                        return {
+                          title: "Complete this scene?",
+                          body: "A complete scene is locked: nothing can be added to it or taken out of it.",
+                          confirmLabel: "Complete scene",
+                        };
+                      }
+                      if (isComplete) {
+                        const label =
+                          sceneStatusOptions.find((option) => option.key === next)?.label ?? next;
+                        return {
+                          title: "Resume this scene?",
+                          body: `This scene is complete. Resuming it makes it ${label.toLowerCase()} again, so its elements and stacks can be changed.`,
+                          confirmLabel: "Resume scene",
+                        };
+                      }
+                      return null;
+                    }}
+                    onChanged={(status) => setScene((current) => ({ ...current, status }))}
+                  />
+                </Box>
+                <SceneTextPopover
+                  title={scene.title}
+                  text={scene.text ?? EMPTY_SCENE_TEXT}
+                  save={(values) => sa_setLiveSceneText(idStory, scene.idStoryScene, values)}
+                  onSaved={(text, savedTitle) =>
+                    setScene((current) => ({
+                      ...current,
+                      text,
+                      title: savedTitle ?? current.title,
+                    }))
+                  }
+                  readOnly={isComplete}
+                  editTitle
+                  notesHint="The players can edit this box too."
+                  pictures={{
+                    idStory,
+                    idStoryScene: scene.idStoryScene,
+                    onCoverChange: setCoverUrl,
+                    onPicturesChange: picturesChanged,
                   }}
-                  onChanged={(status) => setScene((current) => ({ ...current, status }))}
                 />
-              </Box>
-              <SceneTextPopover
-                title={scene.title}
-                text={scene.text ?? EMPTY_SCENE_TEXT}
-                save={(values) => sa_setLiveSceneText(idStory, scene.idStoryScene, values)}
-                onSaved={(text, savedTitle) =>
-                  setScene((current) => ({ ...current, text, title: savedTitle ?? current.title }))
-                }
-                readOnly={isComplete}
-                editTitle
-                notesHint="The players can edit this box too."
-              />
-            </HStack>
+              </HStack>
+              <Text
+                rounded="2xl"
+                bg="bg.panel/55"
+                backdropFilter="blur(6px)"
+                px="3"
+                py="1"
+                fontSize="sm"
+                fontWeight="semibold"
+                letterSpacing="widest"
+              >
+                PREVIEWING
+              </Text>
+              {/* At the end of the line, the cover's icon, there only while
+                  the scene has a cover and is not complete, since a complete
+                  scene's pictures are locked with the rest of it. It asks
+                  first (DeleteButton, as everything taken away does), then
+                  takes the cover off the scene; the picture stays among the
+                  scene's pictures. On the same panel colour as the title,
+                  since it sits on the very picture it removes. */}
+              {coverUrl && !isComplete && (
+                <Box
+                  justifySelf="end"
+                  rounded="full"
+                  bg="bg.panel/55"
+                  backdropFilter="blur(6px)"
+                  p="0.5"
+                >
+                  <DeleteButton
+                    thing="the cover image"
+                    label="Remove cover image"
+                    verb="Remove"
+                    icon={<ImageIcon />}
+                    onDelete={() => sa_clearLiveSceneCover(idStory, scene.idStoryScene)}
+                    onDeleted={() => {
+                      setCoverUrl(null);
+                      picturesChanged();
+                    }}
+                    done="The cover image has been removed."
+                    failed="The cover image could not be removed. Try again."
+                  >
+                    The scene will show no cover until another is chosen from its pictures. The
+                    picture itself stays among them.
+                  </DeleteButton>
+                </Box>
+              )}
+            </Grid>
             {/* space-between: the first stack against the left edge and
                 the rest spread across the width. */}
             <Flex gap="3" wrap="wrap" align="flex-start" justify="space-between">

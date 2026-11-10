@@ -43,3 +43,11 @@ export type SceneTextValues = z.infer<typeof sceneTextSchema>;
 export const liveSceneTextSchema = sceneTextSchema.extend({ title: sceneSchema.shape.title });
 
 export type LiveSceneTextValues = z.infer<typeof liveSceneTextSchema>;
+
+// The same panel where renaming is allowed but not required: the storyboard's
+// card hands the title over with the text for a scene in any status, while
+// the tables' panels hand text alone, so the title is optional here and
+// bound as the scene forms bind it when it comes.
+export const sceneTextWithTitleSchema = sceneTextSchema.extend({
+  title: sceneSchema.shape.title.optional(),
+});

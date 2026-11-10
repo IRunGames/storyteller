@@ -32,6 +32,13 @@ const found: RunScene[] = [
 const sa_searchLiveScenes = mock.fn(
   async (_idStory: number, _search: Search): Promise<RunScene[]> => found,
 );
+type Duplicated = { ok: true; idStoryScene: number } | { ok: false; error: string };
+const sa_duplicateLiveScene = mock.fn(
+  async (_idStory: number, _idStoryScene: number): Promise<Duplicated> => ({
+    ok: true,
+    idStoryScene: -19,
+  }),
+);
 const sa_createLiveScene = mock.fn(
   async (
     _idStory: number,
@@ -71,7 +78,7 @@ describe("LiveSceneSelect", () => {
   before(async () => {
     Element.prototype.scrollIntoView = () => {};
     mock.module("@/app/(app)/scenes/[id]/live/actions", {
-      namedExports: { sa_searchLiveScenes },
+      namedExports: { sa_searchLiveScenes, sa_duplicateLiveScene },
     });
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: { sa_createLiveScene, sa_createRunScene: mock.fn() },
@@ -82,6 +89,8 @@ describe("LiveSceneSelect", () => {
   beforeEach(() => {
     sa_searchLiveScenes.mock.resetCalls();
     sa_createLiveScene.mock.resetCalls();
+    sa_duplicateLiveScene.mock.resetCalls();
+    sa_duplicateLiveScene.mock.mockImplementation(async () => ({ ok: true, idStoryScene: -19 }));
   });
 
   afterEach(() => {
@@ -183,5 +192,52 @@ describe("LiveSceneSelect", () => {
       { title: "The ambush", description: "" },
     ]);
     await waitFor(() => expect(onChoose.mock.calls[0]?.arguments).toEqual([-18]));
+  });
+
+  it("asks before duplicating the scene from the button after the +, names the copy, makes it and goes to it", async () => {
+    const user = userEvent.setup();
+    const onChoose = mock.fn<(id: number) => void>();
+    render(onChoose);
+
+    const plus = screen.getByRole("button", { name: "New scene" });
+    const duplicate = screen.getByRole("button", { name: "Duplicate scene" });
+    expect(plus.compareDocumentPosition(duplicate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(duplicate);
+    const dialog = await screen.findByRole("dialog", { name: "Duplicate The docks?" });
+    expect(dialog).toHaveTextContent("The docks (copy)");
+    // Nothing happens until the question is answered.
+    expect(sa_duplicateLiveScene.mock.callCount()).toBe(0);
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(sa_duplicateLiveScene.mock.callCount()).toBe(0);
+    expect(onChoose.mock.callCount()).toBe(0);
+
+    await user.click(duplicate);
+    const again = await screen.findByRole("dialog", { name: "Duplicate The docks?" });
+    await user.click(within(again).getByRole("button", { name: "Duplicate" }));
+    await waitFor(() => expect(sa_duplicateLiveScene.mock.callCount()).toBe(1));
+    expect(sa_duplicateLiveScene.mock.calls[0].arguments).toEqual([-4, -15]);
+    await waitFor(() => expect(onChoose.mock.calls[0]?.arguments).toEqual([-19]));
+    expect(await screen.findByText("The docks (copy) has been made.")).toBeInTheDocument();
+  });
+
+  it("keeps the question open and says why when the copy is refused", async () => {
+    const user = userEvent.setup();
+    const onChoose = mock.fn<(id: number) => void>();
+    sa_duplicateLiveScene.mock.mockImplementation(async () => ({
+      ok: false,
+      error: "That scene is not part of this story.",
+    }));
+    render(onChoose);
+
+    await user.click(screen.getByRole("button", { name: "Duplicate scene" }));
+    const dialog = await screen.findByRole("dialog", { name: "Duplicate The docks?" });
+    await user.click(within(dialog).getByRole("button", { name: "Duplicate" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "That scene is not part of this story.",
+    );
+    expect(onChoose.mock.callCount()).toBe(0);
   });
 });

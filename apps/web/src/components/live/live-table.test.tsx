@@ -1,6 +1,6 @@
 import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
@@ -90,6 +90,13 @@ const sa_createLiveScene = mock.fn(async (_idStory: number, values: { title: str
   },
 }));
 const push = mock.fn((_href: string) => {});
+type Cleared = { ok: true } | { ok: false; error: string };
+const sa_clearLiveSceneCover = mock.fn(
+  async (_story: number, _scene: number): Promise<Cleared> => ({ ok: true }),
+);
+
+// The library's Attachments tab reads these; counted to see it read again.
+const sa_listAttachments = mock.fn(async (_kind: string, _idExternal: number) => []);
 
 const sa_setRowStatus = mock.fn(async (_table: string, _id: number, status: string) => ({
   ok: true as const,
@@ -100,7 +107,11 @@ let LiveTable: typeof import("./live-table").LiveTable;
 type PreferencesModule = typeof import("@/components/preferences/user-preferences-provider");
 let UserPreferencesProvider: PreferencesModule["UserPreferencesProvider"];
 
-function renderTable(start: RunScene = scene, idStorySession: number | null = -30) {
+function renderTable(
+  start: RunScene = scene,
+  idStorySession: number | null = -30,
+  coverUrl: string | null = null,
+) {
   return renderWithProviders(
     <UserProvider user={user}>
       <UserPreferencesProvider preferences={{}}>
@@ -109,7 +120,7 @@ function renderTable(start: RunScene = scene, idStorySession: number | null = -3
           title="Psychoneira"
           scene={start}
           initialTags={["scene"]}
-          initialCoverUrl={null}
+          initialCoverUrl={coverUrl}
           initialInPlay={[dafydd]}
           sessions={sessions}
           idStorySession={idStorySession}
@@ -139,7 +150,7 @@ describe("LiveTable", () => {
     });
     mock.module("@/components/uploads/actions", {
       namedExports: {
-        sa_listAttachments: async () => [],
+        sa_listAttachments,
         sa_searchAttachments: async () => [],
         sa_moveStoryAttachmentToSceneCover: mock.fn(),
         sa_moveStoryAttachmentsToScene: mock.fn(),
@@ -170,7 +181,13 @@ describe("LiveTable", () => {
       },
     });
     mock.module("@/app/(app)/scenes/[id]/live/actions", {
-      namedExports: { sa_setLiveSceneSession, sa_setLiveSceneText, sa_searchLiveScenes },
+      namedExports: {
+        sa_setLiveSceneSession,
+        sa_setLiveSceneText,
+        sa_searchLiveScenes,
+        sa_duplicateLiveScene: mock.fn(),
+        sa_clearLiveSceneCover,
+      },
     });
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions: mock.fn(async () => []), sa_setRowStatus },
@@ -213,7 +230,7 @@ describe("LiveTable", () => {
     expect(within(space).queryByRole("button", { name: /picture to the players/ })).toBeNull();
   });
 
-  it("puts the scene's status chip beside its title in the play space", () => {
+  it("puts the scene's status chip beside its title in the play space, and PREVIEWING on the same line", () => {
     renderTable();
 
     const space = screen.getByRole("region", { name: "Play space" });
@@ -221,8 +238,15 @@ describe("LiveTable", () => {
     const chip = within(space).getByRole("button", { name: "Active" });
     expect(chip).toHaveAttribute("aria-haspopup", "menu");
     // On the title's own line, after it.
+    expect(title.parentElement).toHaveTextContent(scene.title);
     expect(title.parentElement).toContainElement(chip);
     expect(title.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The word is on the line the title pill is on, after the pill.
+    const previewing = within(space).getByText("PREVIEWING");
+    expect(title.parentElement!.parentElement).toContainElement(previewing);
+    expect(
+      chip.compareDocumentPosition(previewing) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     // The header's "Active" is a filter pill of the scene selector, a toggle;
     // the scene's chip, a menu, is not up there any more.
     const headerChips = within(screen.getByRole("banner"))
@@ -277,6 +301,10 @@ describe("LiveTable", () => {
     await u.click(within(space).getByRole("button", { name: `Describe ${scene.title}` }));
     const panel = await screen.findByRole("dialog", { name: scene.title });
     expect(within(panel).getByText("The players can edit this box too.")).toBeInTheDocument();
+    // The scene's pictures under the fields, the cover in an area of its own.
+    expect(within(panel).getByRole("heading", { name: "Pictures" })).toBeInTheDocument();
+    expect(within(panel).getByRole("region", { name: "Cover" })).toBeInTheDocument();
+    expect(within(panel).getByRole("region", { name: "Other pictures" })).toBeInTheDocument();
 
     const title = within(panel).getByRole("textbox", { name: /Title/ });
     expect(title).toHaveValue(scene.title);
@@ -312,5 +340,53 @@ describe("LiveTable", () => {
     // It searches for the scenes in no session to start with.
     await waitFor(() => expect(sa_searchLiveScenes.mock.callCount()).toBeGreaterThan(0));
     expect(sa_searchLiveScenes.mock.calls.at(-1)?.arguments[1]).toMatchObject({ sessions: [] });
+  });
+
+  it("shows a cover icon at the end of the title line only while the scene has a cover, which asks before taking the cover off", async () => {
+    const u = userEvent.setup();
+    renderTable();
+    expect(screen.queryByRole("button", { name: "Remove cover image" })).not.toBeInTheDocument();
+    cleanup();
+
+    renderTable(scene, -30, "https://x.test/docks.png");
+    const space = screen.getByRole("region", { name: "Play space" });
+    expect(within(space).getByTestId("play-space-cover")).toBeInTheDocument();
+    const icon = within(space).getByRole("button", { name: "Remove cover image" });
+    // On the title's line, after PREVIEWING.
+    const previewing = within(space).getByText("PREVIEWING");
+    expect(previewing.parentElement).toContainElement(icon);
+    expect(
+      previewing.compareDocumentPosition(icon) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await u.click(icon);
+    const dialog = await screen.findByRole("dialog", { name: "Remove the cover image?" });
+    expect(dialog).toHaveTextContent("The picture itself stays among them.");
+    await u.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(sa_clearLiveSceneCover.mock.callCount()).toBe(0);
+
+    // The library's Attachments tab has read the scene's pictures once.
+    await waitFor(() => expect(sa_listAttachments.mock.callCount()).toBeGreaterThan(0));
+    const readsBefore = sa_listAttachments.mock.callCount();
+
+    await u.click(icon);
+    const again = await screen.findByRole("dialog", { name: "Remove the cover image?" });
+    await u.click(within(again).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(sa_clearLiveSceneCover.mock.callCount()).toBe(1));
+    // The library reads them again, so its Cover buttons follow.
+    await waitFor(() => expect(sa_listAttachments.mock.callCount()).toBeGreaterThan(readsBefore));
+    expect(sa_clearLiveSceneCover.mock.calls[0].arguments).toEqual([-4, -15]);
+    // The cover and its icon go together, with no reload.
+    await waitFor(() =>
+      expect(within(space).queryByTestId("play-space-cover")).not.toBeInTheDocument(),
+    );
+    expect(within(space).queryByRole("button", { name: "Remove cover image" })).toBeNull();
+    expect(await screen.findByText("The cover image has been removed.")).toBeInTheDocument();
+  });
+
+  it("has no cover icon on a complete scene, whose pictures are locked", () => {
+    renderTable({ ...scene, status: "COMPLETE" }, -30, "https://x.test/docks.png");
+    expect(screen.queryByRole("button", { name: "Remove cover image" })).not.toBeInTheDocument();
   });
 });

@@ -116,6 +116,22 @@ export const SCENE_LOCKED_STATUS = "COMPLETE";
  */
 export const SCENE_PENDING_STATUS = "PENDING";
 
+/** The longest title the scene forms accept (sceneSchema in scene-schemas.ts). */
+const SCENE_TITLE_MAX = 200;
+const COPY_SUFFIX = " (copy)";
+
+/**
+ * What a duplicated scene is called: the original's title with " (copy)"
+ * after it, cut short at the front end when the two together would be
+ * longer than the forms let a title be, so the copy can still be renamed
+ * from them. Shared by the Duplicate button's question and the action that
+ * makes the copy, so the storyteller is told the very name it will have.
+ */
+export function duplicateSceneTitle(title: string): string {
+  const room = SCENE_TITLE_MAX - COPY_SUFFIX.length;
+  return (title.length > room ? title.slice(0, room).trimEnd() : title) + COPY_SUFFIX;
+}
+
 /** A sitting of the story, as the scene form's select offers it. */
 export type SceneSessionOption = {
   idStorySession: number;

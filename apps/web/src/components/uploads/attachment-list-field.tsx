@@ -158,6 +158,8 @@ export type AttachmentRowsView = {
    * the field's error, if the delete is refused.
    */
   remove: (idAttachment: number) => Promise<void>;
+  /** As the card's Retry calls it, for an upload that failed. */
+  retry: (idAttachment: number) => void;
 };
 
 function rejectionMessage(rejection: { errors: string[] } | undefined): string {
@@ -806,6 +808,7 @@ export function AttachmentListField({
           setTags: handleTags,
           setCover: handleCover,
           remove: handleRemove,
+          retry: (idAttachment) => void handleRetry(idAttachment),
         })
       ) : (
         <>

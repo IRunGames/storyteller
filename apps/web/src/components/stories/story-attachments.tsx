@@ -1,9 +1,11 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Heading, HStack, IconButton, Portal, Stack, Tooltip } from "@chakra-ui/react";
+import { Box, Heading, HStack, IconButton, Portal, Stack, Tooltip } from "@chakra-ui/react";
 import { Plus } from "lucide-react";
-import { AttachmentListField } from "@/components/uploads/attachment-list-field";
+import { COVERS_FILTER } from "@/lib/attachments";
+import { PrepAttachments } from "@/components/prep/prep-attachments";
+import { allSelected, StatusSearch } from "@/components/status/status-search";
 
 type Props = {
   idStory: number;
@@ -12,17 +14,23 @@ type Props = {
 };
 
 /**
- * The story page's Attachments section: the heading, a + beside it, and the
- * story's attachment cards. The link input and dropzone stay hidden until
- * the + opens them, and the + closes them again, so the section opens on
- * the pictures rather than on the controls for adding more. A client
- * component of its own because StoryDetails renders on the server and the
- * toggle is state.
+ * The story page's Attachments section: the heading, a + beside it, the Prep
+ * Work board's Covers pill and search box (StatusSearch), and the story's
+ * attachment cards as the board's Attachments column shows them
+ * (PrepAttachments): ten at a time with More under them, narrowed by the
+ * search, the cover left out when the pill is off. A story's attachments
+ * run long, and every card drawn fetches its picture, so the page draws
+ * what the board does rather than every card at once. The link input and
+ * dropzone stay hidden until the + opens them, and the + closes them again,
+ * so the section opens on the pictures rather than on the controls for
+ * adding more. A client component of its own because StoryDetails renders
+ * on the server and the toggle and the filter are state.
  */
 export function StoryAttachments({ idStory, onImage }: Props) {
   const headingId = useId();
   const addId = useId();
   const [isAdding, setIsAdding] = useState(false);
+  const [filter, setFilter] = useState(() => allSelected([COVERS_FILTER]));
 
   return (
     <Stack as="section" aria-labelledby={headingId} gap="4">
@@ -59,7 +67,24 @@ export function StoryAttachments({ idStory, onImage }: Props) {
           </Portal>
         </Tooltip.Root>
       </HStack>
-      <AttachmentListField kind="STORY" idExternal={idStory} showAdd={isAdding} addId={addId} />
+      {/* The controls at the board's column width, so the pill and the box
+          do not stretch across the page. */}
+      <Box maxW="sm">
+        <StatusSearch
+          label="Attachments"
+          options={[COVERS_FILTER]}
+          value={filter}
+          onChange={setFilter}
+          groupLabel="Filter Attachments"
+        />
+      </Box>
+      <PrepAttachments
+        idStory={idStory}
+        filter={filter.query}
+        showCovers={filter.statuses.includes(COVERS_FILTER.key)}
+        showAdd={isAdding}
+        addId={addId}
+      />
     </Stack>
   );
 }

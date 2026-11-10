@@ -15,7 +15,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { ArrowLeft, ArrowRight, Plus, Search, Trash2, X } from "lucide-react";
+import { ArrowRight, Plus, Recycle, Search, Trash2, X } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import { ELEMENT_SEARCH_DELAY_MS, type ElementSort } from "@/lib/elements";
 import {
@@ -38,6 +38,7 @@ import {
   sa_searchAttachments,
 } from "@/components/uploads/actions";
 import { toaster } from "@/components/ui/toaster";
+import { DeleteButton, type DeleteOutcome } from "@/components/confirm/delete-button";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
 import { AttachmentCoverButton } from "@/components/uploads/attachment-cover-button";
@@ -94,6 +95,13 @@ type Props = {
   locked: boolean;
   /** The scene's cover has changed from here: its url, or null for none. */
   onSceneCoverChange: (url: string | null) => void;
+  /**
+   * Bumped by the page when it changes the scene's pictures somewhere other
+   * than this library, such as the scene editor's Pictures or the play
+   * space's cover icon, so the Attachments tab reads them again rather than
+   * showing a cover that has gone.
+   */
+  attachmentsVersion?: number;
 };
 
 /** Whose attachments the Attachments tab lists: the story's own, or the scene's. */
@@ -141,6 +149,7 @@ export function RunLibrary({
   sceneStacks,
   locked,
   onSceneCoverChange,
+  attachmentsVersion = 0,
 }: Props) {
   const [query, setQuery] = useState("");
   // An element tab's matches; null while it is loading.
@@ -244,7 +253,7 @@ export function RunLibrary({
                 {/* Keyed by whose they are, so a switch starts from that
                     holder's own rows and search rather than the last one's. */}
                 <RunAttachments
-                  key={`${holder.kind}:${holder.idExternal}:${moves}`}
+                  key={`${holder.kind}:${holder.idExternal}:${moves}:${attachmentsVersion}`}
                   kind={holder.kind}
                   idExternal={holder.idExternal}
                   idStoryScene={idStoryScene}
@@ -373,13 +382,14 @@ export function RunLibrary({
  * The story's own cover is left out of the story's list: it is the
  * picture on the story's card, not material for the table.
  *
- * An attachment's arrow attaches it to the scene the table is on, or takes
- * it off again: from the story's list the scene gets a use of it
- * (sa_attachToHolder), and from the scene's list the use goes
- * (sa_detachFromHolder), so the storyteller gives a scene what it needs as it
- * comes up. A file is the story's either way and stays in the story's list.
- * With no scene at the table a story attachment has nowhere to go and shows
- * no arrow.
+ * An attachment's arrow in the story's list attaches it to the scene the
+ * table is on (sa_attachToHolder), so the storyteller gives a scene what it
+ * needs as it comes up. In the scene's list a Recycle in the arrow's place
+ * takes it off again (sa_detachFromHolder), asking first since a scene's
+ * cover goes with its use: a recycling rather than a trashcan, because the
+ * file is the story's either way and stays in the story's list to be
+ * attached again. With no scene at the table a story attachment has nowhere
+ * to go and shows no arrow.
  *
  * At the table, a scene's cover is the picture behind the play space. So
  * while the table is on a scene, Cover on one of the story's attachments
@@ -477,36 +487,20 @@ function RunAttachments({
           return ok;
         }
 
-        // The arrow: onto the scene from the story's list, off it from the
-        // scene's. The story's list keeps the row either way.
-        async function move(row: Attachment) {
+        // The arrow: onto the scene from the story's list. The story's list
+        // keeps the row.
+        async function attach(row: Attachment) {
           try {
-            if (kind === "STORY") {
-              const result = await sa_attachToHolder("STORY_SCENE", idStoryScene!, [
-                row.idAttachment,
-              ]);
-              if (!result.ok) {
-                toaster.create({ title: result.error, type: "error" });
-                return;
-              }
-              if (!result.attached.includes(row.idAttachment)) {
-                toaster.create({ title: "That attachment is in the scene already.", type: "info" });
-                return;
-              }
-            } else {
-              const result = await sa_detachFromHolder("STORY_SCENE", idExternal, [
-                row.idAttachment,
-              ]);
-              if (!result.ok) {
-                toaster.create({ title: result.error, type: "error" });
-                return;
-              }
-              if (!result.detached.includes(row.idAttachment)) {
-                toaster.create({ title: "That attachment is not in the scene.", type: "info" });
-                return;
-              }
-              // The scene's cover went with its use.
-              if (row.isCover) onSceneCoverChange(null);
+            const result = await sa_attachToHolder("STORY_SCENE", idStoryScene!, [
+              row.idAttachment,
+            ]);
+            if (!result.ok) {
+              toaster.create({ title: result.error, type: "error" });
+              return;
+            }
+            if (!result.attached.includes(row.idAttachment)) {
+              toaster.create({ title: "That attachment is in the scene already.", type: "info" });
+              return;
             }
             onMoved();
           } catch {
@@ -515,6 +509,21 @@ function RunAttachments({
               type: "error",
             });
           }
+        }
+
+        // The Recycle: off the scene from the scene's list, once the question
+        // is answered. A refusal is the popover's to show, so it comes back
+        // as the outcome rather than as a toast.
+        async function detach(row: Attachment): Promise<DeleteOutcome> {
+          const result = await sa_detachFromHolder("STORY_SCENE", idExternal, [row.idAttachment]);
+          if (!result.ok) return result;
+          if (!result.detached.includes(row.idAttachment)) {
+            return { ok: false, error: "That attachment is not in the scene any more." };
+          }
+          // The scene's cover went with its use.
+          if (row.isCover) onSceneCoverChange(null);
+          onMoved();
+          return { ok: true };
         }
 
         return (
@@ -529,17 +538,25 @@ function RunAttachments({
               return kind === "STORY" ? (
                 <PrepIconButton
                   label={`Attach ${item.label} to the scene`}
-                  onClick={() => void move(row)}
+                  onClick={() => void attach(row)}
                 >
                   <ArrowRight />
                 </PrepIconButton>
               ) : (
-                <PrepIconButton
-                  label={`Detach ${item.label} from the scene`}
-                  onClick={() => void move(row)}
+                <DeleteButton
+                  thing="this picture from the scene"
+                  label={`Remove ${item.label} from the scene`}
+                  verb="Remove"
+                  icon={<Recycle />}
+                  onDelete={() => detach(row)}
+                  done="Removed from the scene."
+                  failed="The picture could not be removed from the scene. Try again."
                 >
-                  <ArrowLeft />
-                </PrepIconButton>
+                  The picture leaves this scene and stays in the story&apos;s library, where it can
+                  be attached again.
+                  {row.isCover &&
+                    " It is the cover, so the scene will have none until you choose another."}
+                </DeleteButton>
               );
             }}
             editTagsFor={(item) => {
@@ -609,7 +626,7 @@ function LibraryList({
   filtered: boolean;
   /** An element's arrow, which puts it in the play space. */
   onAdd?: (item: PlayItem) => void;
-  /** In place of the element's arrow: an attachment's, which moves it. */
+  /** In place of the element's arrow: an attachment's, which attaches it, or the Recycle that detaches it. */
   renderArrow?: (item: PlayItem) => ReactNode;
   /**
    * Controls drawn before an item's arrow: an element's info button, an

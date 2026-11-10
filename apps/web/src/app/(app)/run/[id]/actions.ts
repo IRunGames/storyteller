@@ -67,7 +67,7 @@ import {
   publishSceneElementRemoved,
   publishSessionUpdated,
 } from "@/lib/realtime/publish-scene";
-import { runSceneSchema, sceneTextSchema } from "@/lib/scene-schemas";
+import { runSceneSchema, sceneTextWithTitleSchema } from "@/lib/scene-schemas";
 import { SCENE_LOCKED_STATUS, type SetSceneTextResult } from "@/lib/scenes";
 import { sessionTitleSchema } from "@/lib/session-schemas";
 import { sceneStacksSchema, stacksSchema } from "@/lib/stack-schemas";
@@ -265,9 +265,12 @@ async function spaceFor(idStory: number, idStoryScene: number): Promise<RunPlayS
 
 /**
  * The panel behind the scene's title: the scene's description and notes,
- * written as it is played. Text alone, so a complete scene takes it too:
- * the notes on a scene are often written once it is done. The players'
- * table hears the scene changed and reads it afresh.
+ * written as it is played, and the title too when the panel renames the
+ * scene, as the storyboard's card does. A complete scene takes it all: the
+ * notes on a scene are often written once it is done, and its name is
+ * settled on the board where the whole story is read. The tables' panels
+ * send text alone and the name stays. The players' table hears the scene
+ * changed and reads it afresh, the new title included.
  *
  * Refused for a scene that is not this story's or the caller is not its
  * storyteller; field errors come back for the form.
@@ -284,16 +287,22 @@ export async function sa_setSceneText(
   const owned = await ownedScene(user.id, story.data, scene.data);
   if (owned === null) return { ok: false, errors: { root: NOT_THIS_STORY } };
 
-  const parsed = sceneTextSchema.safeParse(input);
+  const parsed = sceneTextWithTitleSchema.safeParse(input);
   if (!parsed.success) return { ok: false, errors: formErrors(parsed.error.issues) };
+  const { title } = parsed.data;
   const text = { description: parsed.data.description || null, notes: parsed.data.notes || null };
 
   await db
     .update(storyScenes)
-    .set({ sceneDescription: text.description, notes: text.notes, idUpdatedByUser: user.id })
+    .set({
+      ...(title === undefined ? {} : { sceneTitle: title }),
+      sceneDescription: text.description,
+      notes: text.notes,
+      idUpdatedByUser: user.id,
+    })
     .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.data)));
   publishLater(() => publishSceneChanged(story.data));
-  return { ok: true, text };
+  return title === undefined ? { ok: true, text } : { ok: true, text, title };
 }
 
 /**

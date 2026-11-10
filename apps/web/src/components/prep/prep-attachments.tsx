@@ -18,15 +18,19 @@ type Props = {
   showAdd: boolean;
   /** Where the board wants them drawn, above the column's filters; see the field. */
   addTarget?: HTMLElement | null;
+  /** An id for the block holding them, for a +'s aria-controls; see the field. */
+  addId?: string;
   /** How many attachments the story has, for the count beside the heading; see the field. */
   onCountChange?: (count: number) => void;
 };
 
 /**
- * The Attachments column of the Prep Work board: the story's attachment
- * cards, as the story page shows them. The board's Covers pill, over the
- * search box like the other columns' filters, takes the cover out of the way
- * when it is not what the storyteller is looking for.
+ * The Attachments column of the Prep Work board, and the story page's
+ * Attachments section, which shows the same cards the same way: the story's
+ * attachment cards, ten at a time with More under them, narrowed by a search
+ * box. The Covers pill, over the search box like the other columns' filters,
+ * takes the cover out of the way when it is not what the storyteller is
+ * looking for.
  *
  * Like the Scenes column the search goes to the database, against
  * attachments.search_text (the address, the file name and every tag), rather
@@ -45,6 +49,7 @@ export function PrepAttachments({
   showCovers,
   showAdd,
   addTarget,
+  addId,
   onCountChange,
 }: Props) {
   const [shownIds, setShownIds] = useState<ReadonlySet<number> | null>(null);
@@ -79,6 +84,7 @@ export function PrepAttachments({
       idExternal={idStory}
       showAdd={showAdd}
       addTarget={addTarget}
+      addId={addId}
       shownIds={shownIds}
       hideCovers={!showCovers}
       showEmpty

@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Alert, Button, Field, HStack, Input, Stack, Textarea } from "@chakra-ui/react";
 import { liveSceneTextSchema, sceneTextSchema, type SceneTextValues } from "@/lib/scene-schemas";
 import type { SceneText, SetSceneTextResult } from "@/lib/scenes";
+import { ScenePictures, type ScenePicturesProps } from "./scene-pictures";
 
 type Props = {
   /** What the fields start with: the scene's text as the table holds it. */
@@ -26,19 +27,36 @@ type Props = {
   title?: string;
   /** A line under the Notes label, for the live-edit page to say who else writes there. */
   notesHint?: string;
+  /**
+   * The scene's pictures under the fields, the cover in an area of its own
+   * (ScenePictures), for the storyteller's editors: the tables', the
+   * live-edit page's and the storyboard's. The players' panel leaves it out,
+   * since the pictures are the storyteller's to manage.
+   */
+  pictures?: ScenePicturesProps;
 };
 
 const FIELDS = ["title", "description", "notes"] as const;
 
 /**
- * The description and notes of the scene being played, edited from the
- * panel behind the scene's title at either table (SceneTextPopover). Two
- * text areas and nothing else at the tables: the title and the status have
- * their own controls there, and a scene's stacks their own dialog. The
- * live-edit page has no other place to rename the scene, so it hands the
- * form the title and a Title field leads the two.
+ * The scene editor, one form wherever a scene's words are changed: the
+ * panel behind the scene's title at either table, on the live-edit page
+ * and on the storyboard's cards (SceneTextPopover). The description and
+ * notes always; the title when the caller hands one over, which every
+ * storyteller's panel does and the players' panel does not, since the
+ * title has its own controls at the storyteller's table; and under them
+ * the scene's pictures with the cover set apart (ScenePictures), again for
+ * the storyteller's panels, saved as they are added rather than on Save.
  */
-export function SceneTextForm({ text, save, onSaved, onCancel, title, notesHint }: Props) {
+export function SceneTextForm({
+  text,
+  save,
+  onSaved,
+  onCancel,
+  title,
+  notesHint,
+  pictures,
+}: Props) {
   const withTitle = title !== undefined;
   const {
     register,
@@ -103,6 +121,7 @@ export function SceneTextForm({ text, save, onSaved, onCancel, title, notesHint 
           <Textarea size="sm" rows={6} {...register("notes")} />
           <Field.ErrorText>{errors.notes?.message}</Field.ErrorText>
         </Field.Root>
+        {pictures && <ScenePictures {...pictures} />}
         {/* Cancel at the start and the action at the end, as a dialog's
             footer lays them out. */}
         <HStack justify="space-between" w="full" pt="1">

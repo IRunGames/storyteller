@@ -7,7 +7,7 @@
 // scenes and sessions with them.
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { loadEnvConfig } from "@next/env";
 import { makeTestUser, removeTestUser } from "@/test/test-user";
 
@@ -316,5 +316,310 @@ describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     await db
       .delete(tables.storyScenes)
       .where(inArray(tables.storyScenes.idStoryScene, [inFirst, inSecond]));
+  });
+
+  describe("sa_duplicateLiveScene", () => {
+    const madeScenes: number[] = [];
+    let zed = 0;
+    let lantern = 0;
+    let picture = 0;
+
+    before(async () => {
+      [{ id: zed }, { id: lantern }] = await db
+        .insert(tables.elements)
+        .values([
+          { idStory: mine, kind: "PERSON", name: "Zed", idCreatedByUser: testUser },
+          { idStory: mine, kind: "THING", name: "Lantern", idCreatedByUser: testUser },
+        ])
+        .returning({ id: tables.elements.idElement });
+      [{ id: picture }] = await db
+        .insert(tables.attachments)
+        .values({ idStory: mine, url: "https://x.test/docks.png", idCreatedByUser: testUser })
+        .returning({ id: tables.attachments.idAttachment });
+    });
+
+    // The fixture scene is reset by beforeEach; its links and pictures are
+    // this block's own, so each test starts from the same scene.
+    beforeEach(async () => {
+      if (madeScenes.length > 0) {
+        await db
+          .delete(tables.storyScenes)
+          .where(inArray(tables.storyScenes.idStoryScene, madeScenes.splice(0)));
+      }
+      await db.delete(tables.sceneElements).where(eq(tables.sceneElements.idStoryScene, scene));
+      await db
+        .delete(tables.attachmentUses)
+        .where(
+          and(
+            eq(tables.attachmentUses.kind, "STORY_SCENE"),
+            eq(tables.attachmentUses.idExternal, scene),
+          ),
+        );
+      await db
+        .update(tables.storyScenes)
+        .set({
+          sceneDescription: "Fog on the water.",
+          notes: "Bring the lantern.",
+          tags: ["scene", "crowd"],
+          idStorySession: second,
+        })
+        .where(eq(tables.storyScenes.idStoryScene, scene));
+      const [zedLink] = await db
+        .insert(tables.sceneElements)
+        .values([
+          {
+            idStoryScene: scene,
+            idElement: zed,
+            status: "INVISIBLE",
+            tags: ["crowd"],
+            elementShowing: "name",
+            showInfo: true,
+            showImage: true,
+            url: "https://x.test/zed",
+            urlText: "Zed's page",
+            idCreatedByUser: testUser,
+          },
+          { idStoryScene: scene, idElement: lantern, tags: ["scene"], idCreatedByUser: testUser },
+        ])
+        .returning({ id: tables.sceneElements.idSceneElement });
+      await db.insert(tables.attachmentUses).values([
+        {
+          idAttachment: picture,
+          kind: "STORY_SCENE",
+          idExternal: scene,
+          tags: ["cover"],
+          idCreatedByUser: testUser,
+        },
+        {
+          idAttachment: picture,
+          kind: "SCENE_ELEMENT",
+          idExternal: zedLink.id,
+          sortOrder: 3,
+          tags: ["cover"],
+          idCreatedByUser: testUser,
+        },
+      ]);
+    });
+
+    after(async () => {
+      if (madeScenes.length > 0) {
+        await db
+          .delete(tables.storyScenes)
+          .where(inArray(tables.storyScenes.idStoryScene, madeScenes));
+      }
+    });
+
+    async function copyOf(idStoryScene: number) {
+      madeScenes.push(idStoryScene);
+      const [row] = await db
+        .select({
+          idStory: tables.storyScenes.idStory,
+          title: tables.storyScenes.sceneTitle,
+          description: tables.storyScenes.sceneDescription,
+          notes: tables.storyScenes.notes,
+          tags: tables.storyScenes.tags,
+          status: tables.storyScenes.status,
+          idStorySession: tables.storyScenes.idStorySession,
+        })
+        .from(tables.storyScenes)
+        .where(eq(tables.storyScenes.idStoryScene, idStoryScene));
+      const links = await db
+        .select({
+          idSceneElement: tables.sceneElements.idSceneElement,
+          idElement: tables.sceneElements.idElement,
+          status: tables.sceneElements.status,
+          tags: tables.sceneElements.tags,
+          elementShowing: tables.sceneElements.elementShowing,
+          showInfo: tables.sceneElements.showInfo,
+          showImage: tables.sceneElements.showImage,
+          url: tables.sceneElements.url,
+          urlText: tables.sceneElements.urlText,
+        })
+        .from(tables.sceneElements)
+        .where(eq(tables.sceneElements.idStoryScene, idStoryScene))
+        .orderBy(tables.sceneElements.idElement);
+      const uses = await db
+        .select({
+          kind: tables.attachmentUses.kind,
+          idExternal: tables.attachmentUses.idExternal,
+          sortOrder: tables.attachmentUses.sortOrder,
+          tags: tables.attachmentUses.tags,
+          idStory: tables.attachmentUses.idStory,
+        })
+        .from(tables.attachmentUses)
+        .where(
+          and(
+            eq(tables.attachmentUses.idAttachment, picture),
+            or(
+              and(
+                eq(tables.attachmentUses.kind, "STORY_SCENE"),
+                eq(tables.attachmentUses.idExternal, idStoryScene),
+              ),
+              and(
+                eq(tables.attachmentUses.kind, "SCENE_ELEMENT"),
+                inArray(tables.attachmentUses.idExternal, [
+                  ...links.map((link) => link.idSceneElement),
+                  -1,
+                ]),
+              ),
+            ),
+          ),
+        )
+        .orderBy(tables.attachmentUses.idAttachmentUse);
+      // By kind as a word: the column is an enum, which Postgres orders by
+      // declaration rather than by name.
+      uses.sort((a, b) => a.kind.localeCompare(b.kind));
+      return { row, links, uses };
+    }
+
+    it("makes a pending copy in the same sitting with the scene's words, stacks, elements and pictures, as they stand", async () => {
+      const result = await actions.sa_duplicateLiveScene(mine, scene);
+      expect(result).toMatchObject({ ok: true });
+      if (!result.ok) return;
+      expect(result.idStoryScene).not.toBe(scene);
+
+      const { row, links, uses } = await copyOf(result.idStoryScene);
+      expect(row).toEqual({
+        idStory: mine,
+        title: "Fixture scene at the docks (copy)",
+        description: "Fog on the water.",
+        notes: "Bring the lantern.",
+        tags: ["scene", "crowd"],
+        status: "PENDING",
+        idStorySession: second,
+      });
+      expect(links.map(({ idSceneElement: _, ...link }) => link)).toEqual(
+        [
+          {
+            idElement: zed,
+            status: "INVISIBLE",
+            tags: ["crowd"],
+            elementShowing: "name",
+            showInfo: true,
+            showImage: true,
+            url: "https://x.test/zed",
+            urlText: "Zed's page",
+          },
+          {
+            idElement: lantern,
+            status: "READY",
+            tags: ["scene"],
+            elementShowing: "initial_name",
+            showInfo: true,
+            showImage: false,
+            url: null,
+            urlText: null,
+          },
+        ].sort((a, b) => a.idElement - b.idElement),
+      );
+      const zedCopy = links.find((link) => link.idElement === zed)!;
+      expect(uses).toEqual([
+        {
+          kind: "SCENE_ELEMENT",
+          idExternal: zedCopy.idSceneElement,
+          sortOrder: 3,
+          tags: ["cover"],
+          idStory: mine,
+        },
+        {
+          kind: "STORY_SCENE",
+          idExternal: result.idStoryScene,
+          sortOrder: expect.any(Number),
+          tags: ["cover"],
+          idStory: mine,
+        },
+      ]);
+      // The original is as it was, its own links and pictures included.
+      expect(await sceneRow()).toMatchObject({
+        title: "Fixture scene at the docks",
+        idStorySession: second,
+      });
+      expect(
+        await db
+          .select({ id: tables.sceneElements.idSceneElement })
+          .from(tables.sceneElements)
+          .where(eq(tables.sceneElements.idStoryScene, scene)),
+      ).toHaveLength(2);
+      expect(publishSceneChanged.mock.callCount()).toBe(0);
+    });
+
+    it("copies a complete scene into no sitting, since its own is history", async () => {
+      await complete();
+      const result = await actions.sa_duplicateLiveScene(mine, scene);
+      expect(result).toMatchObject({ ok: true });
+      if (!result.ok) return;
+
+      const { row } = await copyOf(result.idStoryScene);
+      expect(row).toMatchObject({
+        title: "Fixture scene at the docks (copy)",
+        status: "PENDING",
+        idStorySession: null,
+      });
+    });
+
+    it("refuses another story's scene, anyone else's, and an unusable id", async () => {
+      const refused = { ok: false, error: "That scene is not part of this story." };
+      expect(await actions.sa_duplicateLiveScene(theirs, theirScene)).toEqual(refused);
+      expect(await actions.sa_duplicateLiveScene(mine, theirScene)).toEqual(refused);
+      expect(await actions.sa_duplicateLiveScene(mine, 2 ** 40)).toEqual(refused);
+    });
+  });
+
+  describe("sa_clearLiveSceneCover", () => {
+    let picture = 0;
+
+    before(async () => {
+      [{ id: picture }] = await db
+        .insert(tables.attachments)
+        .values({ idStory: mine, url: "https://x.test/cover.png", idCreatedByUser: testUser })
+        .returning({ id: tables.attachments.idAttachment });
+    });
+
+    beforeEach(async () => {
+      await db
+        .delete(tables.attachmentUses)
+        .where(
+          and(
+            eq(tables.attachmentUses.kind, "STORY_SCENE"),
+            eq(tables.attachmentUses.idExternal, scene),
+          ),
+        );
+      await db.insert(tables.attachmentUses).values({
+        idAttachment: picture,
+        kind: "STORY_SCENE",
+        idExternal: scene,
+        tags: ["cover", "night"],
+        idCreatedByUser: testUser,
+      });
+    });
+
+    async function sceneUses() {
+      return db
+        .select({
+          idAttachment: tables.attachmentUses.idAttachment,
+          tags: tables.attachmentUses.tags,
+        })
+        .from(tables.attachmentUses)
+        .where(
+          and(
+            eq(tables.attachmentUses.kind, "STORY_SCENE"),
+            eq(tables.attachmentUses.idExternal, scene),
+          ),
+        );
+    }
+
+    it("takes the cover tag off the scene's cover and keeps the picture, and does nothing twice", async () => {
+      expect(await actions.sa_clearLiveSceneCover(mine, scene)).toEqual({ ok: true });
+      expect(await sceneUses()).toEqual([{ idAttachment: picture, tags: ["night"] }]);
+      expect(await actions.sa_clearLiveSceneCover(mine, scene)).toEqual({ ok: true });
+      expect(await sceneUses()).toEqual([{ idAttachment: picture, tags: ["night"] }]);
+    });
+
+    it("refuses another story's scene and anyone else's, leaving the cover", async () => {
+      const refused = { ok: false, error: "That scene is not part of this story." };
+      expect(await actions.sa_clearLiveSceneCover(theirs, theirScene)).toEqual(refused);
+      expect(await actions.sa_clearLiveSceneCover(mine, theirScene)).toEqual(refused);
+      expect(await sceneUses()).toEqual([{ idAttachment: picture, tags: ["cover", "night"] }]);
+    });
   });
 });

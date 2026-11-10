@@ -15,11 +15,10 @@ import {
   chakra,
 } from "@chakra-ui/react";
 import { Layers, Maximize2, Minimize2 } from "lucide-react";
-import { SCENE_LOCKED_STATUS, formatSceneLength } from "@/lib/scenes";
+import { formatSceneLength } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import { cssUrlValue } from "@/lib/stories";
 import type { StoryboardScene } from "@/lib/storyboard";
-import { sa_setLiveSceneText } from "@/app/(app)/scenes/[id]/live/actions";
 import { sa_setSceneText } from "@/app/(app)/run/[id]/actions";
 import { SceneTextPopover } from "@/components/play/scene-text-popover";
 import { SceneElementsPanel } from "./scene-elements-panel";
@@ -68,14 +67,14 @@ const FACE_HEIGHT = { base: "80vw", md: "24rem" } as const;
  * keeps its height either way.
  *
  * For the storyteller a pencil before the expand button opens the table's
- * scene panel (SceneTextPopover) over the card: the title, description and
- * notes for a scene still to be played, through the live-edit page's save;
- * the description and notes alone for a complete one, through the run
- * page's, which takes a complete scene where the live-edit page's refuses
- * it, since notes are often written once a scene is done and a complete
- * scene keeps its title everywhere else. The face then shows the words as
- * saved, kept here rather than in the board's lists: a card's words are
- * its own, and the board never hands a card new ones.
+ * scene panel (SceneTextPopover) over the card with the title, description,
+ * notes and pictures, for a scene in any status, through the run page's save, which
+ * takes a complete scene where the live-edit page's refuses it: notes are
+ * often written once a scene is done, and the board is where a finished
+ * scene's name is read in the run of the story and found wanting. The face
+ * then shows the words as saved, kept here rather than in the board's
+ * lists: a card's words are its own, and the board never hands a card new
+ * ones.
  *
  * A fixed width rather than a share of a grid: the cards sit in a
  * side-to-side scroller, so each has to know its own size. Square at the
@@ -94,11 +93,12 @@ export function SceneCard({ idStory, scene, statusOptions, canEdit }: Props) {
     description: scene.description,
     notes: scene.notes,
   });
+  // The cover follows the panel's Pictures as the words follow its fields.
+  const [coverUrl, setCoverUrl] = useState(scene.imageUrl);
   const textId = useId();
   const panelId = useId();
   const article = useRef<HTMLDivElement>(null);
   const status = statusOptions.find((option) => option.key === scene.status)?.label ?? scene.status;
-  const locked = scene.status === SCENE_LOCKED_STATUS;
   const played =
     scene.sceneNumber === null
       ? null
@@ -154,11 +154,7 @@ export function SceneCard({ idStory, scene, statusOptions, canEdit }: Props) {
           bg="gray.700"
           bgSize="cover"
           bgPos="center"
-          style={
-            scene.imageUrl
-              ? { backgroundImage: `url("${cssUrlValue(scene.imageUrl)}")` }
-              : undefined
-          }
+          style={coverUrl ? { backgroundImage: `url("${cssUrlValue(coverUrl)}")` } : undefined}
         />
         {/* The story card's scrim, for the same reason: the title has to read
             on a bright picture and the bottom row on a dark one; deeper in
@@ -189,15 +185,16 @@ export function SceneCard({ idStory, scene, statusOptions, canEdit }: Props) {
             <SceneTextPopover
               title={words.title}
               text={{ description: words.description, notes: words.notes }}
-              save={(values) =>
-                locked
-                  ? sa_setSceneText(idStory, scene.idStoryScene, values)
-                  : sa_setLiveSceneText(idStory, scene.idStoryScene, values)
-              }
+              save={(values) => sa_setSceneText(idStory, scene.idStoryScene, values)}
               onSaved={(text, savedTitle) =>
                 setWords({ ...text, title: savedTitle ?? words.title })
               }
-              editTitle={!locked}
+              editTitle
+              pictures={{
+                idStory,
+                idStoryScene: scene.idStoryScene,
+                onCoverChange: setCoverUrl,
+              }}
               icon="pencil"
               color="whiteAlpha.900"
             />

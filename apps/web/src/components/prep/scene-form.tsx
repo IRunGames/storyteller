@@ -14,7 +14,6 @@ import {
   Input,
   NativeSelect,
   Stack,
-  Text,
   Textarea,
 } from "@chakra-ui/react";
 import type { z } from "zod";
@@ -23,8 +22,7 @@ import { SCENE_LOCKED_STATUS, type SceneSessionOption } from "@/lib/scenes";
 import type { PlayItem } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { sa_createStoryScene, sa_updateStoryScene } from "@/app/(app)/(nav)/libraries/actions";
-import { AttachmentListField } from "@/components/uploads/attachment-list-field";
-import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
+import { ScenePictures } from "@/components/play/scene-pictures";
 import { StatusPill } from "@/components/status/status-pill";
 import { SceneElements } from "./scene-elements";
 
@@ -80,7 +78,8 @@ type Props = {
 // The status pill and the pictures are on the edit form only, and both take
 // effect at once rather than on Save: the pill moves the row as the board's
 // card does, and each picture is an attachments row saved the moment it is
-// added, as on the story page. Both need the scene to exist, so a new scene
+// added, as on the story page; the pictures are the same section every scene
+// editor has (ScenePictures). Both need the scene to exist, so a new scene
 // gets them once it has been created. Moving the pill to SCENE_LOCKED_STATUS
 // finishes the scene, which the edit action then refuses to save over, so
 // the form says so and Save goes quiet until it is moved back.
@@ -100,10 +99,6 @@ export function SceneForm({
   onCover = false,
 }: Props) {
   const [status, setStatus] = useState(scene?.status ?? null);
-  // Bumped when the picker moves some of the story's attachments onto the
-  // scene: the pictures field loads its rows once, on mount, so a new key is
-  // what makes it fetch them again with the new ones in.
-  const [picturesKey, setPicturesKey] = useState(0);
   const locked = status === SCENE_LOCKED_STATUS;
 
   const {
@@ -279,25 +274,7 @@ export function SceneForm({
       </Column>
 
       <Column onCover={onCover}>
-        <Stack gap="2">
-          <Heading as="h2" size="md">
-            Pictures
-          </Heading>
-          <Text textStyle="sm" color="fg.muted">
-            Saved as soon as they are added. The cover is the one the scene&apos;s panel shows.
-          </Text>
-          <AttachmentListField
-            key={picturesKey}
-            kind="STORY_SCENE"
-            idExternal={scene.idStoryScene}
-            showEmpty
-          />
-          <StoryAttachmentPicker
-            idStory={idStory}
-            holder={{ kind: "STORY_SCENE", idExternal: scene.idStoryScene }}
-            onAttached={() => setPicturesKey((key) => key + 1)}
-          />
-        </Stack>
+        <ScenePictures idStory={idStory} idStoryScene={scene.idStoryScene} headingLevel={2} />
       </Column>
 
       {/* No panel behind the elements, cover or not: the pills are part
