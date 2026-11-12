@@ -442,11 +442,14 @@ describe("SystemStatBlockEditor", () => {
     expect(saved.groups[0].stats.map((stat) => stat.static)).toEqual([true, false]);
   });
 
-  it("offers Can Have Multiples on every group's line, saying what it does, and saves it", async () => {
+  it("offers Can Have Multiples on the line of a group that repeats, saying what it does, and saves it", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<SystemStatBlockEditor system={system} />);
+    renderWithProviders(<SystemStatBlockEditor system={keyable} />);
 
-    // On the closed group's line, so no group need be opened.
+    // A plain group has no box; one that repeats has it on its line.
+    expect(screen.queryByRole("checkbox", { name: "Can Have Multiples" })).toBeNull();
+    await openGroup(user, "attack");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Repeats by" }), "ar");
     const box = screen.getByRole("checkbox", { name: "Can Have Multiples" });
     expect(box).not.toBeChecked();
     await user.hover(box);
@@ -456,12 +459,20 @@ describe("SystemStatBlockEditor", () => {
       ),
     ).toBeInTheDocument();
     await user.click(box);
-    expect(groupTrigger("defense")).toHaveAttribute("aria-expanded", "false");
+    expect(groupTrigger("attack")).toHaveAttribute("aria-expanded", "true");
     await user.click(screen.getByRole("button", { name: "Save stat block" }));
     await waitFor(() => expect(sa_setSystemStatBlockDefinition.mock.callCount()).toBe(1));
     expect(
       sa_setSystemStatBlockDefinition.mock.calls[0].arguments[1].groups[0].canHaveMultiples,
     ).toBe(true);
+    // Made plain again, the group loses the box and the flag with it.
+    await user.selectOptions(screen.getByRole("combobox", { name: "Repeats by" }), "");
+    expect(screen.queryByRole("checkbox", { name: "Can Have Multiples" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    await waitFor(() => expect(sa_setSystemStatBlockDefinition.mock.callCount()).toBe(2));
+    expect(
+      sa_setSystemStatBlockDefinition.mock.calls[1].arguments[1].groups[0].canHaveMultiples,
+    ).toBe(false);
   });
 
   it("offers Roll all on the line of a group that repeats, and saves it", async () => {

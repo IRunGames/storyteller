@@ -408,15 +408,17 @@ function GroupItem({
           </HStack>
           <Accordion.ItemIndicator />
         </Accordion.ItemTrigger>
-        {/* The group's boxes sit on the line, beside the trigger rather than
-            in it, so ticking one does not open or close the group. */}
-        <FlagCheckbox
-          control={control}
-          name={`groups.${g}.canHaveMultiples`}
-          tooltip="Let an element say how many of this group it has; Roll all rolls it that many times"
-        >
-          Can Have Multiples
-        </FlagCheckbox>
+        {/* A repeating group's boxes sit on the line, beside the trigger
+            rather than in it, so ticking one does not open or close the group. */}
+        {repeating && (
+          <FlagCheckbox
+            control={control}
+            name={`groups.${g}.canHaveMultiples`}
+            tooltip="Let an element say how many of this group it has; Roll all rolls it that many times"
+          >
+            Can Have Multiples
+          </FlagCheckbox>
+        )}
         {repeating && (
           <FlagCheckbox
             control={control}
@@ -472,8 +474,8 @@ function GroupItem({
  * connected is offered, since a pool or stack is spent and refilled, a
  * computed stat stores nothing, and a fed display is the same on every row.
  * Watches the group's stats itself so the options follow a type or a
- * connection as it is changed. A group made plain again gives up Roll all,
- * which only a repeating group has.
+ * connection as it is changed. A group made plain again gives up Roll all
+ * and Can Have Multiples, which only a repeating group has.
  */
 function KeyedBySelect({
   control,
@@ -504,7 +506,10 @@ function KeyedBySelect({
           {...keyedBy}
           onChange={(event) => {
             keyedBy.onChange(event);
-            if (event.target.value === "") setValue(`groups.${g}.rollAll`, false);
+            if (event.target.value === "") {
+              setValue(`groups.${g}.rollAll`, false);
+              setValue(`groups.${g}.canHaveMultiples`, false);
+            }
           }}
         >
           <option value="">Does not repeat</option>

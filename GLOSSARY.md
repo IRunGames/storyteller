@@ -119,7 +119,8 @@ engineering skills consume this file.
   stats pane, that rolls the first die of every row at once
   (`sa_rollGroupRows`), each roll under the element's title and the row's
   key, and each row as many times as the element's multiple of the group.
-- **Can have multiples**: a group flag (`canHaveMultiples`): an element says
+- **Can have multiples**: a group flag (`canHaveMultiples`), offered on a
+  group that repeats: an element says
   how many of the group it has in a Multiple box on its block's card, 1 to
   start, stored under the block's `$multiples` key (`MULTIPLES`) by group
   name; the table heads the group "Attack ×4" and Roll all rolls each row

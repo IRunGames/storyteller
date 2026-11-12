@@ -224,7 +224,7 @@ describe("statBlockDefinitionSchema", () => {
     );
   });
 
-  it("lets only a group that repeats roll all", () => {
+  it("lets only a group that repeats roll all or have multiples", () => {
     const errors = errorsOf(
       statBlockDefinitionSchema.safeParse({
         groups: [
@@ -240,6 +240,22 @@ describe("statBlockDefinitionSchema", () => {
       }),
     );
     expect(errors["groups.0.rollAll"]).toBe("Only a group that repeats can roll all.");
+    expect(
+      errorsOf(
+        statBlockDefinitionSchema.safeParse({
+          groups: [
+            {
+              name: "g",
+              label: "",
+              keyedBy: "",
+              rollAll: false,
+              canHaveMultiples: true,
+              stats: [stat({ name: "a", type: "display" })],
+            },
+          ],
+        }),
+      )["groups.0.canHaveMultiples"],
+    ).toBe("Only a group that repeats can have multiples.");
     const repeating = statBlockDefinitionSchema.safeParse(
       withKey(
         {

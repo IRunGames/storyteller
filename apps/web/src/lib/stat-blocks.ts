@@ -158,7 +158,8 @@ export type StatGroupDefinition = {
   /**
    * Whether an element says how many of this group it has (its multiple,
    * MULTIPLES in its block, 1 unless set): Palladium's attacks per melee.
-   * Roll all then rolls each row that many times.
+   * Roll all then rolls each row that many times. Only a group that repeats
+   * may.
    */
   canHaveMultiples: boolean;
   stats: StatDefinition[];

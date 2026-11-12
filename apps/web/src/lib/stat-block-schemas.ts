@@ -136,6 +136,12 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
         message: "Only a group that repeats can roll all.",
       });
     }
+    if (group.canHaveMultiples && !isRepeating(group)) {
+      issues.push({
+        path: ["groups", g, "canHaveMultiples"],
+        message: "Only a group that repeats can have multiples.",
+      });
+    }
 
     if (isRepeating(group)) {
       const key = group.stats.find((stat) => stat.name === group.keyedBy);
