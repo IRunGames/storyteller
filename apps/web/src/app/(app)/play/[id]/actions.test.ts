@@ -523,6 +523,22 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         eq(tables.sceneElements.idStoryScene, docks),
         eq(tables.sceneElements.idElement, zed),
       );
+      // The untap names the link, not the element: an element may be in the
+      // scene more than once.
+      const linkIdOf = async (idElement: number) =>
+        (
+          await db
+            .select({ id: tables.sceneElements.idSceneElement })
+            .from(tables.sceneElements)
+            .where(
+              and(
+                eq(tables.sceneElements.idStoryScene, docks),
+                eq(tables.sceneElements.idElement, idElement),
+              ),
+            )
+        )[0].id;
+      const zedLinkId = await linkIdOf(zed);
+      const ghostLinkId = await linkIdOf(ghost);
       const linkOf = async () =>
         (
           await db
@@ -540,9 +556,11 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       try {
         // Nothing to untap until the scene is on, the card is tapped and its
         // info is showing.
-        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zed)).toEqual(notPlayed);
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zedLinkId)).toEqual(
+          notPlayed,
+        );
         await onScene(docks);
-        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zed)).toEqual({
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zedLinkId)).toEqual({
           ok: false,
           error: "That element is not tapped.",
         });
@@ -550,14 +568,14 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
           .update(tables.sceneElements)
           .set({ status: "TAPPED", showInfo: false })
           .where(zedLink);
-        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zed)).toEqual({
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zedLinkId)).toEqual({
           ok: false,
           error: "That element's info is not showing.",
         });
         await db.update(tables.sceneElements).set({ showInfo: true }).where(zedLink);
         const before = ((await linkOf()).log as Entry[]).length;
 
-        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zed)).toEqual({
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zedLinkId)).toEqual({
           ok: true,
           status: "READY",
         });
@@ -573,7 +591,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         });
         expect(typeof log[log.length - 1].activityData.userName).toBe("string");
         expect(publishSceneElement.mock.calls.map((call) => call.arguments)).toEqual([
-          [playsIn, docks, zed],
+          [playsIn, docks, zedLinkId],
         ]);
         // The table says so in the chat, as a line of its own.
         const [said] = await db
@@ -595,11 +613,11 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
           .update(tables.sceneElements)
           .set({ status: "TAPPED", showInfo: true })
           .where(zedLink);
-        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, ghost)).toEqual({
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, ghostLinkId)).toEqual({
           ok: false,
           error: "That element is not in this scene.",
         });
-        expect(await actions.sa_untapPlaySceneElement(stranger, docks, zed)).toEqual({
+        expect(await actions.sa_untapPlaySceneElement(stranger, docks, zedLinkId)).toEqual({
           ok: false,
           error: "You are not at this story's table.",
         });
@@ -607,7 +625,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
           .update(tables.storyScenes)
           .set({ status: "COMPLETE" })
           .where(eq(tables.storyScenes.idStoryScene, docks));
-        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zed)).toEqual({
+        expect(await actions.sa_untapPlaySceneElement(playsIn, docks, zedLinkId)).toEqual({
           ok: false,
           error: "That scene is complete, so nothing in it can change.",
         });

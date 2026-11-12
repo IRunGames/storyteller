@@ -1,8 +1,10 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Heading, HStack, List, Stack, Text } from "@chakra-ui/react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import type { PlayItem, PlayStack } from "@/lib/run";
+import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { RunNewElementPopover } from "./run-new-element-popover";
 import { RunPlayPill } from "./run-play-pill";
 
@@ -51,7 +53,10 @@ const HALO_FILTER = [1, 2, 4, 6].map((px) => `drop-shadow(0 0 ${px}px ${HALO_COL
  * shows through around it; the heading has a halo and each item is a pill
  * (RunPlayPill) on the panel colour, 45% see-through. The pill blurs what is
  * behind it, so the cover shows through as colour without its detail
- * fighting the text.
+ * fighting the text. The button before the + widens the stack to the whole
+ * play space, its pills widened with it, side by side only where the play
+ * space is wide enough for two of them, and back; the page's alone, told to
+ * nobody and forgotten on a reload.
  */
 export function RunPlayStack({
   idStory,
@@ -68,6 +73,7 @@ export function RunPlayStack({
   fullWidth = false,
 }: Props) {
   const headingId = useId();
+  const [wide, setWide] = useState(false);
 
   return (
     <Stack
@@ -76,8 +82,9 @@ export function RunPlayStack({
       gap="2"
       // 22rem, between Chakra's xs (20rem) and sm (24rem): a pill's eye, +,
       // name, info and ✕ need a little more than xs gave them.
-      w={fullWidth ? "full" : { base: "full", md: "22rem" }}
+      w={fullWidth || wide ? "full" : { base: "full", md: "22rem" }}
       flexShrink="0"
+      data-wide={wide ? "true" : undefined}
     >
       {/* The tag and its + stand out from the cover by a halo in the page's
           background colour rather than a box behind them: dark text gets a
@@ -99,6 +106,14 @@ export function RunPlayStack({
         >
           {stack.title}
         </Heading>
+        {!fullWidth && (
+          <PrepIconButton
+            label={wide ? `Shrink ${stack.title}` : `Expand ${stack.title}`}
+            onClick={() => setWide((current) => !current)}
+          >
+            {wide ? <Minimize2 /> : <Maximize2 />}
+          </PrepIconButton>
+        )}
         {/* No + on a complete scene, which takes nothing new: the action
             would refuse it anyway. */}
         {idStoryScene !== null && !locked && (
@@ -116,7 +131,15 @@ export function RunPlayStack({
           Nothing here yet.
         </Text>
       ) : (
-        <List.Root listStyleType="none" gap="2">
+        <List.Root
+          listStyleType="none"
+          gap="2"
+          // Widened, the pills fill the width in columns of about twice the
+          // stack's size, so each pill widens; only a very wide play space
+          // has two side by side.
+          display={wide ? "grid" : undefined}
+          gridTemplateColumns={wide ? "repeat(auto-fill, minmax(40rem, 1fr))" : undefined}
+        >
           {stack.items.map((item) => (
             <List.Item key={item.key}>
               <RunPlayPill

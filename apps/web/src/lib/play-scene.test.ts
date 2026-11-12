@@ -36,6 +36,7 @@ function link(over: Partial<PublicSceneElement> = {}): PublicSceneElement {
     status: "READY",
     tags: ["scene"],
     elementShowing: "initial_name",
+    label: null,
     showInfo: true,
     url: null,
     urlText: null,
@@ -67,7 +68,8 @@ const base = { v: 1 as const, at: "2026-10-13T10:01:00.000Z", idStory: 7 };
 describe("toPlayItem", () => {
   it("keys and labels the pill as the storyteller's table does", () => {
     expect(toPlayItem({ element: element(), sceneElement: link() })).toMatchObject({
-      key: "PERSON:5",
+      key: "PERSON:5:11",
+      idSceneElement: 11,
       kind: "PERSON",
       label: "A hooded figure",
       detail: "Harbourmaster",
@@ -200,6 +202,7 @@ describe("applyStoryEvent", () => {
       type: "scene_element.custom",
       idStoryScene: 3,
       idElement: 5,
+      idSceneElement: 11,
       custom: { action: "preview.open" },
     };
     expect(applyStoryEvent(scene, event)).toEqual({ scene, refetch: false });

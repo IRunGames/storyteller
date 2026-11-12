@@ -122,7 +122,7 @@ export function ScenePreview({
           onTextChange={() => {}}
           onNotesChange={() => {}}
           onStatusChange={() => {}}
-          previewIdElement={null}
+          previewIdSceneElement={null}
           onPreviewClose={() => {}}
         />
       </Flex>

@@ -108,7 +108,7 @@ export function SceneElementsPanel({ id, idStory, idStoryScene, title }: Props) 
           onTextChange={() => {}}
           onNotesChange={() => {}}
           onStatusChange={() => {}}
-          previewIdElement={null}
+          previewIdSceneElement={null}
           onPreviewClose={() => {}}
         />
       )}

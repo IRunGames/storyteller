@@ -28,7 +28,8 @@ const scene: RunScene = {
 };
 
 const dafydd: PlayItem = {
-  key: "PERSON:5",
+  key: "PERSON:5:9",
+  idSceneElement: 9,
   kind: "PERSON",
   label: "Dafydd",
   detail: "Shell seller",

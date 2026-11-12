@@ -2,6 +2,15 @@ import { describe, it } from "node:test";
 import { expect } from "expect";
 
 import {
+  MULTIPLES,
+  multipleOf,
+  carriedGroups,
+  emptyStatGroup,
+  formatStatValue,
+  isSignedFormat,
+  numberOnly,
+  signOf,
+  statLines,
   emptyStatBlock,
   evaluateStatBlock,
   emptyStatRowFields,
@@ -24,6 +33,14 @@ const stat = (
   rack: [],
   connectedTo: "",
   computedAs: "",
+  visible: true,
+  format: "",
+  description: "",
+  sticky: false,
+  static: false,
+  roll: "",
+  global: false,
+  upDown: true,
   ...over,
 });
 
@@ -36,16 +53,32 @@ const definition: StatBlockDefinition = {
       name: "stats",
       label: "Stats",
       keyedBy: "",
+      rollAll: false,
+      canHaveMultiples: false,
       stats: [
         stat({ name: "str", type: "display", label: "Strength" }),
         stat({ name: "size", type: "display" }),
-        stat({ name: "mod", type: "computed", computedAs: "floor((stats.str.value - 10) / 2)" }),
+        stat({
+          name: "mod",
+          type: "computed",
+          computedAs: "floor((stats.str.value - 10) / 2)",
+          visible: true,
+          format: "",
+          description: "",
+          sticky: false,
+          static: false,
+          roll: "",
+          global: false,
+          upDown: true,
+        }),
       ],
     },
     {
       name: "combat",
       label: "",
       keyedBy: "",
+      rollAll: false,
+      canHaveMultiples: false,
       stats: [
         stat({ name: "hp", type: "pool", label: "HP", connectedTo: "stats.str" }),
         stat({ name: "mana", type: "pool" }),
@@ -54,8 +87,21 @@ const definition: StatBlockDefinition = {
         stat({ name: "toughness", type: "display" }),
         stat({ name: "die", type: "rack", rack: ["d4", "d6", "d8"] }),
         stat({ name: "level", type: "rack", rack: [1, 2, 3] }),
+        stat({ name: "damage", type: "dice" }),
         stat({ name: "shown_mod", type: "display", connectedTo: "stats.mod" }),
-        stat({ name: "reach", type: "computed", computedAs: "combat.hp.max + combat.rage.value" }),
+        stat({
+          name: "reach",
+          type: "computed",
+          computedAs: "combat.hp.max + combat.rage.value",
+          visible: true,
+          format: "",
+          description: "",
+          sticky: false,
+          static: false,
+          roll: "",
+          global: false,
+          upDown: true,
+        }),
       ],
     },
     // A group that repeats: each row a weapon, with a computed stat reading
@@ -64,6 +110,8 @@ const definition: StatBlockDefinition = {
       name: "attack",
       label: "Attack",
       keyedBy: "weapon",
+      rollAll: false,
+      canHaveMultiples: false,
       stats: [
         stat({ name: "weapon", type: "display", label: "Weapon" }),
         stat({ name: "strike", type: "display", label: "Strike" }),
@@ -71,6 +119,14 @@ const definition: StatBlockDefinition = {
           name: "total",
           type: "computed",
           computedAs: "attack.strike.value + stats.str.value",
+          visible: true,
+          format: "",
+          description: "",
+          sticky: false,
+          static: false,
+          roll: "",
+          global: false,
+          upDown: true,
         }),
         stat({ name: "uses", type: "pool", connectedTo: "strike" }),
       ],
@@ -223,6 +279,8 @@ describe("evaluateStatBlock", () => {
           name: "g",
           label: "",
           keyedBy: "",
+          rollAll: false,
+          canHaveMultiples: false,
           stats: [
             stat({ name: "a", type: "display", connectedTo: "b" }),
             stat({ name: "b", type: "display", connectedTo: "a" }),
@@ -262,6 +320,64 @@ describe("tidyStatBlock", () => {
   });
 });
 
+describe("multiples", () => {
+  const withMultiples: StatBlockDefinition = {
+    groups: definition.groups.map((group) =>
+      group.name === "attack" ? { ...group, canHaveMultiples: true } : group,
+    ),
+  };
+  const rows = [{ weapon: { value: "Sword" }, strike: { value: 2 } }];
+
+  it("reads a group's multiple as stored, 1 where none is set or the group cannot have one", () => {
+    expect(multipleOf({ attack: rows, [MULTIPLES]: { attack: { value: 3 } } }, "attack")).toBe(3);
+    expect(multipleOf({ attack: rows }, "attack")).toBe(1);
+    expect(multipleOf({ attack: rows, [MULTIPLES]: { attack: { value: 0 } } }, "attack")).toBe(1);
+    expect(multipleOf({ attack: rows, [MULTIPLES]: { attack: { value: "x" } } }, "attack")).toBe(1);
+    const evaluated = evaluateStatBlock(withMultiples, {
+      attack: rows,
+      [MULTIPLES]: { attack: { value: 3 } },
+    });
+    expect(evaluated.find((group) => group.name === "attack")).toMatchObject({
+      canHaveMultiples: true,
+      multiple: 3,
+    });
+    // The same block against a template whose attack cannot have multiples: 1.
+    expect(
+      evaluateStatBlock(definition, { attack: rows, [MULTIPLES]: { attack: { value: 3 } } }).find(
+        (group) => group.name === "attack",
+      ),
+    ).toMatchObject({ canHaveMultiples: false, multiple: 1 });
+  });
+
+  it("keeps the multiples of the carried groups that can have one, and drops the rest", () => {
+    const tidy = tidyStatBlock(withMultiples, {
+      attack: rows,
+      [MULTIPLES]: { attack: { value: 3 }, combat: { value: 2 }, gone: { value: 9 } },
+    });
+    expect(tidy[MULTIPLES]).toEqual({ attack: { value: 3 } });
+    // A group not carried has no multiple to keep.
+    expect(
+      MULTIPLES in tidyStatBlock(withMultiples, { [MULTIPLES]: { attack: { value: 3 } } }),
+    ).toBe(false);
+  });
+
+  it("puts a carried group's multiple on the form, 1 where none is stored", () => {
+    expect(toStatBlockFields(withMultiples, { attack: rows })[MULTIPLES]).toEqual({
+      attack: { value: "1", min: "", max: "" },
+    });
+    expect(
+      toStatBlockFields(withMultiples, { attack: rows, [MULTIPLES]: { attack: { value: 4 } } })[
+        MULTIPLES
+      ],
+    ).toEqual({ attack: { value: "4", min: "", max: "" } });
+    expect(MULTIPLES in toStatBlockFields(definition, { attack: rows })).toBe(false);
+    // And back: the box's text as the stored number.
+    expect(
+      statBlockFromFields({ [MULTIPLES]: { attack: { value: "4", min: "", max: "" } } })[MULTIPLES],
+    ).toEqual({ attack: { value: 4 } });
+  });
+});
+
 describe("rowKeyText", () => {
   it("reads a number or a word as text, and nothing for the rest", () => {
     expect(rowKeyText(6)).toBe("6");
@@ -284,10 +400,31 @@ describe("fitStatValue", () => {
     expect(fitStatValue(display, false, 3)).toBeNull();
   });
 
+  it("keeps dice as written, blank or as 1d8 for d8, and lets anything else go", () => {
+    const dice = stat({ name: "damage", type: "dice" });
+    expect(fitStatValue(dice, false, { value: "2d6" })).toEqual({ value: "2d6" });
+    expect(fitStatValue(dice, false, { value: "d8" })).toEqual({ value: "1d8" });
+    expect(fitStatValue(dice, false, { value: "2d6+2" })).toEqual({ value: "2d6+2" });
+    expect(fitStatValue(dice, false, { value: "" })).toEqual({});
+    expect(fitStatValue(dice, false, {})).toEqual({});
+    expect(fitStatValue(dice, false, { value: "2d6+1d4" })).toBeNull();
+    expect(fitStatValue(dice, false, { value: 6 })).toBeNull();
+  });
+
   it("gives a pool a min of 0 when none is stored and keeps its max only when not fed", () => {
     const pool = stat({ name: "p", type: "pool" });
     expect(fitStatValue(pool, false, { value: 2, max: 5 })).toEqual({ value: 2, min: 0, max: 5 });
     expect(fitStatValue(pool, true, { value: 2, min: 1, max: 5 })).toEqual({ value: 2, min: 1 });
+  });
+
+  it("keeps a blank value as nothing yet, with the parts that were given", () => {
+    expect(fitStatValue(stat({ name: "d", type: "display" }), false, {})).toEqual({});
+    expect(fitStatValue(stat({ name: "p", type: "pool" }), false, { max: 5 })).toEqual({
+      min: 0,
+      max: 5,
+    });
+    expect(fitStatValue(stat({ name: "s", type: "stack" }), false, {})).toEqual({});
+    expect(fitStatValue(stat({ name: "p", type: "pool" }), false, { value: "x" })).toBeNull();
   });
 });
 
@@ -319,6 +456,7 @@ describe("emptyStatBlock", () => {
         toughness: { value: 0 },
         die: { value: "d4" },
         level: { value: 1 },
+        damage: {},
       },
       attack: [],
     });
@@ -333,6 +471,8 @@ describe("toStatBlockFields and statBlockFromFields", () => {
           name: "combat",
           label: "",
           keyedBy: "",
+          rollAll: false,
+          canHaveMultiples: false,
           stats: [
             stat({ name: "hp", type: "pool" }),
             stat({ name: "rage", type: "stack" }),
@@ -351,7 +491,9 @@ describe("toStatBlockFields and statBlockFromFields", () => {
         die: { value: "d6", min: "", max: "" },
       },
     });
-    expect((toStatBlockFields(small, undefined).combat as StatRowFieldValues).hp).toEqual({
+    // No block carries no groups; a carried group with nothing stored starts its fields empty.
+    expect(toStatBlockFields(small, undefined)).toEqual({});
+    expect((toStatBlockFields(small, { combat: {} }).combat as StatRowFieldValues).hp).toEqual({
       value: "",
       min: "",
       max: "",
@@ -398,11 +540,25 @@ describe("toStatBlockFields and statBlockFromFields", () => {
       name: "g",
       label: "",
       keyedBy: "name",
+      rollAll: false,
+      canHaveMultiples: false,
       stats: [
         stat({ name: "name", type: "display" }),
         stat({ name: "hp", type: "pool" }),
         stat({ name: "die", type: "rack", rack: ["d4", "d6"] }),
-        stat({ name: "mod", type: "computed", computedAs: "g.hp.value" }),
+        stat({
+          name: "mod",
+          type: "computed",
+          computedAs: "g.hp.value",
+          visible: true,
+          format: "",
+          description: "",
+          sticky: false,
+          static: false,
+          roll: "",
+          global: false,
+          upDown: true,
+        }),
       ],
     };
     expect(emptyStatRowFields(group)).toEqual({
@@ -411,5 +567,67 @@ describe("toStatBlockFields and statBlockFromFields", () => {
       die: { value: "d4", min: "", max: "" },
       mod: { value: "", min: "", max: "" },
     });
+  });
+});
+
+describe("formatStatValue", () => {
+  it("writes a dash for nothing, a sign under +/-, and the value otherwise", () => {
+    expect(formatStatValue({ value: null, format: "number +/-" })).toBe("—");
+    expect(formatStatValue({ value: 3, format: "number +/-" })).toBe("+3");
+    expect(formatStatValue({ value: 0, format: "number +/-" })).toBe("+0");
+    expect(formatStatValue({ value: -2, format: "number +/-" })).toBe("−2");
+    expect(formatStatValue({ value: 3, format: "" })).toBe("3");
+    expect(formatStatValue({ value: -3, format: "number" })).toBe("-3");
+    expect(isSignedFormat("number +/-")).toBe(true);
+    expect(isSignedFormat("number")).toBe(false);
+    expect(formatStatValue({ value: "d6", format: "number +/-" })).toBe("—");
+    expect(formatStatValue({ value: "d6", format: "" })).toBe("d6");
+  });
+});
+
+describe("emptyStatGroup and carriedGroups", () => {
+  it("starts one group as emptyStatBlock starts them all, and lists the groups a block holds", () => {
+    const attack = definition.groups.find((group) => group.name === "attack")!;
+    const stats = definition.groups.find((group) => group.name === "stats")!;
+    expect(emptyStatGroup(definition, attack)).toEqual([]);
+    expect(emptyStatGroup(definition, stats)).toEqual(emptyStatBlock(definition).stats);
+    expect(carriedGroups(definition, undefined)).toEqual([]);
+    expect(carriedGroups(definition, { attack: [], gone: {} }).map((g) => g.name)).toEqual([
+      "attack",
+    ]);
+    // Template order, not the block's.
+    const names = carriedGroups(definition, { attack: [], stats: {} }).map((g) => g.name);
+    expect(names).toEqual(["stats", "attack"]);
+  });
+});
+
+describe("statLines", () => {
+  const s = (name: string, sticky: boolean) => ({ name, sticky });
+  it("keeps a sticky stat on the line of the one after it, and the last one alone", () => {
+    expect(statLines([s("a", false), s("b", false)])).toEqual([[s("a", false)], [s("b", false)]]);
+    expect(statLines([s("a", true), s("b", false), s("c", false)])).toEqual([
+      [s("a", true), s("b", false)],
+      [s("c", false)],
+    ]);
+    expect(statLines([s("a", true), s("b", true), s("c", false)])).toEqual([
+      [s("a", true), s("b", true), s("c", false)],
+    ]);
+    expect(statLines([s("a", false), s("b", true)])).toEqual([[s("a", false)], [s("b", true)]]);
+    expect(statLines([])).toEqual([]);
+  });
+});
+
+describe("numberOnly and signOf", () => {
+  it("keeps what can become a number, and signs a number", () => {
+    expect(numberOnly("12abc")).toBe("12");
+    expect(numberOnly("--3")).toBe("-3");
+    expect(numberOnly("1.2.3")).toBe("1.23");
+    expect(numberOnly("-")).toBe("-");
+    expect(numberOnly("1.")).toBe("1.");
+    expect(numberOnly("a-1")).toBe("-1");
+    expect(numberOnly("")).toBe("");
+    expect(signOf(3)).toBe("+");
+    expect(signOf(0)).toBe("+");
+    expect(signOf(-2)).toBe("−");
   });
 });

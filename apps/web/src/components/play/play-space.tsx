@@ -13,7 +13,7 @@ import {
   type HeadingProps,
 } from "@chakra-ui/react";
 import { toPlayItem, type PlayScene } from "@/lib/play-scene";
-import { elementIdOf, playStacks } from "@/lib/run";
+import { playStacks } from "@/lib/run";
 import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS, type SceneText } from "@/lib/scenes";
 import { cssUrlValue } from "@/lib/stories";
 import { sa_setPlaySceneText } from "@/app/(app)/play/[id]/actions";
@@ -41,9 +41,9 @@ type Props = {
   /** The players' notes on an element have been saved from its pill's info popover. */
   onNotesChange: (idElement: number, notes: string | null) => void;
   /** A pill has changed its link's status, or put it back after a refusal. */
-  onStatusChange: (idElement: number, status: string) => void;
+  onStatusChange: (idSceneElement: number, status: string) => void;
   /** The element whose picture the storyteller has put up full size, or null for none. */
-  previewIdElement: number | null;
+  previewIdSceneElement: number | null;
   /** The player closed that picture for themselves. */
   onPreviewClose: () => void;
   /**
@@ -121,7 +121,7 @@ const STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
  * on no scene yet, it says which.
  *
  * A picture the storyteller has put up from a pill's tack (the preview.open
- * pulse, held by the table as previewIdElement) is open full size over the
+ * pulse, held by the table as previewIdSceneElement) is open full size over the
  * space, in the same preview a thumbnail opens, until the storyteller takes
  * it down or the player closes it for themselves. An element the table
  * does not hold, or one without a picture, shows nothing.
@@ -140,7 +140,7 @@ export function PlaySpace({
   onTextChange,
   onNotesChange,
   onStatusChange,
-  previewIdElement,
+  previewIdSceneElement,
   onPreviewClose,
   readOnly = false,
   withHistory = false,
@@ -164,9 +164,10 @@ export function PlaySpace({
   const lookOnly = readOnly || held;
   const coverUrl = scene.coverUrl ?? fallbackCoverUrl;
   const shown =
-    previewIdElement === null
+    previewIdSceneElement === null
       ? null
-      : (items.find((item) => elementIdOf(item) === previewIdElement && item.imageUrl) ?? null);
+      : (items.find((item) => item.idSceneElement === previewIdSceneElement && item.imageUrl) ??
+        null);
 
   return (
     <Box as="section" aria-labelledby="play-space-heading" position="relative" flex="1" minH="0">

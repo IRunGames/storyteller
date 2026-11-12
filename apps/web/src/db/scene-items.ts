@@ -43,32 +43,37 @@ export type SceneItemRow = {
 };
 
 /**
- * One element of a story with its link to a scene, or null when the element
- * is not the story's; the link is null when it is not in the scene. The two
- * halves are held to the one story here, since nothing in the database does.
+ * One link of a scene with its element, by the link's id, or null when the
+ * link is gone or its element is not the story's. The two halves are held to
+ * the one story here, since nothing in the database does.
  */
-export async function sceneItem(
+export async function sceneLink(
   idStory: number,
-  idStoryScene: number,
-  idElement: number,
-): Promise<(Omit<SceneItemRow, "link"> & { link: SceneItemRow["link"] | null }) | null> {
+  idSceneElement: number,
+): Promise<SceneItemRow | null> {
   const [row] = await db
     .select({
       element: elements,
       link: sceneElements,
       imageUrl: sceneElementImageUrl("scene_elements", "elements"),
     })
-    .from(elements)
-    .leftJoin(
-      sceneElements,
-      and(
-        eq(sceneElements.idElement, elements.idElement),
-        eq(sceneElements.idStoryScene, idStoryScene),
-      ),
-    )
-    .where(and(eq(elements.idElement, idElement), eq(elements.idStory, idStory)))
+    .from(sceneElements)
+    .innerJoin(elements, eq(elements.idElement, sceneElements.idElement))
+    .where(and(eq(sceneElements.idSceneElement, idSceneElement), eq(elements.idStory, idStory)))
     .limit(1);
   return row ?? null;
+}
+
+/** The ids of an element's links to a scene, an element being in a scene any number of times. */
+export async function sceneLinksOf(idStoryScene: number, idElement: number): Promise<number[]> {
+  const rows = await db
+    .select({ idSceneElement: sceneElements.idSceneElement })
+    .from(sceneElements)
+    .where(
+      and(eq(sceneElements.idStoryScene, idStoryScene), eq(sceneElements.idElement, idElement)),
+    )
+    .orderBy(asc(sceneElements.idSceneElement));
+  return rows.map((row) => row.idSceneElement);
 }
 
 /**

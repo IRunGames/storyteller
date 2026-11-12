@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { sceneElements } from "@/db/schema";
-import { currentScene, sceneItem } from "@/db/scene-items";
+import { currentScene, sceneLink, sceneLinksOf } from "@/db/scene-items";
 import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
 import {
   toPublicElement,
@@ -26,29 +26,32 @@ async function isCurrent(idStory: number, idStoryScene: number): Promise<boolean
 }
 
 /**
- * An element's link to the current scene as the players may now see it: the
- * element and the link whole, or, for a link that is INVISIBLE or gone, a
- * `removed` with its ids alone, so nothing hidden ever goes over the topic.
- * Nothing when the scene is not the current one.
+ * A link of the current scene as the players may now see it: the element
+ * and the link whole, or, for a link that is INVISIBLE, a `removed` with its
+ * ids alone, so nothing hidden ever goes over the topic. Links are named by
+ * their own id, since an element may be in a scene more than once. Nothing
+ * when the scene is not the current one, or the link is gone (a deletion
+ * says so itself, publishSceneElementRemoved).
  */
 export async function publishSceneElement(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
 ): Promise<void> {
   if (!(await isCurrent(idStory, idStoryScene))) return;
-  const row = await sceneItem(idStory, idStoryScene, idElement);
+  const row = await sceneLink(idStory, idSceneElement);
+  if (row === null || row.link.idStoryScene !== idStoryScene) return;
 
   const event: StoryEvent =
-    row === null || row.link === null || row.link.status === SCENE_ELEMENT_HIDDEN
+    row.link.status === SCENE_ELEMENT_HIDDEN
       ? {
           v: 1,
           at: stamp(),
           idStory,
           type: "scene_element.removed",
           idStoryScene,
-          idElement,
-          idSceneElement: row?.link?.idSceneElement ?? null,
+          idElement: row.element.idElement,
+          idSceneElement,
         }
       : {
           v: 1,
@@ -62,56 +65,70 @@ export async function publishSceneElement(
 }
 
 /**
- * A pulse about one element of the current scene (the storyteller's tack
+ * A pulse about one link of the current scene (the storyteller's tack
  * opening its picture on the players' table, say): sent as given, since
  * nothing was written for it and there is no row to re-read. Whether the
  * action is one the players answer is the caller's to check. Nothing when
- * the scene is not the current one.
+ * the scene is not the current one, or the link is not in it.
  */
 export async function publishSceneElementPulse(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
   custom: ScenePulseCustom,
 ): Promise<void> {
   if (!(await isCurrent(idStory, idStoryScene))) return;
+  const [link] = await db
+    .select({ idElement: sceneElements.idElement })
+    .from(sceneElements)
+    .where(
+      and(
+        eq(sceneElements.idSceneElement, idSceneElement),
+        eq(sceneElements.idStoryScene, idStoryScene),
+      ),
+    )
+    .limit(1);
+  if (!link) return;
   await publishStoryEvent(idStory, {
     v: 1,
     at: stamp(),
     idStory,
     type: "scene_element.custom",
     idStoryScene,
-    idElement,
+    idElement: link.idElement,
+    idSceneElement,
     custom,
   });
 }
 
 /**
  * A link's own pictures changed (the attachment actions, which know the
- * link only by its id): the link as the players may now see it, found
- * through its scene and element. Nothing for a link that is gone.
+ * link only by its id): the link as the players may now see it. Nothing for
+ * a link that is gone.
  */
 export async function publishSceneElementPictures(
   idStory: number,
   idSceneElement: number,
 ): Promise<void> {
   const [link] = await db
-    .select({ idStoryScene: sceneElements.idStoryScene, idElement: sceneElements.idElement })
+    .select({ idStoryScene: sceneElements.idStoryScene })
     .from(sceneElements)
     .where(eq(sceneElements.idSceneElement, idSceneElement))
     .limit(1);
-  if (link) await publishSceneElement(idStory, link.idStoryScene, link.idElement);
+  if (link) await publishSceneElement(idStory, link.idStoryScene, idSceneElement);
 }
 
 /**
  * An element changed in the story itself (its fields, status or picture),
- * which shows in the current scene only if it is linked there. Nothing when
- * it is not, or when no scene is being played.
+ * which shows in the current scene through each of its links there. Nothing
+ * when it has none, or when no scene is being played.
  */
 export async function publishElementChanged(idStory: number, idElement: number): Promise<void> {
   const current = await currentScene(idStory);
   if (current === null || current.idStoryScene === null) return;
-  await publishSceneElement(idStory, current.idStoryScene, idElement);
+  for (const idSceneElement of await sceneLinksOf(current.idStoryScene, idElement)) {
+    await publishSceneElement(idStory, current.idStoryScene, idSceneElement);
+  }
 }
 
 /**

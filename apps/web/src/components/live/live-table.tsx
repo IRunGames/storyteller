@@ -28,6 +28,7 @@ import {
   RUN_LIBRARY_ELEMENT_SORT,
   RUN_LIBRARY_SCENE_ONLY,
   DEFAULT_ELEMENT_SHOWING,
+  playItemKey,
   withShowing,
   type ElementDetail,
   type PlayItem,
@@ -148,9 +149,10 @@ export function LiveTable({
     );
 
   // The library's arrow: the element is linked to the scene under the In
-  // select's stack, and goes in as the link came back.
+  // select's stack, and goes in as the link came back; one already in the
+  // scene goes in again as a copy, with a warning, as on the run page.
   async function add(item: PlayItem) {
-    if (isComplete || inPlay.some((existing) => existing.key === item.key)) return;
+    if (isComplete) return;
     const idElement = elementIdOf(item);
     try {
       const result = await sa_linkSceneElement(idStory, scene.idStoryScene, idElement, {
@@ -158,8 +160,18 @@ export function LiveTable({
         tag: inStack,
         showInfo: addShowInfo,
       });
-      if (result.ok) put(result.item);
-      else toaster.create({ title: result.error, type: "error" });
+      if (!result.ok) {
+        toaster.create({ title: result.error, type: "error" });
+        return;
+      }
+      put(result.item);
+      if (result.duplicate) {
+        toaster.create({
+          title: `${item.label} is in the scene already`,
+          description: `A copy was added as ${result.item.label}.`,
+          type: "warning",
+        });
+      }
     } catch {
       toaster.create({ title: "The element could not be added. Try again.", type: "error" });
     }
@@ -167,11 +179,9 @@ export function LiveTable({
   const remove = (key: string) =>
     setInPlay((current) => current.filter((existing) => existing.key !== key));
   // The rest of these are the run page's, for the same reasons; see there.
-  const removeElement = (idElement: number) =>
+  const removeLink = (idSceneElement: number) =>
     setInPlay((current) =>
-      current.filter(
-        (existing) => existing.kind === "ATTACHMENT" || elementIdOf(existing) !== idElement,
-      ),
+      current.filter((existing) => existing.idSceneElement !== idSceneElement),
     );
   const replace = (item: PlayItem) =>
     setInPlay((current) =>
@@ -197,7 +207,7 @@ export function LiveTable({
         }
         const moved: PlayItem = {
           ...existing,
-          key: `${element.kind}:${element.idElement}`,
+          key: playItemKey(element.kind, element.idElement, existing.idSceneElement),
           kind: element.kind as PlayItem["kind"],
           imageUrl: element.imageUrl,
         };
@@ -209,6 +219,7 @@ export function LiveTable({
               initial_name: element.initialName,
               name: element.name,
               title: element.title,
+              label: existing.fields.label,
             },
           },
           existing.showing ?? DEFAULT_ELEMENT_SHOWING,
@@ -325,7 +336,7 @@ export function LiveTable({
               elementSort={elementSort}
               sceneOnly={sceneOnly}
               onAdd={(item) => void add(item)}
-              onRemovedFromScene={removeElement}
+              onRemovedFromScene={removeLink}
               onCreated={put}
               onImageChange={setImage}
               onElementEdited={editElement}

@@ -45,8 +45,10 @@ const link: SceneElementRow = {
   status: "READY",
   tags: ["scene"],
   elementShowing: "initial_name",
+  label: null,
   showInfo: true,
   showImage: false,
+  statBlocks: {},
   url: null,
   urlText: null,
   activityLog: [{ at: "x" }],
@@ -104,6 +106,7 @@ describe("public rows", () => {
     expect(pub).toMatchObject({
       idSceneElement: 11,
       elementShowing: "initial_name",
+      label: null,
       showInfo: true,
       tappedAt: null,
     });
@@ -133,6 +136,7 @@ describe("parseStoryEvent", () => {
       type: "scene_element.custom",
       idStoryScene: 3,
       idElement: 5,
+      idSceneElement: 11,
       custom: { action: "preview.open" },
     };
     expect(parseStoryEvent(JSON.parse(JSON.stringify(pulse)))).toEqual(pulse);
@@ -177,6 +181,7 @@ describe("storyEventTitle", () => {
         type: "scene_element.custom",
         idStoryScene: 3,
         idElement: 5,
+        idSceneElement: 11,
         custom: { action: "preview.open" },
       }),
     ).toBe("scene_element.custom · element 5 (preview.open)");

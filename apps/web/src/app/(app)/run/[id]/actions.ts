@@ -42,6 +42,7 @@ import {
   isElementShowing,
   pillLink,
   pillText,
+  playItemKey,
   RUN_LIST_SIZE,
   RUN_SCENES_LIST_SIZE,
   isSceneElementStatus,
@@ -215,6 +216,9 @@ async function spaceFor(idStory: number, idStoryScene: number): Promise<RunPlayS
       urlText: vSceneElements.elementUrlText,
       sceneUrl: vSceneElements.url,
       sceneUrlText: vSceneElements.urlText,
+      idSceneElement: vSceneElements.idSceneElement,
+      hasStatBlocks: linkHasStatBlocks("v_scene_elements"),
+      label: vSceneElements.label,
     })
     .from(vSceneElements)
     .where(
@@ -242,6 +246,9 @@ async function spaceFor(idStory: number, idStoryScene: number): Promise<RunPlayS
         status: row.status ?? "",
         showing: row.showing,
         showInfo: row.showInfo,
+        idSceneElement: row.idSceneElement,
+        hasStatBlocks: row.hasStatBlocks,
+        label: row.label,
         imageUrl: row.imageUrl,
         url: row.url,
         urlText: row.urlText,
@@ -306,12 +313,27 @@ export async function sa_setSceneText(
 }
 
 /**
+ * Whether a link carries any stat block: its jsonb has a key. Read beside
+ * the view's columns, which do not carry the blocks themselves; the view's
+ * row is named by its table, as attachmentUrl names its source, since the
+ * select list leaves columns bare.
+ */
+function linkHasStatBlocks(source: string) {
+  return sql<boolean>`(
+    select link.stat_blocks <> '{}'::jsonb
+    from ${sceneElements} link
+    where link.id_scene_element = ${sql.identifier(source)}.id_scene_element
+  )`;
+}
+
+/**
  * An element linked to the scene, as the play space holds it. The pill is
- * labelled with whichever of the element's fields the link's
- * element_showing names, the initial name for a new link, falling back to
- * the name when that field is empty (pillText). `showing` is null or
- * unknown only for a row read before the column existed, and shows the
- * default.
+ * labelled with whichever field the link's element_showing names, the
+ * element's initial name for a new link and the link's own label for a copy,
+ * falling back to the name when that field is empty (pillText).
+ * `showing` is null or unknown only for a row read before the column
+ * existed, and shows the default. Keyed by the link as well as the element
+ * (playItemKey), since an element may be in the scene more than once.
  */
 function linkedItem(row: {
   idElement: number;
@@ -331,12 +353,22 @@ function linkedItem(row: {
   urlText?: string | null;
   sceneUrl?: string | null;
   sceneUrlText?: string | null;
+  /** The link's own id and whether it carries a stat block, when the read had them. */
+  idSceneElement?: number | null;
+  hasStatBlocks?: boolean | null;
+  /** The link's own label (scene_elements.label), one of the fields the pill may show; null or absent for none. */
+  label?: string | null;
 }): PlayItem {
-  const fields = { initial_name: row.initialName, name: row.name, title: row.title };
+  const fields = {
+    initial_name: row.initialName,
+    name: row.name,
+    title: row.title,
+    label: row.label ?? null,
+  };
   const showing = isElementShowing(row.showing) ? row.showing : DEFAULT_ELEMENT_SHOWING;
   const { label, detail } = pillText(fields, showing);
   return {
-    key: `${row.kind}:${row.idElement}`,
+    key: playItemKey(row.kind, row.idElement, row.idSceneElement),
     kind: row.kind as PlayItem["kind"],
     label,
     detail,
@@ -344,6 +376,8 @@ function linkedItem(row: {
     sceneTags: row.tags,
     sceneStatus: row.status,
     showInfo: row.showInfo ?? true,
+    ...(row.idSceneElement == null ? {} : { idSceneElement: row.idSceneElement }),
+    hasStatBlocks: row.hasStatBlocks ?? false,
     link: pillLink(
       { url: row.sceneUrl ?? null, urlText: row.sceneUrlText ?? null },
       { url: row.url ?? null, urlText: row.urlText ?? null },
@@ -895,7 +929,7 @@ async function parseElementForm(
 
 /** The element columns the run page's form writes. */
 function elementColumns(
-  values: Omit<RunElementValues, "sceneStatus" | "sceneUrl" | "sceneUrlText">,
+  values: Omit<RunElementValues, "sceneStatus" | "sceneUrl" | "sceneUrlText" | "sceneLabel">,
 ) {
   return {
     kind: values.kind,
@@ -911,8 +945,14 @@ function elementColumns(
 }
 
 /** The link's own columns from the run form: its external link for this scene. */
-function sceneLinkColumns(values: Pick<RunElementValues, "sceneUrl" | "sceneUrlText">) {
-  return { url: values.sceneUrl || null, urlText: values.sceneUrlText || null };
+function sceneLinkColumns(
+  values: Pick<RunElementValues, "sceneUrl" | "sceneUrlText" | "sceneLabel">,
+) {
+  return {
+    url: values.sceneUrl || null,
+    urlText: values.sceneUrlText || null,
+    label: values.sceneLabel || null,
+  };
 }
 
 /**
@@ -974,7 +1014,7 @@ export async function sa_createSceneElement(
     if (sceneImageUrl === null) return { ok: false, errors: { root: NOT_THIS_STORYS_PICTURE } };
   }
 
-  const idElement = await db.transaction(async (tx) => {
+  const { idElement, idSceneElement } = await db.transaction(async (tx) => {
     const [created] = await tx
       .insert(elements)
       .values({
@@ -984,11 +1024,14 @@ export async function sa_createSceneElement(
         idUpdatedByUser: user.id,
       })
       .returning({ idElement: elements.idElement });
+    // The link's stat blocks copy the element's at this moment, which for an
+    // element just made here is none: this form posts no blocks.
     const [link] = await tx
       .insert(sceneElements)
       .values({
         idStoryScene: scene,
         idElement: created.idElement,
+        statBlocks: {},
         tags,
         status: values.sceneStatus,
         showInfo,
@@ -1019,7 +1062,7 @@ export async function sa_createSceneElement(
         idUpdatedByUser: user.id,
       });
     }
-    return created.idElement;
+    return { idElement: created.idElement, idSceneElement: link.idSceneElement };
   });
   publishLater(() => publishSceneElement(story, scene, idElement));
 
@@ -1034,6 +1077,10 @@ export async function sa_createSceneElement(
       tags,
       status: values.sceneStatus,
       showInfo,
+      idSceneElement,
+      // This form posts no blocks, so the link starts with none.
+      hasStatBlocks: false,
+      label: values.sceneLabel || null,
       // The link's picture stands in front of the element's, as the pill shows them.
       imageUrl: sceneImageUrl ?? imageUrl,
       url: values.url || null,
@@ -1051,19 +1098,21 @@ export async function sa_createSceneElement(
  * transition; one that has goes through the database's transition trigger,
  * whose refusal comes back as `root`. The pill comes back as it now is.
  *
- * Throws for a scene the caller does not tell, as the create does; an
- * element not linked to the scene comes back as `root`.
+ * Throws for a scene the caller does not tell, as the create does; a link
+ * that is not the scene's comes back as `root`. The link is named by its own
+ * id, since an element may be in the scene more than once; the element's
+ * fields are the element's, so every copy shows them.
  */
 export async function sa_updateSceneElement(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
   input: unknown,
 ): Promise<SceneElementFormResult> {
   const user = await requireAccount();
   const story = idSchema.parse(idStory);
   const scene = idSchema.parse(idStoryScene);
-  const element = idSchema.parse(idElement);
+  const link = idSchema.parse(idSceneElement);
   const owned = await ownedScene(user.id, story, scene);
   if (owned === null) throw new Error(NOT_THIS_STORY);
   if (lockedScene(owned)) return { ok: false, errors: { root: SCENE_COMPLETE } };
@@ -1074,23 +1123,28 @@ export async function sa_updateSceneElement(
 
   const [current] = await db
     .select({
+      idElement: vSceneElements.idElement,
       status: vSceneElements.status,
       elementStatus: vSceneElements.elementStatus,
       tags: vSceneElements.tags,
       showing: vSceneElements.elementShowing,
       showInfo: vSceneElements.showInfo,
       imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
+      hasStatBlocks: linkHasStatBlocks("v_scene_elements"),
     })
     .from(vSceneElements)
     .where(
       and(
         eq(vSceneElements.idStoryScene, scene),
-        eq(vSceneElements.idElement, element),
+        eq(vSceneElements.idSceneElement, link),
         eq(vSceneElements.idStory, story),
       ),
     )
     .limit(1);
-  if (!current) return { ok: false, errors: { root: NOT_IN_THIS_SCENE } };
+  if (!current || current.idElement === null) {
+    return { ok: false, errors: { root: NOT_IN_THIS_SCENE } };
+  }
+  const element = current.idElement;
 
   const { status, ...fields } = elementColumns(values);
   try {
@@ -1112,14 +1166,14 @@ export async function sa_updateSceneElement(
           ...(values.sceneStatus !== current.status ? { status: values.sceneStatus } : {}),
           idUpdatedByUser: user.id,
         })
-        .where(and(eq(sceneElements.idStoryScene, scene), eq(sceneElements.idElement, element)));
+        .where(and(eq(sceneElements.idStoryScene, scene), eq(sceneElements.idSceneElement, link)));
     });
   } catch {
     // The transition trigger raises rather than returns, naming database
     // internals, so the form says the plain thing instead.
     return { ok: false, errors: { root: "The database refused that change of status." } };
   }
-  publishLater(() => publishSceneElement(story, scene, element));
+  publishLater(() => publishSceneElement(story, scene, link));
 
   return {
     ok: true,
@@ -1133,6 +1187,9 @@ export async function sa_updateSceneElement(
       status: values.sceneStatus,
       showing: current.showing,
       showInfo: current.showInfo,
+      idSceneElement: link,
+      hasStatBlocks: current.hasStatBlocks,
+      label: values.sceneLabel || null,
       imageUrl: current.imageUrl,
       url: values.url || null,
       urlText: values.urlText || null,
@@ -1142,7 +1199,14 @@ export async function sa_updateSceneElement(
   };
 }
 
-export type LinkSceneElementResult = { ok: true; item: PlayItem } | { ok: false; error: string };
+export type LinkSceneElementResult =
+  | {
+      ok: true;
+      item: PlayItem;
+      /** Whether the element was in the scene already, so this link is a copy of it. */
+      duplicate: boolean;
+    }
+  | { ok: false; error: string };
 
 /**
  * Links one of the story's elements to the scene, from the library's arrow,
@@ -1154,8 +1218,11 @@ export type LinkSceneElementResult = { ok: true; item: PlayItem } | { ok: false;
  * are the library's switches: with `hidden` (Add as invisible) the link
  * starts INVISIBLE rather than in the workflow's default, and `showInfo`
  * (Add showing info) is whether the players see the element's description,
- * the column's default when left out. An element already linked keeps its
- * link, its tags, its status and its show_info, and comes back as it is.
+ * the column's default when left out. An element already in the scene is
+ * linked again rather than refused, a copy with its own status, stack,
+ * pictures and stat blocks, its pill showing a label of the element's name
+ * with a counter ("Goblin 1" for the first copy, "Goblin 2" for the next);
+ * `duplicate` says so, for the table to warn the storyteller.
  *
  * Refused when the scene or the element is not this story's, or the caller
  * is not its storyteller; nothing in the database holds a link's element to
@@ -1197,53 +1264,71 @@ export async function sa_linkSceneElement(
       imageUrl: attachmentUrl("ELEMENT", "elements", "id_element"),
       url: elements.url,
       urlText: elements.urlText,
+      statBlocks: elements.statBlocks,
     })
     .from(elements)
     .where(and(eq(elements.idElement, element.data), eq(elements.idStory, story.data)))
     .limit(1);
   if (!row) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
 
-  await db
+  // How many times the element is in the scene already: a copy is numbered
+  // after them, so the first copy of Goblin is Goblin 1.
+  const [{ copies }] = await db
+    .select({ copies: count() })
+    .from(sceneElements)
+    .where(
+      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, row.idElement)),
+    );
+  const label = copies > 0 ? `${row.name} ${copies}` : null;
+
+  // The link takes a copy of the element's stat blocks as they stand, to be
+  // changed in play while the element keeps its baseline; a copy of the
+  // element takes its own copy, so each is played apart.
+  const [made] = await db
     .insert(sceneElements)
     .values({
       idStoryScene: scene.data,
       idElement: row.idElement,
+      statBlocks: row.statBlocks,
       tags,
+      label,
+      // A copy's pill shows its label, so two goblins are told apart at once.
+      ...(label === null ? {} : { elementShowing: "label" }),
       ...(hidden === true ? { status: SCENE_ELEMENT_HIDDEN } : {}),
       ...(showInfo === undefined ? {} : { showInfo: showInfo === true }),
       idCreatedByUser: user.id,
       idUpdatedByUser: user.id,
     })
-    .onConflictDoNothing({ target: [sceneElements.idStoryScene, sceneElements.idElement] });
+    .returning({ idSceneElement: sceneElements.idSceneElement });
   const [link] = await db
     .select({
       tags: sceneElements.tags,
       status: sceneElements.status,
       showing: sceneElements.elementShowing,
       showInfo: sceneElements.showInfo,
-      // An existing link may have a picture, and a link, of its own in this scene.
-      imageUrl: attachmentUrl("SCENE_ELEMENT", "scene_elements", "id_scene_element"),
       sceneUrl: sceneElements.url,
       sceneUrlText: sceneElements.urlText,
+      hasStatBlocks: sql<boolean>`${sceneElements.statBlocks} <> '{}'::jsonb`,
     })
     .from(sceneElements)
-    .where(
-      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, row.idElement)),
-    )
+    .where(eq(sceneElements.idSceneElement, made.idSceneElement))
     .limit(1);
-  publishLater(() => publishSceneElement(story.data, scene.data, row.idElement));
+  publishLater(() => publishSceneElement(story.data, scene.data, made.idSceneElement));
 
   return {
     ok: true,
+    duplicate: copies > 0,
     item: linkedItem({
       ...row,
-      imageUrl: link?.imageUrl ?? row.imageUrl,
       sceneUrl: link?.sceneUrl,
       sceneUrlText: link?.sceneUrlText,
-      tags: link?.tags ?? [],
+      tags: link?.tags ?? tags,
       status: link?.status ?? "",
       showing: link?.showing,
       showInfo: link?.showInfo,
+      idSceneElement: made.idSceneElement,
+      hasStatBlocks: link?.hasStatBlocks,
+      label,
     }),
   };
 }
@@ -1261,41 +1346,47 @@ const NO_SUCH_SCENE_STATUS = `Choose one of ${SCENE_ELEMENT_STATUSES.join(", ")}
  * ends in comes back for the pill.
  *
  * Refused for a status off the workflow, when the scene is not this story's
- * or the caller is not its storyteller, and when the element is not linked
- * to the scene.
+ * or the caller is not its storyteller, and when the link is not the
+ * scene's. Links are named by their own id throughout these actions, since
+ * an element may be in the scene more than once.
  */
 export async function sa_setSceneElementStatus(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
   status: string,
 ): Promise<SetSceneElementStatusResult> {
   const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
-  const element = idSchema.safeParse(idElement);
+  const link = idSchema.safeParse(idSceneElement);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
   if (!isSceneElementStatus(status)) return { ok: false, error: NO_SUCH_SCENE_STATUS };
   const owned = await ownedScene(user.id, story.data, scene.data);
   if (owned === null) return { ok: false, error: NOT_THIS_STORY };
   if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
 
-  const link = and(
-    eq(sceneElements.idStoryScene, scene.data),
-    eq(sceneElements.idElement, element.data),
-  );
+  const where = linkIn(scene.data, link.data);
   const [row] = await db
     .select({ status: sceneElements.status })
     .from(sceneElements)
-    .where(link)
+    .where(where)
     .limit(1);
   if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
   if (row.status === status) return { ok: true, status };
 
-  await db.update(sceneElements).set({ status, idUpdatedByUser: user.id }).where(link);
-  publishLater(() => publishSceneElement(story.data, scene.data, element.data));
+  await db.update(sceneElements).set({ status, idUpdatedByUser: user.id }).where(where);
+  publishLater(() => publishSceneElement(story.data, scene.data, link.data));
   return { ok: true, status };
+}
+
+/** One link of the scene: the link's id, held to the scene the caller named. */
+function linkIn(idStoryScene: number, idSceneElement: number) {
+  return and(
+    eq(sceneElements.idStoryScene, idStoryScene),
+    eq(sceneElements.idSceneElement, idSceneElement),
+  );
 }
 
 export type SetSceneElementShowInfoResult =
@@ -1307,20 +1398,20 @@ export type SetSceneElementShowInfoResult =
  * changes; the element and its other scenes are untouched.
  *
  * Refused when the scene is not this story's or the caller is not its
- * storyteller, and when the element is not linked to the scene.
+ * storyteller, and when the link is not the scene's.
  */
 export async function sa_setSceneElementShowInfo(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
   showInfo: boolean,
 ): Promise<SetSceneElementShowInfoResult> {
   const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
-  const element = idSchema.safeParse(idElement);
+  const link = idSchema.safeParse(idSceneElement);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
   const owned = await ownedScene(user.id, story.data, scene.data);
   if (owned === null) return { ok: false, error: NOT_THIS_STORY };
   if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
@@ -1328,12 +1419,10 @@ export async function sa_setSceneElementShowInfo(
   const updated = await db
     .update(sceneElements)
     .set({ showInfo: showInfo === true, idUpdatedByUser: user.id })
-    .where(
-      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, element.data)),
-    )
+    .where(linkIn(scene.data, link.data))
     .returning({ showInfo: sceneElements.showInfo });
   if (updated.length === 0) return { ok: false, error: NOT_IN_THIS_SCENE };
-  publishLater(() => publishSceneElement(story.data, scene.data, element.data));
+  publishLater(() => publishSceneElement(story.data, scene.data, link.data));
   return { ok: true, showInfo: updated[0].showInfo };
 }
 
@@ -1352,20 +1441,20 @@ const NOT_A_PULSE = "That is not something the players' table answers.";
  *
  * Refused for an action the players' table does not answer
  * (SCENE_ELEMENT_PULSES), when the scene is not this story's or the caller
- * is not its storyteller, and when the element is not linked to the scene.
+ * is not its storyteller, and when the link is not the scene's.
  */
 export async function sa_pulseSceneElement(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
   custom: { action: string },
 ): Promise<PulseSceneElementResult> {
   const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
-  const element = idSchema.safeParse(idElement);
+  const link = idSchema.safeParse(idSceneElement);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
   const parsed = scenePulseSchema.safeParse(custom);
   if (!parsed.success || !isScenePulse(parsed.data.action)) {
     return { ok: false, error: NOT_A_PULSE };
@@ -1377,20 +1466,18 @@ export async function sa_pulseSceneElement(
   const [row] = await db
     .select({ idSceneElement: sceneElements.idSceneElement })
     .from(sceneElements)
-    .where(
-      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, element.data)),
-    )
+    .where(linkIn(scene.data, link.data))
     .limit(1);
   if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
 
-  publishLater(() => publishSceneElementPulse(story.data, scene.data, element.data, parsed.data));
+  publishLater(() => publishSceneElementPulse(story.data, scene.data, link.data, parsed.data));
   return { ok: true };
 }
 
 export type SetSceneElementShowingResult =
   { ok: true; showing: ElementShowing } | { ok: false; error: string };
 
-const NO_SUCH_FIELD = "Choose the initial name, the name or the title.";
+const NO_SUCH_FIELD = "Choose the initial name, the name, the title or the label.";
 
 /**
  * The pill's name dropdown: which of the element's fields its pill shows in
@@ -1399,21 +1486,21 @@ const NO_SUCH_FIELD = "Choose the initial name, the name or the title.";
  * accepted, and the pill shows the name until it is filled in.
  *
  * Refused when the field is not one of the three, when the scene is not this
- * story's or the caller is not its storyteller, and when the element is not
- * linked to the scene.
+ * story's or the caller is not its storyteller, and when the link is not the
+ * scene's.
  */
 export async function sa_setSceneElementShowing(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
   showing: string,
 ): Promise<SetSceneElementShowingResult> {
   const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
-  const element = idSchema.safeParse(idElement);
+  const link = idSchema.safeParse(idSceneElement);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
   if (!isElementShowing(showing)) return { ok: false, error: NO_SUCH_FIELD };
   const owned = await ownedScene(user.id, story.data, scene.data);
   if (owned === null) return { ok: false, error: NOT_THIS_STORY };
@@ -1422,12 +1509,10 @@ export async function sa_setSceneElementShowing(
   const updated = await db
     .update(sceneElements)
     .set({ elementShowing: showing, idUpdatedByUser: user.id })
-    .where(
-      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, element.data)),
-    )
+    .where(linkIn(scene.data, link.data))
     .returning({ showing: sceneElements.elementShowing });
   if (updated.length === 0) return { ok: false, error: NOT_IN_THIS_SCENE };
-  publishLater(() => publishSceneElement(story.data, scene.data, element.data));
+  publishLater(() => publishSceneElement(story.data, scene.data, link.data));
   return { ok: true, showing };
 }
 
@@ -1474,14 +1559,19 @@ export async function sa_listSceneLibraryElements(
     )
     .orderBy(...elementOrderBy(order))
     .limit(RUN_LIST_SIZE);
-  // The view's columns are all nullable to Drizzle; a link always has its element.
-  return rows.map((row) => ({
-    idElement: row.idElement!,
-    status: row.status ?? "",
-    name: row.name ?? "",
-    title: row.title,
-    description: row.description,
-  }));
+  // The view's columns are all nullable to Drizzle; a link always has its
+  // element. An element in the scene more than once is one row per link
+  // here, and listed once.
+  const seen = new Set<number>();
+  return rows
+    .filter((row) => (seen.has(row.idElement!) ? false : (seen.add(row.idElement!), true)))
+    .map((row) => ({
+      idElement: row.idElement!,
+      status: row.status ?? "",
+      name: row.name ?? "",
+      title: row.title,
+      description: row.description,
+    }));
 }
 
 export type UpdateStoryElementResult =
@@ -1552,19 +1642,23 @@ export async function sa_updateStoryElement(
  * the scene's part: its status, its stack tags and Remove from scene.
  * Asked for as the panel opens, so the play space and the library stay
  * light and the panel shows what is stored now, the status menu's last
- * choice included. Null when the story is not the caller's or the element is not
- * the story's.
+ * choice included. The link is the one named (a pill's), or, from the
+ * library, the element's first link to the scene, since an element may be
+ * in a scene more than once. Null when the story is not the caller's or the
+ * element is not the story's.
  */
 export async function sa_getElementDetail(
   idStory: number,
   idElement: number,
   idStoryScene: number | null = null,
+  idSceneElement: number | null = null,
 ): Promise<ElementPanelDetail | null> {
   const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const element = idSchema.safeParse(idElement);
   const scene = idSchema.nullable().safeParse(idStoryScene);
-  if (!story.success || !element.success || !scene.success) return null;
+  const named = idSchema.nullable().safeParse(idSceneElement);
+  if (!story.success || !element.success || !scene.success || !named.success) return null;
   if (!(await ownsStory(user.id, story.data))) return null;
 
   const [row] = await db
@@ -1600,6 +1694,7 @@ export async function sa_getElementDetail(
             showInfo: sceneElements.showInfo,
             url: sceneElements.url,
             urlText: sceneElements.urlText,
+            label: sceneElements.label,
             createdAt: sceneElements.createdAt,
           })
           .from(sceneElements)
@@ -1609,8 +1704,10 @@ export async function sa_getElementDetail(
               eq(sceneElements.idStoryScene, scene.data),
               eq(sceneElements.idElement, row.idElement),
               eq(storyScenes.idStory, story.data),
+              named.data === null ? undefined : eq(sceneElements.idSceneElement, named.data),
             ),
           )
+          .orderBy(asc(sceneElements.idSceneElement))
           .limit(1);
   return { element: row, link: link ?? null };
 }
@@ -1618,39 +1715,38 @@ export async function sa_getElementDetail(
 export type UnlinkSceneElementResult = { ok: true } | { ok: false; error: string };
 
 /**
- * The library popover's Remove from scene: deletes the element's link to the
- * scene, so it leaves the play space; the element itself stays in the story,
- * and its links to other scenes stay too. The link's status, stack tags,
- * showing field and activity log go with it, so adding it back starts a new
- * link from the defaults.
+ * The element panel's Remove from scene: deletes one link of the element to
+ * the scene, so its pill leaves the play space; the element itself stays in
+ * the story, its other links to this scene (its copies) and to other scenes
+ * stay too. The link's status, stack tags, showing field, label and
+ * activity log go with it, so adding it back starts a new link from the
+ * defaults.
  *
  * Refused when the scene is not this story's or the caller is not its
- * storyteller, and when the element is not linked to the scene.
+ * storyteller, and when the link is not the scene's.
  */
 export async function sa_unlinkSceneElement(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
 ): Promise<UnlinkSceneElementResult> {
   const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
-  const element = idSchema.safeParse(idElement);
+  const link = idSchema.safeParse(idSceneElement);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
   const owned = await ownedScene(user.id, story.data, scene.data);
   if (owned === null) return { ok: false, error: NOT_THIS_STORY };
   if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
 
   const removed = await db
     .delete(sceneElements)
-    .where(
-      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, element.data)),
-    )
-    .returning({ idSceneElement: sceneElements.idSceneElement });
+    .where(linkIn(scene.data, link.data))
+    .returning({ idElement: sceneElements.idElement });
   if (removed.length === 0) return { ok: false, error: NOT_IN_THIS_SCENE };
   publishLater(() =>
-    publishSceneElementRemoved(story.data, scene.data, element.data, removed[0].idSceneElement),
+    publishSceneElementRemoved(story.data, scene.data, removed[0].idElement, link.data),
   );
   return { ok: true };
 }
@@ -1842,24 +1938,24 @@ export type MoveSceneElementResult = { ok: true; item: PlayItem } | { ok: false;
  * the first stack only because nothing else claimed it; the target's tag is
  * then simply added. The pill comes back as it now is.
  *
- * Refused when the target is not one of the scene's tags, when the element
- * is not linked to the scene, and for a scene the caller does not tell.
+ * Refused when the target is not one of the scene's tags, when the link is
+ * not the scene's, and for a scene the caller does not tell.
  */
 export async function sa_moveSceneElement(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
   from: string | null,
   to: string,
 ): Promise<MoveSceneElementResult> {
   const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
-  const element = idSchema.safeParse(idElement);
+  const link = idSchema.safeParse(idSceneElement);
   const fromTag = stackTagSchema.safeParse(from);
   const toTag = stackTagSchema.safeParse(to);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
   if (!fromTag.success || !toTag.success || toTag.data === null) {
     return { ok: false, error: NO_SUCH_STACK };
   }
@@ -1869,7 +1965,7 @@ export async function sa_moveSceneElement(
   if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
   if (!owned.tags.includes(toTag.data)) return { ok: false, error: NO_SUCH_STACK };
 
-  const row = await linkedRow(story.data, scene.data, element.data);
+  const row = await linkedRow(story.data, scene.data, link.data);
   if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
 
   const kept = row.tags.filter((tag) => tag !== fromTag.data && tag !== toTag.data);
@@ -1877,10 +1973,8 @@ export async function sa_moveSceneElement(
   await db
     .update(sceneElements)
     .set({ tags, idUpdatedByUser: user.id })
-    .where(
-      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, element.data)),
-    );
-  publishLater(() => publishSceneElement(story.data, scene.data, element.data));
+    .where(linkIn(scene.data, link.data));
+  publishLater(() => publishSceneElement(story.data, scene.data, link.data));
 
   return { ok: true, item: linkedItem({ ...row, tags }) };
 }
@@ -1897,22 +1991,22 @@ export type SetSceneElementTagsResult = { ok: true; item: PlayItem } | { ok: fal
  * tags. Only the link changes. The pill comes back as it now is.
  *
  * Refused for a stack that is not one of the scene's tags, since the stacks
- * it was ticked from are out of date; when the element is not linked to
- * the scene; and for a scene the caller does not tell or that is complete.
+ * it was ticked from are out of date; when the link is not the scene's; and
+ * for a scene the caller does not tell or that is complete.
  */
 export async function sa_setSceneElementTags(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
   tags: string[],
 ): Promise<SetSceneElementTagsResult> {
   const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
-  const element = idSchema.safeParse(idElement);
+  const link = idSchema.safeParse(idSceneElement);
   const ticked = stacksSchema.safeParse(tags);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
   if (!ticked.success) return { ok: false, error: NO_SUCH_STACK };
 
   const owned = await ownedScene(user.id, story.data, scene.data);
@@ -1922,35 +2016,33 @@ export async function sa_setSceneElementTags(
     return { ok: false, error: NO_SUCH_STACK };
   }
 
-  const row = await linkedRow(story.data, scene.data, element.data);
+  const row = await linkedRow(story.data, scene.data, link.data);
   if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
 
   const ordered = owned.tags.filter((tag) => ticked.data.includes(tag));
   await db
     .update(sceneElements)
     .set({ tags: ordered, idUpdatedByUser: user.id })
-    .where(
-      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, element.data)),
-    );
-  publishLater(() => publishSceneElement(story.data, scene.data, element.data));
+    .where(linkIn(scene.data, link.data));
+  publishLater(() => publishSceneElement(story.data, scene.data, link.data));
 
   return { ok: true, item: linkedItem({ ...row, tags: ordered }) };
 }
 
 /**
- * An element's link to a scene of the story with everything its pill shows,
- * read for a write that hands the pill back (Move to, the stacks dialog), or
- * null when the element is not linked to the scene. The story is checked
- * because nothing in the database holds a link's element to the scene's
- * story.
+ * One link of a scene of the story with everything its pill shows, read for
+ * a write that hands the pill back (Move to, the stacks dialog), or null
+ * when the link is not the scene's. The story is checked because nothing in
+ * the database holds a link's element to the scene's story.
  */
 async function linkedRow(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
 ): Promise<Parameters<typeof linkedItem>[0] | null> {
   const [row] = await db
     .select({
+      idElement: vSceneElements.idElement,
       kind: vSceneElements.kind,
       name: vSceneElements.name,
       initialName: vSceneElements.initialName,
@@ -1964,19 +2056,21 @@ async function linkedRow(
       urlText: vSceneElements.elementUrlText,
       sceneUrl: vSceneElements.url,
       sceneUrlText: vSceneElements.urlText,
+      hasStatBlocks: linkHasStatBlocks("v_scene_elements"),
+      label: vSceneElements.label,
     })
     .from(vSceneElements)
     .where(
       and(
         eq(vSceneElements.idStoryScene, idStoryScene),
-        eq(vSceneElements.idElement, idElement),
+        eq(vSceneElements.idSceneElement, idSceneElement),
         eq(vSceneElements.idStory, idStory),
       ),
     )
     .limit(1);
-  if (!row || row.kind === null || row.name === null) return null;
+  if (!row || row.kind === null || row.name === null || row.idElement === null) return null;
   return {
-    idElement,
+    idElement: row.idElement,
     kind: row.kind,
     name: row.name,
     initialName: row.initialName,
@@ -1985,6 +2079,9 @@ async function linkedRow(
     status: row.status ?? "",
     showing: row.showing,
     showInfo: row.showInfo,
+    idSceneElement,
+    hasStatBlocks: row.hasStatBlocks,
+    label: row.label,
     imageUrl: row.imageUrl,
     url: row.url,
     urlText: row.urlText,

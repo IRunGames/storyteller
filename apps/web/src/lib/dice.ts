@@ -1,11 +1,10 @@
 import { DiceRoll, NumberGenerator } from "@dice-roller/rpg-dice-roller";
-import type { Roll } from "./roll";
+import { MAX_ROLL_NOTATION, ROLL_GROUP, type Roll } from "./roll";
 
 // The table chat's /roll, made on the server so a result cannot be faked:
 // sa_postChat is the only caller. The browser never loads this, nor the
 // dice library and the mathjs it brings; it reads rolls through lib/roll.ts.
 
-const MAX_NOTATION = 100;
 const MAX_DICE = 100;
 const MAX_SIDES = 1000;
 const UNREADABLE = "That is not a roll I can read. Try /roll 2d6+1.";
@@ -22,10 +21,9 @@ const cryptoEngine: Engine = {
 /** One die as the library hands it back. */
 type LibraryDie = { value: number; useInTotal: boolean };
 
-// A dice group as written: "2d6", "d%", "4dF". Counted before the library
-// sees the notation, since a thousand dice of a million sides would be
-// rolled before anything could refuse them.
-const GROUP = /(\d*)d(\d+|%|F)/gi;
+// The dice groups are counted before the library sees the notation, since a
+// thousand dice of a million sides would be rolled before anything could
+// refuse them.
 
 /**
  * A roll of the given notation, or why it cannot be made: too long, too
@@ -38,10 +36,10 @@ export function rollDice(
   label: string | null,
   engine: Engine = cryptoEngine,
 ): { ok: true; roll: Roll } | { ok: false; error: string } {
-  if (notation.length > MAX_NOTATION) {
-    return { ok: false, error: `Keep a roll under ${MAX_NOTATION} characters.` };
+  if (notation.length > MAX_ROLL_NOTATION) {
+    return { ok: false, error: `Keep a roll under ${MAX_ROLL_NOTATION} characters.` };
   }
-  const groups = [...notation.matchAll(GROUP)];
+  const groups = [...notation.matchAll(ROLL_GROUP)];
   if (groups.length === 0) return { ok: false, error: UNREADABLE };
   const count = groups.reduce((sum, [, n]) => sum + (n === "" ? 1 : Number(n)), 0);
   const sides = Math.max(...groups.map(([, , s]) => (/^\d+$/.test(s) ? Number(s) : 100)));

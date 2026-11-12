@@ -436,9 +436,11 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     });
     expect(space.tags).toEqual(DEFAULT_TAGS);
     expect(space.coverUrl).toBeNull();
+    // Keyed by the element and its link (playItemKey).
+    const [zedLink, abbeyLink] = [await linkOf(scene, zed), await linkOf(scene, abbey)];
     expect(space.inPlay).toEqual([
       {
-        key: `PERSON:${zed}`,
+        key: `PERSON:${zed}:${zedLink}`,
         kind: "PERSON",
         // Its initial name: the name it goes by when it first turns up.
         label: "Fixture hooded figure",
@@ -447,16 +449,19 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         sceneTags: ["scene"],
         sceneStatus: "READY",
         showInfo: true,
+        idSceneElement: zedLink,
+        hasStatBlocks: false,
         fields: {
           initial_name: "Fixture hooded figure",
           name: "Fixture Zed",
           title: "Harbourmaster",
+          label: null,
         },
         showing: "initial_name",
         link: null,
       },
       {
-        key: `PLACE:${abbey}`,
+        key: `PLACE:${abbey}:${abbeyLink}`,
         kind: "PLACE",
         label: "Fixture Abbey",
         detail: null,
@@ -464,8 +469,10 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         sceneTags: [],
         sceneStatus: "READY",
         showInfo: true,
+        idSceneElement: abbeyLink,
+        hasStatBlocks: false,
         // No initial name, so the default shows the name.
-        fields: { initial_name: null, name: "Fixture Abbey", title: null },
+        fields: { initial_name: null, name: "Fixture Abbey", title: null, label: null },
         showing: "initial_name",
         link: null,
       },
@@ -558,7 +565,24 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     return db
       .select({ idElement: tables.sceneElements.idElement, tags: tables.sceneElements.tags })
       .from(tables.sceneElements)
-      .where(eq(tables.sceneElements.idStoryScene, idStoryScene));
+      .where(eq(tables.sceneElements.idStoryScene, idStoryScene))
+      .orderBy(tables.sceneElements.idSceneElement);
+  }
+
+  // An element's first link to a scene, by id: what the link actions name,
+  // since an element may be in a scene more than once.
+  async function linkOf(idStoryScene: number, idElement: number) {
+    const [row] = await db
+      .select({ id: tables.sceneElements.idSceneElement })
+      .from(tables.sceneElements)
+      .where(
+        and(
+          eq(tables.sceneElements.idStoryScene, idStoryScene),
+          eq(tables.sceneElements.idElement, idElement),
+        ),
+      )
+      .orderBy(tables.sceneElements.idSceneElement);
+    return row.id;
   }
 
   // Whether one link shows the players its element's description, or
@@ -590,6 +614,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     sceneStatus: "READY",
     sceneUrl: "",
     sceneUrlText: "",
+    sceneLabel: "",
     ...values,
   });
 
@@ -708,6 +733,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     );
     if (!created.ok) throw new Error("not created");
     const idElement = elementIdOf(created.item);
+    const idLink = created.item.idSceneElement!;
     // The scene's link leads on the pill.
     expect(created.item.link).toEqual({
       url: "https://example.com/chart#docks",
@@ -728,7 +754,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     const edited = await actions.sa_updateSceneElement(
       mine,
       target,
-      idElement,
+      idLink,
       form({ name: "Fixture chart", url: "https://example.com/chart", sceneStatus: "READY" }),
     );
     expect(edited.ok && edited.item.link).toEqual({
@@ -742,7 +768,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       await actions.sa_updateSceneElement(
         mine,
         target,
-        idElement,
+        idLink,
         form({ name: "Fixture chart", url: "chart.html", sceneStatus: "READY" }),
       ),
     ).toEqual({
@@ -760,12 +786,13 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       form({ name: "Fixture lighthouse" }),
     );
     if (!created.ok) throw new Error("not created");
-    const idElement = Number(created.item.key.split(":")[1]);
+    const idElement = elementIdOf(created.item);
+    const idLink = created.item.idSceneElement!;
 
     const result = await actions.sa_updateSceneElement(
       mine,
       target,
-      idElement,
+      idLink,
       form({
         name: "Fixture lighthouse",
         initialName: "Fixture light",
@@ -773,13 +800,14 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         description: "Tall.",
         status: "INACTIVE",
         sceneStatus: "DISABLED",
+        sceneLabel: "The old light",
       }),
     );
 
     expect(result).toEqual({
       ok: true,
       item: {
-        key: `PLACE:${idElement}`,
+        key: `PLACE:${idElement}:${idLink}`,
         kind: "PLACE",
         label: "Fixture light",
         detail: "Unlit",
@@ -787,7 +815,15 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         sceneTags: ["scene"],
         sceneStatus: "DISABLED",
         showInfo: true,
-        fields: { initial_name: "Fixture light", name: "Fixture lighthouse", title: "Unlit" },
+        idSceneElement: idLink,
+        hasStatBlocks: false,
+        // The link's own name is a field the pill may show, kept until chosen.
+        fields: {
+          initial_name: "Fixture light",
+          name: "Fixture lighthouse",
+          title: "Unlit",
+          label: "The old light",
+        },
         showing: "initial_name",
         link: null,
       },
@@ -795,17 +831,73 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     const detail = await actions.sa_getElementDetail(mine, idElement, target);
     expect(detail).toMatchObject({
       element: { description: "Tall.", status: "INACTIVE", initialName: "Fixture light" },
-      link: { status: "DISABLED", tags: ["scene"] },
+      link: { status: "DISABLED", tags: ["scene"], label: "The old light" },
     });
 
-    // Nothing linked, or another's scene.
+    // A link that is not the scene's, or another's scene.
     const elsewhere = await sceneIn("ACTIVE", "Fixture scene without the lighthouse");
     expect(
-      await actions.sa_updateSceneElement(mine, elsewhere, idElement, form({ name: "X" })),
+      await actions.sa_updateSceneElement(mine, elsewhere, idLink, form({ name: "X" })),
     ).toEqual({ ok: false, errors: { root: "That element is not in this scene." } });
     await expect(
-      actions.sa_updateSceneElement(theirs, theirScene, idElement, form({ name: "X" })),
+      actions.sa_updateSceneElement(theirs, theirScene, idLink, form({ name: "X" })),
     ).rejects.toThrow();
+  });
+
+  it("gives a new link a copy of the element's stat blocks, and a copy of the element its own", async () => {
+    const target = await sceneIn("ACTIVE", "Fixture scene for stat block copies");
+    const blocks = { "-1": { stats: { str: { value: 14 } } } };
+    await db
+      .update(tables.elements)
+      .set({ statBlocks: blocks })
+      .where(eq(tables.elements.idElement, abbey));
+    const linkBlocks = async (idSceneElement: number) => {
+      const [row] = await db
+        .select({ statBlocks: tables.sceneElements.statBlocks })
+        .from(tables.sceneElements)
+        .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
+      return row?.statBlocks;
+    };
+
+    const first = await actions.sa_linkSceneElement(mine, target, abbey);
+    if (!first.ok) throw new Error("not linked");
+    const firstLink = first.item.idSceneElement!;
+    expect(first.duplicate).toBe(false);
+    expect(await linkBlocks(firstLink)).toEqual(blocks);
+
+    // Play changes the link; linking the element again makes a copy from the
+    // element's baseline and leaves the played link as it is.
+    const played = { "-1": { stats: { str: { value: 9 } } } };
+    await db
+      .update(tables.sceneElements)
+      .set({ statBlocks: played })
+      .where(eq(tables.sceneElements.idSceneElement, firstLink));
+    const second = await actions.sa_linkSceneElement(mine, target, abbey);
+    if (!second.ok) throw new Error("not linked");
+    expect(second.duplicate).toBe(true);
+    expect(second.item.idSceneElement).not.toBe(firstLink);
+    expect(await linkBlocks(firstLink)).toEqual(played);
+    expect(await linkBlocks(second.item.idSceneElement!)).toEqual(blocks);
+
+    // An element made at the table starts its link with none.
+    const made = await actions.sa_createSceneElement(
+      mine,
+      target,
+      null,
+      form({ kind: "PERSON", name: "Fixture Blockless" }),
+    );
+    expect(made.ok).toBe(true);
+    if (made.ok) {
+      const [link] = await db
+        .select({ statBlocks: tables.sceneElements.statBlocks })
+        .from(tables.sceneElements)
+        .where(eq(tables.sceneElements.idElement, Number(made.item.key.split(":")[1])));
+      expect(link.statBlocks).toEqual({});
+    }
+    await db
+      .update(tables.elements)
+      .set({ statBlocks: {} })
+      .where(eq(tables.elements.idElement, abbey));
   });
 
   it("links a library element as invisible with the Add as invisible switch", async () => {
@@ -822,9 +914,10 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     expect(result.ok && result.item.showInfo).toBe(false);
     expect(await showInfoOf(target, abbey)).toBe(false);
 
-    // Already linked, the link keeps what it has.
+    // Linked again, the copy takes the switch as it now stands.
     const again = await actions.sa_linkSceneElement(mine, target, abbey, { showInfo: true });
-    expect(again.ok && again.item.showInfo).toBe(false);
+    expect(again.ok && again.duplicate).toBe(true);
+    expect(again.ok && again.item.showInfo).toBe(true);
   });
 
   it("makes a new element with its info kept back, and sets whether the players see it", async () => {
@@ -835,18 +928,21 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     });
     expect(made.ok && made.item.showInfo).toBe(false);
     const idElement = made.ok ? elementIdOf(made.item) : 0;
+    const idLink = made.ok ? made.item.idSceneElement! : 0;
     expect(await showInfoOf(target, idElement)).toBe(false);
 
-    expect(await actions.sa_setSceneElementShowInfo(mine, target, idElement, true)).toEqual({
+    expect(await actions.sa_setSceneElementShowInfo(mine, target, idLink, true)).toEqual({
       ok: true,
       showInfo: true,
     });
     expect(await showInfoOf(target, idElement)).toBe(true);
-    expect(await actions.sa_setSceneElementShowInfo(mine, target, abbey, false)).toEqual({
+    // A link that is not the scene's: Zed's to the fixture scene.
+    const zedLink = await linkOf(scene, zed);
+    expect(await actions.sa_setSceneElementShowInfo(mine, target, zedLink, false)).toEqual({
       ok: false,
       error: "That element is not in this scene.",
     });
-    expect(await actions.sa_setSceneElementShowInfo(theirs, theirScene, abbey, false)).toEqual({
+    expect(await actions.sa_setSceneElementShowInfo(theirs, theirScene, zedLink, false)).toEqual({
       ok: false,
       error: "That scene is not part of this story.",
     });
@@ -854,18 +950,19 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
 
   it("sends the tack's pulse to the players without writing anything, and refuses it where a write would be", async () => {
     const target = await sceneIn("ACTIVE", "Fixture scene for pulses");
-    await actions.sa_linkSceneElement(mine, target, zed);
+    const linked = await actions.sa_linkSceneElement(mine, target, zed);
+    const zedLink = linked.ok ? linked.item.idSceneElement! : 0;
     published.publishSceneElementPulse.mock.resetCalls();
 
     expect(
-      await actions.sa_pulseSceneElement(mine, target, zed, { action: "preview.open" }),
+      await actions.sa_pulseSceneElement(mine, target, zedLink, { action: "preview.open" }),
     ).toEqual({ ok: true });
     expect(
-      await actions.sa_pulseSceneElement(mine, target, zed, { action: "preview.close" }),
+      await actions.sa_pulseSceneElement(mine, target, zedLink, { action: "preview.close" }),
     ).toEqual({ ok: true });
     expect(published.publishSceneElementPulse.mock.calls.map((call) => call.arguments)).toEqual([
-      [mine, target, zed, { action: "preview.open" }],
-      [mine, target, zed, { action: "preview.close" }],
+      [mine, target, zedLink, { action: "preview.open" }],
+      [mine, target, zedLink, { action: "preview.close" }],
     ]);
     // Nothing of it reaches the row.
     const [row] = await db
@@ -879,31 +976,35 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       );
     expect(row.showImage).toBe(false);
 
-    const [lantern] = await db
-      .select({ id: tables.elements.idElement })
-      .from(tables.elements)
-      .where(and(eq(tables.elements.idStory, mine), eq(tables.elements.name, "Fixture Lantern")));
-    expect(await actions.sa_pulseSceneElement(mine, target, zed, { action: "dice.roll" })).toEqual({
+    expect(
+      await actions.sa_pulseSceneElement(mine, target, zedLink, { action: "dice.roll" }),
+    ).toEqual({
       ok: false,
       error: "That is not something the players' table answers.",
     });
+    // Zed's link to the fixture scene is not this scene's.
     expect(
-      await actions.sa_pulseSceneElement(mine, target, lantern.id, { action: "preview.open" }),
+      await actions.sa_pulseSceneElement(mine, target, await linkOf(scene, zed), {
+        action: "preview.open",
+      }),
     ).toEqual({ ok: false, error: "That element is not in this scene." });
     expect(
-      await actions.sa_pulseSceneElement(theirs, theirScene, abbey, { action: "preview.open" }),
+      await actions.sa_pulseSceneElement(theirs, theirScene, zedLink, { action: "preview.open" }),
     ).toEqual({ ok: false, error: "That scene is not part of this story." });
     expect(published.publishSceneElementPulse.mock.calls).toHaveLength(2);
   });
 
-  it("links a library element under the scene's first tag, and leaves an existing link as it is", async () => {
+  it("links a library element under the scene's first tag, and an element already there again as a numbered copy", async () => {
     const target = await sceneIn("ACTIVE", "Fixture scene for links");
 
     const result = await actions.sa_linkSceneElement(mine, target, abbey);
+    if (!result.ok) throw new Error("not linked");
+    const idLink = result.item.idSceneElement!;
     expect(result).toEqual({
       ok: true,
+      duplicate: false,
       item: {
-        key: `PLACE:${abbey}`,
+        key: `PLACE:${abbey}:${idLink}`,
         kind: "PLACE",
         label: "Fixture Abbey",
         detail: null,
@@ -912,12 +1013,32 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         sceneTags: [DEFAULT_TAGS[0]],
         sceneStatus: "READY",
         showInfo: true,
-        fields: { initial_name: null, name: "Fixture Abbey", title: null },
+        idSceneElement: idLink,
+        hasStatBlocks: false,
+        fields: { initial_name: null, name: "Fixture Abbey", title: null, label: null },
         showing: "initial_name",
         link: null,
       },
     });
     expect(await linksOf(target)).toEqual([{ idElement: abbey, tags: [DEFAULT_TAGS[0]] }]);
+
+    // Again: a second link, its pill showing a label of the name and a
+    // counter, and a third counting on from it.
+    const copy = await actions.sa_linkSceneElement(mine, target, abbey);
+    expect(copy.ok && copy.duplicate).toBe(true);
+    expect(copy.ok && copy.item).toMatchObject({
+      key: `PLACE:${abbey}:${copy.ok ? copy.item.idSceneElement : 0}`,
+      label: "Fixture Abbey 1",
+      showing: "label",
+      fields: { name: "Fixture Abbey", label: "Fixture Abbey 1" },
+    });
+    const third = await actions.sa_linkSceneElement(mine, target, abbey);
+    expect(third.ok && third.item.label).toBe("Fixture Abbey 2");
+    expect(await linksOf(target)).toHaveLength(3);
+    // Each copy is its own link in the play space.
+    await openSession(mine, target);
+    const keys = (await actions.sa_getRunPlaySpace(mine)).inPlay.map((item) => item.key);
+    expect(new Set(keys).size).toBe(3);
 
     // A scene with no tags has only the Default stack, so no tag to give.
     const untagged = await sceneIn("ACTIVE", "Fixture scene with no tags");
@@ -928,9 +1049,17 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     const plain = await actions.sa_linkSceneElement(mine, untagged, abbey);
     expect(plain.ok && plain.item.sceneTags).toEqual([]);
 
-    // Zed is in the fixture scene under "scene", and stays so.
+    // Zed is in the fixture scene under "scene"; linked again, the copy
+    // goes under the first tag like any new link, and is taken out again
+    // here so the fixture scene keeps him once.
     const again = await actions.sa_linkSceneElement(mine, scene, zed);
-    expect(again.ok && again.item.sceneTags).toEqual(["scene"]);
+    expect(again.ok && again.duplicate).toBe(true);
+    expect(again.ok && again.item.sceneTags).toEqual([DEFAULT_TAGS[0]]);
+    if (again.ok) {
+      await db
+        .delete(tables.sceneElements)
+        .where(eq(tables.sceneElements.idSceneElement, again.item.idSceneElement!));
+    }
   });
 
   it("links no element of another story, nor into another's scene", async () => {
@@ -958,7 +1087,8 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
 
   it("moves an element's link to any of the workflow's statuses from the status menu", async () => {
     const target = await sceneIn("ACTIVE", "Fixture scene for the status menu");
-    await actions.sa_linkSceneElement(mine, target, abbey);
+    const linked = await actions.sa_linkSceneElement(mine, target, abbey);
+    const abbeyLink = linked.ok ? linked.item.idSceneElement! : 0;
     const statusOf = async () =>
       (
         await db
@@ -973,18 +1103,18 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       )[0].status;
 
     for (const status of ["TAPPED", "INVISIBLE", "DISABLED", "READY"]) {
-      expect(await actions.sa_setSceneElementStatus(mine, target, abbey, status)).toEqual({
+      expect(await actions.sa_setSceneElementStatus(mine, target, abbeyLink, status)).toEqual({
         ok: true,
         status,
       });
       expect(await statusOf()).toBe(status);
     }
     // Already there, it stays as it is.
-    expect(await actions.sa_setSceneElementStatus(mine, target, abbey, "READY")).toEqual({
+    expect(await actions.sa_setSceneElementStatus(mine, target, abbeyLink, "READY")).toEqual({
       ok: true,
       status: "READY",
     });
-    expect(await actions.sa_setSceneElementStatus(mine, target, abbey, "INITIAL")).toEqual({
+    expect(await actions.sa_setSceneElementStatus(mine, target, abbeyLink, "INITIAL")).toEqual({
       ok: false,
       error: "Choose one of READY, INVISIBLE, TAPPED, DISABLED.",
     });
@@ -993,11 +1123,14 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
 
   it("moves nothing that is not linked to the scene, nor in another's scene", async () => {
     const target = await sceneIn("ACTIVE", "Fixture scene with nothing in it");
-    expect(await actions.sa_setSceneElementStatus(mine, target, abbey, "INVISIBLE")).toEqual({
+    const abbeyLink = await linkOf(scene, abbey);
+    expect(await actions.sa_setSceneElementStatus(mine, target, abbeyLink, "INVISIBLE")).toEqual({
       ok: false,
       error: "That element is not in this scene.",
     });
-    expect(await actions.sa_setSceneElementStatus(theirs, theirScene, abbey, "INVISIBLE")).toEqual({
+    expect(
+      await actions.sa_setSceneElementStatus(theirs, theirScene, abbeyLink, "INVISIBLE"),
+    ).toEqual({
       ok: false,
       error: "That scene is not part of this story.",
     });
@@ -1017,42 +1150,60 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
           )
       )[0].showing;
 
-    expect(await actions.sa_setSceneElementShowing(mine, scene, zed, "title")).toEqual({
+    const zedLink = await linkOf(scene, zed);
+    const zedItem = async () =>
+      (await actions.sa_getRunPlaySpace(mine)).inPlay.find((item) => elementIdOf(item) === zed);
+    expect(await actions.sa_setSceneElementShowing(mine, scene, zedLink, "title")).toEqual({
       ok: true,
       showing: "title",
     });
     expect(await showingOf(scene)).toBe("title");
     await openSession(mine, scene);
-    const titled = (await actions.sa_getRunPlaySpace(mine)).inPlay.find(
-      (item) => item.key === `PERSON:${zed}`,
-    );
     // The title is the label, so it is not repeated underneath.
-    expect(titled).toMatchObject({ label: "Harbourmaster", detail: null, showing: "title" });
+    expect(await zedItem()).toMatchObject({
+      label: "Harbourmaster",
+      detail: null,
+      showing: "title",
+    });
 
-    expect(await actions.sa_setSceneElementShowing(mine, scene, zed, "name")).toEqual({
+    expect(await actions.sa_setSceneElementShowing(mine, scene, zedLink, "name")).toEqual({
       ok: true,
       showing: "name",
     });
-    const named = (await actions.sa_getRunPlaySpace(mine)).inPlay.find(
-      (item) => item.key === `PERSON:${zed}`,
-    );
-    expect(named).toMatchObject({ label: "Fixture Zed", detail: "Harbourmaster" });
+    expect(await zedItem()).toMatchObject({ label: "Fixture Zed", detail: "Harbourmaster" });
 
-    await actions.sa_setSceneElementShowing(mine, scene, zed, "initial_name");
+    // The link's own label is a field too, the name standing in while it is empty.
+    expect(await actions.sa_setSceneElementShowing(mine, scene, zedLink, "label")).toEqual({
+      ok: true,
+      showing: "label",
+    });
+    expect(await zedItem()).toMatchObject({ label: "Fixture Zed", showing: "label" });
+    await db
+      .update(tables.sceneElements)
+      .set({ label: "Zed the Grey" })
+      .where(eq(tables.sceneElements.idSceneElement, zedLink));
+    expect(await zedItem()).toMatchObject({ label: "Zed the Grey", detail: "Harbourmaster" });
+    await db
+      .update(tables.sceneElements)
+      .set({ label: null })
+      .where(eq(tables.sceneElements.idSceneElement, zedLink));
+
+    await actions.sa_setSceneElementShowing(mine, scene, zedLink, "initial_name");
     expect(await showingOf(scene)).toBe("initial_name");
   });
 
-  it("refuses a field it does not know, an unlinked element and another's scene", async () => {
-    expect(await actions.sa_setSceneElementShowing(mine, scene, zed, "notes")).toEqual({
+  it("refuses a field it does not know, a link that is not the scene's and another's scene", async () => {
+    const zedLink = await linkOf(scene, zed);
+    expect(await actions.sa_setSceneElementShowing(mine, scene, zedLink, "notes")).toEqual({
       ok: false,
-      error: "Choose the initial name, the name or the title.",
+      error: "Choose the initial name, the name, the title or the label.",
     });
     const empty = await sceneIn("ACTIVE", "Fixture scene without a showing");
-    expect(await actions.sa_setSceneElementShowing(mine, empty, zed, "name")).toEqual({
+    expect(await actions.sa_setSceneElementShowing(mine, empty, zedLink, "name")).toEqual({
       ok: false,
       error: "That element is not in this scene.",
     });
-    expect(await actions.sa_setSceneElementShowing(theirs, theirScene, zed, "name")).toEqual({
+    expect(await actions.sa_setSceneElementShowing(theirs, theirScene, zedLink, "name")).toEqual({
       ok: false,
       error: "That scene is not part of this story.",
     });
@@ -1429,7 +1580,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       // The play space shows it, and the attachment is still the story's.
       await openSession(mine, scene);
       const item = (await actions.sa_getRunPlaySpace(mine)).inPlay.find(
-        (each) => each.key === `PERSON:${zed}`,
+        (each) => elementIdOf(each) === zed,
       );
       expect(item?.imageUrl).toBe("https://x.test/zed.png");
 
@@ -1569,22 +1720,32 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     ).rejects.toThrow();
   });
 
-  it("removes an element from a scene, leaving it in the story", async () => {
+  it("removes one link of an element from a scene, leaving it in the story and its copies in the scene", async () => {
     const target = await sceneIn("ACTIVE", "Fixture scene to remove from");
-    await actions.sa_linkSceneElement(mine, target, abbey);
+    const first = await actions.sa_linkSceneElement(mine, target, abbey);
+    const copy = await actions.sa_linkSceneElement(mine, target, abbey);
+    const firstLink = first.ok ? first.item.idSceneElement! : 0;
+    const copyLink = copy.ok ? copy.item.idSceneElement! : 0;
 
-    expect(await actions.sa_unlinkSceneElement(mine, target, abbey)).toEqual({ ok: true });
-    expect(await linksOf(target)).toEqual([]);
+    expect(await actions.sa_unlinkSceneElement(mine, target, firstLink)).toEqual({ ok: true });
+    expect(await linksOf(target)).toEqual([{ idElement: abbey, tags: [DEFAULT_TAGS[0]] }]);
+    // The panel, asked for the element, now finds the copy; asked for the
+    // gone link, nothing.
     expect(await actions.sa_getElementDetail(mine, abbey, target)).toMatchObject({
       element: { name: "Fixture Abbey" },
+      link: { idSceneElement: copyLink, label: "Fixture Abbey 1" },
+    });
+    expect(await actions.sa_getElementDetail(mine, abbey, target, firstLink)).toMatchObject({
       link: null,
     });
+    expect(await actions.sa_unlinkSceneElement(mine, target, copyLink)).toEqual({ ok: true });
+    expect(await linksOf(target)).toEqual([]);
     // Gone already, and never in another's scene.
-    expect(await actions.sa_unlinkSceneElement(mine, target, abbey)).toEqual({
+    expect(await actions.sa_unlinkSceneElement(mine, target, copyLink)).toEqual({
       ok: false,
       error: "That element is not in this scene.",
     });
-    expect(await actions.sa_unlinkSceneElement(theirs, theirScene, abbey)).toEqual({
+    expect(await actions.sa_unlinkSceneElement(theirs, theirScene, copyLink)).toEqual({
       ok: false,
       error: "That scene is not part of this story.",
     });
@@ -1622,26 +1783,25 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       form({ name: "Fixture buoy" }),
     );
     if (!created.ok) throw new Error("not created");
-    const idElement = Number(created.item.key.split(":")[1]);
+    const idElement = elementIdOf(created.item);
+    const idLink = created.item.idSceneElement!;
 
-    const moved = await actions.sa_moveSceneElement(mine, target, idElement, "elements", "scene");
+    const moved = await actions.sa_moveSceneElement(mine, target, idLink, "elements", "scene");
     expect(moved.ok && moved.item.sceneTags).toEqual(["scene"]);
     expect(await linksOf(target)).toEqual([{ idElement, tags: ["scene"] }]);
 
     // From a stack whose tag the link lacks, the target is only added.
-    const added = await actions.sa_moveSceneElement(mine, target, idElement, null, "elements");
+    const added = await actions.sa_moveSceneElement(mine, target, idLink, null, "elements");
     expect(added.ok && added.item.sceneTags).toEqual(["scene", "elements"]);
 
-    expect(await actions.sa_moveSceneElement(mine, target, idElement, "scene", "weather")).toEqual({
+    expect(await actions.sa_moveSceneElement(mine, target, idLink, "scene", "weather")).toEqual({
       ok: false,
       error: "That stack is no longer one of the scene's tags.",
     });
-    expect(await actions.sa_moveSceneElement(theirs, theirScene, idElement, null, "scene")).toEqual(
-      {
-        ok: false,
-        error: "That scene is not part of this story.",
-      },
-    );
+    expect(await actions.sa_moveSceneElement(theirs, theirScene, idLink, null, "scene")).toEqual({
+      ok: false,
+      error: "That scene is not part of this story.",
+    });
   });
 
   it("files an element under the stacks ticked in its panel's stacks dialog", async () => {
@@ -1654,28 +1814,29 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     );
     if (!created.ok) throw new Error("not created");
     const idElement = elementIdOf(created.item);
+    const idLink = created.item.idSceneElement!;
 
     // Kept in the scene's order, whatever order they were ticked in.
-    const both = await actions.sa_setSceneElementTags(mine, target, idElement, [
-      "scene",
-      "elements",
-    ]);
+    const both = await actions.sa_setSceneElementTags(mine, target, idLink, ["scene", "elements"]);
     expect(both.ok && both.item.sceneTags).toEqual(["elements", "scene"]);
     expect(await linksOf(target)).toEqual([{ idElement, tags: ["elements", "scene"] }]);
 
     // None at all: the pill goes to the first stack.
-    const none = await actions.sa_setSceneElementTags(mine, target, idElement, []);
+    const none = await actions.sa_setSceneElementTags(mine, target, idLink, []);
     expect(none.ok && none.item.sceneTags).toEqual([]);
 
-    expect(await actions.sa_setSceneElementTags(mine, target, idElement, ["weather"])).toEqual({
+    expect(await actions.sa_setSceneElementTags(mine, target, idLink, ["weather"])).toEqual({
       ok: false,
       error: "That stack is no longer one of the scene's tags.",
     });
-    expect(await actions.sa_setSceneElementTags(mine, target, zed, ["scene"])).toEqual({
+    // Zed's link is the fixture scene's, not this one's.
+    expect(
+      await actions.sa_setSceneElementTags(mine, target, await linkOf(scene, zed), ["scene"]),
+    ).toEqual({
       ok: false,
       error: "That element is not in this scene.",
     });
-    expect(await actions.sa_setSceneElementTags(theirs, theirScene, idElement, ["scene"])).toEqual({
+    expect(await actions.sa_setSceneElementTags(theirs, theirScene, idLink, ["scene"])).toEqual({
       ok: false,
       error: "That scene is not part of this story.",
     });
@@ -1691,17 +1852,18 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
 
     it("sends the link after the status menu, the info toggle, the name dropdown, a move and the stacks dialog", async () => {
       await openSession(mine, scene);
-      await actions.sa_setSceneElementStatus(mine, scene, abbey, "INVISIBLE");
-      await actions.sa_setSceneElementShowInfo(mine, scene, abbey, false);
-      await actions.sa_setSceneElementShowing(mine, scene, abbey, "name");
-      await actions.sa_moveSceneElement(mine, scene, abbey, null, "scene");
-      await actions.sa_setSceneElementTags(mine, scene, abbey, ["elements"]);
+      const abbeyLink = await linkOf(scene, abbey);
+      await actions.sa_setSceneElementStatus(mine, scene, abbeyLink, "INVISIBLE");
+      await actions.sa_setSceneElementShowInfo(mine, scene, abbeyLink, false);
+      await actions.sa_setSceneElementShowing(mine, scene, abbeyLink, "name");
+      await actions.sa_moveSceneElement(mine, scene, abbeyLink, null, "scene");
+      await actions.sa_setSceneElementTags(mine, scene, abbeyLink, ["elements"]);
       expect(calls("publishSceneElement")).toEqual([
-        [mine, scene, abbey],
-        [mine, scene, abbey],
-        [mine, scene, abbey],
-        [mine, scene, abbey],
-        [mine, scene, abbey],
+        [mine, scene, abbeyLink],
+        [mine, scene, abbeyLink],
+        [mine, scene, abbeyLink],
+        [mine, scene, abbeyLink],
+        [mine, scene, abbeyLink],
       ]);
       await db
         .update(tables.sceneElements)
@@ -1709,11 +1871,12 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         .where(eq(tables.sceneElements.idElement, abbey));
     });
 
-    it("sends the tack's pulse as it is, element and action", async () => {
+    it("sends the tack's pulse as it is, link and action", async () => {
       await openSession(mine, scene);
-      await actions.sa_pulseSceneElement(mine, scene, abbey, { action: "preview.open" });
+      const abbeyLink = await linkOf(scene, abbey);
+      await actions.sa_pulseSceneElement(mine, scene, abbeyLink, { action: "preview.open" });
       expect(calls("publishSceneElementPulse")).toEqual([
-        [mine, scene, abbey, { action: "preview.open" }],
+        [mine, scene, abbeyLink, { action: "preview.open" }],
       ]);
       // A pulse is not a change to the link, so the link itself is not sent.
       expect(calls("publishSceneElement")).toEqual([]);
@@ -1721,13 +1884,14 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
 
     it("sends a removal after Remove from scene, and links the element back", async () => {
       await openSession(mine, scene);
-      await actions.sa_unlinkSceneElement(mine, scene, abbey);
-      expect(calls("publishSceneElementRemoved")).toEqual([
-        [mine, scene, abbey, expect.any(Number)],
-      ]);
+      const abbeyLink = await linkOf(scene, abbey);
+      await actions.sa_unlinkSceneElement(mine, scene, abbeyLink);
+      expect(calls("publishSceneElementRemoved")).toEqual([[mine, scene, abbey, abbeyLink]]);
 
-      await actions.sa_linkSceneElement(mine, scene, abbey);
-      expect(calls("publishSceneElement")).toEqual([[mine, scene, abbey]]);
+      const back = await actions.sa_linkSceneElement(mine, scene, abbey);
+      expect(calls("publishSceneElement")).toEqual([
+        [mine, scene, back.ok ? back.item.idSceneElement : 0],
+      ]);
     });
 
     it("says the scene changed after choosing one, and the session after renaming it", async () => {
@@ -1755,7 +1919,7 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     });
 
     it("says nothing when a write is refused", async () => {
-      await actions.sa_setSceneElementStatus(theirs, theirScene, abbey, "INVISIBLE");
+      await actions.sa_setSceneElementStatus(theirs, theirScene, 2 ** 20, "INVISIBLE");
       await actions.sa_unlinkSceneElement(mine, scene, 2 ** 20);
       for (const fn of Object.values(published)) expect(fn.mock.calls).toHaveLength(0);
     });

@@ -11,7 +11,8 @@
 -- too, despite its prefix: which of the element's fields the pill shows in
 -- this scene, as `show_info` is whether the players' table shows the
 -- element's description there and `show_image` whether it opens the
--- element's picture full size.
+-- element's picture full size. `label` is the link's own words for its pill,
+-- NULL to show the field `element_showing` names.
 --
 -- The columns are listed rather than taken as se.* and e.*, so a column added
 -- to either table does not change the view's shape until it is added here and
@@ -31,6 +32,7 @@ SELECT se.id_scene_element,
        se.show_image,
        se.url,
        se.url_text,
+       se.label,
        se.created_at,
        se.updated_at,
        se.id_created_by_user,

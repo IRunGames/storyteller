@@ -87,7 +87,9 @@ export const RUN_LIBRARY_TABS: readonly { source: RunLibrarySource; title: strin
 /**
  * One thing in the storyteller's play space: put there from the library, or
  * there from the start as one of the current scene's elements.
- * `key` is the source and the row's id, so the same row cannot go in twice.
+ * `key` is the source, the row's id and, for an element linked to the scene,
+ * the link's id (playItemKey): an element may be in a scene more than once,
+ * one pill per link, and the pills are told apart by it.
  */
 export type PlayItem = {
   key: string;
@@ -111,6 +113,14 @@ export type PlayItem = {
   sceneTags?: string[];
   /** An element linked to the scene: its scene_elements status, which the pill's status menu shows. */
   sceneStatus?: string;
+  /** An element linked to the scene: the link's own id, the holder of its stat blocks. */
+  idSceneElement?: number;
+  /**
+   * An element linked to the scene: whether the link carries any stat block,
+   * which gives the pill its die. As the page loaded or last saved it; a
+   * block picked at the table shows once the page is read again.
+   */
+  hasStatBlocks?: boolean;
   /**
    * An element linked to the scene: whether the players' table shows its
    * description (scene_elements.show_info), which the pill's info toggle sets.
@@ -136,10 +146,22 @@ export type PlayItem = {
 };
 
 /**
- * The element fields a pill can show, as scene_elements.element_showing
- * names them (its CHECK holds the same three), in the dropdown's order.
+ * An item's key: the kind and the element's id, and the link's id after them
+ * for an element linked to the scene, so two links of one element are two
+ * items. Without a link (an element kept in the page's state alone, with no
+ * scene at the table) the element's id is all there is.
  */
-export const ELEMENT_SHOWING = ["initial_name", "name", "title"] as const;
+export function playItemKey(kind: string, idElement: number, idSceneElement?: number | null) {
+  return idSceneElement == null ? `${kind}:${idElement}` : `${kind}:${idElement}:${idSceneElement}`;
+}
+
+/**
+ * The fields a pill can show, as scene_elements.element_showing names them
+ * (its CHECK holds the same four), in the dropdown's order: the element's
+ * initial name, name and title, and the link's own label, which a copy of an
+ * element already in the scene is given as it is made ("Goblin 1").
+ */
+export const ELEMENT_SHOWING = ["initial_name", "name", "title", "label"] as const;
 export type ElementShowing = (typeof ELEMENT_SHOWING)[number];
 
 /** What a new link shows, the column's default: a first appearance. */
@@ -171,15 +193,23 @@ export function pillLink(
   return { url: chosen.url, text: chosen.urlText || chosen.url };
 }
 
-/** An element's showable fields by their column names; only the name is never empty. */
-export type ElementFields = { initial_name: string | null; name: string; title: string | null };
+/**
+ * A pill's showable fields by their column names: the element's three, and
+ * the link's own label (scene_elements.label); only the name is never empty.
+ */
+export type ElementFields = {
+  initial_name: string | null;
+  name: string;
+  title: string | null;
+  label: string | null;
+};
 
 /**
- * A linked element's pill text for the field it shows. A field the element
- * has left empty falls back to the name, so a pill is never blank, and
- * `highlighted` is then false: the highlight says the players know the
- * element by something other than its name. The title goes on the second
- * line unless it is already the first.
+ * A linked element's pill text for the field it shows. A field left empty
+ * falls back to the name, so a pill is never blank, and `highlighted` is
+ * then false: the highlight says the players know the element by something
+ * other than its name. The title goes on the second line unless it is
+ * already the first.
  */
 export function pillText(
   fields: ElementFields,
@@ -302,9 +332,9 @@ export const SCENE_ELEMENT_TAPPED = "TAPPED";
 /** The scene_elements status of an element switched off in the scene. */
 export const SCENE_ELEMENT_DISABLED = "DISABLED";
 
-/** The element id in an element item's key, `KIND:id`. */
+/** The element id in an element item's key, `KIND:id` or `KIND:id:link` (playItemKey). */
 export function elementIdOf(item: PlayItem): number {
-  return Number(item.key.slice(item.key.indexOf(":") + 1));
+  return Number(item.key.split(":")[1]);
 }
 
 /** Everything about one of the story's elements, for the info popovers. */
@@ -335,6 +365,8 @@ export type SceneLink = {
   /** The link's own external link for this scene, and the words for it. */
   url: string | null;
   urlText: string | null;
+  /** The link's own words for its pill; null to show the element's field. */
+  label: string | null;
   createdAt: Date | null;
 };
 

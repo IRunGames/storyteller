@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Badge, Field, HStack, NativeSelect, Separator, Stack, Text } from "@chakra-ui/react";
-import { Minus, Pencil } from "lucide-react";
+import { Field, HStack, NativeSelect, Separator, Stack, Text } from "@chakra-ui/react";
+import { Pencil } from "lucide-react";
 import { isElementKind } from "@/lib/elements";
-import type { ElementDetail, ElementPanelDetail, PlayItem, SceneLink } from "@/lib/run";
+import {
+  SCENE_ELEMENT_HIDDEN,
+  type ElementDetail,
+  type ElementPanelDetail,
+  type PlayItem,
+  type SceneLink,
+} from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import {
   sa_getElementDetail,
@@ -15,7 +21,11 @@ import {
 } from "@/app/(app)/run/[id]/actions";
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { DeleteButton } from "@/components/confirm/delete-button";
 import { ElementHistory } from "@/components/elements/element-history";
+import { sa_getStatBlocks, type ElementStatBlock } from "@/components/stat-blocks/actions";
+import { ElementStatBlocks } from "@/components/stat-blocks/stat-block-view";
+import { ElementStatBlocksFold } from "./element-stat-blocks-fold";
 import { RunElementForm } from "./run-element-form";
 import { ElementDetailRows } from "./run-element-detail";
 import { RunSceneSection } from "./run-scene-section";
@@ -26,6 +36,12 @@ type Props = {
   /** The scene the table is on, whose link to the element the panel shows; null for none. */
   idStoryScene: number | null;
   idElement: number;
+  /**
+   * Which link of the element to the scene, from a pill; the library leaves
+   * it out and the panel shows the element's first link, an element being in
+   * a scene any number of times.
+   */
+  idSceneElement?: number | null;
   /** What the pill or the library calls the element, until it has loaded. */
   label: string;
   /**
@@ -63,8 +79,8 @@ type Props = {
    * else the element's.
    */
   onImageChange: (imageUrl: string | null) => void;
-  /** The element has been taken out of the scene from here. */
-  onRemovedFromScene: () => void;
+  /** The link has been taken out of the scene from here, by id. */
+  onRemovedFromScene: (idSceneElement: number) => void;
   /**
    * From a pill: the tag of the stack it is in, which Move to takes it out
    * of (null for Default), and the scene's other stacks, which Move to
@@ -80,6 +96,8 @@ type Props = {
 type Loaded = ElementPanelDetail & {
   elementOptions: StatusOption[];
   sceneOptions: StatusOption[];
+  /** The element's own stat blocks, the baseline the link's copy was taken from. */
+  elementBlocks: ElementStatBlock[];
 };
 
 /**
@@ -91,12 +109,15 @@ type Loaded = ElementPanelDetail & {
  * last choice included, rather than what the page loaded with; a holder
  * that wants it loaded afresh mounts it afresh.
  *
- * A badge beside the name says which it is: SCENE for an element in the
- * scene, STORY for one that is only the story's. Only a SCENE element has
- * the scene's part, first, as a card (RunSceneSection): its status on the
- * In this scene heading with its stacks and the − that takes it out, its
- * info switch, its picture and other images for this scene, and, under the
- * element's own rows, Move to. Moving its status tells the play space, so
+ * Only an element in the scene has the scene's part, first, as a card
+ * (RunSceneSection) under a SCENE pill the width of the panel that rides
+ * over its top edge, with its stacks menu at the pill's end: its status and
+ * info toggle with the thumbnail of its pictures for this scene at the
+ * right, its link and its copy of the stat blocks, closed to start; the
+ * trashcan beside the pencil takes
+ * it out of the scene. The element's own rows follow under a STORY pill of
+ * the same cut (ElementDetailRows), and, under them, Move to; an element
+ * that is only the story's has the rows alone. Moving its status tells the play space, so
  * the pill keeps up. The element's own status is among its own rows either
  * way. Last of all, History: the story's other scenes the element has been
  * in (ElementHistory), closed until its chevron is pressed.
@@ -115,6 +136,7 @@ export function RunElementPanel({
   idStory,
   idStoryScene,
   idElement,
+  idSceneElement = null,
   label,
   heading,
   locked = false,
@@ -136,19 +158,25 @@ export function RunElementPanel({
   const [sceneImageUrl, setSceneImageUrl] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [moving, setMoving] = useState(false);
-  const [removing, setRemoving] = useState(false);
   // Bumped to load again, after an edit saved in the scene.
   const [loads, setLoads] = useState(0);
 
   useEffect(() => {
     let live = true;
     Promise.all([
-      sa_getElementDetail(idStory, idElement, idStoryScene),
+      sa_getElementDetail(idStory, idElement, idStoryScene, idSceneElement),
       sa_listStatusOptions("elements"),
       sa_listStatusOptions("scene_elements"),
+      sa_getStatBlocks({ idStory, idElement }),
     ])
-      .then(([found, elementOptions, sceneOptions]) => {
-        if (live) setLoaded(found ? { ...found, elementOptions, sceneOptions } : null);
+      .then(([found, elementOptions, sceneOptions, elementBlocks]) => {
+        if (live) {
+          setLoaded(
+            found
+              ? { ...found, elementOptions, sceneOptions, elementBlocks: elementBlocks ?? [] }
+              : null,
+          );
+        }
       })
       .catch(() => {
         if (live) setLoaded(null);
@@ -156,7 +184,7 @@ export function RunElementPanel({
     return () => {
       live = false;
     };
-  }, [idStory, idElement, idStoryScene, loads]);
+  }, [idStory, idElement, idStoryScene, idSceneElement, loads]);
 
   // The scene's part of the panel: only for an element in the scene, and
   // only while there is a scene to speak of.
@@ -176,10 +204,11 @@ export function RunElementPanel({
   // Move to: the pill leaves this stack for the one chosen, which redraws it
   // there and so closes this panel with it.
   async function moveTo(tag: string) {
-    if (!tag || idStoryScene === null) return;
+    if (!tag || idStoryScene === null || !loaded?.link) return;
+    const link = loaded.link.idSceneElement;
     setMoving(true);
     try {
-      const result = await sa_moveSceneElement(idStory, idStoryScene, idElement, stackTag, tag);
+      const result = await sa_moveSceneElement(idStory, idStoryScene, link, stackTag, tag);
       if (result.ok) onItemChange(result.item);
       else toaster.create({ title: result.error, type: "error" });
     } catch {
@@ -189,27 +218,20 @@ export function RunElementPanel({
     }
   }
 
-  // The − beside In this scene: the link is deleted (sa_unlinkSceneElement)
-  // and the element stays in the story. From a pill, the pill leaves the
-  // play space, taking this panel with it; from the library, the panel
-  // stays open on the element, now STORY.
+  // The trashcan beside the pencil: the link is deleted
+  // (sa_unlinkSceneElement), once the question is answered, and the element
+  // stays in the story. From a pill, the pill leaves the play space, taking
+  // this panel with it; from the library, the panel stays open on the
+  // element, now STORY. A refusal is the popover's to show.
   async function removeFromScene() {
-    if (idStoryScene === null) return;
-    setRemoving(true);
-    try {
-      const result = await sa_unlinkSceneElement(idStory, idStoryScene, idElement);
-      if (result.ok) {
-        setLoaded((current) => (current ? { ...current, link: null } : current));
-        toaster.create({ title: "Removed from the scene", type: "success" });
-        onRemovedFromScene();
-      } else {
-        toaster.create({ title: result.error, type: "error" });
-      }
-    } catch {
-      toaster.create({ title: "The element could not be removed. Try again.", type: "error" });
-    } finally {
-      setRemoving(false);
+    if (idStoryScene === null || !loaded?.link) return { ok: false as const, error: "" };
+    const link = loaded.link.idSceneElement;
+    const result = await sa_unlinkSceneElement(idStory, idStoryScene, link);
+    if (result.ok) {
+      setLoaded((current) => (current ? { ...current, link: null } : current));
+      onRemovedFromScene(link);
     }
+    return result;
   }
 
   const name = loaded?.element.name ?? label;
@@ -219,18 +241,28 @@ export function RunElementPanel({
       <HStack justify="space-between" gap="2">
         <HStack gap="2" minW="0" wrap="wrap">
           {heading(editing ? `Edit ${name}` : name)}
-          {/* SCENE or STORY: whether this is the element in the scene at
-              the table, or only the story's. */}
-          {loaded && (
-            <Badge size="xs" variant="outline" data-testid="element-panel-where">
-              {inScene ? "SCENE" : "STORY"}
-            </Badge>
-          )}
         </HStack>
-        {loaded && !editing && canEdit && (
-          <PrepIconButton label={`Edit ${name}`} onClick={() => setEditing(true)} outlined>
-            <Pencil />
-          </PrepIconButton>
+        {loaded && !editing && (
+          <HStack gap="1" flexShrink="0">
+            {canEdit && (
+              <PrepIconButton label={`Edit ${name}`} onClick={() => setEditing(true)} outlined>
+                <Pencil />
+              </PrepIconButton>
+            )}
+            {inScene && !locked && (
+              <DeleteButton
+                thing={name}
+                label="Remove from scene"
+                verb="Remove"
+                done="Removed from the scene"
+                failed="The element could not be removed. Try again."
+                onDelete={removeFromScene}
+              >
+                It leaves this scene, and its copy of the stats goes with it. The element stays in
+                the story.
+              </DeleteButton>
+            )}
+          </HStack>
         )}
       </HStack>
       {loaded && editing ? (
@@ -265,26 +297,16 @@ export function RunElementPanel({
             <RunSceneSection
               idStory={idStory}
               idStoryScene={idStoryScene}
-              idElement={idElement}
               name={name}
               link={loaded.link}
               locked={locked}
               sceneOptions={loaded.sceneOptions}
               sceneStacks={sceneStacks}
-              action={
-                // Hidden while the action is out, so a second press cannot
-                // send it twice.
-                !locked &&
-                !removing && (
-                  <PrepIconButton
-                    label="Remove from scene"
-                    onClick={() => void removeFromScene()}
-                    outlined
-                  >
-                    <Minus />
-                  </PrepIconButton>
-                )
-              }
+              holder={{ idStory, idSceneElement: loaded.link.idSceneElement }}
+              // The chat names the element as its pill does; an invisible
+              // element's roll stays with the storyteller.
+              rollAs={{ title: label, quiet: loaded.link.status === SCENE_ELEMENT_HIDDEN }}
+              elementHasStats={loaded.elementBlocks.some((block) => block.carried.length > 0)}
               onStatusChange={(status) => {
                 patchLink({ status });
                 onSceneStatusChange(status);
@@ -307,7 +329,6 @@ export function RunElementPanel({
           <ElementDetailRows
             element={loaded.element}
             statusOptions={loaded.elementOptions}
-            locked={locked}
             onStatusChange={(status) => patchElement({ status })}
             onTagsChange={(tags) => {
               patchElement({ tags });
@@ -321,6 +342,21 @@ export function RunElementPanel({
               onImageChange(sceneImageUrl ?? imageUrl);
             }}
           />
+          {/* From a pill, the element's own blocks folded under its rows, to
+              read beside the link's copy above; from the library, the
+              element's blocks themselves, to change. */}
+          {inScene && loaded.link ? (
+            <ElementStatBlocksFold
+              holder={{ idStory, idElement: loaded.element.idElement }}
+              blocks={loaded.elementBlocks}
+            />
+          ) : (
+            <ElementStatBlocks
+              holder={{ idStory, idElement: loaded.element.idElement }}
+              canEdit={!locked}
+              rollAs={{ title: label, quiet: false }}
+            />
+          )}
           {inScene && !locked && otherStacks.length > 0 && (
             <>
               <Separator />
@@ -390,13 +426,14 @@ function EditForm({
     sceneStatus: link?.status ?? "",
     sceneUrl: link?.url ?? "",
     sceneUrlText: link?.urlText ?? "",
+    sceneLabel: link?.label ?? "",
   } as const;
 
   if (link && idStoryScene !== null) {
     return (
       <RunElementForm
         initial={initial}
-        save={(values) => sa_updateSceneElement(idStory, idStoryScene, idElement, values)}
+        save={(values) => sa_updateSceneElement(idStory, idStoryScene, link.idSceneElement, values)}
         onSaved={({ item }) => onSavedInScene(item)}
         onCancel={onCancel}
         submitLabel="Save element"

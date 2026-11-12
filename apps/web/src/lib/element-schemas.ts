@@ -82,6 +82,8 @@ export const runElementSchema = elementSchema.extend({
   // The link's own link, for this scene, in front of the element's.
   sceneUrl: linkUrlSchema,
   sceneUrlText: linkTextSchema,
+  // The link's own words for its pill in this scene; "" to show the element's field.
+  sceneLabel: z.string().trim().max(200, "Keep the label under 200 characters."),
 });
 
 export type RunElementValues = z.infer<typeof runElementSchema>;

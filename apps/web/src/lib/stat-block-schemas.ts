@@ -1,13 +1,19 @@
 import { z } from "zod";
 import {
   canConnect,
+  canRoll,
+  defaultFormat,
   EMPTY_DEFINITION,
   evaluateStatBlock,
   findStat,
+  hasDie,
+  isNumberFormat,
   isRepeating,
+  MULTIPLES,
   matchRackEntry,
   resolveConnection,
   rowKeyText,
+  STAT_FORMATS,
   STAT_TYPES,
   statLabel,
   type RackEntry,
@@ -19,8 +25,10 @@ import {
   type StatGroupDefinition,
   type StatDefinition,
   type StatRow,
+  type StatType,
 } from "./stat-blocks";
 import { formulaReferences, parseFormula } from "./stat-formula";
+import { isRollNotation, MAX_ROLL_NOTATION, normalizeDice } from "./roll";
 
 // The zod side of stat blocks (lib/stat-blocks.ts has the shapes and the
 // reading): what the administrators' editor and the element forms check
@@ -32,6 +40,7 @@ const MAX_STATS = 50;
 const MAX_RACK = 50;
 const MAX_ROWS = 50;
 const MAX_LABEL = 60;
+const MAX_DESCRIPTION = 300;
 const MAX_FORMULA = 500;
 /** On the serialised definition, as a user preference is capped (user-preference-schemas.ts). */
 const MAX_DEFINITION_LENGTH = 50_000;
@@ -59,6 +68,10 @@ const rackEntrySchema = z.union([
 export const statDefinitionSchema = z.object({
   name: identifierSchema,
   label: labelSchema,
+  description: z
+    .string()
+    .trim()
+    .max(MAX_DESCRIPTION, `Keep the description under ${MAX_DESCRIPTION} characters.`),
   type: z.enum(STAT_TYPES, { error: "Choose what kind of stat this is." }),
   rack: z.array(rackEntrySchema).max(MAX_RACK, `Keep a rack under ${MAX_RACK} entries.`),
   connectedTo: z.string().trim().max(100, "Keep the connection under 100 characters."),
@@ -66,12 +79,24 @@ export const statDefinitionSchema = z.object({
     .string()
     .trim()
     .max(MAX_FORMULA, `Keep the formula under ${MAX_FORMULA} characters.`),
+  visible: z.boolean(),
+  format: z.enum(STAT_FORMATS),
+  sticky: z.boolean(),
+  static: z.boolean(),
+  roll: z
+    .string()
+    .trim()
+    .max(MAX_ROLL_NOTATION, `Keep a roll under ${MAX_ROLL_NOTATION} characters.`),
+  global: z.boolean(),
+  upDown: z.boolean(),
 });
 
 export const statGroupDefinitionSchema = z.object({
   name: identifierSchema,
   label: labelSchema,
   keyedBy: z.string().trim().max(40, "Keep the key under 40 characters."),
+  rollAll: z.boolean(),
+  canHaveMultiples: z.boolean(),
   stats: z.array(statDefinitionSchema).max(MAX_STATS, `Keep a group under ${MAX_STATS} stats.`),
 });
 
@@ -104,6 +129,13 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
     }
     groupNames.add(group.name);
     const statNames = new Set<string>();
+
+    if (group.rollAll && !isRepeating(group)) {
+      issues.push({
+        path: ["groups", g, "rollAll"],
+        message: "Only a group that repeats can roll all.",
+      });
+    }
 
     if (isRepeating(group)) {
       const key = group.stats.find((stat) => stat.name === group.keyedBy);
@@ -141,6 +173,24 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
       }
       if (stat.type !== "rack" && stat.rack.length > 0) {
         issues.push({ path: at("rack"), message: "Only a rack has entries." });
+      }
+
+      if (stat.roll !== "") {
+        if (!canRoll(stat)) {
+          issues.push({
+            path: at("roll"),
+            message: "Only a pool, a stack or a display held to a number has a roll.",
+          });
+        } else if (!isRollNotation(stat.roll)) {
+          issues.push({ path: at("roll"), message: "That is not a roll I can read. Try 2d6+1." });
+        }
+      }
+
+      if (stat.global && !hasDie(stat)) {
+        issues.push({
+          path: at("global"),
+          message: "Only a stat with a die can be rolled for all.",
+        });
       }
 
       if (stat.type === "computed") {
@@ -304,17 +354,23 @@ export type StatBlockDefinitionFormInput = z.input<typeof statBlockDefinitionFor
  * what last wrote it and a page is better empty than broken.
  */
 export function readStatBlockDefinition(raw: unknown): StatBlockDefinition {
-  const parsed = statBlockDefinitionSchema.safeParse(withKeys(raw));
+  const parsed = statBlockDefinitionSchema.safeParse(withDefaults(raw));
   return parsed.success ? parsed.data : EMPTY_DEFINITION;
 }
 
 /**
- * A stored definition with keyedBy on every group: columns written before
- * groups could repeat have none, and read as plain groups rather than
- * failing whole. Anything that is not the expected shape is handed on as it
- * is for the schema to refuse.
+ * A stored definition with the fields later versions added: keyedBy,
+ * rollAll and canHaveMultiples on every group, and description, visible,
+ * format, sticky, static, roll, global and upDown on every stat. Columns
+ * written before groups could repeat have no keyedBy and read as plain
+ * groups that do not roll all and have no multiples; those written before a
+ * stat had the flags read as shown, in the format its type starts with, not
+ * sticky, not static, with no roll, not global and without the up/down
+ * changer. Each reads that way rather than failing whole.
+ * Anything that is not the expected shape is handed on as it is for the
+ * schema to refuse.
  */
-function withKeys(raw: unknown): unknown {
+function withDefaults(raw: unknown): unknown {
   if (
     typeof raw !== "object" ||
     raw === null ||
@@ -322,11 +378,31 @@ function withKeys(raw: unknown): unknown {
   ) {
     return raw;
   }
-  const groups = (raw as { groups: unknown[] }).groups.map((group) =>
-    typeof group === "object" && group !== null && !("keyedBy" in group)
-      ? { ...group, keyedBy: "" }
-      : group,
-  );
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null;
+  const groups = (raw as { groups: unknown[] }).groups.map((group) => {
+    if (!isRecord(group)) return group;
+    const flags = (stat: Record<string, unknown>) => ({
+      description: "",
+      visible: true,
+      format: defaultFormat(stat.type as StatType),
+      sticky: false,
+      static: false,
+      roll: "",
+      global: false,
+      upDown: false,
+    });
+    const stats = Array.isArray(group.stats)
+      ? group.stats.map((stat) => (isRecord(stat) ? { ...flags(stat), ...stat } : stat))
+      : group.stats;
+    return {
+      ...group,
+      stats,
+      ...("keyedBy" in group ? {} : { keyedBy: "" }),
+      ...("rollAll" in group ? {} : { rollAll: false }),
+      ...("canHaveMultiples" in group ? {} : { canHaveMultiples: false }),
+    };
+  });
   return { ...raw, groups };
 }
 
@@ -340,39 +416,62 @@ const asNumber = (value: unknown) => {
   if (text === "") return undefined;
   return /^-?\d+(\.\d+)?$/.test(text) ? Number(text) : value;
 };
-const numberInput = z.preprocess(asNumber, z.number({ error: "Enter a number." }));
 const optionalNumberInput = z.preprocess(
   asNumber,
   z.number({ error: "Enter a number." }).optional(),
 );
 
-// A display's value: a number when it reads as one, else the words.
+// A group's multiple as the Multiple box posts it: 1 or more, whole; blank
+// for none set, which reads as 1.
+const multipleInput = z.preprocess(
+  asNumber,
+  z
+    .number({ error: "Enter a number." })
+    .int("A whole number of times.")
+    .min(1, "At least once.")
+    .max(99, "Keep it under 99.")
+    .optional(),
+);
+
+// A display's value: a number when it reads as one, else the words; blank
+// is nothing yet.
 const displayValue = z.preprocess(
-  (value) =>
-    typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value.trim()) ? Number(value) : value,
-  z.union([z.number(), z.string().trim().max(200, "Keep it under 200 characters.")]),
+  (value) => {
+    if (typeof value !== "string") return value;
+    const text = value.trim();
+    if (text === "") return undefined;
+    return /^-?\d+(\.\d+)?$/.test(text) ? Number(text) : value;
+  },
+  z.union([z.number(), z.string().trim().max(200, "Keep it under 200 characters.")]).optional(),
 );
 
 /**
  * The schema for one stat's stored value, by its type and whether a
- * connection feeds it. Stored keys the type does not have are dropped
- * (zod strips what an object does not name), which is how a stale max is
- * shed. A computed stat, or a fed display, stores nothing at all.
+ * connection feeds it. Every box may be left blank, which stores no value
+ * for that part: the prep form fills what is known and the rest shows as
+ * nothing yet. Stored keys the type does not have are dropped (zod strips
+ * what an object does not name), which is how a stale max is shed. A
+ * computed stat, or a fed display, stores nothing at all.
  */
 function statValueSchema(stat: StatDefinition, connected: boolean) {
   switch (stat.type) {
     case "display":
-      return connected ? z.object({}) : z.object({ value: displayValue });
+      // A number format holds the value to a number; otherwise a word does.
+      if (connected) return z.object({});
+      return z.object({
+        value: isNumberFormat(stat.format) ? optionalNumberInput : displayValue,
+      });
     case "pool": {
       const base = z.object({
-        value: numberInput,
+        value: optionalNumberInput,
         min: optionalNumberInput.transform((min) => min ?? 0),
-        ...(connected ? {} : { max: numberInput }),
+        ...(connected ? {} : { max: optionalNumberInput }),
       });
       return base.superRefine((pool, ctx) => {
         if ("max" in pool && typeof pool.max === "number" && pool.min > pool.max) {
           ctx.addIssue({ code: "custom", path: ["min"], message: "The min is above the max." });
         }
+        if (pool.value === undefined) return;
         if (pool.value < pool.min) {
           ctx.addIssue({ code: "custom", path: ["value"], message: "That is below the min." });
         }
@@ -388,19 +487,20 @@ function statValueSchema(stat: StatDefinition, connected: boolean) {
     case "stack":
       return z
         .object({
-          value: numberInput,
+          value: optionalNumberInput,
           ...(connected ? {} : { max: optionalNumberInput }),
         })
         .superRefine((stack, ctx) => {
+          if ("max" in stack && typeof stack.max === "number" && stack.max < 0) {
+            ctx.addIssue({ code: "custom", path: ["max"], message: "A max cannot be below 0." });
+          }
+          if (stack.value === undefined) return;
           if (stack.value < 0) {
             ctx.addIssue({
               code: "custom",
               path: ["value"],
               message: "A stack cannot go below 0.",
             });
-          }
-          if ("max" in stack && typeof stack.max === "number" && stack.max < 0) {
-            ctx.addIssue({ code: "custom", path: ["max"], message: "A max cannot be below 0." });
           }
           if ("max" in stack && typeof stack.max === "number" && stack.value > stack.max) {
             ctx.addIssue({
@@ -421,6 +521,19 @@ function statValueSchema(stat: StatDefinition, connected: boolean) {
           return entry;
         }),
       });
+    case "dice":
+      // Blank is nothing yet; otherwise written tidily, "d8" as "1d8".
+      return z.object({
+        value: z.string().transform((text, ctx) => {
+          if (text.trim() === "") return undefined;
+          const dice = normalizeDice(text);
+          if (dice === null) {
+            ctx.addIssue({ code: "custom", message: "Write dice as 2d6, d8 or 2d6+2." });
+            return z.NEVER;
+          }
+          return dice;
+        }),
+      });
     case "computed":
       return z.object({});
   }
@@ -428,8 +541,9 @@ function statValueSchema(stat: StatDefinition, connected: boolean) {
 
 /**
  * The schema for one system's block, built from its definition so the
- * numbers are checked against the stats the system has. Every stat of
- * every group is required (the form always posts the whole block), and
+ * numbers are checked against the stats the system has. A group is there or
+ * not, as the element picked it; every stat of a group that is there is
+ * required (the form posts a carried group whole), and
  * after the shape, the block is worked out and a pool's or stack's value is
  * held to the max that feeds it, which only the evaluation knows. That
  * check runs once the shape is right, as zod runs an object's refinement
@@ -453,7 +567,21 @@ export function statBlockSchema(definition: StatBlockDefinition) {
           : schema;
     }
     const row = z.object(stats);
-    groups[group.name] = isRepeating(group) ? rowsSchema(group, row).optional() : row;
+    // Optional either way: a block holds only the groups the element
+    // picked, and a repeating group with no rows posts nothing for its key.
+    groups[group.name] = (isRepeating(group) ? rowsSchema(group, row) : row).optional();
+  }
+  // The element's multiples, one per group that can have them, each a
+  // whole number of 1 or more; blank is 1.
+  const withMultiples = definition.groups.filter((group) => group.canHaveMultiples);
+  if (withMultiples.length > 0) {
+    groups[MULTIPLES] = z
+      .object(
+        Object.fromEntries(
+          withMultiples.map((group) => [group.name, z.object({ value: multipleInput }).optional()]),
+        ),
+      )
+      .optional();
   }
   return z.object(groups).superRefine((block, ctx) => {
     for (const group of evaluateStatBlock(definition, block as StatBlock)) {

@@ -513,14 +513,14 @@ const INFO_NOT_SHOWING = "That element's info is not showing.";
 export async function sa_untapPlaySceneElement(
   idStory: number,
   idStoryScene: number,
-  idElement: number,
+  idSceneElement: number,
 ): Promise<UntapSceneElementResult> {
   const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
   const scene = idStorySchema.safeParse(idStoryScene);
-  const element = idStorySchema.safeParse(idElement);
+  const link = idStorySchema.safeParse(idSceneElement);
   if (!story || !scene.success) return { ok: false, error: NOT_AT_THIS_TABLE };
-  if (!element.success) return { ok: false, error: NOT_IN_THIS_SCENE };
+  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
 
   const current = await currentScene(story.idStory);
   if (current === null || current.idStoryScene !== scene.data) {
@@ -534,18 +534,20 @@ export async function sa_untapPlaySceneElement(
   if (!played) return { ok: false, error: NOT_BEING_PLAYED };
   if (played.status === SCENE_LOCKED_STATUS) return { ok: false, error: SCENE_COMPLETE };
 
-  const link = and(
+  // The link by its own id, since an element may be in the scene more than once.
+  const where = and(
     eq(sceneElements.idStoryScene, scene.data),
-    eq(sceneElements.idElement, element.data),
+    eq(sceneElements.idSceneElement, link.data),
   );
   const [row] = await db
     .select({
       idSceneElement: sceneElements.idSceneElement,
+      idElement: sceneElements.idElement,
       status: sceneElements.status,
       showInfo: sceneElements.showInfo,
     })
     .from(sceneElements)
-    .where(link)
+    .where(where)
     .limit(1);
   if (!row || row.status === SCENE_ELEMENT_HIDDEN) return { ok: false, error: NOT_IN_THIS_SCENE };
   if (row.status !== SCENE_ELEMENT_TAPPED) return { ok: false, error: NOT_TAPPED };
@@ -554,14 +556,14 @@ export async function sa_untapPlaySceneElement(
   const [named] = await db
     .select({ name: elements.name })
     .from(elements)
-    .where(eq(elements.idElement, element.data))
+    .where(eq(elements.idElement, row.idElement))
     .limit(1);
 
   const said = await db.transaction(async (tx) => {
     await tx
       .update(sceneElements)
       .set({ status: SCENE_ELEMENT_SHOWN, idUpdatedByUser: user.id })
-      .where(link);
+      .where(where);
     await tx.execute(sql`
       select _append_activity_log(
         table_name := 'scene_elements',
@@ -590,7 +592,7 @@ export async function sa_untapPlaySceneElement(
       tx,
     );
   });
-  publishLater(() => publishSceneElement(story.idStory, scene.data, element.data));
+  publishLater(() => publishSceneElement(story.idStory, scene.data, row.idSceneElement));
   publishLater(() => publishChat(story.idStory, said));
   return { ok: true, status: SCENE_ELEMENT_SHOWN };
 }

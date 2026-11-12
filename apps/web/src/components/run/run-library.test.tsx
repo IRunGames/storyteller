@@ -132,16 +132,17 @@ const sa_getElementDetail = mock.fn(
                   status: "READY",
                   tags: ["scene"],
                   showInfo: true,
+                  label: null,
                   createdAt: null,
                 }
               : null,
         }
       : null,
 );
-const sa_unlinkSceneElement = mock.fn(async (_story: number, _scene: number, _element: number) => ({
+const sa_unlinkSceneElement = mock.fn(async (_story: number, _scene: number, _link: number) => ({
   ok: true as const,
 }));
-const onRemovedFromScene = mock.fn((_idElement: number) => {});
+const onRemovedFromScene = mock.fn((_idSceneElement: number) => {});
 const onImageChange = mock.fn((_idElement: number, _imageUrl: string | null) => {});
 const onElementEdited = mock.fn((_element: ElementDetail) => {});
 const sa_updateStoryElement = mock.fn(
@@ -167,6 +168,8 @@ const sa_listStatusOptions = mock.fn(async (_table: string): Promise<StatusOptio
 
 let RunLibrary: typeof import("./run-library").RunLibrary;
 let UserPreferencesProvider: typeof import("@/components/preferences/user-preferences-provider").UserPreferencesProvider;
+
+const sa_getStatBlocks = mock.fn(async (_holder: unknown) => []);
 
 describe("RunLibrary", () => {
   before(async () => {
@@ -200,7 +203,7 @@ describe("RunLibrary", () => {
     });
     // The element panel's rows load the element's stat blocks as they mount.
     mock.module("@/components/stat-blocks/actions", {
-      namedExports: { sa_getElementStatBlocks: async () => [], sa_setElementStat: mock.fn() },
+      namedExports: { sa_getStatBlocks, sa_setStat: mock.fn() },
     });
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
@@ -727,7 +730,14 @@ describe("RunLibrary", () => {
     expect(await within(dialog).findByText("A hooded figure")).toBeInTheDocument();
     expect(within(dialog).getByText("Shell seller")).toBeInTheDocument();
     expect(within(dialog).getByText("harbour")).toBeInTheDocument();
-    expect(sa_getElementDetail.mock.calls[0].arguments).toEqual([-4, 5, 15]);
+    expect(sa_getElementDetail.mock.calls[0].arguments).toEqual([-4, 5, 15, null]);
+    // Dafydd is in the scene at the table, so the panel shows the scene
+    // element's copy of the stat blocks, as it would from his pill.
+    await waitFor(() =>
+      expect(sa_getStatBlocks.mock.calls.at(-1)?.arguments).toEqual([
+        { idStory: -4, idSceneElement: 9 },
+      ]),
+    );
   });
 
   it("edits a STORY element from its info popover, without anything about the scene", async () => {
@@ -739,14 +749,14 @@ describe("RunLibrary", () => {
     const panel = await screen.findByRole("tabpanel", { name: "People" });
     await user.click(await within(panel).findByRole("button", { name: "About Dafydd" }));
     const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
-    expect(await within(dialog).findByTestId("element-panel-where")).toHaveTextContent("STORY");
-    expect(within(dialog).queryByRole("heading", { name: "In this scene" })).toBeNull();
+    expect(await within(dialog).findByTestId("element-panel-story")).toHaveTextContent("STORY");
+    expect(within(dialog).queryByTestId("scene-card")).toBeNull();
     await user.click(await within(dialog).findByRole("button", { name: "Edit Dafydd" }));
 
     const name = await within(dialog).findByRole("textbox", { name: /^Name/ });
     expect(name).toHaveValue("Dafydd");
     // The library edits the element itself, not its place in a scene.
-    expect(within(dialog).queryByText("In this scene")).toBeNull();
+    expect(within(dialog).queryByTestId("scene-card")).toBeNull();
     await user.clear(name);
     await user.type(name, "Dafydd the Shell");
     const listedBefore = sa_listStoryElements.mock.callCount();
@@ -793,10 +803,13 @@ describe("RunLibrary", () => {
     await user.click(await within(panel).findByRole("button", { name: "About Dafydd" }));
     const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
     await user.click(await within(dialog).findByRole("button", { name: "Remove from scene" }));
+    // Removing asks first, as every delete does.
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
 
     expect(await screen.findByText("Removed from the scene")).toBeInTheDocument();
-    expect(sa_unlinkSceneElement.mock.calls[0].arguments).toEqual([-4, 15, 5]);
-    expect(onRemovedFromScene.mock.calls[0].arguments).toEqual([5]);
+    // The link goes by its own id, the one the detail read.
+    expect(sa_unlinkSceneElement.mock.calls[0].arguments).toEqual([-4, 15, 9]);
+    expect(onRemovedFromScene.mock.calls[0].arguments).toEqual([9]);
     // Out of the scene now, so the button goes; the element is still shown.
     expect(within(dialog).queryByRole("button", { name: "Remove from scene" })).toBeNull();
     expect(within(dialog).getByText("Shell seller")).toBeInTheDocument();
@@ -823,6 +836,7 @@ describe("RunLibrary", () => {
     await user.click(within(panel).getByRole("button", { name: "About Dafydd" }));
     const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
     await user.click(await within(dialog).findByRole("button", { name: "Remove from scene" }));
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
     await waitFor(() => expect(within(panel).queryByText("Dafydd")).not.toBeInTheDocument());
   });
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Box, chakra, Heading, HStack, Menu, Portal, Stack, Text } from "@chakra-ui/react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Dices } from "lucide-react";
 import {
   ELEMENT_SHOWING,
   elementIdOf,
@@ -27,6 +27,7 @@ import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { RunElementImagePopover } from "./run-element-image-popover";
 import { RunElementPanel } from "./run-element-panel";
+import { ElementStatBlocks } from "@/components/stat-blocks/stat-block-view";
 import { RunInfoToggle } from "./run-info-toggle";
 import { RunPictureTack } from "./run-picture-tack";
 import { RunSceneStatusMenu } from "./run-scene-status-menu";
@@ -74,7 +75,9 @@ type Props = {
  * leads with its info toggle (whether the players see its description) and
  * its status menu (RunSceneStatusMenu), its name is a dropdown of the fields
  * it can show, and a chevron at its end opens the element panel
- * (RunElementPanel) in place under it. Its thumbnail carries a tack
+ * (RunElementPanel) in place under it; a die before the chevron, on an
+ * element whose link carries a stat block, opens the blocks alone
+ * (ElementStatBlocks) instead, one or the other at a time. Its thumbnail carries a tack
  * (RunPictureTack) that puts the picture up full size on the players' table
  * and takes it down, a pulse over the story's topic rather than anything
  * written, with the theme's second highlight glowing round the thumbnail
@@ -108,15 +111,22 @@ export function RunPlayPill({
   const isTapped = status === SCENE_ELEMENT_TAPPED;
   // The column's default, for a link the page holds without having read it.
   const showInfo = item.showInfo ?? true;
-  const [open, setOpen] = useState(false);
+  // What is open under the pill: the whole panel, its stat blocks, or nothing.
+  const [open, setOpen] = useState<"about" | "stats" | null>(null);
+  const toggle = (which: "about" | "stats") =>
+    setOpen((current) => (current === which ? null : which));
+  const rolls = item.hasStatBlocks === true && item.idSceneElement !== undefined;
+  // The link the pill stands for; an element may be in the scene more than
+  // once, so its actions name the link, not the element.
+  const idSceneElement = item.idSceneElement ?? null;
 
   // The tack, the same way as the toggle: the glow at once, back if refused.
   async function toggleImage() {
-    if (!linked || !onPictureUpChange) return;
+    if (!linked || !onPictureUpChange || idSceneElement === null) return;
     const next = !pictureUp;
     onPictureUpChange(item.key, next);
     try {
-      const result = await sa_pulseSceneElement(idStory, idStoryScene, elementIdOf(item), {
+      const result = await sa_pulseSceneElement(idStory, idStoryScene, idSceneElement, {
         action: next ? "preview.open" : "preview.close",
       });
       if (result.ok) return;
@@ -131,10 +141,10 @@ export function RunPlayPill({
   // The status menu: the pill changes at once and goes back if the action
   // refuses.
   async function chooseStatus(next: SceneElementStatus) {
-    if (!linked || status === undefined || next === status) return;
+    if (!linked || idSceneElement === null || status === undefined || next === status) return;
     onStatusChange(item.key, next);
     try {
-      const result = await sa_setSceneElementStatus(idStory, idStoryScene, elementIdOf(item), next);
+      const result = await sa_setSceneElementStatus(idStory, idStoryScene, idSceneElement, next);
       if (result.ok) {
         onStatusChange(item.key, result.status);
         return;
@@ -149,16 +159,11 @@ export function RunPlayPill({
 
   // The info toggle, the same way: pressed at once, back if refused.
   async function toggleInfo() {
-    if (!linked) return;
+    if (!linked || idSceneElement === null) return;
     const next = !showInfo;
     onItemChange({ ...item, showInfo: next });
     try {
-      const result = await sa_setSceneElementShowInfo(
-        idStory,
-        idStoryScene,
-        elementIdOf(item),
-        next,
-      );
+      const result = await sa_setSceneElementShowInfo(idStory, idStoryScene, idSceneElement, next);
       if (result.ok) return;
       onItemChange({ ...item, showInfo });
       toaster.create({ title: result.error, type: "error" });
@@ -171,15 +176,12 @@ export function RunPlayPill({
   // The name's dropdown: the pill shows the chosen field at once and goes
   // back if the action refuses, as the status menu does.
   async function chooseShowing(next: string) {
-    if (!linked || !isElementShowing(next) || next === item.showing) return;
+    if (!linked || idSceneElement === null || !isElementShowing(next) || next === item.showing) {
+      return;
+    }
     onItemChange(withShowing(item, next));
     try {
-      const result = await sa_setSceneElementShowing(
-        idStory,
-        idStoryScene,
-        elementIdOf(item),
-        next,
-      );
+      const result = await sa_setSceneElementShowing(idStory, idStoryScene, idSceneElement, next);
       if (result.ok) return;
       onItemChange(item);
       toaster.create({ title: result.error, type: "error" });
@@ -355,27 +357,57 @@ export function RunPlayPill({
             </OverflowTooltip>
           )}
         </Stack>
+        {/* The die opens the stat blocks alone under the pill. */}
+        {linked && rolls && (
+          <PrepIconButton
+            label={`Stat blocks for ${item.label}`}
+            expanded={open === "stats"}
+            onClick={() => toggle("stats")}
+          >
+            <Dices />
+          </PrepIconButton>
+        )}
         {/* The chevron at the end opens the panel under the pill, and turns
             over while it is open. */}
         {linked && (
           <PrepIconButton
             label={`About ${item.label}`}
-            expanded={open}
-            onClick={() => setOpen((current) => !current)}
+            expanded={open === "about"}
+            onClick={() => toggle("about")}
           >
             <chakra.span
               display="inline-flex"
               transition="transform 0.15s"
-              transform={open ? "rotate(180deg)" : undefined}
+              transform={open === "about" ? "rotate(180deg)" : undefined}
             >
               <ChevronDown />
             </chakra.span>
           </PrepIconButton>
         )}
       </HStack>
+      {/* Mounted only while open, so each opening loads the blocks afresh.
+          A region named as the die is, so it is found by what opened it. */}
+      {linked && rolls && open === "stats" && (
+        <Box
+          role="region"
+          aria-label={`Stat blocks for ${item.label}`}
+          borderTopWidth="1px"
+          px="3"
+          pt="2"
+          pb="3"
+        >
+          <ElementStatBlocks
+            holder={{ idStory, idSceneElement: item.idSceneElement! }}
+            canEdit={!locked}
+            // A roll is said in the chat as the players know the element;
+            // an invisible element's stays with the storyteller.
+            rollAs={{ title: item.label, quiet: isHidden }}
+          />
+        </Box>
+      )}
       {/* Mounted only while open, so each opening loads the element afresh.
           A region named as the chevron is, so it is found by what opened it. */}
-      {linked && open && (
+      {linked && open === "about" && (
         <Box
           role="region"
           aria-label={`About ${item.label}`}
@@ -388,6 +420,7 @@ export function RunPlayPill({
             idStory={idStory}
             idStoryScene={idStoryScene}
             idElement={elementIdOf(item)}
+            idSceneElement={idSceneElement}
             label={item.label}
             locked={locked}
             canEdit={!locked}

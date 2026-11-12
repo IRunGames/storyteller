@@ -60,6 +60,7 @@ const zed = {
     status: "TAPPED",
     tags: ["scene"],
     elementShowing: "initial_name",
+    label: null,
     showInfo: true,
     url: null,
     urlText: null,

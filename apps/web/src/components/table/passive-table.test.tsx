@@ -79,6 +79,7 @@ function link(idElement: number, name: string, imageUrl: string | null, title: s
       status: "READY",
       tags: ["scene"],
       elementShowing: "name",
+      label: null,
       showInfo: true,
       url: null,
       urlText: null,

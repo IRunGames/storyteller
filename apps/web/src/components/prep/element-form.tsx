@@ -20,13 +20,7 @@ import {
   type ElementValues,
 } from "@/lib/element-schemas";
 import type { ElementKind } from "@/lib/elements";
-import {
-  emptyStatBlock,
-  hasStats,
-  systemKey,
-  toStatBlockFields,
-  type StatBlock,
-} from "@/lib/stat-blocks";
+import { hasStats, systemKey, toStatBlockFields, type StatBlock } from "@/lib/stat-blocks";
 import {
   sa_createElement,
   sa_updateElement,
@@ -62,36 +56,24 @@ type Props = {
 };
 
 /**
- * What the blocks start as: the element's own, each read against its
- * definition, for an edit; for a new element, the story's system's empty
- * block when that system has stats, else none. A stored block for a system
- * the list does not know is not drawn and not posted, which leaves it as it
- * is.
+ * What the blocks start as: the story's own system's block, read against
+ * its template, for an edit; for a new element, that system's block with
+ * no stat blocks picked yet, so the section opens on the picker. Nothing
+ * when the story has no system or its template has no stats, and the
+ * section is then not drawn. A block stored for any other system is
+ * neither drawn nor posted, which leaves it as it is.
  */
 function initialBlocks(
   systems: StatBlockSystems | undefined,
   element: Props["element"],
 ): ElementFormInput["statBlocks"] {
-  if (!systems) return {};
-  const blocks: ElementFormInput["statBlocks"] = {};
-  if (element) {
-    for (const system of systems.systems) {
-      // Read against the definition as it is drawn, so the type the schema
-      // gives the column (anything) is narrowed here and nowhere else.
-      const stored = element.values.statBlocks?.[systemKey(system.idSystem)] as
-        StatBlock | undefined;
-      if (stored) blocks[systemKey(system.idSystem)] = toStatBlockFields(system.definition, stored);
-    }
-    return blocks;
-  }
-  const own = systems.systems.find((system) => system.idSystem === systems.storySystem);
-  if (own && hasStats(own.definition)) {
-    blocks[systemKey(own.idSystem)] = toStatBlockFields(
-      own.definition,
-      emptyStatBlock(own.definition),
-    );
-  }
-  return blocks;
+  const own = systems?.systems.find((system) => system.idSystem === systems.storySystem);
+  if (!own || !hasStats(own.definition)) return {};
+  const key = systemKey(own.idSystem);
+  // Read against the definition as it is drawn, so the type the schema
+  // gives the column (anything) is narrowed here and nowhere else.
+  const stored = element?.values.statBlocks?.[key] as StatBlock | undefined;
+  return { [key]: toStatBlockFields(own.definition, stored ?? {}) };
 }
 
 // One form for a new element and an edited one, as SceneForm is for scenes:

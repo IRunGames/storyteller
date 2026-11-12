@@ -24,10 +24,7 @@ export const signUpSchema = z.object({
   email,
   password: z
     .string()
-    .min(
-      MIN_PASSWORD_LENGTH,
-      `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
-    ),
+    .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`),
 });
 
 export type SignUpValues = z.infer<typeof signUpSchema>;

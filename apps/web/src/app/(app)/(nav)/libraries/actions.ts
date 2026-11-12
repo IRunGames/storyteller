@@ -407,7 +407,12 @@ function sceneElementInfo(
     ? link.elementShowing
     : DEFAULT_ELEMENT_SHOWING;
   const { label, detail } = pillText(
-    { initial_name: element.initialName, name: element.name, title: element.title },
+    {
+      initial_name: element.initialName,
+      name: element.name,
+      title: element.title,
+      label: link.label,
+    },
     showing,
   );
   return { ...base, label, detail, description: link.showInfo ? element.description : null };

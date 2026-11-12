@@ -846,13 +846,7 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
     it("takes the link's pictures with the link, and refuses another's link", async () => {
       const { id: brief } = await onStory("https://example.com/link-brief.jpg");
-      const [{ id: passing }] = await db
-        .insert(tables.sceneElements)
-        .values({ idStoryScene: idScene, idElement, idCreatedByUser: testUser })
-        .onConflictDoNothing()
-        .returning({ id: tables.sceneElements.idSceneElement })
-        .then((rows) => (rows.length > 0 ? rows : [{ id: idLink }]));
-      // The link is unique per scene and element, so a second scene holds it.
+      // A second link of the element, in a scene of its own.
       const [{ id: otherScene }] = await db
         .insert(tables.storyScenes)
         .values({ idStory, sceneTitle: "Fixture pictures scene 2", idCreatedByUser: testUser })
@@ -861,7 +855,6 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         .insert(tables.sceneElements)
         .values({ idStoryScene: otherScene, idElement, idCreatedByUser: testUser })
         .returning({ id: tables.sceneElements.idSceneElement });
-      expect(passing).toBe(idLink);
 
       await actions.sa_attachAsCover("SCENE_ELEMENT", link2, brief);
       expect(await usesOf(brief)).toHaveLength(1);

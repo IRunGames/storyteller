@@ -1,13 +1,12 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
 
-import {
-  MIN_PASSWORD_LENGTH,
-  signInSchema,
-  signUpSchema,
-} from "./auth-schemas";
+import { MIN_PASSWORD_LENGTH, signInSchema, signUpSchema } from "./auth-schemas";
 
-function messagesFor(result: { success: boolean; error?: { issues: { path: PropertyKey[]; message: string }[] } }) {
+function messagesFor(result: {
+  success: boolean;
+  error?: { issues: { path: PropertyKey[]; message: string }[] };
+}) {
   if (result.success || !result.error) return {};
   return Object.fromEntries(
     result.error.issues.map((issue) => [issue.path.join("."), issue.message]),
@@ -75,11 +74,7 @@ describe("signUpSchema", () => {
   it("reports every failing field at once", () => {
     const result = signUpSchema.safeParse({ name: "", email: "", password: "" });
 
-    expect(Object.keys(messagesFor(result)).sort()).toEqual([
-      "email",
-      "name",
-      "password",
-    ]);
+    expect(Object.keys(messagesFor(result)).sort()).toEqual(["email", "name", "password"]);
   });
 });
 

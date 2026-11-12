@@ -147,6 +147,7 @@ export function RunNewElementPopover({
                     sceneStatus: addInvisible ? SCENE_ELEMENT_HIDDEN : "",
                     sceneUrl: "",
                     sceneUrlText: "",
+                    sceneLabel: "",
                   }}
                   save={(values) =>
                     sa_createSceneElement(idStory, idStoryScene, tag, {

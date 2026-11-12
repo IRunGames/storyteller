@@ -62,6 +62,7 @@ const docks: PlayScene = {
         status: "READY",
         tags: ["scene"],
         elementShowing: "initial_name",
+        label: null,
         showInfo: true,
         url: null,
         urlText: null,

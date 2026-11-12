@@ -1,8 +1,10 @@
 // Integration test against the real database, skipped when DATABASE_URL is
 // unset so `just test` stays green offline. `before` makes a story with two
 // scenes and two elements, one of them linked to each scene; each test opens
-// the session it needs on one of the scenes. The publish itself is mocked:
-// what is checked is which events the helpers choose to send.
+// the session it needs on one of the scenes. The helpers name a link by its
+// own id, since an element may be in a scene more than once. The publish
+// itself is mocked: what is checked is which events the helpers choose to
+// send.
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
@@ -31,6 +33,9 @@ let docks = 0;
 let abbey = 0;
 let zed = 0;
 let lantern = 0;
+/** Zed's link to the docks, and the lantern's to the abbey. */
+let zedLink = 0;
+let lanternLink = 0;
 
 const sent = () => publishStoryEvent.mock.calls.map((call) => call.arguments[1]);
 
@@ -68,10 +73,18 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       ])
       .returning({ id: tables.elements.idElement });
 
-    await db.insert(tables.sceneElements).values([
-      { idStoryScene: docks, idElement: zed, tags: ["scene"], idCreatedByUser: testUser },
-      { idStoryScene: abbey, idElement: lantern, idCreatedByUser: testUser },
-    ]);
+    const links = await db
+      .insert(tables.sceneElements)
+      .values([
+        { idStoryScene: docks, idElement: zed, tags: ["scene"], idCreatedByUser: testUser },
+        { idStoryScene: abbey, idElement: lantern, idCreatedByUser: testUser },
+      ])
+      .returning({
+        id: tables.sceneElements.idSceneElement,
+        idElement: tables.sceneElements.idElement,
+      });
+    zedLink = links.find((link) => link.idElement === zed)!.id;
+    lanternLink = links.find((link) => link.idElement === lantern)!.id;
   });
 
   beforeEach(async () => {
@@ -105,7 +118,7 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   describe("publishSceneElement", () => {
     it("sends the element and its link whole, the players' notes included", async () => {
       await play(docks);
-      await helpers.publishSceneElement(story, docks, zed);
+      await helpers.publishSceneElement(story, docks, zedLink);
 
       const [event] = sent();
       expect(event).toMatchObject({
@@ -129,7 +142,7 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
         .set({ showInfo: false })
         .where(eq(tables.sceneElements.idElement, zed));
 
-      await helpers.publishSceneElement(story, docks, zed);
+      await helpers.publishSceneElement(story, docks, zedLink);
       expect(sent()[0]).toMatchObject({
         element: { description: null },
         sceneElement: { showInfo: false },
@@ -139,7 +152,7 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
         .update(tables.sceneElements)
         .set({ showInfo: true })
         .where(eq(tables.sceneElements.idElement, zed));
-      await helpers.publishSceneElement(story, docks, zed);
+      await helpers.publishSceneElement(story, docks, zedLink);
       expect(sent()[1]).toMatchObject({
         element: { description: "Keeps the docks." },
         sceneElement: { showInfo: true },
@@ -153,40 +166,35 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
         .set({ status: "INVISIBLE" })
         .where(eq(tables.sceneElements.idElement, zed));
 
-      await helpers.publishSceneElement(story, docks, zed);
+      await helpers.publishSceneElement(story, docks, zedLink);
 
       expect(sent()).toEqual([
         expect.objectContaining({
           type: "scene_element.removed",
           idStoryScene: docks,
           idElement: zed,
-          idSceneElement: expect.any(Number),
+          idSceneElement: zedLink,
         }),
       ]);
     });
 
-    it("sends a removal for an element not linked to the scene", async () => {
+    it("says nothing for a link that is gone, or not the scene's", async () => {
       await play(docks);
-      await helpers.publishSceneElement(story, docks, lantern);
-      expect(sent()).toEqual([
-        expect.objectContaining({
-          type: "scene_element.removed",
-          idElement: lantern,
-          idSceneElement: null,
-        }),
-      ]);
+      await helpers.publishSceneElement(story, docks, 999);
+      await helpers.publishSceneElement(story, docks, lanternLink);
+      expect(sent()).toEqual([]);
     });
 
     it("says nothing about a scene the session is not on, or with no session", async () => {
-      await helpers.publishSceneElement(story, docks, zed);
+      await helpers.publishSceneElement(story, docks, zedLink);
       await play(abbey);
-      await helpers.publishSceneElement(story, docks, zed);
+      await helpers.publishSceneElement(story, docks, zedLink);
       expect(sent()).toEqual([]);
     });
 
     it("says nothing while the session is paused", async () => {
       await play(docks, "SUSPENDED");
-      await helpers.publishSceneElement(story, docks, zed);
+      await helpers.publishSceneElement(story, docks, zedLink);
       expect(sent()).toEqual([]);
     });
   });
@@ -198,10 +206,33 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       expect(sent()).toEqual([expect.objectContaining({ type: "scene_element.upserted" })]);
     });
 
-    it("sends a removal for one not in the current scene", async () => {
+    it("sends the element once per link when it is in the scene twice, and nothing when it is not", async () => {
       await play(docks);
-      await helpers.publishElementChanged(story, lantern);
-      expect(sent()).toEqual([expect.objectContaining({ type: "scene_element.removed" })]);
+      const [copy] = await db
+        .insert(tables.sceneElements)
+        .values({
+          idStoryScene: docks,
+          idElement: zed,
+          label: "Fixture Zed 1",
+          idCreatedByUser: testUser,
+        })
+        .returning({ id: tables.sceneElements.idSceneElement });
+      try {
+        await helpers.publishElementChanged(story, zed);
+        expect(
+          sent().map((event) => event.type === "scene_element.upserted" && event.sceneElement),
+        ).toEqual([
+          expect.objectContaining({ idSceneElement: zedLink, label: null }),
+          expect.objectContaining({ idSceneElement: copy.id, label: "Fixture Zed 1" }),
+        ]);
+        publishStoryEvent.mock.resetCalls();
+        await helpers.publishElementChanged(story, lantern);
+        expect(sent()).toEqual([]);
+      } finally {
+        await db
+          .delete(tables.sceneElements)
+          .where(eq(tables.sceneElements.idSceneElement, copy.id));
+      }
     });
 
     it("says nothing with no scene at the table", async () => {
@@ -240,22 +271,28 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   });
 
   describe("publishSceneElementPulse", () => {
-    it("sends the pulse as given, for the current scene only, reading nothing", async () => {
-      await helpers.publishSceneElementPulse(story, docks, zed, { action: "preview.open" });
+    it("sends the pulse as given, naming the link's element, for the current scene's links only", async () => {
+      await helpers.publishSceneElementPulse(story, docks, zedLink, { action: "preview.open" });
       await play(docks);
-      await helpers.publishSceneElementPulse(story, docks, zed, { action: "preview.open" });
-      // Whatever the pulse carries goes as it is; the helper does not look.
-      await helpers.publishSceneElementPulse(story, docks, 999, { action: "dice.roll", sides: 20 });
+      await helpers.publishSceneElementPulse(story, docks, zedLink, { action: "preview.open" });
+      // Whatever the pulse carries goes as it is; the helper does not look at
+      // it, only at whether the link is the scene's.
+      await helpers.publishSceneElementPulse(story, docks, zedLink, {
+        action: "dice.roll",
+        sides: 20,
+      });
+      await helpers.publishSceneElementPulse(story, docks, 999, { action: "preview.open" });
       expect(sent()).toEqual([
         expect.objectContaining({
           type: "scene_element.custom",
           idStoryScene: docks,
           idElement: zed,
+          idSceneElement: zedLink,
           custom: { action: "preview.open" },
         }),
         expect.objectContaining({
           type: "scene_element.custom",
-          idElement: 999,
+          idSceneElement: zedLink,
           custom: { action: "dice.roll", sides: 20 },
         }),
       ]);

@@ -8,6 +8,12 @@ import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
 import type { ElementPanelDetail, PlayItem } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
+import {
+  carriedGroups,
+  evaluateStatBlock,
+  type StatBlock,
+  type StatBlockDefinition,
+} from "@/lib/stat-blocks";
 import type {
   PulseSceneElementResult,
   SetElementTagsResult,
@@ -78,23 +84,26 @@ const detail: ElementPanelDetail = {
     showInfo: true,
     url: null,
     urlText: null,
+    label: null,
     createdAt: new Date("2026-10-08T12:00:00Z"),
   },
 };
 const sa_getElementDetail = mock.fn(
-  async (_story: number, _element: number, _scene: number | null) => detail,
+  async (_story: number, _element: number, _scene: number | null, _link: number | null) => detail,
 );
 
+// Keyed by the element and its link, as linkedItem keys a pill (playItemKey).
 const linked = (sceneStatus: string): PlayItem => ({
-  key: "PERSON:5",
+  key: "PERSON:5:9",
   kind: "PERSON",
   label: "A hooded figure",
   detail: "Shell seller",
   imageUrl: null,
   sceneTags: ["scene"],
   sceneStatus,
+  idSceneElement: 9,
   showInfo: true,
-  fields: { initial_name: "A hooded figure", name: "Dafydd", title: "Shell seller" },
+  fields: { initial_name: "A hooded figure", name: "Dafydd", title: "Shell seller", label: null },
   showing: "initial_name",
 });
 
@@ -251,11 +260,67 @@ function withOverflowingTitle(run: () => Promise<void>) {
   });
 }
 
+// A one-group template, for the element's own block: the panel folds it
+// under the rows and offers to copy it to the link.
+const statDefinition: StatBlockDefinition = {
+  groups: [
+    {
+      name: "combat",
+      label: "Combat",
+      keyedBy: "",
+      rollAll: false,
+      canHaveMultiples: false,
+      stats: [
+        {
+          name: "hp",
+          label: "HP",
+          type: "pool",
+          rack: [],
+          connectedTo: "",
+          computedAs: "",
+          visible: true,
+          format: "number",
+          description: "",
+          sticky: false,
+          static: false,
+          roll: "",
+          global: false,
+          upDown: true,
+        },
+      ],
+    },
+  ],
+};
+const blockOf = (block: StatBlock) => ({
+  idSystem: -90,
+  label: "Palladium",
+  definition: statDefinition,
+  stored: true,
+  block,
+  carried: carriedGroups(statDefinition, block).map((group) => group.name),
+  groups: evaluateStatBlock(statDefinition, block),
+});
+// The element's own blocks and the link's copy, when a test gives them some.
+let elementBlocks: ReturnType<typeof blockOf>[] = [];
+let linkBlocks: ReturnType<typeof blockOf>[] = [];
+const sa_getStatBlocks = mock.fn(async (holder: { idElement?: number }) =>
+  holder.idElement !== undefined ? elementBlocks : linkBlocks,
+);
+const sa_copyStatBlocksFromElement = mock.fn(async (_holder: unknown) => ({
+  ok: true as const,
+  blocks: elementBlocks,
+}));
+
 describe("RunPlayPill", () => {
   before(async () => {
     // The element panel's rows load the element's stat blocks as they mount.
     mock.module("@/components/stat-blocks/actions", {
-      namedExports: { sa_getElementStatBlocks: async () => [], sa_setElementStat: mock.fn() },
+      namedExports: {
+        sa_getStatBlocks,
+        sa_setStat: mock.fn(),
+        sa_rollStat: mock.fn(),
+        sa_copyStatBlocksFromElement,
+      },
     });
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
@@ -387,7 +452,7 @@ describe("RunPlayPill", () => {
         "TAPPED",
       ),
     );
-    expect(sa_setSceneElementStatus.mock.calls[0].arguments).toEqual([-4, -15, 5, "TAPPED"]);
+    expect(sa_setSceneElementStatus.mock.calls[0].arguments).toEqual([-4, -15, 9, "TAPPED"]);
     expect(
       within(container).getByRole("button", { name: "Tapped: change A hooded figure's status" }),
     ).toBeInTheDocument();
@@ -427,7 +492,7 @@ describe("RunPlayPill", () => {
     expect(off).toHaveAttribute("aria-pressed", "false");
     // The struck-through info: a second icon laid over the first.
     expect(off.querySelectorAll("svg")).toHaveLength(2);
-    expect(sa_setSceneElementShowInfo.mock.calls[0].arguments).toEqual([-4, -15, 5, false]);
+    expect(sa_setSceneElementShowInfo.mock.calls[0].arguments).toEqual([-4, -15, 9, false]);
 
     sa_setSceneElementShowInfo.mock.mockImplementationOnce(async () => ({
       ok: false,
@@ -483,22 +548,30 @@ describe("RunPlayPill", () => {
     expect(chevron).toHaveAttribute("aria-expanded", "true");
     expect(within(popover).getByRole("heading", { name: "Dafydd" })).toBeInTheDocument();
     expect(await within(popover).findByText("Person")).toBeInTheDocument();
-    // The scene's card first, the element's rows under it.
+    // Opened from a pill, the panel shows the scene element's own stat blocks.
+    await waitFor(() =>
+      expect(sa_getStatBlocks.mock.calls.at(-1)?.arguments).toEqual([
+        { idStory: -4, idSceneElement: 9 },
+      ]),
+    );
+    // The scene's card first, under its SCENE pill, the element's rows under
+    // a STORY pill; neither is a heading.
     const headings = within(popover).getAllByRole("heading", { level: 3 });
-    expect(headings.map((heading) => heading.textContent)).toEqual([
-      "Dafydd",
-      "In this scene",
-      "Other images",
-      "In the story",
-      "History",
-    ]);
+    expect(headings.map((heading) => heading.textContent)).toEqual(["Dafydd", "History"]);
+    const card = within(popover).getByTestId("scene-card");
+    expect(within(card).getByTestId("element-panel-scene")).toHaveTextContent("SCENE");
+    expect(within(popover).getByTestId("element-panel-story")).toHaveTextContent("STORY");
     // The history of the element's other scenes, closed, at the bottom.
     expect(within(popover).getByRole("button", { name: "History" })).toHaveAttribute(
       "aria-expanded",
       "false",
     );
-    // Whether the players see the info, as a switch here, on with the pill's toggle.
-    expect(within(popover).getByRole("switch", { name: "Show info to players" })).toBeChecked();
+    // Whether the players see the info, the pill's toggle again on the
+    // heading's line, pressed the same way.
+    expect(within(popover).getByRole("button", { name: "Showing info to users" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     // The stacks the element is filed under, on the heading's line, as a menu.
     expect(within(popover).getByRole("button", { name: "Stacks for Dafydd" })).toHaveTextContent(
       "scene",
@@ -507,44 +580,90 @@ describe("RunPlayPill", () => {
     expect(within(popover).getByText(/Knows the tides/)).toBeInTheDocument();
     expect(within(popover).getByText("harbour")).toBeInTheDocument();
     expect(within(popover).getByText("scene")).toBeInTheDocument();
-    // When it was added is the heading's tooltip, to the minute, not only
-    // the day; there is no Added row.
+    // When it was added is the SCENE pill's tooltip, to the minute, not
+    // only the day; there is no Added row.
     expect(within(popover).queryByText("Added")).not.toBeInTheDocument();
-    await u.hover(within(popover).getByRole("heading", { name: "In this scene" }));
+    await u.hover(within(card).getByTestId("element-panel-scene"));
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
       /^Added Oct \d{1,2}, 2026, \d{1,2}:\d{2}\s[AP]M/,
     );
-    // The link's own pictures for this scene: no cover yet, so a + for one,
-    // and the other image it has.
-    expect(await within(popover).findByRole("button", { name: "Add cover" })).toBeInTheDocument();
+    // The link's own pictures for this scene sit behind the Pictures
+    // thumbnail: no cover yet, so a + for one, and the other image it has.
+    await u.click(within(popover).getByRole("button", { name: "Pictures in this scene" }));
+    const pictures = await screen.findByRole("dialog", { name: "Pictures in this scene" });
+    expect(await within(pictures).findByRole("button", { name: "Add cover" })).toBeInTheDocument();
     expect(
-      within(within(popover).getByRole("list", { name: "Other images" })).getByRole("button", {
+      within(within(pictures).getByRole("list", { name: "Other images" })).getByRole("button", {
         name: "Preview Lantern.png",
       }),
     ).toBeInTheDocument();
     expect(sa_listAttachments.mock.calls.map((call) => call.arguments)).toEqual([
       ["SCENE_ELEMENT", 9],
     ]);
+    await u.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Pictures in this scene" })).toBeNull(),
+    );
     // Name, title, description and notes are always listed, a dash for none.
     expect(within(popover).getByText("Name")).toBeInTheDocument();
     expect(within(popover).getByText("Notes")).toBeInTheDocument();
     expect(within(popover).getByText("—")).toBeInTheDocument();
-    expect(sa_getElementDetail.mock.calls[0].arguments).toEqual([-4, 5, -15]);
+    expect(sa_getElementDetail.mock.calls[0].arguments).toEqual([-4, 5, -15, 9]);
 
-    // Both statuses are pills to move, each on its heading's line: the scene
-    // element's beside In this scene, the element's beside In the story.
+    // Both statuses are pills to move: the scene element's in the scene
+    // card, the element's under the STORY divider.
     const pills = within(popover)
       .getAllByRole("button")
       .filter((button) => button.hasAttribute("data-status"));
     expect(pills.map((pill) => pill.textContent)).toEqual(["Ready", "Pending"]);
-    expect(headings[1].parentElement).toContainElement(pills[0]);
-    expect(headings[3].parentElement).toContainElement(pills[1]);
+    expect(card).toContainElement(pills[0]);
+    expect(card).not.toContainElement(pills[1]);
     // The element's tags, with the editor beside them.
     expect(within(popover).getByRole("button", { name: "Tags for Dafydd" })).toBeInTheDocument();
 
     // The chevron closes it again.
     await u.click(chevron);
     expect(screen.queryByRole("region", { name: "About A hooded figure" })).not.toBeInTheDocument();
+  });
+
+  it("opens the stat blocks alone from the die, on an element whose link carries one", async () => {
+    const u = userEvent.setup();
+    // Without a block there is no die.
+    const { unmount } = render(linked("READY"));
+    expect(screen.queryByRole("button", { name: /^Stat blocks for/ })).not.toBeInTheDocument();
+    unmount();
+
+    render({ ...linked("READY"), idSceneElement: 9, hasStatBlocks: true });
+    const die = screen.getByRole("button", { name: "Stat blocks for A hooded figure" });
+    const chevron = screen.getByRole("button", { name: "About A hooded figure" });
+    expect(die).toHaveAttribute("aria-expanded", "false");
+    await u.click(die);
+    const region = await screen.findByRole("region", { name: "Stat blocks for A hooded figure" });
+    expect(die).toHaveAttribute("aria-expanded", "true");
+    // The scene element's own blocks, and none of the rest of the panel.
+    await waitFor(() =>
+      expect(sa_getStatBlocks.mock.calls.at(-1)?.arguments).toEqual([
+        { idStory: -4, idSceneElement: 9 },
+      ]),
+    );
+    expect(within(region).queryByRole("heading", { name: "Dafydd" })).not.toBeInTheDocument();
+    expect(sa_getElementDetail.mock.callCount()).toBe(0);
+
+    // One or the other: the chevron takes the panel's place.
+    await u.click(chevron);
+    expect(
+      await screen.findByRole("region", { name: "About A hooded figure" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Stat blocks for A hooded figure" }),
+    ).not.toBeInTheDocument();
+    expect(die).toHaveAttribute("aria-expanded", "false");
+    await u.click(die);
+    expect(screen.queryByRole("region", { name: "About A hooded figure" })).not.toBeInTheDocument();
+    await u.click(die);
+    expect(
+      screen.queryByRole("region", { name: "Stat blocks for A hooded figure" }),
+    ).not.toBeInTheDocument();
   });
 
   it("moves the scene element's status from the popover, and the pill follows", async () => {
@@ -609,7 +728,7 @@ describe("RunPlayPill", () => {
     await u.selectOptions(moveTo, "weather");
 
     await waitFor(() => expect(sa_moveSceneElement.mock.callCount()).toBe(1));
-    expect(sa_moveSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 5, "scene", "weather"]);
+    expect(sa_moveSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 9, "scene", "weather"]);
   });
 
   it("offers no Move to when the scene has no other stack", async () => {
@@ -646,7 +765,7 @@ describe("RunPlayPill", () => {
     expect(sa_updateSceneElement.mock.calls[0].arguments).toEqual([
       -4,
       -15,
-      5,
+      9,
       {
         kind: "PERSON",
         name: "Dafydd",
@@ -660,6 +779,7 @@ describe("RunPlayPill", () => {
         sceneStatus: "READY",
         sceneUrl: "",
         sceneUrlText: "",
+        sceneLabel: "",
       },
     ]);
     // With no initial name the pill goes by the name.
@@ -703,6 +823,8 @@ describe("RunPlayPill", () => {
       "initial_name:A hooded figure",
       "name:Dafydd",
       "title:Shell seller",
+      // The link's own label, a fourth field, empty here so not offered.
+      "label:—",
     ]);
     expect(items[0]).toHaveAttribute("aria-checked", "true");
 
@@ -712,7 +834,7 @@ describe("RunPlayPill", () => {
         within(container).getByRole("button", { name: "Dafydd, choose what the pill shows" }),
       ).toBeInTheDocument(),
     );
-    expect(sa_setSceneElementShowing.mock.calls[0].arguments).toEqual([-4, -15, 5, "name"]);
+    expect(sa_setSceneElementShowing.mock.calls[0].arguments).toEqual([-4, -15, 9, "name"]);
   });
 
   it("puts the pill back when the action refuses the field", async () => {
@@ -742,7 +864,7 @@ describe("RunPlayPill", () => {
     const u = userEvent.setup();
     const { container } = render({
       ...linked("READY"),
-      fields: { initial_name: "A hooded figure", name: "Dafydd", title: null },
+      fields: { initial_name: "A hooded figure", name: "Dafydd", title: null, label: null },
     });
 
     await u.click(
@@ -855,7 +977,7 @@ describe("RunPlayPill", () => {
     expect(sa_pulseSceneElement.mock.calls[0].arguments).toEqual([
       -4,
       -15,
-      5,
+      9,
       { action: "preview.open" },
     ]);
     // The press closed the tooltip; it opens again on a fresh hover.
@@ -870,7 +992,7 @@ describe("RunPlayPill", () => {
     expect(sa_pulseSceneElement.mock.calls[1].arguments).toEqual([
       -4,
       -15,
-      5,
+      9,
       { action: "preview.close" },
     ]);
     expect(
@@ -959,6 +1081,11 @@ describe("RunPlayPill", () => {
       expect(screen.queryByRole("dialog", { name: "Harbour.png" })).not.toBeInTheDocument(),
     );
     expect(screen.getByRole("dialog", { name: "Image for A hooded figure" })).toBeInTheDocument();
+    // Closed again, so nothing of its focus trap outlives the test.
+    await u.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Image for A hooded figure" })).toBeNull(),
+    );
   });
 
   it("opens the picture full size from the panel's thumbnail", async () => {
@@ -997,7 +1124,11 @@ describe("RunPlayPill", () => {
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual(["harbour"]);
-    await u.type(within(editor).getByRole("textbox", { name: "New tag" }), "Docks{Enter}");
+    // Focused first, then typed: in a long run, type()'s own click has
+    // landed before the box was ready to take it.
+    const box = within(editor).getByRole("textbox", { name: "New tag" });
+    await u.click(box);
+    await u.keyboard("Docks{Enter}");
 
     await waitFor(() => expect(sa_setElementTags.mock.callCount()).toBe(1));
     expect(sa_setElementTags.mock.calls[0].arguments).toEqual([-4, 5, ["harbour", "docks"]]);
@@ -1065,7 +1196,10 @@ describe("RunPlayPill", () => {
     const panel = await screen.findByRole("region", { name: "About A hooded figure" });
     await within(panel).findByText("Person");
     expect(within(panel).queryByRole("button", { name: "Remove from scene" })).toBeNull();
-    expect(within(panel).getByRole("switch", { name: "Show info to players" })).toBeDisabled();
+    expect(within(panel).getByRole("button", { name: "Showing info to users" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
     expect(within(panel).queryByRole("button", { name: "Stacks for Dafydd" })).toBeNull();
     expect(within(panel).getByText("scene")).toBeInTheDocument();
     expect(within(panel).queryByRole("combobox", { name: "Move to" })).toBeNull();
@@ -1096,10 +1230,15 @@ describe("RunPlayPill", () => {
 
     await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
     const popover = await screen.findByRole("region", { name: "About A hooded figure" });
-    expect(await within(popover).findByRole("button", { name: "Add cover" })).toBeInTheDocument();
-    expect(within(popover).getByRole("heading", { name: "Other images" })).toBeInTheDocument();
-    expect(within(popover).queryByText(/No other images/)).toBeNull();
-    expect(within(popover).queryByRole("list", { name: "Other images" })).toBeNull();
+    // The pictures sit behind a placeholder, with no cover to show on it.
+    const thumb = await within(popover).findByRole("button", { name: "Pictures in this scene" });
+    expect(thumb.querySelector("img")).toBeNull();
+    await u.click(thumb);
+    const pictures = await screen.findByRole("dialog", { name: "Pictures in this scene" });
+    expect(await within(pictures).findByRole("button", { name: "Add cover" })).toBeInTheDocument();
+    expect(within(pictures).getByRole("heading", { name: "Other images" })).toBeInTheDocument();
+    expect(within(pictures).queryByText(/No other images/)).toBeNull();
+    expect(within(pictures).queryByRole("list", { name: "Other images" })).toBeNull();
   });
 
   it("gives an element with a picture no +", () => {
@@ -1126,21 +1265,18 @@ describe("RunPlayPill", () => {
     const popover = await screen.findByRole("region", { name: "About A hooded figure" });
     await within(popover).findByText("Person");
 
-    // The panel's switch presses the same way as the pill's toggle, which follows.
-    const info = within(popover).getByRole("switch", { name: "Show info to players" });
-    expect(info).toBeChecked();
-    // Its tooltip says what pressing it does, which way it stands.
-    await u.hover(info);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Hide info from the players");
+    // The panel's toggle presses the same way as the pill's, which follows:
+    // both are the one button, so the pill's is the one outside the panel.
+    const info = within(popover).getByRole("button", { name: "Showing info to users" });
+    expect(info).toHaveAttribute("aria-pressed", "true");
     await u.click(info);
-    expect(sa_setSceneElementShowInfo.mock.calls[0].arguments).toEqual([-4, -15, 5, false]);
-    await waitFor(() => expect(info).not.toBeChecked());
-    await u.unhover(info);
-    await u.hover(info);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Show info to the players");
-    expect(
-      within(container).getByRole("button", { name: "Info not showing – click to show" }),
-    ).toBeInTheDocument();
+    expect(sa_setSceneElementShowInfo.mock.calls[0].arguments).toEqual([-4, -15, 9, false]);
+    await waitFor(() => expect(info).toHaveAttribute("aria-pressed", "false"));
+    expect(info).toHaveAccessibleName("Info not showing – click to show");
+    const pillToggles = within(container)
+      .getAllByRole("button", { name: "Info not showing – click to show" })
+      .filter((button) => !popover.contains(button));
+    expect(pillToggles).toHaveLength(1);
 
     // The stacks menu on the heading's line, ticked for the stacks it is in;
     // each tick saves at once and the menu stays open for the next.
@@ -1155,7 +1291,7 @@ describe("RunPlayPill", () => {
     expect(sa_setSceneElementTags.mock.calls[0].arguments).toEqual([
       -4,
       -15,
-      5,
+      9,
       ["scene", "assets"],
     ]);
     // The trigger says so, and the pill was handed its item as it now is.
@@ -1178,18 +1314,25 @@ describe("RunPlayPill", () => {
       within(container).getByRole("button", { name: "Add an image to A hooded figure" }),
     ).toBeInTheDocument();
     await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    const region = await screen.findByRole("region", { name: "About A hooded figure" });
+    await u.click(await within(region).findByRole("button", { name: "Pictures in this scene" }));
+    const popover = await screen.findByRole("dialog", { name: "Pictures in this scene" });
 
     // The + opens the picker below the rows, listing the story's pictures.
     await u.click(await within(popover).findByRole("button", { name: "Add cover" }));
     await u.click(await within(popover).findByRole("button", { name: "Add Hooded figure.png" }));
 
     expect(sa_attachAsCover.mock.calls[0].arguments).toEqual(["SCENE_ELEMENT", 9, 30]);
-    // The pill shows it in place of its +, and the row shows it with its −.
+    // The pill shows it in place of its +, and the row shows it with its −;
+    // the panel's thumbnail shows it too.
     const thumbnail = await within(container).findByRole("button", {
       name: "Preview A hooded figure",
     });
     expect(thumbnail.querySelector("img")).toHaveAttribute("src", "https://x.test/30.png");
+    expect(await within(region).findByTestId("scene-pictures-cover")).toHaveAttribute(
+      "src",
+      "https://x.test/30.png",
+    );
     expect(
       within(container).queryByRole("button", { name: "Add an image to A hooded figure" }),
     ).toBeNull();
@@ -1214,7 +1357,9 @@ describe("RunPlayPill", () => {
     ];
     const { container } = render(linked("READY"));
     await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    const region = await screen.findByRole("region", { name: "About A hooded figure" });
+    await u.click(await within(region).findByRole("button", { name: "Pictures in this scene" }));
+    const popover = await screen.findByRole("dialog", { name: "Pictures in this scene" });
 
     // The cover's star is filled; an other image's is not.
     const coverStar = await within(popover).findByRole("button", { name: "Cover Lantern.png" });
@@ -1262,7 +1407,9 @@ describe("RunPlayPill", () => {
     const u = userEvent.setup();
     render(linked("READY"));
     await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
-    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    const region = await screen.findByRole("region", { name: "About A hooded figure" });
+    await u.click(await within(region).findByRole("button", { name: "Pictures in this scene" }));
+    const popover = await screen.findByRole("dialog", { name: "Pictures in this scene" });
 
     // The + opens the story attachment picker, already unfolded.
     await u.click(await within(popover).findByRole("button", { name: "Add images" }));
@@ -1278,7 +1425,85 @@ describe("RunPlayPill", () => {
     ).toBeInTheDocument();
   });
 
-  it("removes an element from the scene with the − beside In this scene", async () => {
+  it("folds the element's own stat blocks under its rows, to read, and copies them to the link", async () => {
+    const u = userEvent.setup();
+    elementBlocks = [blockOf({ combat: { hp: { value: 7, min: 0, max: 9 } } })];
+    linkBlocks = [blockOf({ combat: { hp: { value: 5, min: 0, max: 9 } } })];
+    try {
+      renderWithProviders(
+        <>
+          <RunPlayPill
+            idStory={-4}
+            idStoryScene={-15}
+            item={linked("READY")}
+            stackTag="scene"
+            otherStacks={[]}
+            sceneStacks={["scene"]}
+            onRemove={() => {}}
+            onItemChange={() => {}}
+            onStatusChange={() => {}}
+            pictureUp={false}
+            onPictureUpChange={() => {}}
+          />
+          <Toaster />
+        </>,
+      );
+      await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
+      const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+
+      // The link's own copy, in the scene card, closed to start and opened
+      // from its line, to change in place.
+      const sceneFold = await within(popover).findByRole("button", {
+        name: "1 stat block in this scene",
+      });
+      expect(sceneFold).toHaveAttribute("aria-expanded", "false");
+      expect(within(popover).queryByTestId("element-stat-blocks")).toBeNull();
+      await u.click(sceneFold);
+      const sceneBlocks = await within(popover).findByTestId("element-stat-blocks");
+      expect(within(sceneBlocks).getByTestId("stat-hp")).toHaveValue("5");
+      // Folded, with the count; opened, the block to read and not to change.
+      const fold = await within(popover).findByRole("button", {
+        name: "1 stat block on the element",
+      });
+      expect(fold).toHaveAttribute("aria-expanded", "false");
+      const folded = within(popover).getByTestId("element-stat-blocks-fold");
+      expect(within(folded).queryByTestId("stat-hp")).toBeNull();
+      await u.click(fold);
+      expect(await within(folded).findByTestId("stat-hp")).toHaveTextContent("7");
+      expect(within(folded).queryByRole("button", { name: "HP up" })).toBeNull();
+
+      // The paste beside the block's pencil writes the element's blocks over
+      // the link's, which show as they come back.
+      await u.click(
+        within(sceneBlocks).getByRole("button", { name: "Copy stats from the element" }),
+      );
+      await waitFor(() => expect(sa_copyStatBlocksFromElement.mock.callCount()).toBe(1));
+      expect(sa_copyStatBlocksFromElement.mock.calls[0].arguments).toEqual([
+        { idStory: -4, idSceneElement: 9 },
+      ]);
+      expect(await screen.findByText("Stats copied from the element")).toBeInTheDocument();
+      await waitFor(() => expect(within(sceneBlocks).getByTestId("stat-hp")).toHaveValue("7"));
+    } finally {
+      elementBlocks = [];
+      linkBlocks = [];
+    }
+  });
+
+  it("offers no copy from an element with no stat block", async () => {
+    const u = userEvent.setup();
+    render(linked("READY"));
+    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    await within(popover).findByText("Person");
+    expect(
+      within(popover).queryByRole("button", { name: "Copy stats from the element" }),
+    ).toBeNull();
+    expect(
+      within(popover).queryByRole("button", { name: /stat blocks? on the element/ }),
+    ).toBeNull();
+  });
+
+  it("removes an element from the scene with the trashcan beside the pencil, asking first", async () => {
     const onRemove = mock.fn((_key: string) => {});
     const u = userEvent.setup();
     renderWithProviders(
@@ -1302,14 +1527,19 @@ describe("RunPlayPill", () => {
 
     await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
     const popover = await screen.findByRole("region", { name: "About A hooded figure" });
-    await within(popover).findByRole("heading", { name: "In this scene" });
-    const minus = within(popover).getByRole("button", { name: "Remove from scene" });
-    await u.hover(minus);
+    await within(popover).findByTestId("scene-card");
+    const trash = within(popover).getByRole("button", { name: "Remove from scene" });
+    await u.hover(trash);
     expect(await screen.findByRole("tooltip", { name: "Remove from scene" })).toBeInTheDocument();
-    await u.click(minus);
+    await u.click(trash);
+    // Nothing goes until the question is answered.
+    expect(sa_unlinkSceneElement.mock.callCount()).toBe(0);
+    // Removing asks first, as every delete does.
+    await u.click(await screen.findByRole("button", { name: "Remove" }));
 
-    expect(sa_unlinkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 5]);
-    await waitFor(() => expect(onRemove.mock.calls[0]?.arguments).toEqual(["PERSON:5"]));
+    await waitFor(() => expect(sa_unlinkSceneElement.mock.callCount()).toBe(1));
+    expect(sa_unlinkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 9]);
+    await waitFor(() => expect(onRemove.mock.calls[0]?.arguments).toEqual(["PERSON:5:9"]));
     expect(await screen.findByText("Removed from the scene")).toBeInTheDocument();
   });
 });

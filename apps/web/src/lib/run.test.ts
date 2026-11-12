@@ -110,11 +110,18 @@ describe("elementIdOf", () => {
     });
     expect(elementIdOf(item("PERSON:5"))).toBe(5);
     expect(elementIdOf(item("EPHEMERA:-12"))).toBe(-12);
+    // A linked element's key carries its link's id after the element's.
+    expect(elementIdOf(item("PERSON:5:9"))).toBe(5);
   });
 });
 
 describe("pillText", () => {
-  const fields = { initial_name: "A hooded figure", name: "Dafydd", title: "Shell seller" };
+  const fields = {
+    initial_name: "A hooded figure",
+    name: "Dafydd",
+    title: "Shell seller",
+    label: null,
+  };
 
   it("labels the pill with the chosen field, highlighted unless it is the name", () => {
     expect(pillText(fields, "initial_name")).toEqual({
@@ -136,7 +143,9 @@ describe("pillText", () => {
   });
 
   it("falls back to the name, unhighlighted, for a field left empty", () => {
-    expect(pillText({ initial_name: null, name: "Dafydd", title: null }, "initial_name")).toEqual({
+    expect(
+      pillText({ initial_name: null, name: "Dafydd", title: null, label: null }, "initial_name"),
+    ).toEqual({
       label: "Dafydd",
       detail: null,
       highlighted: false,
@@ -152,7 +161,12 @@ describe("withShowing", () => {
       label: "A hooded figure",
       detail: "Shell seller",
       imageUrl: null,
-      fields: { initial_name: "A hooded figure", name: "Dafydd", title: "Shell seller" },
+      fields: {
+        initial_name: "A hooded figure",
+        name: "Dafydd",
+        title: "Shell seller",
+        label: null,
+      },
       showing: "initial_name",
     };
     expect(withShowing(item, "name")).toMatchObject({ label: "Dafydd", showing: "name" });

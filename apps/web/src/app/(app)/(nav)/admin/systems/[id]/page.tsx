@@ -25,7 +25,9 @@ export default async function SystemPage({ params }: { params: Promise<{ id: str
   if (!system) notFound();
 
   return (
-    <Container maxW="6xl" py="8">
+    // Wider than the other pages: a stat's row holds up to nine fields, and
+    // every one that fits on a line is one less wrap to read across.
+    <Container maxW="7xl" py="8">
       <Stack gap="8">
         <Heading size="2xl">{system.label}</Heading>
         <SystemDetailsForm system={system} />

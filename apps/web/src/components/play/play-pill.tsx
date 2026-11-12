@@ -36,7 +36,7 @@ type Props = {
   /** The players' notes on the element have been saved from its info popover. */
   onNotesChange: (idElement: number, notes: string | null) => void;
   /** The link's status has been changed from the pill, or put back after a refusal. */
-  onStatusChange: (idElement: number, status: string) => void;
+  onStatusChange: (idSceneElement: number, status: string) => void;
   /** A look at the scene (/preview/scene): a tapped card has its marker alone, and the notes are read, not written. */
   readOnly?: boolean;
   /** The info popover ends with the element's History, as on a scene's preview; the table leaves it out. */
@@ -91,19 +91,22 @@ export function PlayPill({
   const isTapped = item.sceneStatus === SCENE_ELEMENT_TAPPED;
   const showInfo = item.showInfo === true;
   const idElement = elementIdOf(item);
+  // The link the pill stands for, which the untap names: an element may be
+  // in the scene more than once. A pill always has one here; -1 is never sent.
+  const idSceneElement = item.idSceneElement ?? -1;
 
   async function untap() {
-    onStatusChange(idElement, SCENE_ELEMENT_SHOWN);
+    onStatusChange(idSceneElement, SCENE_ELEMENT_SHOWN);
     try {
-      const result = await sa_untapPlaySceneElement(idStory, idStoryScene, idElement);
+      const result = await sa_untapPlaySceneElement(idStory, idStoryScene, idSceneElement);
       if (result.ok) {
-        onStatusChange(idElement, result.status);
+        onStatusChange(idSceneElement, result.status);
         return;
       }
-      onStatusChange(idElement, SCENE_ELEMENT_TAPPED);
+      onStatusChange(idSceneElement, SCENE_ELEMENT_TAPPED);
       toaster.create({ title: result.error, type: "error" });
     } catch {
-      onStatusChange(idElement, SCENE_ELEMENT_TAPPED);
+      onStatusChange(idSceneElement, SCENE_ELEMENT_TAPPED);
       toaster.create({ title: "The card could not be untapped. Try again.", type: "error" });
     }
   }

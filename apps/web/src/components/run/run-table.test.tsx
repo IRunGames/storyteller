@@ -49,8 +49,10 @@ const sa_linkSceneElement = mock.fn(
     options?: { hidden?: boolean; tag?: string | null; showInfo?: boolean },
   ) => ({
     ok: true as const,
+    duplicate: false,
     item: {
-      key: `PERSON:${idElement}`,
+      key: `PERSON:${idElement}:${idElement + 4}`,
+      idSceneElement: idElement + 4,
       kind: "PERSON" as const,
       label: "Dafydd",
       detail: "Shell seller",
@@ -316,7 +318,11 @@ describe("RunTable", () => {
     });
     // The element panel's rows load the element's stat blocks as they mount.
     mock.module("@/components/stat-blocks/actions", {
-      namedExports: { sa_getElementStatBlocks: async () => [], sa_setElementStat: mock.fn() },
+      namedExports: {
+        sa_getStatBlocks: async () => [],
+        sa_getSceneStatBlocks: async () => [],
+        sa_setElementStat: mock.fn(),
+      },
     });
     mock.module("@/app/(app)/run/[id]/actions", {
       namedExports: {
@@ -420,9 +426,26 @@ describe("RunTable", () => {
     expect(screen.getByRole("region", { name: "Play space" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Table Chat" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Character" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Stats" })).not.toBeInTheDocument();
     expect(
       within(screen.getByRole("banner")).getByRole("button", { name: "Library" }),
     ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("opens the stats pane from the header, beside the library", async () => {
+    const u = userEvent.setup();
+    renderTable();
+
+    await u.click(within(screen.getByRole("banner")).getByRole("button", { name: "Stats" }));
+    const pane = screen.getByRole("region", { name: "Stats" });
+    expect(within(pane).getByText("No scene at the table.")).toBeInTheDocument();
+    expect(sa_setUserPreference.mock.calls.at(-1)?.arguments[0]).toEqual({
+      key: "run.showStats",
+      value: true,
+    });
+    // The library is still there, the pane after it.
+    const library = screen.getByRole("region", { name: "Library" });
+    expect(library.compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("sorts the library from the menu beside its heading, one sort for attachments and one for elements", async () => {
@@ -663,6 +686,7 @@ describe("RunTable", () => {
     const u = userEvent.setup();
     const pictured = (idElement: number, label: string): PlayItem => ({
       key: `PERSON:${idElement}`,
+      idSceneElement: idElement + 4,
       kind: "PERSON",
       label,
       detail: null,
@@ -686,7 +710,7 @@ describe("RunTable", () => {
     expect(sa_pulseSceneElement.mock.calls[0].arguments).toEqual([
       -4,
       -15,
-      5,
+      9,
       { action: "preview.open" },
     ]);
 
@@ -701,7 +725,7 @@ describe("RunTable", () => {
     expect(sa_pulseSceneElement.mock.calls[1].arguments).toEqual([
       -4,
       -15,
-      6,
+      10,
       { action: "preview.open" },
     ]);
   });
@@ -716,6 +740,7 @@ describe("RunTable", () => {
       inPlay: [
         {
           key: "PERSON:5",
+          idSceneElement: 9,
           kind: "PERSON",
           label: "Dafydd",
           detail: null,
@@ -775,6 +800,7 @@ describe("RunTable", () => {
     const inPlay: PlayItem[] = [
       {
         key: "PERSON:5",
+        idSceneElement: 9,
         kind: "PERSON",
         label: "Dafydd",
         detail: "Shell seller",
@@ -911,6 +937,7 @@ describe("RunTable", () => {
     const inPlay: PlayItem[] = [
       {
         key: "PERSON:5",
+        idSceneElement: 9,
         kind: "PERSON",
         label: "Dafydd",
         detail: null,
@@ -1001,6 +1028,7 @@ describe("RunTable", () => {
     const inPlay: PlayItem[] = [
       {
         key: "PERSON:5",
+        idSceneElement: 9,
         kind: "PERSON",
         label: "Dafydd",
         detail: null,
@@ -1086,6 +1114,7 @@ describe("RunTable", () => {
       inPlay: [
         {
           key: "PERSON:5",
+          idSceneElement: 9,
           kind: "PERSON",
           label: "Dafydd",
           detail: "Shell seller",
@@ -1104,7 +1133,7 @@ describe("RunTable", () => {
     const space = screen.getByRole("region", { name: "Play space" });
     await u.click(within(space).getByRole("button", { name: "About Dafydd" }));
     const panel = await screen.findByRole("region", { name: "About Dafydd" });
-    expect(await within(panel).findByTestId("element-panel-where")).toHaveTextContent("SCENE");
+    expect(await within(panel).findByTestId("element-panel-scene")).toHaveTextContent("SCENE");
     expect(within(panel).queryByRole("button", { name: "Remove from scene" })).toBeNull();
 
     // The scene's text opens to read, with no form.
@@ -1119,6 +1148,7 @@ describe("RunTable", () => {
     const inPlay: PlayItem[] = [
       {
         key: "PERSON:5",
+        idSceneElement: 9,
         kind: "PERSON",
         label: "Dafydd",
         detail: "Shell seller",
@@ -1133,9 +1163,9 @@ describe("RunTable", () => {
     const people = await screen.findByRole("tabpanel", { name: "People" });
     await u.click(await within(people).findByRole("button", { name: "About Dafydd" }));
     const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
-    // In the scene at the table: SCENE, its status and its In this scene rows.
-    expect(await within(dialog).findByTestId("element-panel-where")).toHaveTextContent("SCENE");
-    expect(within(dialog).getByRole("heading", { name: "In this scene" })).toBeInTheDocument();
+    // In the scene at the table: the scene card, SCENE over its edge, with its status.
+    expect(await within(dialog).findByTestId("element-panel-scene")).toHaveTextContent("SCENE");
+    expect(within(dialog).getByTestId("scene-card")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Remove from scene" })).toBeInTheDocument();
     // Move to is a pill's, which knows its stack; the library has none.
     expect(within(dialog).queryByText("Move to")).toBeNull();
@@ -1153,6 +1183,7 @@ describe("RunTable", () => {
     const inPlay: PlayItem[] = [
       {
         key: "PERSON:5",
+        idSceneElement: 9,
         kind: "PERSON",
         label: "Dafydd",
         detail: null,
@@ -1167,6 +1198,8 @@ describe("RunTable", () => {
     await u.click(within(sceneStack).getByRole("button", { name: "About Dafydd" }));
     const dialog = await screen.findByRole("region", { name: "About Dafydd" });
     await u.click(await within(dialog).findByRole("button", { name: "Remove from scene" }));
+    // Removing asks first, as every delete does.
+    await u.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() => expect(within(sceneStack).queryByText("Dafydd")).not.toBeInTheDocument());
   });
@@ -1178,6 +1211,7 @@ describe("RunTable", () => {
     const inPlay: PlayItem[] = [
       {
         key: "PLACE:5",
+        idSceneElement: 9,
         kind: "PLACE",
         label: "Dafydd",
         detail: null,
@@ -1195,8 +1229,22 @@ describe("RunTable", () => {
     await u.click(await within(people).findByRole("button", { name: "About Dafydd" }));
     const dialog = await screen.findByRole("dialog", { name: "Dafydd" });
     await u.click(await within(dialog).findByRole("button", { name: "Remove from scene" }));
+    await u.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() => expect(within(sceneStack).queryByText("Dafydd")).not.toBeInTheDocument());
+  });
+
+  it("widens a stack from its expand button and shrinks it back, telling nobody", async () => {
+    const u = userEvent.setup();
+    renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay: [] });
+    const stack = screen.getByRole("region", { name: "scene" });
+
+    expect(stack).not.toHaveAttribute("data-wide");
+    await u.click(within(stack).getByRole("button", { name: "Expand scene" }));
+    expect(stack).toHaveAttribute("data-wide", "true");
+    await u.click(within(stack).getByRole("button", { name: "Shrink scene" }));
+    expect(stack).not.toHaveAttribute("data-wide");
+    expect(sa_setUserPreference.mock.callCount()).toBe(0);
   });
 
   it("offers no stack controls with no scene at the table", () => {
@@ -1304,6 +1352,7 @@ describe("RunTable", () => {
         sceneStatus: "READY",
         sceneUrl: "",
         sceneUrlText: "",
+        sceneLabel: "",
         // No picture chosen, and the Add showing info switch off.
         idAttachment: null,
         idSceneAttachment: null,
@@ -1470,6 +1519,7 @@ describe("RunTable", () => {
       inPlay: [
         {
           key: "PERSON:5",
+          idSceneElement: 9,
           kind: "PERSON",
           label: "Dafydd",
           detail: "Shell seller",

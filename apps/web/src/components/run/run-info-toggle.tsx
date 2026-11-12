@@ -16,11 +16,11 @@ type Props = {
 /**
  * Whether the players see an element's description in the scene
  * (scene_elements.show_info), as a one-button toggle on a pill, left of its
- * status menu; the element panel has room for a switch (RunInfoSwitch), and
- * both press the same way. Solid while the info shows. Lucide has no crossed-out Info, so
- * its Slash is laid over the Info when the info is kept back, as
- * PlayerCount does for nobody; Ban is the DISABLED status beside this on
- * the pill.
+ * status menu, and again on the element panel's In this scene heading line,
+ * beside the status pill; both press the same way. Solid while the info
+ * shows. Lucide has no crossed-out Info, so its Slash is laid over the Info
+ * when the info is kept back, as PlayerCount does for nobody; Ban is the
+ * DISABLED status beside this on the pill.
  */
 export function RunInfoToggle({ showInfo, onToggle }: Props) {
   const label = showInfo

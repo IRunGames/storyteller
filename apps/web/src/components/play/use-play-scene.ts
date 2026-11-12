@@ -31,7 +31,7 @@ export function usePlayScene(
   channel: ChannelState;
   setSceneText: (text: SceneText) => void;
   setElementNotes: (idElement: number, notes: string | null) => void;
-  setElementStatus: (idElement: number, status: string) => void;
+  setElementStatus: (idSceneElement: number, status: string) => void;
 } {
   const [scene, setScene] = useState(initial);
   // A new story under the same table starts from that story's scene. Set
@@ -133,13 +133,14 @@ export function usePlayScene(
     [],
   );
 
-  // A link's status as a pill just moved it (a card untapped), the same way.
+  // A link's status as a pill just moved it (a card untapped), the same way;
+  // by the link, since an element may be in the scene more than once.
   const setElementStatus = useCallback(
-    (idElement: number, status: string) =>
+    (idSceneElement: number, status: string) =>
       setScene((current) => ({
         ...current,
         items: current.items.map((item) =>
-          item.element.idElement === idElement
+          item.sceneElement.idSceneElement === idSceneElement
             ? { ...item, sceneElement: { ...item.sceneElement, status } }
             : item,
         ),

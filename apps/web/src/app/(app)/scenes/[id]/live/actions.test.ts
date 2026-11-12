@@ -543,6 +543,40 @@ describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect(publishSceneChanged.mock.callCount()).toBe(0);
     });
 
+    it("gives each copied link the old link's stat blocks, not the element's", async () => {
+      const [link] = await db
+        .select({
+          idSceneElement: tables.sceneElements.idSceneElement,
+          idElement: tables.sceneElements.idElement,
+        })
+        .from(tables.sceneElements)
+        .where(eq(tables.sceneElements.idStoryScene, scene))
+        .limit(1);
+      const played = { "-1": { stats: { str: { value: 9 } } } };
+      await db
+        .update(tables.sceneElements)
+        .set({ statBlocks: played })
+        .where(eq(tables.sceneElements.idSceneElement, link.idSceneElement));
+      await db
+        .update(tables.elements)
+        .set({ statBlocks: { "-1": { stats: { str: { value: 14 } } } } })
+        .where(eq(tables.elements.idElement, link.idElement));
+
+      const result = await actions.sa_duplicateLiveScene(mine, scene);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const [copied] = await db
+        .select({ statBlocks: tables.sceneElements.statBlocks })
+        .from(tables.sceneElements)
+        .where(
+          and(
+            eq(tables.sceneElements.idStoryScene, result.idStoryScene),
+            eq(tables.sceneElements.idElement, link.idElement),
+          ),
+        );
+      expect(copied.statBlocks).toEqual(played);
+    });
+
     it("copies a complete scene into no sitting, since its own is history", async () => {
       await complete();
       const result = await actions.sa_duplicateLiveScene(mine, scene);

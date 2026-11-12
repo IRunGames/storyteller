@@ -80,12 +80,13 @@ export function PlayTable({
 }: Props) {
   const user = useUser();
   const preferences = useUserPreferences();
-  const [previewIdElement, setPreviewIdElement] = useState<number | null>(null);
+  const [previewIdSceneElement, setPreviewIdSceneElement] = useState<number | null>(null);
   // An action this build does not know is left alone, so an older table
-  // keeps working when a newer storyteller's page sends something new.
+  // keeps working when a newer storyteller's page sends something new. The
+  // pulse names the link, since an element may be in the scene more than once.
   const onPulse = useCallback((event: ScenePulseEvent) => {
-    if (event.custom.action === "preview.open") setPreviewIdElement(event.idElement);
-    else if (event.custom.action === "preview.close") setPreviewIdElement(null);
+    if (event.custom.action === "preview.open") setPreviewIdSceneElement(event.idSceneElement);
+    else if (event.custom.action === "preview.close") setPreviewIdSceneElement(null);
   }, []);
   const showChat = preferences.get<boolean>(SHOW_CHAT, false);
   const showCharacter = preferences.get<boolean>(SHOW_CHARACTER, false);
@@ -193,8 +194,8 @@ export function PlayTable({
             onTextChange={setSceneText}
             onNotesChange={setElementNotes}
             onStatusChange={setElementStatus}
-            previewIdElement={previewIdElement}
-            onPreviewClose={() => setPreviewIdElement(null)}
+            previewIdSceneElement={previewIdSceneElement}
+            onPreviewClose={() => setPreviewIdSceneElement(null)}
           />
 
           {showCharacter && (

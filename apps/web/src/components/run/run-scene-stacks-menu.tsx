@@ -11,7 +11,7 @@ import { tagList } from "./run-element-detail";
 type Props = {
   idStory: number;
   idStoryScene: number;
-  idElement: number;
+  idSceneElement: number;
   /** What the element is called, to name the button. */
   name: string;
   /** The scene's stacks, in order. */
@@ -35,7 +35,7 @@ type Props = {
 export function RunSceneStacksMenu({
   idStory,
   idStoryScene,
-  idElement,
+  idSceneElement,
   name,
   stacks,
   tags,
@@ -50,7 +50,7 @@ export function RunSceneStacksMenu({
     const next = stacks.filter((each) => (each === stack ? checked : tags.includes(each)));
     setSaving(true);
     try {
-      const result = await sa_setSceneElementTags(idStory, idStoryScene, idElement, next);
+      const result = await sa_setSceneElementTags(idStory, idStoryScene, idSceneElement, next);
       if (result.ok) onSaved(result.item);
       else toaster.create({ title: result.error, type: "error" });
     } catch {

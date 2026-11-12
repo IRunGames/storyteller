@@ -73,7 +73,8 @@ type Props = {
   /** Called with an element when its arrow is pressed, to put it in the play space. */
   onAdd: (item: PlayItem) => void;
   /** An element has been taken out of the scene from its info popover; its id. */
-  onRemovedFromScene: (idElement: number) => void;
+  /** One link of an element has been taken out of the scene from its panel; its pill goes. */
+  onRemovedFromScene: (idSceneElement: number) => void;
   /** An element made from a tab's +, already linked to the scene, for the play space. */
   onCreated: (item: PlayItem) => void;
   /** An element's picture changed from its info popover, for its pill if it is in play. */
@@ -293,9 +294,10 @@ export function RunLibrary({
                       // under another tab.
                       setCreated((count) => count + 1);
                     }}
-                    onRemovedFromScene={() => {
-                      onRemovedFromScene(elementIdOf(item));
-                      // Out of the scene, so out of a list of the scene's.
+                    onRemovedFromScene={(idSceneElement) => {
+                      onRemovedFromScene(idSceneElement);
+                      // Out of the scene, so out of a list of the scene's; an
+                      // element in it twice comes back when the list is read.
                       if (onlyScene !== null) {
                         setItems((current) =>
                           current ? current.filter((each) => each.key !== item.key) : current,

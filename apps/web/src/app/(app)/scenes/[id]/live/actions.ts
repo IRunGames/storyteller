@@ -223,29 +223,29 @@ export async function sa_duplicateLiveScene(
         showImage: sceneElements.showImage,
         url: sceneElements.url,
         urlText: sceneElements.urlText,
+        label: sceneElements.label,
+        // The link's own copy of the stat blocks, as play left it, not the
+        // element's baseline: the copy is of the scene as it stands.
+        statBlocks: sceneElements.statBlocks,
       })
       .from(sceneElements)
-      .where(eq(sceneElements.idStoryScene, scene.data));
+      .where(eq(sceneElements.idStoryScene, scene.data))
+      .orderBy(sceneElements.idSceneElement);
     // Which new link stands for which old one, for the links' pictures
-    // below: an element is linked to a scene once, so the element says.
+    // below. One insert per link: an element may be in the scene more than
+    // once, so the element cannot say which copy is which.
     const copied = new Map<number, number>();
-    if (links.length > 0) {
-      const made = await tx
+    for (const { idSceneElement, ...link } of links) {
+      const [made] = await tx
         .insert(sceneElements)
-        .values(
-          links.map(({ idSceneElement: _, ...link }) => ({
-            ...link,
-            idStoryScene: copy.idStoryScene,
-            idCreatedByUser: user.id,
-            idUpdatedByUser: user.id,
-          })),
-        )
-        .returning({
-          idSceneElement: sceneElements.idSceneElement,
-          idElement: sceneElements.idElement,
-        });
-      const byElement = new Map(made.map((link) => [link.idElement, link.idSceneElement]));
-      for (const link of links) copied.set(link.idSceneElement, byElement.get(link.idElement)!);
+        .values({
+          ...link,
+          idStoryScene: copy.idStoryScene,
+          idCreatedByUser: user.id,
+          idUpdatedByUser: user.id,
+        })
+        .returning({ idSceneElement: sceneElements.idSceneElement });
+      copied.set(idSceneElement, made.idSceneElement);
     }
 
     // The scene's pictures and the links', each use on the copy of its

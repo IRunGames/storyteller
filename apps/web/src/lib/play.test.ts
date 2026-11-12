@@ -37,7 +37,7 @@ describe("isUnplayable", () => {
 });
 
 describe("newSessionTitle", () => {
-  it("is the day plus \" session\"", () => {
+  it('is the day plus " session"', () => {
     expect(newSessionTitle("Oct 6, 2026")).toBe("Oct 6, 2026 session");
   });
 });

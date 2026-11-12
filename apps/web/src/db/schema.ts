@@ -739,6 +739,10 @@ export const sceneElements = pgTable("scene_elements", {
   url: text("url"),
   urlText: text("url_text"),
   elementShowing: varchar("element_showing").notNull().default("initial_name"),
+  // The link's own words for its pill, in place of the field elementShowing
+  // names: a copy of an element already in the scene is named with a
+  // counter ("Goblin 2") as it is made. Null to show the field.
+  label: text("label"),
   // Whether the players' table shows the element's description in this
   // scene: true unless the storyteller keeps it back.
   showInfo: boolean("show_info").notNull().default(true),
@@ -746,6 +750,11 @@ export const sceneElements = pgTable("scene_elements", {
   // this scene: off unless the storyteller pins it from the pill, and on
   // for one link of a scene at a time (sa_setSceneElementShowImage).
   showImage: boolean("show_image").notNull().default(false),
+  // This link's copy of the element's statBlocks, taken when the link was
+  // made and changed in play; see the migration. Untyped as the element's is.
+  statBlocks: jsonb("stat_blocks")
+    .default(sql`'{}'::jsonb`)
+    .notNull(),
   activityLog: jsonb("activity_log")
     .default(sql`'[]'::jsonb`)
     .notNull(),
@@ -783,6 +792,7 @@ export const vSceneElements = pgView("v_scene_elements", {
   showImage: boolean("show_image"),
   url: text("url"),
   urlText: text("url_text"),
+  label: text("label"),
   createdAt: timestamp("created_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
   idCreatedByUser: uuid("id_created_by_user"),

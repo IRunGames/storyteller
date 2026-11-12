@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Box,
@@ -13,7 +13,15 @@ import {
   Switch,
   Text,
 } from "@chakra-ui/react";
-import { Activity, BookOpen, MessageSquare, RefreshCw, Settings, UserRound } from "lucide-react";
+import {
+  Activity,
+  BookOpen,
+  ChartNoAxesColumn,
+  MessageSquare,
+  RefreshCw,
+  Settings,
+  UserRound,
+} from "lucide-react";
 import {
   DEFAULT_ATTACHMENT_SORT,
   DEFAULT_ELEMENT_SORT,
@@ -27,6 +35,7 @@ import {
   RUN_LIBRARY_ELEMENT_SORT,
   RUN_LIBRARY_SCENE_ONLY,
   DEFAULT_ELEMENT_SHOWING,
+  playItemKey,
   withShowing,
   type ElementDetail,
   type PlayItem,
@@ -55,7 +64,6 @@ import { useChatLayout } from "@/components/play/play-chat-layout";
 import { PlayChatOverlay } from "@/components/play/play-chat-overlay";
 import { useStoryChat } from "@/components/play/use-story-chat";
 import { PlayDiagnostics } from "@/components/play/play-diagnostics";
-import { DisplayModeButton } from "@/components/play/display-mode-button";
 import { PlayHeader } from "@/components/play/play-header";
 import { InactivityCheck } from "./inactivity-check";
 import { JoinLinkButton } from "./join-link-button";
@@ -69,6 +77,7 @@ import { StoryPlayingBox } from "@/components/stories/story-playing-box";
 import { RunSceneSelect } from "./run-scene-select";
 import { RunSessionTitle } from "./run-session-title";
 import { RunStackSelect } from "./run-stack-select";
+import { RunStatsPane } from "./run-stats-pane";
 import { RunManageStacksDialog } from "./run-manage-stacks-dialog";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { StatusPill } from "@/components/status/status-pill";
@@ -78,11 +87,13 @@ import { StatusPill } from "@/components/status/status-pill";
 // also plays in someone else's story keeps each the way they left it. The
 // library starts open, since it is what this table is for.
 const SHOW_LIBRARY = "run.showLibrary";
+const SHOW_STATS = "run.showStats";
 const SHOW_CHAT = "run.showChat";
 const SHOW_CHARACTER = "run.showCharacter";
 const SHOW_DIAGNOSTICS = "run.showDiagnostics";
 
 const LIBRARY_ID = "run-panel-library";
+const STATS_ID = "run-panel-stats";
 const CHAT_ID = "run-panel-chat";
 const CHARACTER_ID = "run-panel-character";
 const DIAGNOSTICS_ID = "run-panel-diagnostics";
@@ -184,6 +195,9 @@ export function RunTable({
   // Attachments tab reads them again; see RunLibrary's attachmentsVersion.
   const [picturesVersion, setPicturesVersion] = useState(0);
   const [inPlay, setInPlay] = useState<PlayItem[]>(initialSpace.inPlay);
+  // Counts the times the space was read again, for the stats pane to read
+  // its blocks again with it.
+  const [spaceVersion, setSpaceVersion] = useState(0);
   // The library's In select: the stack what the library adds goes in. Held
   // as a name and checked against the scene's stacks on every render, so a
   // new scene, or the chosen stack taken off this one, falls back to the
@@ -212,6 +226,7 @@ export function RunTable({
     setCoverUrl(space.coverUrl);
     setInPlay(space.inPlay);
     setPictureUpKey(null);
+    setSpaceVersion((current) => current + 1);
   };
 
   // The reload at the scene's title: the space read again as the database
@@ -248,6 +263,7 @@ export function RunTable({
   }, [session]);
 
   const showLibrary = preferences.get<boolean>(SHOW_LIBRARY, true);
+  const showStats = preferences.get<boolean>(SHOW_STATS, false);
   const showCharacter = preferences.get<boolean>(SHOW_CHARACTER, false);
   // The library's Add as invisible switch; a stack's + reads it too, for
   // where its new element starts.
@@ -275,12 +291,14 @@ export function RunTable({
     );
 
   // The library's arrow. An element is linked to the scene first, under the
-  // In select's stack, and goes in as the link came back, with whatever tags
-  // it already had there.
+  // In select's stack, and goes in as the link came back. An element already
+  // in the scene goes in again as a copy, with its own link, and the
+  // storyteller is warned: a second goblin is wanted often enough, a second
+  // copy of the same one by mistake often enough too.
   async function add(item: PlayItem) {
-    if (isComplete || inPlay.some((existing) => existing.key === item.key)) return;
+    if (isComplete) return;
     if (scene === null) {
-      put(item);
+      if (!inPlay.some((existing) => existing.key === item.key)) put(item);
       return;
     }
     const idElement = elementIdOf(item);
@@ -290,23 +308,29 @@ export function RunTable({
         tag: inStack,
         showInfo: addShowInfo,
       });
-      if (result.ok) put(result.item);
-      else toaster.create({ title: result.error, type: "error" });
+      if (!result.ok) {
+        toaster.create({ title: result.error, type: "error" });
+        return;
+      }
+      put(result.item);
+      if (result.duplicate) {
+        toaster.create({
+          title: `${item.label} is in the scene already`,
+          description: `A copy was added as ${result.item.label}.`,
+          type: "warning",
+        });
+      }
     } catch {
       toaster.create({ title: "The element could not be added. Try again.", type: "error" });
     }
   }
   const remove = (key: string) =>
     setInPlay((current) => current.filter((existing) => existing.key !== key));
-  // An element taken out of the scene from the library's panel. Matched by
-  // its id, as replace does, not by the library's key: that carries the kind
-  // the library lists it under, which is not the pill's if the kind was
-  // changed after the pill went into play.
-  const removeElement = (idElement: number) =>
+  // One link taken out of the scene from the library's panel: its pill
+  // goes, and an element in the scene twice keeps its other pill.
+  const removeLink = (idSceneElement: number) =>
     setInPlay((current) =>
-      current.filter(
-        (existing) => existing.kind === "ATTACHMENT" || elementIdOf(existing) !== idElement,
-      ),
+      current.filter((existing) => existing.idSceneElement !== idSceneElement),
     );
   // An item edited or moved from its info popover, in place. Matched by its
   // element id rather than its key, which carries the kind: an edit that
@@ -340,7 +364,7 @@ export function RunTable({
         }
         const moved: PlayItem = {
           ...existing,
-          key: `${element.kind}:${element.idElement}`,
+          key: playItemKey(element.kind, element.idElement, existing.idSceneElement),
           kind: element.kind as PlayItem["kind"],
           imageUrl: element.imageUrl,
         };
@@ -353,6 +377,7 @@ export function RunTable({
               initial_name: element.initialName,
               name: element.name,
               title: element.title,
+              label: existing.fields.label,
             },
           },
           existing.showing ?? DEFAULT_ELEMENT_SHOWING,
@@ -377,12 +402,17 @@ export function RunTable({
       setChosenStack((current) => (current === null ? current : renamed(current)));
     }
   };
-  const setStatus = (key: string, status: string) =>
-    setInPlay((current) =>
-      current.map((existing) =>
-        existing.key === key ? { ...existing, sceneStatus: status } : existing,
+  // One identity for the life of the table, since the stats pane hands it
+  // to each of its memoised rows.
+  const setStatus = useCallback(
+    (key: string, status: string) =>
+      setInPlay((current) =>
+        current.map((existing) =>
+          existing.key === key ? { ...existing, sceneStatus: status } : existing,
+        ),
       ),
-    );
+    [],
+  );
   // A pill's tack: the picture goes up, or comes down if it is the one up.
   // One picture is up on the players' table at a time (their preview is one
   // dialog, and a fresh open swaps it), so the one key says which pill
@@ -401,6 +431,14 @@ export function RunTable({
         onToggle={() => preferences.set(SHOW_LIBRARY, !showLibrary)}
       >
         <BookOpen />
+      </PlayPanelToggle>
+      <PlayPanelToggle
+        label="Stats"
+        controls={STATS_ID}
+        isOpen={showStats}
+        onToggle={() => preferences.set(SHOW_STATS, !showStats)}
+      >
+        <ChartNoAxesColumn />
       </PlayPanelToggle>
       <PlayPanelToggle
         label="Character"
@@ -429,8 +467,6 @@ export function RunTable({
           <Activity />
         </PlayPanelToggle>
       )}
-      <DisplayModeButton idStory={idStory} />
-      <JoinLinkButton idStory={idStory} atTable={chat.atTable} />
     </>
   );
 
@@ -474,6 +510,9 @@ export function RunTable({
                 heading={sessionHeading(session)}
               />
             )}
+            {/* The join link beside the notes, whether or not a session is
+                on: seats are handed out before play begins as well. */}
+            <JoinLinkButton idStory={idStory} atTable={chat.atTable} />
             {/* The session's status as a chip beside its title, and the
                 way to pause, resume or end it. Pausing keeps the storyteller
                 at the table: a pause is a break in play, and the same chip
@@ -629,7 +668,7 @@ export function RunTable({
                 elementSort={elementSort}
                 sceneOnly={sceneOnly}
                 onAdd={(item) => void add(item)}
-                onRemovedFromScene={removeElement}
+                onRemovedFromScene={removeLink}
                 onCreated={put}
                 onImageChange={setImage}
                 onElementEdited={editElement}
@@ -709,6 +748,19 @@ export function RunTable({
               </HStack>
             </Stack>
           </Box>
+        )}
+        {/* The scene's stat blocks, every element's at once, beside the
+            library and before the play space. */}
+        {showStats && (
+          <RunStatsPane
+            id={STATS_ID}
+            idStory={idStory}
+            idStoryScene={scene?.idStoryScene ?? null}
+            items={inPlay}
+            locked={isComplete}
+            version={spaceVersion}
+            onStatusChange={setStatus}
+          />
         )}
 
         <Flex direction="column" flex="1" minW="0">

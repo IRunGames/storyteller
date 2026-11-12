@@ -5,16 +5,75 @@
 // definition, and how a stat's shown value is worked out, for the server
 // actions, the forms and the table alike. The zod schemas that check the
 // shapes are in stat-block-schemas.ts.
+import { normalizeDice } from "./roll";
 import { evaluateFormula, parseFormula, type FormulaNode } from "./stat-formula";
 
-export const STAT_TYPES = ["display", "pool", "stack", "rack", "computed"] as const;
+export const STAT_TYPES = ["display", "pool", "stack", "rack", "dice", "computed"] as const;
 export type StatType = (typeof STAT_TYPES)[number];
+
+/**
+ * How a stat's value is held and written: "" as it is, a number or a word;
+ * "number" a number only, which the prep form holds the value to; "number
+ * +/-" a number only, written with its sign at the table ("+3", "−2") for a
+ * bonus or a penalty. Offered on a display, a pool and a stack; a pool and a
+ * stack start as "number" (defaultFormat).
+ */
+export const STAT_FORMATS = ["", "number", "number +/-"] as const;
+export type StatFormat = (typeof STAT_FORMATS)[number];
+
+export const STAT_FORMAT_LABELS: Record<StatFormat, string> = {
+  "": "<none>",
+  number: "number",
+  "number +/-": "number +/-",
+};
+
+/** Whether the format writes the number with its sign. */
+export function isSignedFormat(format: StatFormat): boolean {
+  return format === "number +/-";
+}
+
+/** The format a stat starts with: a pool or a stack holds numbers, so "number"; else as it is. */
+export function defaultFormat(type: StatType): StatFormat {
+  return type === "pool" || type === "stack" ? "number" : "";
+}
+
+/** Whether the format holds the stat's value to a number. */
+export function isNumberFormat(format: StatFormat): boolean {
+  return format !== "";
+}
+
+/** Whether a stat of this type is offered a format at all; the rest hold "". */
+export function hasFormat(type: StatType): boolean {
+  return type === "display" || type === "pool" || type === "stack";
+}
+
+/**
+ * Whether a stat may carry a roll: a pool or a stack always, a display once
+ * it is held to a number (a bonus to add to the dice). Any other stat's roll
+ * is "".
+ */
+export function canRoll(stat: Pick<StatDefinition, "type" | "format">): boolean {
+  return (
+    stat.type === "pool" ||
+    stat.type === "stack" ||
+    (stat.type === "display" && isNumberFormat(stat.format))
+  );
+}
+
+/**
+ * Whether the table has a die to press for the stat: a dice stat rolls
+ * what it holds, and a stat that may carry a roll (canRoll) rolls that.
+ */
+export function hasDie(stat: Pick<StatDefinition, "type" | "format">): boolean {
+  return stat.type === "dice" || canRoll(stat);
+}
 
 export const STAT_TYPE_LABELS: Record<StatType, string> = {
   display: "Display",
   pool: "Pool",
   stack: "Stack",
   rack: "Rack",
+  dice: "Dice",
   computed: "Computed",
 };
 
@@ -31,6 +90,8 @@ export type StatDefinition = {
   name: string;
   /** What is shown; "" means show the name. */
   label: string;
+  /** What the stat is for, a hover away on the form and at the table; "" for none. */
+  description: string;
   type: StatType;
   /** A rack's entries in order; [] for any other type. */
   rack: RackEntry[];
@@ -38,7 +99,45 @@ export type StatDefinition = {
   connectedTo: string;
   /** A computed stat's formula (stat-formula.ts); "" for any other type. */
   computedAs: string;
+  /**
+   * Whether the table draws the stat. A hidden stat is still filled in on
+   * the prep form and still feeds formulas and connections, so a system can
+   * keep a formula's working, or the source of a connection, out of the
+   * element panel.
+   */
+  visible: boolean;
+  /** How the value is held and written (STAT_FORMATS); "" for as it is. */
+  format: StatFormat;
+  /** The stat shares a line with the stat after it, on the form and at the table (statLines). */
+  sticky: boolean;
+  /**
+   * Shown at the table as words rather than in a box with a clicker: for a
+   * modifier set on the prep form and not nudged in play.
+   */
+  static: boolean;
+  /**
+   * The roll that goes with a pool, a stack or a display held to a number,
+   * as the chat's /roll takes it ("2d6+1"); "" for none, and always "" on
+   * any other stat (canRoll). One of ROLL_PRESETS or anything the roller
+   * reads.
+   */
+  roll: string;
+  /**
+   * Whether the table's stats pane offers to roll the stat for every element
+   * in the scene at once, as an initiative is rolled. Only a stat the table
+   * can roll (hasDie) may be global.
+   */
+  global: boolean;
+  /**
+   * Whether an editable number at the table has the up/down clicker beside
+   * its box (StatNumber); without it the box alone is drawn. Only a stat
+   * held to a number format has one to show, so on any other it is idle.
+   */
+  upDown: boolean;
 };
+
+/** The rolls the template editor offers before a custom one. */
+export const ROLL_PRESETS = ["1d6", "2d6", "1d8", "1d10", "1d12", "1d20"] as const;
 
 export type StatGroupDefinition = {
   name: string;
@@ -50,6 +149,18 @@ export type StatGroupDefinition = {
    * what makes the group repeat, so there is no second flag to keep in step.
    */
   keyedBy: string;
+  /**
+   * Whether the table draws a die on the group's heading that rolls the
+   * first die of every row at once (sa_rollGroupRows). Only a group that
+   * repeats may.
+   */
+  rollAll: boolean;
+  /**
+   * Whether an element says how many of this group it has (its multiple,
+   * MULTIPLES in its block, 1 unless set): Palladium's attacks per melee.
+   * Roll all then rolls each row that many times.
+   */
+  canHaveMultiples: boolean;
   stats: StatDefinition[];
 };
 export type StatBlockDefinition = { groups: StatGroupDefinition[] };
@@ -68,7 +179,8 @@ export const EMPTY_DEFINITION: StatBlockDefinition = { groups: [] };
  * the middle does not shift every element's reading.
  */
 export type StatValue = {
-  value: number | string;
+  /** Absent when the box was left blank: nothing to show yet. */
+  value?: number | string;
   /** Pool only; 0 when absent. */
   min?: number;
   /** Pool and stack; absent when fed by a connection, or, on a stack, when unbounded. */
@@ -77,8 +189,27 @@ export type StatValue = {
 
 /** One group's stored values, or one row of a repeating group: stat name to value. */
 export type StatRow = Record<string, StatValue>;
-/** A plain group stores one row; a repeating group an array of them. */
+/**
+ * A plain group stores one row; a repeating group an array of them. Under
+ * MULTIPLES, a row of the element's multiples by group name, for the groups
+ * that can have them.
+ */
 export type StatBlock = Record<string, StatRow | StatRow[]>;
+
+/**
+ * The block's key for the element's multiples: a row keyed by group name,
+ * each `{ value: n }`. A group name is an identifier, so the dollar keeps
+ * it from ever colliding with one.
+ */
+export const MULTIPLES = "$multiples";
+
+/** How many of a group the element has: its multiple as stored, a whole number of 1 or more; 1 otherwise. */
+export function multipleOf(block: StatBlock | undefined, group: string): number {
+  const multiples = block?.[MULTIPLES];
+  if (!multiples || Array.isArray(multiples)) return 1;
+  const value = multiples[group]?.value;
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : 1;
+}
 /** Keyed by id_system as a string, since it is a JSON key. */
 export type StatBlocks = Record<string, StatBlock>;
 
@@ -112,6 +243,22 @@ export function rowsOf(
 
 /** A system an element can carry a block for: its definition has at least one group. */
 export type StatBlockSystem = { idSystem: number; label: string; definition: StatBlockDefinition };
+
+/**
+ * A stat's value as the table writes it: a dash for nothing to show, which
+ * a word under a number format is too, a number with its sign under a
+ * signed format, else as it is.
+ */
+export function formatStatValue(stat: Pick<EvaluatedStat, "value" | "format">): string {
+  if (stat.value === null) return "—";
+  // A word where a number format wants a number (stored before the format
+  // was set) is nothing to show, as the form's box starts empty for it.
+  if (isNumberFormat(stat.format) && typeof stat.value !== "number") return "—";
+  if (isSignedFormat(stat.format) && typeof stat.value === "number") {
+    return `${stat.value < 0 ? "−" : "+"}${Math.abs(stat.value)}`;
+  }
+  return String(stat.value);
+}
 
 /** What the stat is called where it is shown. */
 export function statLabel(stat: Pick<StatDefinition, "name" | "label">): string {
@@ -195,24 +342,34 @@ export function fitStatValue(
   switch (stat.type) {
     case "display":
       if (connected) return null;
+      if (value === undefined) return {};
       if (isFinite(value)) return { value };
       if (typeof value === "string" && value.length <= 200) return { value };
       return null;
     case "pool": {
-      if (!isFinite(value)) return null;
-      const fitted: StatValue = { value, min: isFinite(min) ? min : 0 };
+      if (value !== undefined && !isFinite(value)) return null;
+      const fitted: StatValue = { min: isFinite(min) ? min : 0 };
+      if (isFinite(value)) fitted.value = value;
       if (!connected && isFinite(max)) fitted.max = max;
       return fitted;
     }
     case "stack": {
-      if (!isFinite(value)) return null;
-      const fitted: StatValue = { value };
+      if (value !== undefined && !isFinite(value)) return null;
+      const fitted: StatValue = {};
+      if (isFinite(value)) fitted.value = value;
       if (!connected && isFinite(max)) fitted.max = max;
       return fitted;
     }
     case "rack": {
       const entry = matchRackEntry(stat.rack, value);
       return entry === null ? null : { value: entry };
+    }
+    case "dice": {
+      // Blank, or "" from before blanks were left out, is a dice stat with
+      // nothing yet; anything else must read as dice.
+      if (value === undefined || value === "") return {};
+      const dice = typeof value === "string" ? normalizeDice(value) : null;
+      return dice === null ? null : { value: dice };
     }
     case "computed":
       return null;
@@ -223,7 +380,23 @@ export function fitStatValue(
 export type EvaluatedStat = {
   name: string;
   label: string;
+  /** As the definition says; "" for none. */
+  description: string;
   type: StatType;
+  /** As the definition says; the table leaves a hidden stat out. */
+  visible: boolean;
+  /** As the definition says. */
+  format: StatFormat;
+  /** As the definition says. */
+  sticky: boolean;
+  /** As the definition says. */
+  static: boolean;
+  /** As the definition says; "" for none. */
+  roll: string;
+  /** As the definition says. */
+  global: boolean;
+  /** As the definition says. */
+  upDown: boolean;
   /** The current value; null for nothing to show (unset, a formula that is not a number, a rack entry gone). */
   value: number | string | null;
   /** A pool's floor. */
@@ -258,6 +431,12 @@ export type EvaluatedGroup = {
   name: string;
   label: string;
   keyedBy: string;
+  /** As the definition says: the heading offers to roll every row's first die at once. */
+  rollAll: boolean;
+  /** As the definition says: the element may set how many of the group it has. */
+  canHaveMultiples: boolean;
+  /** How many of the group the element has (multipleOf); 1 where it cannot have more. */
+  multiple: number;
   stats: EvaluatedStat[];
   rows: EvaluatedRow[];
 };
@@ -297,7 +476,15 @@ export function evaluateStatBlock(
     const base: EvaluatedStat = {
       name: stat.name,
       label: statLabel(stat),
+      description: stat.description,
       type: stat.type,
+      visible: stat.visible,
+      format: stat.format,
+      sticky: stat.sticky,
+      static: stat.static,
+      roll: stat.roll,
+      global: stat.global,
+      upDown: stat.upDown,
       value: null,
       stored: null,
     };
@@ -359,7 +546,10 @@ export function evaluateStatBlock(
       case "rack":
         result.rack = stat.rack;
         result.value = stored?.value ?? null;
-        result.rackIndex = stored ? stat.rack.indexOf(stored.value) : -1;
+        result.rackIndex = stored?.value === undefined ? -1 : stat.rack.indexOf(stored.value);
+        break;
+      case "dice":
+        result.value = stored?.value ?? null;
         break;
       case "computed": {
         const treeId = `${groupName}.${stat.name}`;
@@ -386,7 +576,14 @@ export function evaluateStatBlock(
   }
 
   return definition.groups.map((group) => {
-    const shown = { name: group.name, label: group.label || group.name, keyedBy: group.keyedBy };
+    const shown = {
+      name: group.name,
+      label: group.label || group.name,
+      keyedBy: group.keyedBy,
+      rollAll: group.rollAll,
+      canHaveMultiples: group.canHaveMultiples,
+      multiple: group.canHaveMultiples ? multipleOf(block, group.name) : 1,
+    };
     if (!isRepeating(group)) {
       return { ...shown, stats: group.stats.map((stat) => evaluate(group.name, stat)), rows: [] };
     }
@@ -402,7 +599,7 @@ export function evaluateStatBlock(
 /** A row's key as stored, when it fits the key stat and reads as something; a word trimmed. */
 function rowKey(keyStat: StatDefinition, row: StatRow): number | string | null {
   const fitted = fitStatValue(keyStat, false, row[keyStat.name]);
-  if (!fitted || rowKeyText(fitted.value) === null) return null;
+  if (!fitted || fitted.value === undefined || rowKeyText(fitted.value) === null) return null;
   return typeof fitted.value === "string" ? fitted.value.trim() : fitted.value;
 }
 
@@ -433,48 +630,124 @@ export function tidyStatBlock(definition: StatBlockDefinition, block: StatBlock)
       return true;
     });
   }
+  // The multiples of the groups kept that can have one; the rest are stale.
+  const multiples = block[MULTIPLES];
+  if (multiples && !Array.isArray(multiples)) {
+    const kept: StatRow = {};
+    for (const group of definition.groups) {
+      if (group.canHaveMultiples && group.name in tidy && multiples[group.name]) {
+        kept[group.name] = multiples[group.name];
+      }
+    }
+    if (Object.keys(kept).length > 0) tidy[MULTIPLES] = kept;
+  }
   return tidy;
 }
 
 /**
- * The values a block starts with when it is added to an element: a pool
+ * The values one group starts with when it is picked for an element: a pool
  * empty at 0 to 0, a stack at 0, a rack on its first entry, a display at 0.
  * Nothing for a computed stat or a display that is fed, which store
- * nothing.
+ * nothing. A repeating group starts with no rows; the storyteller adds them.
  */
+export function emptyStatGroup(
+  definition: StatBlockDefinition,
+  group: StatGroupDefinition,
+): StatRow | StatRow[] {
+  if (isRepeating(group)) return [];
+  const values: StatRow = {};
+  for (const stat of group.stats) {
+    const connected = canConnect(stat.type)
+      ? resolveConnection(definition, group.name, stat.connectedTo) !== null
+      : false;
+    switch (stat.type) {
+      case "display":
+        if (!connected) values[stat.name] = { value: 0 };
+        break;
+      case "pool":
+        values[stat.name] = connected ? { value: 0, min: 0 } : { value: 0, min: 0, max: 0 };
+        break;
+      case "stack":
+        values[stat.name] = { value: 0 };
+        break;
+      case "rack":
+        if (stat.rack.length > 0) values[stat.name] = { value: stat.rack[0] };
+        break;
+      case "dice":
+        values[stat.name] = {};
+        break;
+      case "computed":
+        break;
+    }
+  }
+  return values;
+}
+
+/** Every group of the template picked at once, each as emptyStatGroup starts it. */
 export function emptyStatBlock(definition: StatBlockDefinition): StatBlock {
   const block: StatBlock = {};
-  for (const group of definition.groups) {
-    // A repeating group starts with no rows; the storyteller adds them.
-    if (isRepeating(group)) {
-      block[group.name] = [];
-      continue;
-    }
-    const values: StatRow = {};
-    for (const stat of group.stats) {
-      const connected = canConnect(stat.type)
-        ? resolveConnection(definition, group.name, stat.connectedTo) !== null
-        : false;
-      switch (stat.type) {
-        case "display":
-          if (!connected) values[stat.name] = { value: 0 };
-          break;
-        case "pool":
-          values[stat.name] = connected ? { value: 0, min: 0 } : { value: 0, min: 0, max: 0 };
-          break;
-        case "stack":
-          values[stat.name] = { value: 0 };
-          break;
-        case "rack":
-          if (stat.rack.length > 0) values[stat.name] = { value: stat.rack[0] };
-          break;
-        case "computed":
-          break;
-      }
-    }
-    block[group.name] = values;
-  }
+  for (const group of definition.groups) block[group.name] = emptyStatGroup(definition, group);
   return block;
+}
+
+/**
+ * The template's groups an element carries: those present in its block, in
+ * the template's order. A group the template no longer has is not drawn,
+ * as tidyStatBlock drops it; one the template has but the block does not is
+ * what the picker offers.
+ */
+export function carriedGroups(
+  definition: StatBlockDefinition,
+  block: StatBlock | undefined,
+): StatGroupDefinition[] {
+  if (!block) return [];
+  return definition.groups.filter((group) => group.name in block);
+}
+
+/**
+ * The stats of a block as the lines they are drawn on: a stat marked
+ * sticky shares its line with the stat after it, so a run of sticky stats
+ * and the one that follows them are one line. A sticky stat at the end has
+ * nothing to stick to and is a line of its own. Every stat is on exactly one
+ * line, in order; the form and the display block both draw from this.
+ */
+export function statLines<T extends { sticky: boolean }>(stats: T[]): T[][] {
+  const lines: T[][] = [];
+  let line: T[] = [];
+  for (const stat of stats) {
+    line.push(stat);
+    if (!stat.sticky) {
+      lines.push(line);
+      line = [];
+    }
+  }
+  if (line.length > 0) lines.push(line);
+  return lines;
+}
+
+/**
+ * A text as a number-only box keeps it: digits, one leading minus and one
+ * decimal point, anything else dropped as it is typed or pasted. "-" and
+ * "1." are kept as they are on the way to a number; the schema says
+ * "Enter a number." if they are left so.
+ */
+export function numberOnly(text: string): string {
+  let out = "";
+  let point = false;
+  for (const char of text) {
+    if (char >= "0" && char <= "9") out += char;
+    else if (char === "-" && out === "") out = "-";
+    else if (char === "." && !point) {
+      point = true;
+      out += char;
+    }
+  }
+  return out;
+}
+
+/** The sign a "number +/-" stat shows beside its number: a true minus below zero, else a plus. */
+export function signOf(value: number): "+" | "−" {
+  return value < 0 ? "−" : "+";
 }
 
 /**
@@ -525,7 +798,9 @@ export function emptyStatRowFields(group: StatGroupDefinition): StatRowFieldValu
  * A block as a form's inputs hold it: every stat of the definition with its
  * stored parts as text, read against the definition first so a stale value
  * starts the field empty rather than carrying something the stat no longer
- * holds. The block schema turns the text back into numbers on submit.
+ * holds. The block schema turns the text back into numbers on submit. The
+ * multiples of the carried groups that can have one go under MULTIPLES as
+ * a row of their own, 1 where none is stored.
  */
 export function toStatBlockFields(
   definition: StatBlockDefinition,
@@ -535,11 +810,21 @@ export function toStatBlockFields(
   const rowFields = (stats: EvaluatedStat[]): StatRowFieldValues =>
     Object.fromEntries(stats.map((stat) => [stat.name, statFields(stat.stored)]));
   const tidy = block ? tidyStatBlock(definition, block) : undefined;
+  // Only the groups the block carries: the rest are the picker's to offer.
+  const carried = new Set(carriedGroups(definition, tidy).map((group) => group.name));
   for (const group of evaluateStatBlock(definition, tidy)) {
+    if (!carried.has(group.name)) continue;
     fields[group.name] = isRepeating(group)
       ? group.rows.map((row) => rowFields(row.stats))
       : rowFields(group.stats);
   }
+  const multiples: StatRowFieldValues = {};
+  for (const group of definition.groups) {
+    if (group.canHaveMultiples && carried.has(group.name)) {
+      multiples[group.name] = { value: String(multipleOf(tidy, group.name)), min: "", max: "" };
+    }
+  }
+  if (Object.keys(multiples).length > 0) fields[MULTIPLES] = multiples;
   return fields;
 }
 

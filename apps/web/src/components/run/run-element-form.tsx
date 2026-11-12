@@ -57,6 +57,7 @@ const FIELDS = [
   "sceneStatus",
   "sceneUrl",
   "sceneUrlText",
+  "sceneLabel",
 ] as const;
 
 /**
@@ -175,6 +176,16 @@ export function RunElementForm<Saved extends { ok: true }>({
                 />
               </HStack>
               <Field.ErrorText>{errors.sceneStatus?.message}</Field.ErrorText>
+            </Field.Root>
+            <Field.Root invalid={!!errors.sceneLabel}>
+              <Field.Label>Label in this scene (optional)</Field.Label>
+              <Input size="sm" autoComplete="off" {...register("sceneLabel")} />
+              <Field.HelperText>
+                Words of this copy&apos;s own, which its pill can show in place of the
+                element&apos;s fields; a second copy of an element gets a numbered one as it is
+                added.
+              </Field.HelperText>
+              <Field.ErrorText>{errors.sceneLabel?.message}</Field.ErrorText>
             </Field.Root>
             <Field.Root invalid={!!errors.sceneUrl}>
               <Field.Label>Link in this scene (optional)</Field.Label>

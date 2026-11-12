@@ -102,6 +102,7 @@ const zed = {
     status: "READY",
     tags: ["scene"],
     elementShowing: "initial_name",
+    label: null,
     showInfo: true,
     url: null,
     urlText: null,
@@ -698,6 +699,7 @@ describe("PlayTable", () => {
         ...zed.sceneElement,
         status: "TAPPED",
         elementShowing: "name",
+        label: null,
         showInfo: true,
         updatedAt: "2026-10-13T10:02:00.000Z",
       },
@@ -739,6 +741,7 @@ describe("PlayTable", () => {
         ...zed.sceneElement,
         status: "READY",
         elementShowing: "name",
+        label: null,
         showInfo: false,
         updatedAt: "2026-10-13T10:03:00.000Z",
       },
@@ -754,6 +757,9 @@ describe("PlayTable", () => {
     ...zed,
     element: { ...zed.element, imageUrl: "https://x.test/zed.png" },
   };
+  // A pulse names its link as well as its element: Zed's is 11, Abbot's 12,
+  // and anything else is a link the table does not hold.
+  const linkOf: Record<number, number> = { 5: 11, 6: 12 };
   const pulse = (action: string, idElement = 5, idStoryScene = 3) => ({
     v: 1 as const,
     at: "2026-10-13T10:01:00.000Z",
@@ -761,6 +767,7 @@ describe("PlayTable", () => {
     type: "scene_element.custom" as const,
     idStoryScene,
     idElement,
+    idSceneElement: linkOf[idElement] ?? idElement,
     custom: { action },
   });
 
@@ -917,7 +924,7 @@ describe("PlayTable", () => {
       ),
     );
     await waitFor(() => expect(sa_untapPlaySceneElement.mock.callCount()).toBe(1));
-    expect(sa_untapPlaySceneElement.mock.calls[0].arguments).toEqual([7, 3, 5]);
+    expect(sa_untapPlaySceneElement.mock.calls[0].arguments).toEqual([7, 3, 11]);
     // Ready again and the marker gone; the action itself tells the chat who
     // did it. The pill is drawn afresh without its tooltip, so it is found
     // again.

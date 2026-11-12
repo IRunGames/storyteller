@@ -2,6 +2,8 @@
 
 import { useState, type ReactNode } from "react";
 import {
+  Badge,
+  type BadgeProps,
   Box,
   DataList,
   Heading,
@@ -23,16 +25,17 @@ import { StatusPill } from "@/components/status/status-pill";
 import { sa_setElementImage, sa_setElementTags } from "@/app/(app)/run/[id]/actions";
 import { toaster } from "@/components/ui/toaster";
 import { TagsPopover } from "@/components/popovers/tags-popover";
-import { ElementStatBlocks } from "@/components/stat-blocks/stat-block-view";
 import { RunElementImagePicker } from "./run-element-image-popover";
 import { RunPictureCell } from "./run-picture-cell";
 
 /**
  * An element's own rows, as both info popovers at the table list them: the
- * pill's in the play space and the library's. The status is a StatusPill on
- * the In the story heading's line, as the scene's is on its own heading's,
- * which the storyteller can move; the move is reported so the popover
- * holding it keeps up. The Tags row lists the element's tags with the tags
+ * pill's in the play space and the library's. A STORY pill the width of the
+ * rows heads them (partBadgeProps), dividing them from the scene card above
+ * where there is one, as that card's SCENE pill names it. Under it the
+ * status is a StatusPill, as the scene's is on its card, which the
+ * storyteller can move; the move is reported so the popover holding it
+ * keeps up. The Tags row lists the element's tags with the tags
  * editor beside them (TagsPopover), always there so a first tag can be
  * added; a change is saved whole (sa_setElementTags) and reported the same
  * way.
@@ -40,11 +43,8 @@ import { RunPictureCell } from "./run-picture-cell";
  * The picture leads: the attachment it points at as a small icon, which
  * opens it full size, with a − to take it away, or a + (RunPictureCell),
  * which opens the pill's picker in place below the rows. Either change is
- * reported, so the popover and the pill keep up.
- *
- * Under the rows, the element's stat blocks (ElementStatBlocks), loaded as
- * the rows mount, with their pools, stacks and racks changeable in place
- * unless the panel is locked.
+ * reported, so the popover and the pill keep up. The stat blocks are the
+ * panel's to draw under these rows, as the pill's or the library's wants.
  */
 export function ElementDetailRows({
   element,
@@ -54,7 +54,6 @@ export function ElementDetailRows({
   idStoryScene,
   onImageChange,
   onTagsChange,
-  locked = false,
 }: {
   element: ElementDetail;
   statusOptions: StatusOption[];
@@ -64,10 +63,9 @@ export function ElementDetailRows({
   idStory: number;
   /** The scene the table is on, whose attachments the picker's Scene lists. */
   idStoryScene: number | null;
+  /** Whose stat blocks the panel shows and changes: the scene element's copy, or the element's own. */
   /** The element's picture has changed: its address, or null for none. */
   onImageChange: (imageUrl: string | null) => void;
-  /** The scene is complete: the stat blocks are shown without their controls. */
-  locked?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -139,24 +137,24 @@ export function ElementDetailRows({
     ["Notes", always(element.notes)],
     ["Link", linkCell(element)],
   ];
-  // Headed as the scene's rows above it are, so the two parts read apart:
-  // what the element is in the story, and how it stands in this scene.
+  // Named as the scene's card above is, so the two parts read apart: what
+  // the element is in the story, and how it stands in this scene.
   return (
     <Stack gap="3">
-      <DetailSection
-        title="In the story"
-        beside={
-          <StatusPill
-            table="elements"
-            id={element.idElement}
-            status={element.status}
-            options={statusOptions}
-            canEdit
-            onChanged={onStatusChange}
-          />
-        }
-        rows={rows}
-      />
+      <Badge {...partBadgeProps} data-testid="element-panel-story">
+        STORY
+      </Badge>
+      <HStack gap="2">
+        <StatusPill
+          table="elements"
+          id={element.idElement}
+          status={element.status}
+          options={statusOptions}
+          canEdit
+          onChanged={onStatusChange}
+        />
+      </HStack>
+      <DetailSection rows={rows} />
       {picking && !element.imageUrl && (
         <Box borderWidth="1px" rounded="md" p="2">
           <RunElementImagePicker
@@ -170,10 +168,27 @@ export function ElementDetailRows({
           />
         </Box>
       )}
-      <ElementStatBlocks idStory={idStory} idElement={element.idElement} canEdit={!locked} />
     </Stack>
   );
 }
+
+/**
+ * The SCENE and STORY pills that name the panel's two parts in place of
+ * headings: a badge the whole width, its words centred, pulled a little
+ * over whatever follows it by its negative margin, so it reads as a
+ * divider riding on the part it names. One set of props, spread by both,
+ * so the two are styled alike.
+ */
+export const partBadgeProps = {
+  size: "xs",
+  variant: "subtle",
+  flex: "1",
+  justifyContent: "center",
+  rounded: "full",
+  position: "relative",
+  zIndex: "1",
+  mb: "-2",
+} satisfies BadgeProps;
 
 /**
  * An external link as one row's value: the words for it, else the address,

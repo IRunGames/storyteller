@@ -58,6 +58,7 @@ export const publicSceneElementSchema = z.object({
   showInfo: z.boolean(),
   url: z.string().nullable(),
   urlText: z.string().nullable(),
+  label: z.string().nullable(),
   readyAt: isoDate,
   invisibleAt: isoDate,
   tappedAt: isoDate,
@@ -122,6 +123,7 @@ export function toPublicSceneElement(row: SceneElementRow): PublicSceneElement {
     showInfo: row.showInfo,
     url: row.showInfo ? row.url : null,
     urlText: row.showInfo ? row.urlText : null,
+    label: row.label,
     readyAt: iso(row.readyAt),
     invisibleAt: iso(row.invisibleAt),
     tappedAt: iso(row.tappedAt),
@@ -161,8 +163,9 @@ export type ScenePulseCustom = z.infer<typeof scenePulseSchema>;
  * scene, and carries ids alone. `scene.changed` says the table moved to
  * another scene, or the scene's own stacks or status changed, which is
  * cheaper to reload than to describe. `scene_element.custom` is a pulse
- * about one element of a scene (SCENE_ELEMENT_PULSES), which the players'
- * table acts on and does not keep.
+ * about one link of a scene (SCENE_ELEMENT_PULSES), named by the link and
+ * its element since an element may be in the scene more than once, which
+ * the players' table acts on and does not keep.
  */
 export const storyEventSchema = z.discriminatedUnion("type", [
   z.object({
@@ -194,6 +197,7 @@ export const storyEventSchema = z.discriminatedUnion("type", [
     type: z.literal("scene_element.custom"),
     idStoryScene: z.number().int(),
     idElement: z.number().int(),
+    idSceneElement: z.number().int(),
     custom: scenePulseSchema,
   }),
 ]);
