@@ -27,7 +27,6 @@ const stat = (
 ): StatDefinition => ({
   label: "",
   rack: [],
-  connectedTo: "",
   computedAs: "",
   visible: true,
   format: defaultFormat(over.type),
@@ -37,6 +36,7 @@ const stat = (
   roll: "",
   global: false,
   upDown: true,
+  initialRoll: "",
   ...over,
 });
 
@@ -58,6 +58,7 @@ const definition: StatBlockDefinition = {
           roll: "1d20",
           global: true,
           upDown: true,
+          initialRoll: "",
         }),
         stat({ name: "hp", label: "HP", type: "pool" }),
       ],

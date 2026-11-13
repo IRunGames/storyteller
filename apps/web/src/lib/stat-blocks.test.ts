@@ -2,7 +2,8 @@ import { describe, it } from "node:test";
 import { expect } from "expect";
 
 import {
-  MULTIPLES,
+  statTooltip,
+  MULTIPLE,
   multipleOf,
   carriedGroups,
   emptyStatGroup,
@@ -15,7 +16,6 @@ import {
   evaluateStatBlock,
   emptyStatRowFields,
   fitStatValue,
-  resolveConnection,
   rowKeyText,
   statBlockFromFields,
   tidyStatBlock,
@@ -31,7 +31,6 @@ const stat = (
 ): StatDefinition => ({
   label: "",
   rack: [],
-  connectedTo: "",
   computedAs: "",
   visible: true,
   format: "",
@@ -41,12 +40,12 @@ const stat = (
   roll: "",
   global: false,
   upDown: true,
+  initialRoll: "",
   ...over,
 });
 
-// A definition with every type and both kinds of connection: a pool fed by
-// a display in another group, a stack fed by one in its own, a display fed
-// by a computed stat, and a formula reading two groups.
+// A definition with every type: pools and stacks with and without a max, a
+// rack, dice, a computed stat, and a formula reading two groups.
 const definition: StatBlockDefinition = {
   groups: [
     {
@@ -70,6 +69,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         }),
       ],
     },
@@ -80,15 +80,15 @@ const definition: StatBlockDefinition = {
       rollAll: false,
       canHaveMultiples: false,
       stats: [
-        stat({ name: "hp", type: "pool", label: "HP", connectedTo: "stats.str" }),
+        stat({ name: "hp", type: "pool", label: "HP" }),
         stat({ name: "mana", type: "pool" }),
         stat({ name: "rage", type: "stack" }),
-        stat({ name: "wounds", type: "stack", connectedTo: "toughness" }),
+        stat({ name: "wounds", type: "stack" }),
         stat({ name: "toughness", type: "display" }),
         stat({ name: "die", type: "rack", rack: ["d4", "d6", "d8"] }),
         stat({ name: "level", type: "rack", rack: [1, 2, 3] }),
         stat({ name: "damage", type: "dice" }),
-        stat({ name: "shown_mod", type: "display", connectedTo: "stats.mod" }),
+        stat({ name: "shown_mod", type: "display" }),
         stat({
           name: "reach",
           type: "computed",
@@ -101,11 +101,12 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         }),
       ],
     },
     // A group that repeats: each row a weapon, with a computed stat reading
-    // its own row and a plain group, and a pool fed from its own row.
+    // its own row and a plain group, and a pool of its own.
     {
       name: "attack",
       label: "Attack",
@@ -127,8 +128,9 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         }),
-        stat({ name: "uses", type: "pool", connectedTo: "strike" }),
+        stat({ name: "uses", type: "pool" }),
       ],
     },
   ],
@@ -176,23 +178,16 @@ describe("evaluateStatBlock", () => {
     expect(find(groups, "stats", "mod").stored).toBeNull();
   });
 
-  it("feeds a pool's max from the stat it is connected to, and drops a stored max", () => {
+  it("keeps a pool's own min and max", () => {
     const hp = find(groups, "combat", "hp");
-    expect(hp).toMatchObject({ value: 9, min: 0, max: 14, maxFrom: "Strength" });
-    expect(hp.stored).toEqual({ value: 9, min: 0 });
-  });
-
-  it("keeps a pool's own min and max when nothing feeds it", () => {
+    expect(hp).toMatchObject({ value: 9, min: 0, max: 99 });
+    expect(hp.stored).toEqual({ value: 9, min: 0, max: 99 });
     expect(find(groups, "combat", "mana")).toMatchObject({ value: 3, min: 1, max: 5 });
   });
 
-  it("gives a stack its max, fed from its own group by a bare name, or none", () => {
+  it("gives a stack its stored max, or none", () => {
     expect(find(groups, "combat", "rage")).toMatchObject({ value: 2, max: 3 });
-    expect(find(groups, "combat", "wounds")).toMatchObject({
-      value: 1,
-      max: 4,
-      maxFrom: "toughness",
-    });
+    expect(find(groups, "combat", "wounds")).toMatchObject({ value: 1, max: null });
   });
 
   it("finds a rack's entry whether stored as itself or as its digits", () => {
@@ -200,12 +195,8 @@ describe("evaluateStatBlock", () => {
     expect(find(groups, "combat", "level")).toMatchObject({ value: 2, rackIndex: 1 });
   });
 
-  it("feeds a display from a computed stat", () => {
-    expect(find(groups, "combat", "shown_mod")).toMatchObject({ value: 2, valueFrom: "mod" });
-  });
-
-  it("lets a formula read a fed max and another group's value", () => {
-    expect(find(groups, "combat", "reach").value).toBe(16);
+  it("lets a formula read a max and another group's value", () => {
+    expect(find(groups, "combat", "reach").value).toBe(101);
   });
 
   it("shows nothing for an unset stat, a stack at 0, and a formula that is not a number", () => {
@@ -237,7 +228,7 @@ describe("evaluateStatBlock", () => {
       max: null,
       stored: { value: 2 },
     });
-    expect(find(stale, "combat", "shown_mod")).toMatchObject({ value: null, stored: null });
+    expect(find(stale, "combat", "shown_mod")).toMatchObject({ value: 5, stored: { value: 5 } });
   });
 
   it("draws a repeating group as rows in order, each worked out on its own", () => {
@@ -249,8 +240,7 @@ describe("evaluateStatBlock", () => {
     expect(total(0)).toBe(18);
     expect(total(1)).toBe(15);
     const uses = attack.rows[0].stats.find((s) => s.name === "uses")!;
-    expect(uses.max).toBe(4);
-    expect(uses.maxFrom).toBe("Strike");
+    expect(uses).toMatchObject({ value: 2, min: 0, max: null });
   });
 
   it("keeps a row whose key is empty or wrong, with a null key, so a form can draw it", () => {
@@ -272,7 +262,7 @@ describe("evaluateStatBlock", () => {
     expect(find(groups, "stats", "str").value).toBeNull();
   });
 
-  it("survives a definition that feeds a stat from itself", () => {
+  it("survives a definition whose formulas read each other round", () => {
     const loop: StatBlockDefinition = {
       groups: [
         {
@@ -282,13 +272,13 @@ describe("evaluateStatBlock", () => {
           rollAll: false,
           canHaveMultiples: false,
           stats: [
-            stat({ name: "a", type: "display", connectedTo: "b" }),
-            stat({ name: "b", type: "display", connectedTo: "a" }),
+            stat({ name: "a", type: "computed", computedAs: "g.b.value" }),
+            stat({ name: "b", type: "computed", computedAs: "g.a.value" }),
           ],
         },
       ],
     };
-    const evaluated = evaluateStatBlock(loop, { g: { a: { value: 1 }, b: { value: 2 } } });
+    const evaluated = evaluateStatBlock(loop, { g: {} });
     expect(evaluated[0].stats.map((s) => s.value)).toEqual([null, null]);
   });
 });
@@ -326,55 +316,57 @@ describe("multiples", () => {
       group.name === "attack" ? { ...group, canHaveMultiples: true } : group,
     ),
   };
-  const rows = [{ weapon: { value: "Sword" }, strike: { value: 2 } }];
+  const sword = { weapon: { value: "Sword" }, strike: { value: 2 }, [MULTIPLE]: { value: 3 } };
+  const fist = { weapon: { value: "Fist" }, strike: { value: 1 } };
 
-  it("reads a group's multiple as stored, 1 where none is set or the group cannot have one", () => {
-    expect(multipleOf({ attack: rows, [MULTIPLES]: { attack: { value: 3 } } }, "attack")).toBe(3);
-    expect(multipleOf({ attack: rows }, "attack")).toBe(1);
-    expect(multipleOf({ attack: rows, [MULTIPLES]: { attack: { value: 0 } } }, "attack")).toBe(1);
-    expect(multipleOf({ attack: rows, [MULTIPLES]: { attack: { value: "x" } } }, "attack")).toBe(1);
-    const evaluated = evaluateStatBlock(withMultiples, {
-      attack: rows,
-      [MULTIPLES]: { attack: { value: 3 } },
-    });
-    expect(evaluated.find((group) => group.name === "attack")).toMatchObject({
-      canHaveMultiples: true,
-      multiple: 3,
-    });
-    // The same block against a template whose attack cannot have multiples: 1.
+  it("reads a row's multiple as stored, 1 where none is set or the group cannot have one", () => {
+    expect(multipleOf(sword)).toBe(3);
+    expect(multipleOf(fist)).toBe(1);
+    expect(multipleOf({ [MULTIPLE]: { value: 0 } })).toBe(1);
+    expect(multipleOf({ [MULTIPLE]: { value: "x" } })).toBe(1);
+    const rows = evaluateStatBlock(withMultiples, { attack: [sword, fist] }).find(
+      (group) => group.name === "attack",
+    )!.rows;
+    expect(rows.map((row) => row.multiple)).toEqual([3, 1]);
+    // The same rows against a template whose attack cannot have multiples: 1.
     expect(
-      evaluateStatBlock(definition, { attack: rows, [MULTIPLES]: { attack: { value: 3 } } }).find(
-        (group) => group.name === "attack",
-      ),
-    ).toMatchObject({ canHaveMultiples: false, multiple: 1 });
+      evaluateStatBlock(definition, { attack: [sword, fist] })
+        .find((group) => group.name === "attack")!
+        .rows.map((row) => row.multiple),
+    ).toEqual([1, 1]);
   });
 
-  it("keeps the multiples of the carried groups that can have one, and drops the rest", () => {
-    const tidy = tidyStatBlock(withMultiples, {
-      attack: rows,
-      [MULTIPLES]: { attack: { value: 3 }, combat: { value: 2 }, gone: { value: 9 } },
-    });
-    expect(tidy[MULTIPLES]).toEqual({ attack: { value: 3 } });
-    // A group not carried has no multiple to keep.
-    expect(
-      MULTIPLES in tidyStatBlock(withMultiples, { [MULTIPLES]: { attack: { value: 3 } } }),
-    ).toBe(false);
+  it("keeps a row's multiple while the group can have one, and drops it once it cannot", () => {
+    expect(tidyStatBlock(withMultiples, { attack: [sword] }).attack).toEqual([sword]);
+    expect(tidyStatBlock(definition, { attack: [sword] }).attack).toEqual([
+      { weapon: { value: "Sword" }, strike: { value: 2 } },
+    ]);
   });
 
-  it("puts a carried group's multiple on the form, 1 where none is stored", () => {
-    expect(toStatBlockFields(withMultiples, { attack: rows })[MULTIPLES]).toEqual({
-      attack: { value: "1", min: "", max: "" },
+  it("puts each row's multiple on the form, 1 where none is stored, and reads it back", () => {
+    const rows = toStatBlockFields(withMultiples, { attack: [sword, fist] })
+      .attack as StatRowFieldValues[];
+    expect(rows[0][MULTIPLE]).toEqual({ value: "3", min: "", max: "" });
+    expect(rows[1][MULTIPLE]).toEqual({ value: "1", min: "", max: "" });
+    const plain = toStatBlockFields(definition, { attack: [sword] }).attack as StatRowFieldValues[];
+    expect(MULTIPLE in plain[0]).toBe(false);
+    // A new row starts at one; the box's text comes back as the stored number.
+    expect(emptyStatRowFields(withMultiples.groups[2])[MULTIPLE]).toEqual({
+      value: "1",
+      min: "",
+      max: "",
     });
+    expect(MULTIPLE in emptyStatRowFields(definition.groups[2])).toBe(false);
     expect(
-      toStatBlockFields(withMultiples, { attack: rows, [MULTIPLES]: { attack: { value: 4 } } })[
-        MULTIPLES
-      ],
-    ).toEqual({ attack: { value: "4", min: "", max: "" } });
-    expect(MULTIPLES in toStatBlockFields(definition, { attack: rows })).toBe(false);
-    // And back: the box's text as the stored number.
-    expect(
-      statBlockFromFields({ [MULTIPLES]: { attack: { value: "4", min: "", max: "" } } })[MULTIPLES],
-    ).toEqual({ attack: { value: 4 } });
+      statBlockFromFields({
+        attack: [
+          {
+            weapon: { value: "Sword", min: "", max: "" },
+            [MULTIPLE]: { value: "4", min: "", max: "" },
+          },
+        ],
+      }).attack,
+    ).toEqual([{ weapon: { value: "Sword" }, [MULTIPLE]: { value: 4 } }]);
   });
 });
 
@@ -390,57 +382,101 @@ describe("rowKeyText", () => {
 });
 
 describe("fitStatValue", () => {
-  it("takes a number or a short word for a display, and nothing for a fed one", () => {
+  it("takes a number or a short word for a display", () => {
     const display = stat({ name: "d", type: "display" });
-    expect(fitStatValue(display, false, { value: 3 })).toEqual({ value: 3 });
-    expect(fitStatValue(display, false, { value: "big" })).toEqual({ value: "big" });
-    expect(fitStatValue(display, false, { value: "x".repeat(201) })).toBeNull();
-    expect(fitStatValue(display, false, { value: Infinity })).toBeNull();
-    expect(fitStatValue(display, true, { value: 3 })).toBeNull();
-    expect(fitStatValue(display, false, 3)).toBeNull();
+    expect(fitStatValue(display, { value: 3 })).toEqual({ value: 3 });
+    expect(fitStatValue(display, { value: "big" })).toEqual({ value: "big" });
+    expect(fitStatValue(display, { value: "x".repeat(201) })).toBeNull();
+    expect(fitStatValue(display, { value: Infinity })).toBeNull();
+    expect(fitStatValue(display, 3)).toBeNull();
   });
 
   it("keeps dice as written, blank or as 1d8 for d8, and lets anything else go", () => {
     const dice = stat({ name: "damage", type: "dice" });
-    expect(fitStatValue(dice, false, { value: "2d6" })).toEqual({ value: "2d6" });
-    expect(fitStatValue(dice, false, { value: "d8" })).toEqual({ value: "1d8" });
-    expect(fitStatValue(dice, false, { value: "2d6+2" })).toEqual({ value: "2d6+2" });
-    expect(fitStatValue(dice, false, { value: "" })).toEqual({});
-    expect(fitStatValue(dice, false, {})).toEqual({});
-    expect(fitStatValue(dice, false, { value: "2d6+1d4" })).toBeNull();
-    expect(fitStatValue(dice, false, { value: 6 })).toBeNull();
+    expect(fitStatValue(dice, { value: "2d6" })).toEqual({ value: "2d6" });
+    expect(fitStatValue(dice, { value: "d8" })).toEqual({ value: "1d8" });
+    expect(fitStatValue(dice, { value: "2d6+2" })).toEqual({ value: "2d6+2" });
+    expect(fitStatValue(dice, { value: "" })).toEqual({});
+    expect(fitStatValue(dice, {})).toEqual({});
+    expect(fitStatValue(dice, { value: "2d6+1d4" })).toBeNull();
+    expect(fitStatValue(dice, { value: 6 })).toBeNull();
   });
 
-  it("gives a pool a min of 0 when none is stored and keeps its max only when not fed", () => {
+  it("gives a pool a min of 0 when none is stored, and keeps its max", () => {
     const pool = stat({ name: "p", type: "pool" });
-    expect(fitStatValue(pool, false, { value: 2, max: 5 })).toEqual({ value: 2, min: 0, max: 5 });
-    expect(fitStatValue(pool, true, { value: 2, min: 1, max: 5 })).toEqual({ value: 2, min: 1 });
+    expect(fitStatValue(pool, { value: 2, max: 5 })).toEqual({ value: 2, min: 0, max: 5 });
+    expect(fitStatValue(pool, { value: 2, min: 1, max: 5 })).toEqual({ value: 2, min: 1, max: 5 });
   });
 
   it("keeps a blank value as nothing yet, with the parts that were given", () => {
-    expect(fitStatValue(stat({ name: "d", type: "display" }), false, {})).toEqual({});
-    expect(fitStatValue(stat({ name: "p", type: "pool" }), false, { max: 5 })).toEqual({
+    expect(fitStatValue(stat({ name: "d", type: "display" }), {})).toEqual({});
+    expect(fitStatValue(stat({ name: "p", type: "pool" }), { max: 5 })).toEqual({
       min: 0,
       max: 5,
     });
-    expect(fitStatValue(stat({ name: "s", type: "stack" }), false, {})).toEqual({});
-    expect(fitStatValue(stat({ name: "p", type: "pool" }), false, { value: "x" })).toBeNull();
+    expect(fitStatValue(stat({ name: "s", type: "stack" }), {})).toEqual({});
+    expect(fitStatValue(stat({ name: "p", type: "pool" }), { value: "x" })).toBeNull();
   });
 });
 
-describe("resolveConnection", () => {
-  it("reads a bare name in the same group and a dotted one in another", () => {
-    expect(resolveConnection(definition, "combat", "toughness")).toEqual({
-      group: "combat",
-      stat: "toughness",
+describe("Initialized as", () => {
+  const rolled: StatBlockDefinition = {
+    groups: [
+      {
+        name: "g",
+        label: "",
+        keyedBy: "",
+        rollAll: false,
+        canHaveMultiples: false,
+        stats: [
+          stat({ name: "hp", type: "pool", initialRoll: "2d6" }),
+          stat({ name: "rage", type: "stack", initialRoll: "1d4" }),
+          stat({ name: "ar", type: "display", format: "number", initialRoll: "1d20" }),
+          stat({ name: "mana", type: "pool" }),
+          stat({ name: "name", type: "display", initialRoll: "1d6" }),
+        ],
+      },
+    ],
+  };
+  const seven = () => 7;
+
+  it("starts a pool full at its roll, a stack at its roll with that max, and a number display at it", () => {
+    expect(emptyStatGroup(rolled, rolled.groups[0], seven)).toEqual({
+      hp: { value: 7, min: 0, max: 7 },
+      rage: { value: 7, max: 7 },
+      ar: { value: 7 },
+      mana: { value: 0, min: 0, max: 0 },
+      // A word display has nothing to roll into, whatever the template says.
+      name: { value: 0 },
     });
-    expect(resolveConnection(definition, "combat", "stats.str")).toEqual({
-      group: "stats",
-      stat: "str",
+    // No roller, or a roll that cannot be made, starts at 0 as before.
+    expect(emptyStatGroup(rolled, rolled.groups[0])).toMatchObject({
+      hp: { value: 0, min: 0, max: 0 },
+      rage: { value: 0 },
     });
-    expect(resolveConnection(definition, "combat", "")).toBeNull();
-    expect(resolveConnection(definition, "combat", "str")).toBeNull();
-    expect(resolveConnection(definition, "combat", "a.b.c")).toBeNull();
+    expect(emptyStatGroup(rolled, rolled.groups[0], () => null)).toMatchObject({
+      hp: { value: 0, min: 0, max: 0 },
+    });
+  });
+
+  it("fills a new row's fields the same way", () => {
+    const fields = emptyStatRowFields(rolled.groups[0], seven);
+    expect(fields.hp).toEqual({ value: "7", min: "", max: "7" });
+    expect(fields.rage).toEqual({ value: "7", min: "", max: "7" });
+    expect(fields.ar).toEqual({ value: "7", min: "", max: "" });
+    expect(fields.mana).toEqual({ value: "", min: "", max: "" });
+    expect(emptyStatRowFields(rolled.groups[0]).hp).toEqual({ value: "", min: "", max: "" });
+  });
+});
+
+describe("statTooltip", () => {
+  it("says the description with the roll after a colon, either alone, or nothing", () => {
+    expect(statTooltip({ description: "Hit Points", initialRoll: "8d8+3" })).toBe(
+      "Hit Points: 8d8+3",
+    );
+    expect(statTooltip({ description: "", initialRoll: "8d8+3" })).toBe("8d8+3");
+    expect(statTooltip({ description: "Hit Points", initialRoll: "" })).toBe("Hit Points");
+    expect(statTooltip({ description: "", initialRoll: "" })).toBe("");
   });
 });
 
@@ -449,7 +485,7 @@ describe("emptyStatBlock", () => {
     expect(emptyStatBlock(definition)).toEqual({
       stats: { str: { value: 0 }, size: { value: 0 } },
       combat: {
-        hp: { value: 0, min: 0 },
+        hp: { value: 0, min: 0, max: 0 },
         mana: { value: 0, min: 0, max: 0 },
         rage: { value: 0 },
         wounds: { value: 0 },
@@ -457,6 +493,7 @@ describe("emptyStatBlock", () => {
         die: { value: "d4" },
         level: { value: 1 },
         damage: {},
+        shown_mod: { value: 0 },
       },
       attack: [],
     });
@@ -558,6 +595,7 @@ describe("toStatBlockFields and statBlockFromFields", () => {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         }),
       ],
     };

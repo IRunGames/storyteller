@@ -36,7 +36,6 @@ const system: AdminSystemDetail = {
             label: "AR",
             type: "display",
             rack: [],
-            connectedTo: "",
             computedAs: "",
             visible: true,
             format: "",
@@ -46,13 +45,13 @@ const system: AdminSystemDetail = {
             roll: "",
             global: false,
             upDown: false,
+            initialRoll: "",
           },
           {
             name: "sdc",
             label: "SDC",
             type: "pool",
             rack: [],
-            connectedTo: "",
             computedAs: "",
             visible: true,
             format: "",
@@ -62,6 +61,7 @@ const system: AdminSystemDetail = {
             roll: "",
             global: false,
             upDown: true,
+            initialRoll: "",
           },
         ],
       },
@@ -70,7 +70,7 @@ const system: AdminSystemDetail = {
 };
 
 // A group with every kind of stat a key may or may not be: a display, a
-// pool, a rack and a display fed by a connection.
+// pool, a rack and a second display with no label.
 const keyable: AdminSystemDetail = {
   idSystem: -91,
   label: "Keyable",
@@ -91,7 +91,6 @@ const keyable: AdminSystemDetail = {
             label: "AR",
             type: "display",
             rack: [],
-            connectedTo: "",
             computedAs: "",
             visible: true,
             format: "",
@@ -101,13 +100,13 @@ const keyable: AdminSystemDetail = {
             roll: "",
             global: false,
             upDown: false,
+            initialRoll: "",
           },
           {
             name: "sdc",
             label: "",
             type: "pool",
             rack: [],
-            connectedTo: "",
             computedAs: "",
             visible: true,
             format: "",
@@ -117,13 +116,13 @@ const keyable: AdminSystemDetail = {
             roll: "",
             global: false,
             upDown: true,
+            initialRoll: "",
           },
           {
             name: "die",
             label: "",
             type: "rack",
             rack: ["d4"],
-            connectedTo: "",
             computedAs: "",
             visible: true,
             format: "",
@@ -133,13 +132,13 @@ const keyable: AdminSystemDetail = {
             roll: "",
             global: false,
             upDown: true,
+            initialRoll: "",
           },
           {
             name: "shown",
             label: "",
             type: "display",
             rack: [],
-            connectedTo: "ar",
             computedAs: "",
             visible: true,
             format: "",
@@ -149,6 +148,7 @@ const keyable: AdminSystemDetail = {
             roll: "",
             global: false,
             upDown: true,
+            initialRoll: "",
           },
         ],
       },
@@ -234,8 +234,7 @@ describe("SystemStatBlockEditor", () => {
     const names = screen.getAllByRole("textbox", { name: "Name" });
     expect(names.map((input) => (input as HTMLInputElement).value)).toEqual(["ar", "sdc"]);
     expect(screen.getAllByRole("combobox", { name: "Type" })[1]).toHaveValue("pool");
-    // A display and a pool take a connection; neither has a rack or a formula.
-    expect(screen.getAllByRole("textbox", { name: /Connected to/ })).toHaveLength(2);
+    // Neither a display nor a pool has a rack or a formula.
     expect(screen.queryByRole("textbox", { name: "Rack entries" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Formula" })).not.toBeInTheDocument();
     // Every stat is visible unless the definition says otherwise.
@@ -348,7 +347,7 @@ describe("SystemStatBlockEditor", () => {
     expect(saved.groups.map((group) => group.name)).toEqual(["saves", "defense"]);
   });
 
-  it("lets a group repeat by one of its displays or racks that is not connected", async () => {
+  it("lets a group repeat by one of its displays or racks", async () => {
     const user = userEvent.setup();
     renderWithProviders(<SystemStatBlockEditor system={keyable} />);
     await openGroup(user, "attack");
@@ -358,7 +357,7 @@ describe("SystemStatBlockEditor", () => {
       within(select)
         .getAllByRole("option")
         .map((o) => o.textContent),
-    ).toEqual(["Does not repeat", "AR", "die"]);
+    ).toEqual(["Does not repeat", "AR", "die", "shown"]);
     await user.selectOptions(select, "ar");
     await user.click(screen.getByRole("button", { name: "Save stat block" }));
     await waitFor(() => expect(sa_setSystemStatBlockDefinition.mock.calls.length).toBe(1));
@@ -400,7 +399,13 @@ describe("SystemStatBlockEditor", () => {
         groups: [
           {
             ...system.definition.groups[0],
-            stats: [{ ...system.definition.groups[0].stats[0], connectedTo: "nothing" }],
+            stats: [
+              {
+                ...system.definition.groups[0].stats[0],
+                type: "computed",
+                computedAs: "defense.nothing + 1",
+              },
+            ],
           },
         ],
       },
@@ -408,7 +413,7 @@ describe("SystemStatBlockEditor", () => {
     renderWithProviders(<SystemStatBlockEditor system={broken} />);
 
     await user.click(screen.getByRole("button", { name: "Save stat block" }));
-    expect(await screen.findByText(/There is no stat nothing/)).toBeInTheDocument();
+    expect(await screen.findByText(/There is no stat defense.nothing/)).toBeInTheDocument();
     expect(groupTrigger("defense")).toHaveAttribute("aria-expanded", "true");
     expect(sa_setSystemStatBlockDefinition.mock.callCount()).toBe(0);
   });
@@ -499,6 +504,51 @@ describe("SystemStatBlockEditor", () => {
     expect(sa_setSystemStatBlockDefinition.mock.calls[1].arguments[1].groups[0].rollAll).toBe(
       false,
     );
+  });
+
+  it("offers Initialized as on a stat that rolls, with a dice box whose eye shows an example, and saves it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SystemStatBlockEditor system={system} />);
+    await openGroup(user, "defense");
+
+    // SDC is a pool, so it has the box; AR, a display with no format, does not.
+    expect(screen.getAllByRole("checkbox", { name: "Initialized as" })).toHaveLength(1);
+    const box = screen.getByRole("checkbox", { name: "Initialized as" });
+    expect(box).not.toBeChecked();
+    await user.hover(box);
+    expect(
+      await screen.findByText(
+        "Roll this once when the block is added to an element, for its starting value and max",
+      ),
+    ).toBeInTheDocument();
+    await user.click(box);
+    const dice = screen.getByRole("textbox", { name: "SDC initialized as" });
+    await user.type(dice, "2d6+1");
+    // The eye rolls what is typed once and shows it as an example.
+    await user.click(screen.getByRole("button", { name: "Try SDC initialized as" }));
+    expect(screen.getByTestId("dice-example")).toHaveTextContent(/^2d6\+1: \[\d, \d\]\+1 = \d+$/);
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    await waitFor(() => expect(sa_setSystemStatBlockDefinition.mock.callCount()).toBe(1));
+    const saved = sa_setSystemStatBlockDefinition.mock.calls[0].arguments[1];
+    expect(saved.groups[0].stats.map((stat) => stat.initialRoll)).toEqual(["", "2d6+1"]);
+
+    // A roll that cannot be read is refused on the box; unticked, it is
+    // cleared. The save reset the form, so its fields are found afresh.
+    const retyped = screen.getByRole("textbox", { name: "SDC initialized as" });
+    await user.clear(retyped);
+    await user.type(retyped, "twelve");
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    expect(
+      await screen.findByText("That is not a roll I can read. Try 2d6+1."),
+    ).toBeInTheDocument();
+    expect(sa_setSystemStatBlockDefinition.mock.callCount()).toBe(1);
+    await user.click(screen.getByRole("checkbox", { name: "Initialized as" }));
+    expect(screen.queryByRole("textbox", { name: "SDC initialized as" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    await waitFor(() => expect(sa_setSystemStatBlockDefinition.mock.callCount()).toBe(2));
+    expect(
+      sa_setSystemStatBlockDefinition.mock.calls[1].arguments[1].groups[0].stats[1].initialRoll,
+    ).toBe("");
   });
 
   it("offers Up/down only on a stat held to a number, saying what it does, and saves it", async () => {
@@ -637,7 +687,6 @@ describe("SystemStatBlockEditor", () => {
       description: "The die the weapon rolls",
       type: "rack",
       rack: ["d4", "d6", 8],
-      connectedTo: "",
       computedAs: "",
       visible: true,
       format: "",
@@ -646,6 +695,7 @@ describe("SystemStatBlockEditor", () => {
       roll: "",
       global: false,
       upDown: false,
+      initialRoll: "",
     });
     expect(await screen.findByText("Stat block saved.")).toBeInTheDocument();
     // The save resets the form; the group that was open stays open.
@@ -658,7 +708,7 @@ describe("SystemStatBlockEditor", () => {
     sa_setSystemStatBlockDefinition.mock.mockImplementation(async () => ({
       ok: false,
       errors: {
-        "groups.0.stats.1.connectedTo": "Not that one.",
+        "groups.0.stats.1.label": "Not that one.",
         root: "That system is no longer there.",
       },
     }));

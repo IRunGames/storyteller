@@ -95,15 +95,12 @@ export type StatDefinition = {
   type: StatType;
   /** A rack's entries in order; [] for any other type. */
   rack: RackEntry[];
-  /** "" or "stat" (same group) or "group.stat"; a display, pool or stack only. */
-  connectedTo: string;
   /** A computed stat's formula (stat-formula.ts); "" for any other type. */
   computedAs: string;
   /**
    * Whether the table draws the stat. A hidden stat is still filled in on
-   * the prep form and still feeds formulas and connections, so a system can
-   * keep a formula's working, or the source of a connection, out of the
-   * element panel.
+   * the prep form and still feeds formulas, so a system can keep a formula's
+   * working out of the element panel.
    */
   visible: boolean;
   /** How the value is held and written (STAT_FORMATS); "" for as it is. */
@@ -134,6 +131,13 @@ export type StatDefinition = {
    * held to a number format has one to show, so on any other it is idle.
    */
   upDown: boolean;
+  /**
+   * The dice rolled once when the stat's block is added to an element
+   * ("2d6", "8d8+3"), for its starting value and, on a pool or a stack, its
+   * max; "" for a stat that starts at 0. Only a pool, a stack or a display
+   * held to a number may have one (canRoll).
+   */
+  initialRoll: string;
 };
 
 /** The rolls the template editor offers before a custom one. */
@@ -156,10 +160,10 @@ export type StatGroupDefinition = {
    */
   rollAll: boolean;
   /**
-   * Whether an element says how many of this group it has (its multiple,
-   * MULTIPLES in its block, 1 unless set): Palladium's attacks per melee.
-   * Roll all then rolls each row that many times. Only a group that repeats
-   * may.
+   * Whether each row of this group says how many of it the element has (its
+   * multiple, MULTIPLE in the row, 1 unless set): Palladium's attacks per
+   * melee with each weapon. Roll all then rolls each row that many times.
+   * Only a group that repeats may.
    */
   canHaveMultiples: boolean;
   stats: StatDefinition[];
@@ -184,31 +188,28 @@ export type StatValue = {
   value?: number | string;
   /** Pool only; 0 when absent. */
   min?: number;
-  /** Pool and stack; absent when fed by a connection, or, on a stack, when unbounded. */
+  /** Pool and stack; absent on a stack when unbounded. */
   max?: number;
 };
 
 /** One group's stored values, or one row of a repeating group: stat name to value. */
 export type StatRow = Record<string, StatValue>;
 /**
- * A plain group stores one row; a repeating group an array of them. Under
- * MULTIPLES, a row of the element's multiples by group name, for the groups
- * that can have them.
+ * A plain group stores one row; a repeating group an array of them. A row
+ * of a group that can have multiples holds how many of it the element has
+ * under MULTIPLE, beside its stats.
  */
 export type StatBlock = Record<string, StatRow | StatRow[]>;
 
 /**
- * The block's key for the element's multiples: a row keyed by group name,
- * each `{ value: n }`. A group name is an identifier, so the dollar keeps
- * it from ever colliding with one.
+ * A row's key for its multiple, `{ value: n }`. A stat name is an
+ * identifier, so the dollar keeps it from ever colliding with one.
  */
-export const MULTIPLES = "$multiples";
+export const MULTIPLE = "$multiple";
 
-/** How many of a group the element has: its multiple as stored, a whole number of 1 or more; 1 otherwise. */
-export function multipleOf(block: StatBlock | undefined, group: string): number {
-  const multiples = block?.[MULTIPLES];
-  if (!multiples || Array.isArray(multiples)) return 1;
-  const value = multiples[group]?.value;
+/** How many of its group a row stands for: its multiple as stored, a whole number of 1 or more; 1 otherwise. */
+export function multipleOf(row: StatRow | undefined): number {
+  const value = row?.[MULTIPLE]?.value;
   return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : 1;
 }
 /** Keyed by id_system as a string, since it is a JSON key. */
@@ -289,33 +290,6 @@ export function findStat(
   );
 }
 
-/**
- * Where a connectedTo points: "ar" means the stat of that name in the same
- * group, "defense.ar" the stat of a group. Null for "" and for anything
- * that is not there, so a connection is only ever to a stat that exists.
- */
-export function resolveConnection(
-  definition: StatBlockDefinition,
-  fromGroup: string,
-  connectedTo: string,
-): { group: string; stat: string } | null {
-  if (connectedTo === "") return null;
-  const parts = connectedTo.split(".");
-  const target =
-    parts.length === 1
-      ? { group: fromGroup, stat: parts[0] }
-      : parts.length === 2
-        ? { group: parts[0], stat: parts[1] }
-        : null;
-  if (!target || !findStat(definition, target.group, target.stat)) return null;
-  return target;
-}
-
-/** Whether a stat of this type takes a connection at all. */
-export function canConnect(type: StatType): boolean {
-  return type === "display" || type === "pool" || type === "stack";
-}
-
 /** The entry of a rack a stored value names, matching 6 to "6" since a select posts strings. */
 export function matchRackEntry(rack: RackEntry[], value: unknown): RackEntry | null {
   if (typeof value !== "string" && typeof value !== "number") return null;
@@ -328,21 +302,16 @@ const isFinite = (value: unknown): value is number =>
 /**
  * A stored value as far as it fits its stat today, or null for nothing
  * usable. Reads are lenient per stat: the definition may have changed since
- * the value was written (a type changed, a rack shrunk, a max fed by a
- * connection now), and a value that no longer fits reads as absent rather
+ * the value was written (a type changed, a rack shrunk), and a value that
+ * no longer fits reads as absent rather
  * than refusing the whole block, so nothing the storyteller did not touch
  * ever stands in their way. The next save of the block drops it.
  */
-export function fitStatValue(
-  stat: StatDefinition,
-  connected: boolean,
-  raw: unknown,
-): StatValue | null {
+export function fitStatValue(stat: StatDefinition, raw: unknown): StatValue | null {
   if (typeof raw !== "object" || raw === null) return null;
   const { value, min, max } = raw as Record<string, unknown>;
   switch (stat.type) {
     case "display":
-      if (connected) return null;
       if (value === undefined) return {};
       if (isFinite(value)) return { value };
       if (typeof value === "string" && value.length <= 200) return { value };
@@ -351,14 +320,14 @@ export function fitStatValue(
       if (value !== undefined && !isFinite(value)) return null;
       const fitted: StatValue = { min: isFinite(min) ? min : 0 };
       if (isFinite(value)) fitted.value = value;
-      if (!connected && isFinite(max)) fitted.max = max;
+      if (isFinite(max)) fitted.max = max;
       return fitted;
     }
     case "stack": {
       if (value !== undefined && !isFinite(value)) return null;
       const fitted: StatValue = {};
       if (isFinite(value)) fitted.value = value;
-      if (!connected && isFinite(max)) fitted.max = max;
+      if (isFinite(max)) fitted.max = max;
       return fitted;
     }
     case "rack": {
@@ -377,12 +346,24 @@ export function fitStatValue(
   }
 }
 
+/**
+ * What a stat's label says on hover, on the prep form and at the table: its
+ * description, with what it is initialized as after a colon ("Hit Points:
+ * 8d8+3"), the roll alone without a description, or "" for neither.
+ */
+export function statTooltip(stat: Pick<StatDefinition, "description" | "initialRoll">): string {
+  if (stat.initialRoll === "") return stat.description;
+  return stat.description === "" ? stat.initialRoll : `${stat.description}: ${stat.initialRoll}`;
+}
+
 /** One stat as the block shows it, with what the controls need beside the value. */
 export type EvaluatedStat = {
   name: string;
   label: string;
   /** As the definition says; "" for none. */
   description: string;
+  /** As the definition says; "" for none. */
+  initialRoll: string;
   type: StatType;
   /** As the definition says; the table leaves a hidden stat out. */
   visible: boolean;
@@ -402,12 +383,8 @@ export type EvaluatedStat = {
   value: number | string | null;
   /** A pool's floor. */
   min?: number;
-  /** A pool's or stack's ceiling; null for a stack with none, or a connection that is not a number. */
+  /** A pool's or stack's ceiling; null for a stack with none. */
   max?: number | null;
-  /** The label of the stat that feeds the max, when one does. */
-  maxFrom?: string;
-  /** The label of the stat that feeds the value, when one does (a connected display). */
-  valueFrom?: string;
   /** A rack's entries, for the ◀ ▶ and the select, and where the value sits in them. */
   rack?: RackEntry[];
   rackIndex?: number;
@@ -415,8 +392,16 @@ export type EvaluatedStat = {
   stored: StatValue | null;
 };
 
-/** One row of a repeating group as shown; key null when the row's key is empty or does not fit. */
-export type EvaluatedRow = { key: number | string | null; stats: EvaluatedStat[] };
+/**
+ * One row of a repeating group as shown; key null when the row's key is
+ * empty or does not fit. `multiple` is how many of the group the row stands
+ * for (multipleOf), 1 where the group cannot have more.
+ */
+export type EvaluatedRow = {
+  key: number | string | null;
+  multiple: number;
+  stats: EvaluatedStat[];
+};
 
 /**
  * A group as shown. A plain group has its stats and no rows; a repeating
@@ -434,10 +419,8 @@ export type EvaluatedGroup = {
   keyedBy: string;
   /** As the definition says: the heading offers to roll every row's first die at once. */
   rollAll: boolean;
-  /** As the definition says: the element may set how many of the group it has. */
+  /** As the definition says: each row may say how many of the group the element has. */
   canHaveMultiples: boolean;
-  /** How many of the group the element has (multipleOf); 1 where it cannot have more. */
-  multiple: number;
   stats: EvaluatedStat[];
   rows: EvaluatedRow[];
 };
@@ -445,8 +428,8 @@ export type EvaluatedGroup = {
 /**
  * A block worked out against its definition: every group and stat in the
  * definition's order, each with the value to show and, by type, its min,
- * max and rack. A fed part comes from the stat it is connected to; a
- * computed stat from its formula over the others, memoised so a stat read
+ * max and rack. A computed stat comes from its formula over the others,
+ * memoised so a stat read
  * by three formulas is worked out once. The definition schema has refused
  * cycles, and a visiting set stops one anyway should a definition arrive
  * some other way.
@@ -478,6 +461,7 @@ export function evaluateStatBlock(
       name: stat.name,
       label: statLabel(stat),
       description: stat.description,
+      initialRoll: stat.initialRoll,
       type: stat.type,
       visible: stat.visible,
       format: stat.format,
@@ -492,8 +476,8 @@ export function evaluateStatBlock(
     if (visiting.has(id)) return base;
     visiting.add(id);
 
-    // Where a connection or a formula reference reads from: the same row
-    // when it names this row's own group, a plain group's record otherwise.
+    // Where a formula reference reads from: the same row when it names this
+    // row's own group, a plain group's record otherwise.
     // Another repeating group has no one value to read; the definition
     // schema refuses that, and null here keeps the walk safe should such a
     // definition arrive some other way.
@@ -507,42 +491,23 @@ export function evaluateStatBlock(
       return evaluate(group, target);
     };
 
-    const connection = canConnect(stat.type)
-      ? resolveConnection(definition, groupName, stat.connectedTo)
-      : null;
-    const fed = connection ? lookup(connection.group, connection.stat) : null;
     const raw = row ? row.stored[stat.name] : plainStored(groupName)?.[stat.name];
-    const stored = fitStatValue(stat, connection !== null, raw);
+    const stored = fitStatValue(stat, raw);
     const result: EvaluatedStat = { ...base, stored };
 
     switch (stat.type) {
       case "display":
-        if (fed) {
-          result.value = fed.value;
-          result.valueFrom = fed.label;
-        } else {
-          result.value = stored?.value ?? null;
-        }
+        result.value = stored?.value ?? null;
         break;
       case "pool":
         result.value = stored?.value ?? null;
         result.min = stored?.min ?? 0;
-        if (fed) {
-          result.max = isFinite(fed.value) ? fed.value : null;
-          result.maxFrom = fed.label;
-        } else {
-          result.max = stored?.max ?? null;
-        }
+        result.max = stored?.max ?? null;
         break;
       case "stack":
         // A stack starts at 0 the moment it is defined.
         result.value = stored?.value ?? 0;
-        if (fed) {
-          result.max = isFinite(fed.value) ? fed.value : null;
-          result.maxFrom = fed.label;
-        } else {
-          result.max = stored?.max ?? null;
-        }
+        result.max = stored?.max ?? null;
         break;
       case "rack":
         result.rack = stat.rack;
@@ -583,7 +548,6 @@ export function evaluateStatBlock(
       keyedBy: group.keyedBy,
       rollAll: group.rollAll,
       canHaveMultiples: group.canHaveMultiples,
-      multiple: group.canHaveMultiples ? multipleOf(block, group.name) : 1,
     };
     if (!isRepeating(group)) {
       return { ...shown, stats: group.stats.map((stat) => evaluate(group.name, stat)), rows: [] };
@@ -591,6 +555,7 @@ export function evaluateStatBlock(
     const keyStat = group.stats.find((stat) => stat.name === group.keyedBy);
     const rows = rowsOf(group, block?.[group.name]).map((stored, index) => ({
       key: keyStat ? rowKey(keyStat, stored) : null,
+      multiple: group.canHaveMultiples ? multipleOf(stored) : 1,
       stats: group.stats.map((stat) => evaluate(group.name, stat, { index, stored })),
     }));
     return { ...shown, stats: [], rows };
@@ -599,7 +564,7 @@ export function evaluateStatBlock(
 
 /** A row's key as stored, when it fits the key stat and reads as something; a word trimmed. */
 function rowKey(keyStat: StatDefinition, row: StatRow): number | string | null {
-  const fitted = fitStatValue(keyStat, false, row[keyStat.name]);
+  const fitted = fitStatValue(keyStat, row[keyStat.name]);
   if (!fitted || fitted.value === undefined || rowKeyText(fitted.value) === null) return null;
   return typeof fitted.value === "string" ? fitted.value.trim() : fitted.value;
 }
@@ -624,52 +589,63 @@ export function tidyStatBlock(definition: StatBlockDefinition, block: StatBlock)
     }
     const keyStat = group.stats.find((stat) => stat.name === group.keyedBy);
     const seen = new Set<string>();
-    tidy[group.name] = rowsOf(group, stored).filter((row) => {
-      const text = keyStat ? rowKeyText(rowKey(keyStat, row)) : null;
-      if (text === null || seen.has(text)) return false;
-      seen.add(text);
-      return true;
-    });
-  }
-  // The multiples of the groups kept that can have one; the rest are stale.
-  const multiples = block[MULTIPLES];
-  if (multiples && !Array.isArray(multiples)) {
-    const kept: StatRow = {};
-    for (const group of definition.groups) {
-      if (group.canHaveMultiples && group.name in tidy && multiples[group.name]) {
-        kept[group.name] = multiples[group.name];
-      }
-    }
-    if (Object.keys(kept).length > 0) tidy[MULTIPLES] = kept;
+    tidy[group.name] = rowsOf(group, stored)
+      .filter((row) => {
+        const text = keyStat ? rowKeyText(rowKey(keyStat, row)) : null;
+        if (text === null || seen.has(text)) return false;
+        seen.add(text);
+        return true;
+      })
+      // A row's multiple is stale once the group can no longer have one.
+      .map((row) => {
+        if (group.canHaveMultiples || !(MULTIPLE in row)) return row;
+        const { [MULTIPLE]: _gone, ...rest } = row;
+        return rest;
+      });
   }
   return tidy;
 }
 
 /**
+ * Rolls a stat's Initialized as (`initialRoll`): the total, or null for
+ * nothing rolled. The library's roller at the table and on the prep form
+ * (rollTotal in lib/dice.ts); a test's gives what it likes.
+ */
+export type InitialRoller = (notation: string) => number | null;
+
+/** A stat's starting number: its Initialized as rolled, when it has one and a roller is given; 0 otherwise. */
+function startingNumber(stat: StatDefinition, roll: InitialRoller | undefined): number {
+  if (!roll || stat.initialRoll === "" || !canRoll(stat)) return 0;
+  return roll(stat.initialRoll) ?? 0;
+}
+
+/**
  * The values one group starts with when it is picked for an element: a pool
- * empty at 0 to 0, a stack at 0, a rack on its first entry, a display at 0.
- * Nothing for a computed stat or a display that is fed, which store
- * nothing. A repeating group starts with no rows; the storyteller adds them.
+ * full at its Initialized as roll, or empty at 0 to 0 without one; a stack
+ * at its roll with the roll as its max, or at 0; a rack on its first entry;
+ * a display at its roll, or 0. Nothing for a computed stat, which stores
+ * nothing. A repeating group starts with no rows; the storyteller adds them
+ * (emptyStatRowFields). Without a roller every roll reads as 0. The
+ * definition is taken for the callers' sake and not read.
  */
 export function emptyStatGroup(
-  definition: StatBlockDefinition,
+  _definition: StatBlockDefinition,
   group: StatGroupDefinition,
+  roll?: InitialRoller,
 ): StatRow | StatRow[] {
   if (isRepeating(group)) return [];
   const values: StatRow = {};
   for (const stat of group.stats) {
-    const connected = canConnect(stat.type)
-      ? resolveConnection(definition, group.name, stat.connectedTo) !== null
-      : false;
+    const start = startingNumber(stat, roll);
     switch (stat.type) {
       case "display":
-        if (!connected) values[stat.name] = { value: 0 };
+        values[stat.name] = { value: start };
         break;
       case "pool":
-        values[stat.name] = connected ? { value: 0, min: 0 } : { value: 0, min: 0, max: 0 };
+        values[stat.name] = { value: start, min: 0, max: start };
         break;
       case "stack":
-        values[stat.name] = { value: 0 };
+        values[stat.name] = start === 0 ? { value: 0 } : { value: start, max: start };
         break;
       case "rack":
         if (stat.rack.length > 0) values[stat.name] = { value: stat.rack[0] };
@@ -685,9 +661,11 @@ export function emptyStatGroup(
 }
 
 /** Every group of the template picked at once, each as emptyStatGroup starts it. */
-export function emptyStatBlock(definition: StatBlockDefinition): StatBlock {
+export function emptyStatBlock(definition: StatBlockDefinition, roll?: InitialRoller): StatBlock {
   const block: StatBlock = {};
-  for (const group of definition.groups) block[group.name] = emptyStatGroup(definition, group);
+  for (const group of definition.groups) {
+    block[group.name] = emptyStatGroup(definition, group, roll);
+  }
   return block;
 }
 
@@ -781,17 +759,31 @@ function statFields(stored: StatValue | null): StatFieldValues {
 /**
  * The inputs of a row being added to a repeating group: every field empty,
  * but a rack on its first entry, since a select with nothing chosen would
- * show its first option while posting nothing.
+ * show its first option while posting nothing, and a stat with an
+ * Initialized as at its roll, a pool's or stack's max with it, when a
+ * roller is given. In a group that can have multiples, the row's multiple
+ * starts at 1.
  */
-export function emptyStatRowFields(group: StatGroupDefinition): StatRowFieldValues {
+export function emptyStatRowFields(
+  group: StatGroupDefinition,
+  roll?: InitialRoller,
+): StatRowFieldValues {
   const fields: StatRowFieldValues = {};
   for (const stat of group.stats) {
+    const start = startingNumber(stat, roll);
+    const rolled = roll !== undefined && stat.initialRoll !== "" && canRoll(stat);
     fields[stat.name] = {
-      value: stat.type === "rack" && stat.rack.length > 0 ? String(stat.rack[0]) : "",
+      value:
+        stat.type === "rack" && stat.rack.length > 0
+          ? String(stat.rack[0])
+          : rolled
+            ? String(start)
+            : "",
       min: "",
-      max: "",
+      max: rolled && (stat.type === "pool" || stat.type === "stack") ? String(start) : "",
     };
   }
+  if (group.canHaveMultiples) fields[MULTIPLE] = { value: "1", min: "", max: "" };
   return fields;
 }
 
@@ -799,9 +791,9 @@ export function emptyStatRowFields(group: StatGroupDefinition): StatRowFieldValu
  * A block as a form's inputs hold it: every stat of the definition with its
  * stored parts as text, read against the definition first so a stale value
  * starts the field empty rather than carrying something the stat no longer
- * holds. The block schema turns the text back into numbers on submit. The
- * multiples of the carried groups that can have one go under MULTIPLES as
- * a row of their own, 1 where none is stored.
+ * holds. The block schema turns the text back into numbers on submit. A
+ * row of a group that can have multiples carries its multiple under
+ * MULTIPLE beside its stats, 1 where none is stored.
  */
 export function toStatBlockFields(
   definition: StatBlockDefinition,
@@ -816,16 +808,14 @@ export function toStatBlockFields(
   for (const group of evaluateStatBlock(definition, tidy)) {
     if (!carried.has(group.name)) continue;
     fields[group.name] = isRepeating(group)
-      ? group.rows.map((row) => rowFields(row.stats))
+      ? group.rows.map((row) => ({
+          ...rowFields(row.stats),
+          ...(group.canHaveMultiples
+            ? { [MULTIPLE]: { value: String(row.multiple), min: "", max: "" } }
+            : {}),
+        }))
       : rowFields(group.stats);
   }
-  const multiples: StatRowFieldValues = {};
-  for (const group of definition.groups) {
-    if (group.canHaveMultiples && carried.has(group.name)) {
-      multiples[group.name] = { value: String(multipleOf(tidy, group.name)), min: "", max: "" };
-    }
-  }
-  if (Object.keys(multiples).length > 0) fields[MULTIPLES] = multiples;
   return fields;
 }
 

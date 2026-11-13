@@ -399,6 +399,22 @@ describe("PlayChat", () => {
     expect(screen.getByText("TO")).toBeInTheDocument();
   });
 
+  it("shows a sender's picture once for their lines in a row, and again after another speaks", () => {
+    const { container } = render(
+      chatOf([
+        toChatEntry(line({ idChat: 1, picture: "https://example.test/harry.png" })),
+        toChatEntry(line({ idChat: 2, picture: "https://example.test/harry.png", text: "And." })),
+        toChatEntry(line({ idChat: 3, from: "Tom", idUser: "tom", text: "Wait." })),
+        toChatEntry(line({ idChat: 4, picture: "https://example.test/harry.png", text: "Go." })),
+      ]),
+    );
+    // Harry's picture on his first line and on the one after Tom's, not on
+    // his second in a row; every line's text still stands.
+    expect(container.querySelectorAll("img")).toHaveLength(2);
+    expect(screen.getByText("And.")).toBeInTheDocument();
+    expect(screen.getAllByText("HA")).toHaveLength(2);
+  });
+
   it("sends a line, keeps what the action saved and clears the input", async () => {
     const u = userEvent.setup();
     const chat = chatOf([]);

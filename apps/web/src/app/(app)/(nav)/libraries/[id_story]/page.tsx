@@ -15,6 +15,7 @@ import { sa_getStory, sa_countStorySessions, sa_listStorySessions } from "../../
 import {
   sa_countStoryElements,
   sa_countStoryScenes,
+  sa_getSceneToBuild,
   sa_listStoryElements,
   sa_listStoryScenes,
 } from "../actions";
@@ -47,6 +48,7 @@ export default async function LibraryPage({ params }: { params: Promise<{ id_sto
     elementStatusOptions,
     elementCounts,
     preferences,
+    buildSceneId,
   ] = await Promise.all([
     sa_getStory(idStory),
     sa_listStorySessions(idStory, 0, PREP_SESSIONS_PAGE_SIZE),
@@ -57,6 +59,8 @@ export default async function LibraryPage({ params }: { params: Promise<{ id_sto
     sa_listStatusOptions("elements"),
     sa_countStoryElements(idStory),
     sa_getUserPreferences(),
+    // Where the title menu's Build scenes goes.
+    sa_getSceneToBuild(idStory),
   ]);
 
   // The board opens as the storyteller left it (prep-board-state.ts), so the
@@ -95,6 +99,7 @@ export default async function LibraryPage({ params }: { params: Promise<{ id_sto
   return (
     <PrepBoard
       story={story}
+      buildSceneId={buildSceneId}
       sessions={sessions}
       scenes={scenes}
       elements={elements}

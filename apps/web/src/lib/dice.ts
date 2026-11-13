@@ -25,6 +25,12 @@ type LibraryDie = { value: number; useInTotal: boolean };
 // thousand dice of a million sides would be rolled before anything could
 // refuse them.
 
+/** The total of one roll of the notation, or null for one that cannot be made: a stat's starting value. */
+export function rollTotal(notation: string): number | null {
+  const result = rollDice(notation, null);
+  return result.ok ? result.roll.total : null;
+}
+
 /**
  * A roll of the given notation, or why it cannot be made: too long, too
  * many dice or sides, or not a roll at all (a notation with no dice in it,

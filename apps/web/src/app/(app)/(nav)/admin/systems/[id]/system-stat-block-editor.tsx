@@ -40,6 +40,7 @@ import {
 } from "@/app/(app)/(nav)/admin/systems/actions";
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { DiceInput } from "@/components/stat-blocks/dice-input";
 import {
   joinRack,
   splitRack,
@@ -47,7 +48,6 @@ import {
   type StatBlockDefinitionFormInput,
 } from "@/lib/stat-block-schemas";
 import {
-  canConnect,
   canRoll,
   hasDie,
   hasFormat,
@@ -94,7 +94,6 @@ const EMPTY_STAT = {
   description: "",
   type: "display" as StatType,
   rack: "",
-  connectedTo: "",
   computedAs: "",
   visible: true,
   format: "" as StatFormat,
@@ -103,6 +102,7 @@ const EMPTY_STAT = {
   roll: "",
   global: false,
   upDown: false,
+  initialRoll: "",
 };
 
 /**
@@ -219,7 +219,7 @@ export function SystemStatBlockEditor({ system }: { system: AdminSystemDetail })
         <Heading size="lg">Stat Block Definitions</Heading>
         <Text color="fg.muted">
           The stat block every element run in this system can carry: its groups, and the stats in
-          each. Formulas and connections name a stat as <Code>stat</Code> within its group or{" "}
+          each. Formulas name a stat as <Code>stat</Code> within its group or{" "}
           <Code>group.stat</Code>. A group that repeats by one of its stats holds a list of rows on
           each element, told apart by that stat. A stat that is not visible is filled in on the prep
           form and feeds formulas as any other, but the table does not show it. A number format
@@ -470,11 +470,10 @@ function GroupItem({
 
 /**
  * The group's key: the stat whose value tells one row from another, which
- * is what makes the group repeat. Only a display or a rack that is not
- * connected is offered, since a pool or stack is spent and refilled, a
- * computed stat stores nothing, and a fed display is the same on every row.
- * Watches the group's stats itself so the options follow a type or a
- * connection as it is changed. A group made plain again gives up Roll all
+ * is what makes the group repeat. Only a display or a rack is offered, since
+ * a pool or stack is spent and refilled and a computed stat stores nothing.
+ * Watches the group's stats itself so the options follow a type as it is
+ * changed. A group made plain again gives up Roll all
  * and Can Have Multiples, which only a repeating group has.
  */
 function KeyedBySelect({
@@ -493,10 +492,7 @@ function KeyedBySelect({
   const keyedBy = register(`groups.${g}.keyedBy`);
   const stats = useWatch({ control, name: `groups.${g}.stats` }) ?? [];
   const eligible = stats.filter(
-    (stat) =>
-      (stat.type === "display" || stat.type === "rack") &&
-      stat.connectedTo.trim() === "" &&
-      stat.name.trim() !== "",
+    (stat) => (stat.type === "display" || stat.type === "rack") && stat.name.trim() !== "",
   );
   return (
     <Field.Root invalid={!!errors.groups?.[g]?.keyedBy} w="48">
@@ -531,8 +527,9 @@ function KeyedBySelect({
  * since the order here is the order the block is drawn in, then the fields
  * its type uses, a Format for a display, a pool or a stack, a die for a pool
  * or a stack's roll, the Visible, With next (sticky) and Static boxes, Global
- * on a stat with a die, Up/down on one held to a number, and the trashcan at
- * the end. A child component rather than a loop in the
+ * on a stat with a die, Up/down on one held to a number, Initialized as with
+ * its dice box on a pool, a stack or a display held to a number, and the
+ * trashcan at the end. A child component rather than a loop in the
  * editor, since a field array must be hooked per group: useFieldArray takes
  * one name, and hooks cannot run in a loop.
  */
@@ -638,6 +635,7 @@ function StatRows({
                         }
                         if (!canRoll({ type: next, format: nextFormat })) {
                           setValue(`groups.${g}.stats.${s}.roll`, "");
+                          setValue(`groups.${g}.stats.${s}.initialRoll`, "");
                         }
                         if (!hasDie({ type: next, format: nextFormat })) {
                           setValue(`groups.${g}.stats.${s}.global`, false);
@@ -669,18 +667,6 @@ function StatRows({
                     <Field.ErrorText>{at?.rack?.message}</Field.ErrorText>
                   </Field.Root>
                 )}
-                {canConnect(type) && (
-                  <Field.Root invalid={!!at?.connectedTo} w="48">
-                    <Field.Label>Connected to (optional)</Field.Label>
-                    <Input
-                      size="sm"
-                      autoComplete="off"
-                      placeholder="field reference like stats.dex"
-                      {...register(`groups.${g}.stats.${s}.connectedTo`)}
-                    />
-                    <Field.ErrorText>{at?.connectedTo?.message}</Field.ErrorText>
-                  </Field.Root>
-                )}
                 {type === "computed" && (
                   <Field.Root invalid={!!at?.computedAs} flex="1" minW="64">
                     <Field.Label>Formula</Field.Label>
@@ -705,6 +691,7 @@ function StatRows({
                           const next = event.target.value as StatFormat;
                           if (!canRoll({ type, format: next })) {
                             setValue(`groups.${g}.stats.${s}.roll`, "");
+                            setValue(`groups.${g}.stats.${s}.initialRoll`, "");
                             setValue(`groups.${g}.stats.${s}.global`, false);
                           }
                           if (!isNumberFormat(next)) {
@@ -767,6 +754,15 @@ function StatRows({
                       Up/down
                     </FlagCheckbox>
                   )}
+                  {canRoll({ type, format }) && (
+                    <InitialRollField
+                      control={control}
+                      g={g}
+                      s={s}
+                      label={statLabel(types?.[s] ?? { name: "", label: "" })}
+                      error={at?.initialRoll?.message}
+                    />
+                  )}
                 </HStack>
                 <Box pt="6" ml="auto">
                   <PrepIconButton label="Remove stat" onClick={() => stats.remove(s)}>
@@ -784,6 +780,78 @@ function StatRows({
         </Button>
       </Box>
     </Stack>
+  );
+}
+
+/**
+ * Initialized as: a box that, ticked, opens a dice box (DiceInput) holding
+ * the roll made once when the stat's block is added to an element, for its
+ * starting value and max; unticked, the roll is cleared and the stat starts
+ * at 0. Whether it is ticked is held here, starting from whether a roll is
+ * set, so a box cleared to be retyped stays open; a blank left in it saves
+ * as no roll. Controller for the reason FlagCheckbox gives.
+ */
+function InitialRollField({
+  control,
+  g,
+  s,
+  label,
+  error,
+}: {
+  control: EditorControl;
+  g: number;
+  s: number;
+  label: string;
+  error?: string;
+}) {
+  const value = useWatch({ control, name: `groups.${g}.stats.${s}.initialRoll` });
+  const [ticked, setTicked] = useState(value !== "");
+  return (
+    <Controller
+      control={control}
+      name={`groups.${g}.stats.${s}.initialRoll`}
+      render={({ field }) => (
+        <HStack gap="2" align="flex-start">
+          <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+            <Tooltip.Trigger asChild>
+              <Checkbox.Root
+                name={field.name}
+                checked={ticked}
+                onCheckedChange={(details) => {
+                  const next = details.checked === true;
+                  setTicked(next);
+                  if (!next) field.onChange("");
+                }}
+                size="sm"
+              >
+                <Checkbox.HiddenInput onBlur={field.onBlur} ref={field.ref} />
+                <Checkbox.Control />
+                <Checkbox.Label>Initialized as</Checkbox.Label>
+              </Checkbox.Root>
+            </Tooltip.Trigger>
+            <Portal>
+              <Tooltip.Positioner>
+                <Tooltip.Content>
+                  Roll this once when the block is added to an element, for its starting value and
+                  max
+                </Tooltip.Content>
+              </Tooltip.Positioner>
+            </Portal>
+          </Tooltip.Root>
+          {ticked && (
+            <Field.Root invalid={!!error} w="56" mt="-1">
+              <DiceInput
+                label={`${label} initialized as`}
+                value={field.value}
+                onChange={field.onChange}
+                onBlur={field.onBlur}
+              />
+              <Field.ErrorText>{error}</Field.ErrorText>
+            </Field.Root>
+          )}
+        </HStack>
+      )}
+    />
   );
 }
 
@@ -935,12 +1003,11 @@ function RollPopover({
                 {mode === "custom" && (
                   <Field.Root invalid={!!error}>
                     <Field.Label>Custom roll</Field.Label>
-                    <Input
-                      size="sm"
-                      autoComplete="off"
-                      placeholder="2d6+1"
+                    <DiceInput
+                      label="Custom roll"
                       value={roll}
-                      onChange={(event) => set(event.target.value)}
+                      onChange={set}
+                      placeholder="2d6+1"
                     />
                     <Field.HelperText>As the chat&apos;s /roll takes it.</Field.HelperText>
                     <Field.ErrorText>{error}</Field.ErrorText>

@@ -35,10 +35,16 @@ type Props = {
   onDeleted: (idChat: number) => void;
   /** The compact layout: no picture, smaller buttons, and every font a size down. */
   compact?: boolean;
+  /**
+   * The line before is the same sender's, so the picture is not drawn
+   * again; its room is kept, so the text stays in its column.
+   */
+  continued?: boolean;
 };
 
 // One line of the table chat: the sender's picture and name in their own
-// colour, the time, then what they said or rolled. No bubble round the
+// colour, the time, then under them, from the picture's own left edge, what
+// they said or rolled, so the text has the panel's width. No bubble round the
 // text, so a long exchange reads as a conversation rather than a stack of
 // cards; a roll gets its card because it is not prose, and is never
 // rewritten, since its dice are what was rolled. A line the table
@@ -58,8 +64,16 @@ type Props = {
 //
 // Compact leaves the picture out, takes every font a size down and the
 // pencil and trashcan with them, so more of the conversation fits the panel; the
-// name, in its colour, still says who spoke.
-export function PlayChatEntry({ entry, idStory, onEdited, onDeleted, compact = false }: Props) {
+// name, in its colour, still says who spoke. In the standard layout a run of
+// lines from one sender shows their picture once, on the first (continued).
+export function PlayChatEntry({
+  entry,
+  idStory,
+  onEdited,
+  onDeleted,
+  compact = false,
+  continued = false,
+}: Props) {
   const user = useUser();
   const [editing, setEditing] = useState(false);
   const palette = senderPalette(entry.from);
@@ -180,13 +194,20 @@ export function PlayChatEntry({ entry, idStory, onEdited, onDeleted, compact = f
   }
 
   return (
-    <HStack as="article" align="start" gap="3">
-      <SenderAvatar entry={entry} size="sm" />
-      <Stack gap="1" minW="0" flex="1">
-        {head}
-        {body}
-      </Stack>
-    </HStack>
+    <Stack as="article" gap="1" minW="0">
+      <HStack align="center" gap="3" minW="0">
+        {continued ? (
+          // The picture's own width, so the name keeps its column.
+          <Box w="9" flexShrink="0" aria-hidden />
+        ) : (
+          <SenderAvatar entry={entry} size="sm" />
+        )}
+        <Box flex="1" minW="0">
+          {head}
+        </Box>
+      </HStack>
+      {body}
+    </Stack>
   );
 }
 

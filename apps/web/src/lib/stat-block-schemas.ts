@@ -1,27 +1,22 @@
 import { z } from "zod";
 import {
-  canConnect,
   canRoll,
   defaultFormat,
   EMPTY_DEFINITION,
-  evaluateStatBlock,
   findStat,
   hasDie,
   isNumberFormat,
   isRepeating,
-  MULTIPLES,
+  MULTIPLE,
   matchRackEntry,
-  resolveConnection,
   rowKeyText,
   STAT_FORMATS,
   STAT_TYPES,
   statLabel,
   type RackEntry,
-  type StatBlock,
   type StatBlockDefinition,
   type StatBlocks,
   type StatBlockSystem,
-  type EvaluatedStat,
   type StatGroupDefinition,
   type StatDefinition,
   type StatRow,
@@ -74,7 +69,6 @@ export const statDefinitionSchema = z.object({
     .max(MAX_DESCRIPTION, `Keep the description under ${MAX_DESCRIPTION} characters.`),
   type: z.enum(STAT_TYPES, { error: "Choose what kind of stat this is." }),
   rack: z.array(rackEntrySchema).max(MAX_RACK, `Keep a rack under ${MAX_RACK} entries.`),
-  connectedTo: z.string().trim().max(100, "Keep the connection under 100 characters."),
   computedAs: z
     .string()
     .trim()
@@ -89,6 +83,10 @@ export const statDefinitionSchema = z.object({
     .max(MAX_ROLL_NOTATION, `Keep a roll under ${MAX_ROLL_NOTATION} characters.`),
   global: z.boolean(),
   upDown: z.boolean(),
+  initialRoll: z
+    .string()
+    .trim()
+    .max(MAX_ROLL_NOTATION, `Keep a roll under ${MAX_ROLL_NOTATION} characters.`),
 });
 
 export const statGroupDefinitionSchema = z.object({
@@ -105,8 +103,8 @@ type Issue = { path: (string | number)[]; message: string };
 /**
  * The rules a definition keeps beyond its shape, each said on the field
  * that breaks it: names unique, each type with the fields it needs and no
- * other, every connection and formula reference pointing at a stat that
- * exists, and no stat fed, directly or through others, by itself.
+ * other, every formula reference pointing at a stat that exists, and no
+ * stat reading, directly or through others, itself.
  */
 function checkDefinition(definition: StatBlockDefinition): Issue[] {
   const issues: Issue[] = [];
@@ -158,11 +156,6 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
           message:
             "A key is a display or a rack; a pool, stack or computed stat cannot tell rows apart.",
         });
-      } else if (resolveConnection(definition, group.name, key.connectedTo) !== null) {
-        issues.push({
-          path: ["groups", g, "keyedBy"],
-          message: "A fed display is the same on every row; choose a stat the row holds itself.",
-        });
       }
     }
 
@@ -189,6 +182,20 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
           });
         } else if (!isRollNotation(stat.roll)) {
           issues.push({ path: at("roll"), message: "That is not a roll I can read. Try 2d6+1." });
+        }
+      }
+
+      if (stat.initialRoll !== "") {
+        if (!canRoll(stat)) {
+          issues.push({
+            path: at("initialRoll"),
+            message: "Only a pool, a stack or a display held to a number is initialized by a roll.",
+          });
+        } else if (!isRollNotation(stat.initialRoll)) {
+          issues.push({
+            path: at("initialRoll"),
+            message: "That is not a roll I can read. Try 2d6+1.",
+          });
         }
       }
 
@@ -238,36 +245,13 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
         issues.push({ path: at("computedAs"), message: "Only a computed stat has a formula." });
       }
 
-      if (stat.connectedTo !== "") {
-        if (!canConnect(stat.type)) {
-          issues.push({
-            path: at("connectedTo"),
-            message: "Only a display, a pool or a stack can be connected to another stat.",
-          });
-        } else {
-          const target = resolveConnection(definition, group.name, stat.connectedTo);
-          if (!target) {
-            issues.push({
-              path: at("connectedTo"),
-              message: `There is no stat ${stat.connectedTo}. Name one as stat or group.stat.`,
-            });
-          } else if (target.group === group.name && target.stat === stat.name) {
-            issues.push({ path: at("connectedTo"), message: "A stat cannot feed itself." });
-          } else if (readsIntoRows(group.name, target)) {
-            issues.push({ path: at("connectedTo"), message: rowsMessage(target) });
-          } else {
-            deps.push(`${target.group}.${target.stat}`);
-          }
-        }
-      }
-
       dependencies.set(`${group.name}.${stat.name}`, deps);
     });
   });
 
   // A depth-first walk from every stat over what it depends on: coming back
-  // to the stat it started from is a cycle, reported on that stat's field
-  // that leads out of it. Only the stats in the loop are reported, not one
+  // to the stat it started from is a cycle, reported on that stat's formula,
+  // the one field that leads out of it. Only the stats in the loop are reported, not one
   // that merely reads a stat in the loop, so the message lands where the
   // fix is. Quadratic in the number of stats, which is bounded above.
   const dependsOnItself = (start: string): boolean => {
@@ -286,7 +270,7 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
       const id = `${group.name}.${stat.name}`;
       if (dependsOnItself(id)) {
         issues.push({
-          path: ["groups", g, "stats", s, stat.type === "computed" ? "computedAs" : "connectedTo"],
+          path: ["groups", g, "stats", s, "computedAs"],
           message: "This stat ends up depending on itself.",
         });
       }
@@ -367,12 +351,12 @@ export function readStatBlockDefinition(raw: unknown): StatBlockDefinition {
 /**
  * A stored definition with the fields later versions added: keyedBy,
  * rollAll and canHaveMultiples on every group, and description, visible,
- * format, sticky, static, roll, global and upDown on every stat. Columns
+ * format, sticky, static, roll, global, upDown and initialRoll on every stat. Columns
  * written before groups could repeat have no keyedBy and read as plain
  * groups that do not roll all and have no multiples; those written before a
  * stat had the flags read as shown, in the format its type starts with, not
- * sticky, not static, with no roll, not global and without the up/down
- * changer. Each reads that way rather than failing whole.
+ * sticky, not static, with no roll, not global, without the up/down
+ * changer and starting at 0. Each reads that way rather than failing whole.
  * Anything that is not the expected shape is handed on as it is for the
  * schema to refuse.
  */
@@ -397,6 +381,7 @@ function withDefaults(raw: unknown): unknown {
       roll: "",
       global: false,
       upDown: false,
+      initialRoll: "",
     });
     const stats = Array.isArray(group.stats)
       ? group.stats.map((stat) => (isRecord(stat) ? { ...flags(stat), ...stat } : stat))
@@ -452,18 +437,16 @@ const displayValue = z.preprocess(
 );
 
 /**
- * The schema for one stat's stored value, by its type and whether a
- * connection feeds it. Every box may be left blank, which stores no value
- * for that part: the prep form fills what is known and the rest shows as
- * nothing yet. Stored keys the type does not have are dropped (zod strips
- * what an object does not name), which is how a stale max is shed. A
- * computed stat, or a fed display, stores nothing at all.
+ * The schema for one stat's stored value, by its type. Every box may be
+ * left blank, which stores no value for that part: the prep form fills what
+ * is known and the rest shows as nothing yet. Stored keys the type does not
+ * have are dropped (zod strips what an object does not name), which is how
+ * a stale max is shed. A computed stat stores nothing at all.
  */
-function statValueSchema(stat: StatDefinition, connected: boolean) {
+function statValueSchema(stat: StatDefinition) {
   switch (stat.type) {
     case "display":
       // A number format holds the value to a number; otherwise a word does.
-      if (connected) return z.object({});
       return z.object({
         value: isNumberFormat(stat.format) ? optionalNumberInput : displayValue,
       });
@@ -471,7 +454,7 @@ function statValueSchema(stat: StatDefinition, connected: boolean) {
       const base = z.object({
         value: optionalNumberInput,
         min: optionalNumberInput.transform((min) => min ?? 0),
-        ...(connected ? {} : { max: optionalNumberInput }),
+        max: optionalNumberInput,
       });
       return base.superRefine((pool, ctx) => {
         if ("max" in pool && typeof pool.max === "number" && pool.min > pool.max) {
@@ -494,7 +477,7 @@ function statValueSchema(stat: StatDefinition, connected: boolean) {
       return z
         .object({
           value: optionalNumberInput,
-          ...(connected ? {} : { max: optionalNumberInput }),
+          max: optionalNumberInput,
         })
         .superRefine((stack, ctx) => {
           if ("max" in stack && typeof stack.max === "number" && stack.max < 0) {
@@ -561,58 +544,23 @@ export function statBlockSchema(definition: StatBlockDefinition) {
   for (const group of definition.groups) {
     const stats: Record<string, z.ZodType> = {};
     for (const stat of group.stats) {
-      const connected = canConnect(stat.type)
-        ? resolveConnection(definition, group.name, stat.connectedTo) !== null
-        : false;
-      const schema = statValueSchema(stat, connected);
-      // Nothing is stored for a computed stat or a fed display, so the key
-      // may be missing; every other stat must be posted.
-      stats[stat.name] =
-        stat.type === "computed" || (stat.type === "display" && connected)
-          ? schema.optional()
-          : schema;
+      const schema = statValueSchema(stat);
+      // Nothing is stored for a computed stat, so the key may be missing;
+      // every other stat must be posted.
+      stats[stat.name] = stat.type === "computed" ? schema.optional() : schema;
     }
-    const row = z.object(stats);
+    // A row of a group that can have multiples carries its own, a whole
+    // number of 1 or more; blank is 1.
+    const row = z.object(
+      group.canHaveMultiples
+        ? { ...stats, [MULTIPLE]: z.object({ value: multipleInput }).optional() }
+        : stats,
+    );
     // Optional either way: a block holds only the groups the element
     // picked, and a repeating group with no rows posts nothing for its key.
     groups[group.name] = (isRepeating(group) ? rowsSchema(group, row) : row).optional();
   }
-  // The element's multiples, one per group that can have them, each a
-  // whole number of 1 or more; blank is 1.
-  const withMultiples = definition.groups.filter((group) => group.canHaveMultiples);
-  if (withMultiples.length > 0) {
-    groups[MULTIPLES] = z
-      .object(
-        Object.fromEntries(
-          withMultiples.map((group) => [group.name, z.object({ value: multipleInput }).optional()]),
-        ),
-      )
-      .optional();
-  }
-  return z.object(groups).superRefine((block, ctx) => {
-    for (const group of evaluateStatBlock(definition, block as StatBlock)) {
-      const checkFedMax = (stat: EvaluatedStat, path: (string | number)[]) => {
-        // A stored max was held to above; here only the max a connection feeds.
-        if (
-          (stat.type === "pool" || stat.type === "stack") &&
-          stat.maxFrom !== undefined &&
-          typeof stat.value === "number" &&
-          typeof stat.max === "number" &&
-          stat.value > stat.max
-        ) {
-          ctx.addIssue({
-            code: "custom",
-            path: [...path, stat.name, "value"],
-            message: `That is above the max of ${stat.max}.`,
-          });
-        }
-      };
-      for (const stat of group.stats) checkFedMax(stat, [group.name]);
-      group.rows.forEach((row, i) => {
-        for (const stat of row.stats) checkFedMax(stat, [group.name, i]);
-      });
-    }
-  });
+  return z.object(groups);
 }
 
 /**

@@ -9,7 +9,6 @@ import { publishLater } from "@/lib/realtime/publish";
 import { publishElementChanged, publishSceneElement } from "@/lib/realtime/publish-scene";
 import { readStatBlocks, statBlocksSchema } from "@/lib/stat-block-schemas";
 import {
-  canConnect,
   carriedGroups,
   emptyStatBlock,
   emptyStatGroup,
@@ -17,7 +16,6 @@ import {
   findStat,
   isRepeating,
   matchRackEntry,
-  resolveConnection,
   rowKeyText,
   rowsOf,
   systemKey,
@@ -32,7 +30,7 @@ import {
   type StatValue,
 } from "@/lib/stat-blocks";
 import { normalizeDice, rollText, type Roll } from "@/lib/roll";
-import { rollDice } from "@/lib/dice";
+import { rollDice, rollTotal } from "@/lib/dice";
 import { currentScene, type CurrentScene } from "@/db/scene-items";
 import { insertChat } from "@/db/chats";
 import { publishChat } from "@/lib/realtime/publish";
@@ -319,34 +317,26 @@ function clamped(
     (candidate) => candidate.name === statName,
   );
   if (!current) return null;
-  const connected = canConnect(stat.type)
-    ? resolveConnection(system.definition, groupName, stat.connectedTo) !== null
-    : false;
   const number = (value: unknown, fallback: number) =>
     typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
   switch (stat.type) {
     case "display":
-      if (connected) return null;
       return { value: patch.value ?? current.stored?.value ?? 0 };
     case "pool": {
       const min = number(patch.min, current.min ?? 0);
-      const max = connected
-        ? current.max
-        : number(patch.max, current.stored?.max ?? number(current.max, 0));
+      const max = number(patch.max, current.stored?.max ?? number(current.max, 0));
       let value = number(patch.value, number(current.value, min));
       value = Math.max(value, min);
-      if (typeof max === "number") value = Math.min(value, max);
-      const next: StatValue = { value, min };
-      if (!connected && typeof max === "number") next.max = max;
-      return next;
+      value = Math.min(value, max);
+      return { value, min, max };
     }
     case "stack": {
-      const max = connected ? current.max : "max" in patch ? patch.max : current.stored?.max;
+      const max = "max" in patch ? patch.max : current.stored?.max;
       let value = Math.max(0, number(patch.value, number(current.value, 0)));
       if (typeof max === "number") value = Math.min(value, Math.max(0, max));
       const next: StatValue = { value };
-      if (!connected && typeof max === "number") next.max = Math.max(0, max);
+      if (typeof max === "number") next.max = Math.max(0, max);
       return next;
     }
     case "rack": {
@@ -431,7 +421,7 @@ export async function sa_setStat(
   if (!repeating) {
     const block = found.blocks[systemKeyText]
       ? tidyStatBlock(system.definition, found.blocks[systemKeyText])
-      : emptyStatBlock(system.definition);
+      : emptyStatBlock(system.definition, rollTotal);
     const next = clamped(system, groupName, statName, block, change, null);
     if (next === null) return NOT_SETTABLE;
 
@@ -460,7 +450,7 @@ export async function sa_setStat(
     const stored = readStatBlocks(locked)[systemKeyText];
     const block = stored
       ? tidyStatBlock(system.definition, stored)
-      : emptyStatBlock(system.definition);
+      : emptyStatBlock(system.definition, rollTotal);
     const rows = rowsOf(groupDefinition, block[groupName]);
     const index = rows.findIndex((row) => rowKeyText(row[groupDefinition.keyedBy]?.value) === key);
     if (index === -1) return { ok: false as const, error: `That ${label} is no longer there.` };
@@ -529,7 +519,8 @@ export async function sa_addStatBlock(
   const groupDefinition = system.definition.groups.find((g) => g.name === groupName);
   if (!groupDefinition) return { ok: false, error: "That stat block is not in the template." };
   const systemKeyText = systemKey(system.idSystem);
-  const starting = emptyStatGroup(system.definition, groupDefinition);
+  // Each stat's Initialized as is rolled here, once, as the block is made.
+  const starting = emptyStatGroup(system.definition, groupDefinition, rollTotal);
 
   const written = await writeBlocks(
     checked.holder,
@@ -714,7 +705,7 @@ export async function sa_setDefaultRow(
     const stored = readStatBlocks(locked)[systemKeyText];
     const block = stored
       ? tidyStatBlock(system.definition, stored)
-      : emptyStatBlock(system.definition);
+      : emptyStatBlock(system.definition, rollTotal);
     const rows = rowsOf(groupDefinition, block[groupName]);
     const index = rows.findIndex((row) => rowKeyText(row[groupDefinition.keyedBy]?.value) === key);
     if (index === -1) return { ok: false as const, error: `That ${label} is no longer there.` };
@@ -796,8 +787,8 @@ export async function sa_rollStat(
  * (rollAll): one roll per row, of the first stat in the row with a die
  * (notationFor), each under the element's title and the row's key ("A
  * hooded figure (Sword): Strike"), and each row as many times as the
- * element has of the group (its multiple, "A hooded figure (Sword) 2/4")
- * where it can have more than one. Said in the chat or kept back as
+ * element has of it (the row's multiple, "A hooded figure (Sword) 2/4")
+ * where the group can have more than one. Said in the chat or kept back as
  * sa_rollStat says one roll, and every roll comes back saying whether the
  * chat has it. A row with nothing to roll is passed over.
  */
@@ -827,7 +818,7 @@ export async function sa_rollGroupRows(
     if (!rolled) continue;
     const key = rowKeyText(row.key) ?? "";
     const who = rollAs.title === "" ? key : `${rollAs.title} (${key})`;
-    const times = evaluatedGroup.multiple;
+    const times = row.multiple;
     for (let n = 1; n <= times; n += 1) {
       const title = times > 1 ? `${who} ${n}/${times}` : who;
       const result = rollDice(notationFor(rolled), `for ${title}: ${rolled.label}`);

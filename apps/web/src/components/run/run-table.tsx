@@ -78,6 +78,7 @@ import { RunSceneSelect } from "./run-scene-select";
 import { RunSessionTitle } from "./run-session-title";
 import { RunStackSelect } from "./run-stack-select";
 import { RunStatsPane } from "./run-stats-pane";
+import { StoryTitleMenu } from "@/components/stories/story-title-menu";
 import { RunManageStacksDialog } from "./run-manage-stacks-dialog";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { StatusPill } from "@/components/status/status-pill";
@@ -102,6 +103,8 @@ type Props = {
   idStory: number;
   /** The story being run, shown in the header. */
   title: string;
+  /** The scene the title menu's Build scenes opens (sa_getSceneToBuild); null for none yet. */
+  buildSceneId?: number | null;
   /**
    * The story's cover, behind the play space while the table is on no scene
    * or on one without a cover of its own.
@@ -157,6 +160,7 @@ type Props = {
 export function RunTable({
   idStory,
   title,
+  buildSceneId = null,
   storyCoverUrl,
   isOwner,
   sessions,
@@ -496,6 +500,17 @@ export function RunTable({
       )}
       <PlayHeader
         title={title}
+        titleContent={
+          <StoryTitleMenu
+            idStory={idStory}
+            title={title}
+            isStoryteller={isOwner}
+            buildSceneId={buildSceneId}
+            as="span"
+            size="lg"
+            fontWeight="medium"
+          />
+        }
         session={session ? sessionHeading(session) : null}
         sessionContent={session && <RunSessionTitle idStory={idStory} session={session} />}
         center={toggles}

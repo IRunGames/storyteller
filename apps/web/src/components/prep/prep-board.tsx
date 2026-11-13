@@ -1,9 +1,10 @@
 "use client";
 
+import { StoryTitleMenu } from "@/components/stories/story-title-menu";
+
 import { useEffect, useRef, useState } from "react";
-import NextLink from "next/link";
 import { useRouter } from "next/navigation";
-import { Box, Button, Flex, Heading, HStack, Link, Stack } from "@chakra-ui/react";
+import { Box, Button, Flex, Heading, HStack, Stack } from "@chakra-ui/react";
 import { Maximize } from "lucide-react";
 import { formatDay } from "@/lib/dates";
 import type { ElementKind, StoryElement } from "@/lib/elements";
@@ -37,6 +38,8 @@ import { PrepScenes } from "./prep-scenes";
 
 type Props = {
   story: StoryCardData;
+  /** The scene the title menu's Build scenes opens (sa_getSceneToBuild); null for none yet. */
+  buildSceneId?: number | null;
   /** The first page of the story's sessions; the Timeline fetches the rest. */
   sessions: StorySession[];
   /** The first page of the story's scenes; the column fetches the rest. */
@@ -69,6 +72,7 @@ const SAVE_DELAY_MS = 500;
 // the board comes back as it was left.
 export function PrepBoard({
   story,
+  buildSceneId = null,
   sessions,
   scenes,
   elements,
@@ -207,16 +211,21 @@ export function PrepBoard({
 
   return (
     <Stack flex="1" gap="4" py="6">
-      {/* The title is the way back to the story, so it stays a link inside
+      {/* The title's caret opens the story's doors (StoryTitleMenu), inside
           the one-line heading. */}
       {/* A hidden column's button sits on the heading's row, after the
           title, and the row wraps when there are more than fit beside it. */}
       <HStack gap="4" px="4" wrap="wrap" align="center">
-        <Heading as="h1" size="2xl">
-          Library (Game Prep) for{" "}
-          <Link asChild>
-            <NextLink href={`/stories/${story.idStory}`}>{story.title}</NextLink>
-          </Link>
+        <Heading as="h1" size="2xl" display="inline-flex" alignItems="baseline" gap="2" minW="0">
+          Library (Game Prep) for
+          <StoryTitleMenu
+            idStory={story.idStory}
+            title={story.title}
+            isStoryteller={story.isOwner}
+            buildSceneId={buildSceneId}
+            as="span"
+            size="2xl"
+          />
         </Heading>
 
         {hidden.length > 0 && (

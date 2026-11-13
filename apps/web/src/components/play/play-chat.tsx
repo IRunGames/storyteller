@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { Badge, Box, Button, Flex, Heading, HStack, Stack } from "@chakra-ui/react";
+import type { ChatEntry } from "@/lib/chat";
 import { PlayChatEntry } from "./play-chat-entry";
 import { PlayChatInput } from "./play-chat-input";
 import { PlayChatLayoutPicker, useChatLayout } from "./play-chat-layout";
@@ -14,6 +15,17 @@ type Props = {
   /** The chat as the table holds it (useStoryChat), which keeps listening while this panel is closed. */
   chat: StoryChat;
 };
+
+/**
+ * Whether two lines in a row are one person's, so the second needs no
+ * picture: both said or rolled by someone (a scene or system line breaks
+ * the run), by the same user under the same name.
+ */
+function sameSender(before: ChatEntry, entry: ChatEntry): boolean {
+  const spoken = (line: ChatEntry) => line.kind === "text" || line.kind === "roll";
+  if (!spoken(before) || !spoken(entry)) return false;
+  return before.idUser === entry.idUser && before.from === entry.from;
+}
 
 // The table's chat: the right-hand panel, in the standard or compact
 // layout (the overlay has no panel: PlayChatOverlay). The lines are the
@@ -93,12 +105,13 @@ export function PlayChat({ id, idStory, chat }: Props) {
               Previous…
             </Button>
           )}
-          {entries.map((entry) => (
+          {entries.map((entry, index) => (
             <PlayChatEntry
               key={entry.id}
               entry={entry}
               idStory={idStory}
               compact={compact}
+              continued={index > 0 && sameSender(entries[index - 1], entry)}
               onEdited={merge}
               onDeleted={remove}
             />

@@ -136,6 +136,12 @@ function renderTable(
 describe("LiveTable", () => {
   before(async () => {
     Element.prototype.scrollIntoView = () => {};
+    mock.module("@/app/(app)/(nav)/play/actions", {
+      namedExports: {
+        sa_listUnfinishedSessions: async () => [],
+        sa_startPlaying: async () => ({ error: "Not in this test." }),
+      },
+    });
     mock.module("next/navigation", {
       namedExports: {
         useRouter: () => ({ push, refresh: mock.fn() }),

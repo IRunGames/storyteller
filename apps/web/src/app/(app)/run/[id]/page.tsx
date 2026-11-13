@@ -9,6 +9,8 @@ import { PREP_SESSIONS_PAGE_SIZE } from "@/lib/stories";
 import { sa_getStorySession, sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getPlayStory } from "@/app/(app)/play/[id]/actions";
+import { sa_startPlaying } from "@/app/(app)/(nav)/play/actions";
+import { sa_getSceneToBuild } from "@/app/(app)/(nav)/libraries/actions";
 import { sa_getRunPlaySpace } from "./actions";
 
 // The same int4 range as /play/[id]; see there.
@@ -52,20 +54,36 @@ export default async function RunTablePage({ params }: { params: Promise<{ id: s
   //
   // The first page of the story's sessions is for the box the play space
   // shows while it is on no scene, the library's Timeline folded away.
-  const [currentSession, initialSpace, sceneStatusOptions, sessionStatusOptions, sessions] =
-    await Promise.all([
-      story.idStorySession !== null ? sa_getStorySession(story.idStorySession) : null,
-      sa_getRunPlaySpace(story.idStory),
-      sa_listStatusOptions("story_scenes"),
-      sa_listStatusOptions("story_sessions"),
-      sa_listStorySessions(story.idStory, 0, PREP_SESSIONS_PAGE_SIZE),
-    ]);
+  const [
+    currentSession,
+    initialSpace,
+    sceneStatusOptions,
+    sessionStatusOptions,
+    sessions,
+    buildSceneId,
+  ] = await Promise.all([
+    story.idStorySession !== null ? sa_getStorySession(story.idStorySession) : null,
+    sa_getRunPlaySpace(story.idStory),
+    sa_listStatusOptions("story_scenes"),
+    sa_listStatusOptions("story_sessions"),
+    sa_listStorySessions(story.idStory, 0, PREP_SESSIONS_PAGE_SIZE),
+    // Where the title menu's Build scenes goes.
+    sa_getSceneToBuild(story.idStory),
+  ]);
   const session = currentSession?.status === "DONE" ? null : currentSession;
+
+  // A table with no session is a table nothing can be said at, so arriving
+  // without one starts a new session here and now, as the Play button's
+  // "new session" does, and comes back to this page with it: the action
+  // redirects to the table once the story holds the session. Only a refusal
+  // comes back, and then the table opens as it stood, with none.
+  if (session === null) await sa_startPlaying(story.idStory, null);
 
   return (
     <RunTable
       idStory={story.idStory}
       title={story.title}
+      buildSceneId={buildSceneId}
       storyCoverUrl={story.imageUrl}
       isOwner={story.isOwner}
       sessions={sessions}

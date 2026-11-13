@@ -30,7 +30,6 @@ const stat = (
 ): StatDefinition => ({
   label: "",
   rack: [],
-  connectedTo: "",
   computedAs: "",
   visible: true,
   format: defaultFormat(over.type),
@@ -40,6 +39,7 @@ const stat = (
   roll: "",
   global: false,
   upDown: true,
+  initialRoll: "",
   ...over,
 });
 
@@ -68,6 +68,7 @@ const definition: StatBlockDefinition = {
           roll: "1d20",
           global: false,
           upDown: true,
+          initialRoll: "",
         }),
         stat({ name: "secret", label: "Secret", type: "display", visible: false }),
         stat({ name: "damage", label: "Damage", type: "dice" }),
@@ -82,7 +83,7 @@ const definition: StatBlockDefinition = {
       canHaveMultiples: false,
       stats: [
         stat({ name: "weapon", label: "Weapon", type: "display" }),
-        stat({ name: "uses", label: "Uses", type: "pool", connectedTo: "strike" }),
+        stat({ name: "uses", label: "Uses", type: "pool" }),
         stat({ name: "strike", label: "Strike", type: "display", format: "number" }),
       ],
     },
@@ -356,7 +357,6 @@ describe("ElementStatBlocks", () => {
     expect(await screen.findByText("Sword")).toBeInTheDocument();
     const sword = screen.getByTestId("stat-row-Sword");
     expect(within(sword).getByTestId("stat-uses")).toHaveValue("2");
-    expect(within(sword).getByText("/ 3")).toBeInTheDocument();
     await user.click(within(sword).getByRole("button", { name: "Uses up" }));
     await waitFor(() => expect(within(sword).getByTestId("stat-uses")).toHaveValue("3"));
     expect(sa_setStat.mock.calls[0].arguments.slice(2)).toEqual([
@@ -543,10 +543,32 @@ describe("ElementStatBlocks", () => {
     expect(sa_setStat.mock.callCount()).toBe(before);
   });
 
-  it("heads a group the element has several of with its multiple", async () => {
+  it("says a stat's description and what it is initialized as on hover over its label", async () => {
+    const user = userEvent.setup();
+    sa_getStatBlocks.mock.mockImplementationOnce(async () => [
+      blockOf(stored, {
+        groups: definition.groups.map((group) => ({
+          ...group,
+          stats: group.stats.map((stat) =>
+            stat.name === "hp"
+              ? { ...stat, description: "Hit Points", initialRoll: "8d8+3" }
+              : stat,
+          ),
+        })),
+      }),
+    ]);
+    renderWithProviders(<ElementStatBlocks holder={holder} canEdit />);
+
+    await screen.findByTestId("stat-hp");
+    await user.hover(screen.getByText("HP"));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Hit Points: 8d8+3");
+  });
+
+  it("marks a row the element has several of with its multiple", async () => {
+    const [sword, fist] = stored.attack as StatRow[];
     sa_getStatBlocks.mock.mockImplementationOnce(async () => [
       blockOf(
-        { ...stored, $multiples: { attack: { value: 3 } } },
+        { ...stored, attack: [{ ...sword, $multiple: { value: 3 } }, fist] },
         {
           groups: definition.groups.map((group) =>
             group.name === "attack" ? { ...group, canHaveMultiples: true } : group,
@@ -557,8 +579,8 @@ describe("ElementStatBlocks", () => {
     renderWithProviders(<ElementStatBlocks holder={holder} canEdit />);
 
     await screen.findByTestId("stat-hp");
-    expect(screen.getByRole("button", { name: "Attack ×3" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Combat" })).toBeInTheDocument();
+    expect(screen.getByTestId("stat-row-Sword")).toHaveTextContent("Sword×3");
+    expect(screen.getByTestId("stat-row-Fist")).not.toHaveTextContent("×");
   });
 
   it("offers no Roll All where nothing rolls", async () => {

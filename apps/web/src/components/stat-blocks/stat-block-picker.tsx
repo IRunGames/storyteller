@@ -56,6 +56,7 @@ function statLine(stat: StatGroupDefinition["stats"][number]): string {
   const parts = [STAT_TYPE_LABELS[stat.type].toLowerCase()];
   if (stat.format !== "") parts.push(STAT_FORMAT_LABELS[stat.format]);
   if (stat.roll !== "") parts.push(`rolls ${stat.roll}`);
+  if (stat.initialRoll !== "") parts.push(`starts at ${stat.initialRoll}`);
   if (stat.static) parts.push("static");
   if (!stat.visible) parts.push("hidden");
   return parts.join(" · ");

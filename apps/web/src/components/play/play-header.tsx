@@ -8,6 +8,8 @@ import { NavActions } from "@/components/nav/nav-actions";
 type Props = {
   /** The story being played, shown after the app's name. */
   title?: string;
+  /** Drawn in the title's place when given: the tables put the story's title menu here. */
+  titleContent?: ReactNode;
   /**
    * The session at the table, shown after the title: its heading, or null
    * for "None" when no session is being played. Left out on the screens
@@ -54,6 +56,7 @@ type Props = {
 // center that goes into the menu is a list of buttons with no row of its own.
 export function PlayHeader({
   title,
+  titleContent,
   session,
   sessionContent,
   center,
@@ -95,9 +98,11 @@ export function PlayHeader({
             {/* Text, not a heading: the waiting room already has the
                 title as its h1, and a header should not compete with the
                 page for that. */}
-            <Text textStyle="lg" fontWeight="medium" flexShrink="4" truncate title={title}>
-              {title}
-            </Text>
+            {titleContent ?? (
+              <Text textStyle="lg" fontWeight="medium" flexShrink="4" truncate title={title}>
+                {title}
+              </Text>
+            )}
           </>
         )}
         {session !== undefined && (

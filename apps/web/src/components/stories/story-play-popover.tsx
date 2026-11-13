@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactElement } from "react";
+import { useEffect, useId, useState, type ReactElement } from "react";
 import {
   Alert,
   Button,
@@ -24,12 +24,21 @@ import {
 type Props = {
   idStory: number;
   title: string;
-  tooltip: string;
+  /** The trigger's tooltip; not drawn for an anchor. */
+  tooltip?: string;
   /**
    * The button that opens the popover: PlayButton's face. It must take the
-   * trigger's props and ref, as Chakra's Button does.
+   * trigger's props and ref, as Chakra's Button does. With `anchor`, the
+   * element the popover sits by instead, which does not open it: the
+   * holder does, through `open`.
    */
   children: ReactElement;
+  /** Given, the popover sits by `children` rather than being opened by it, and the holder says when it is open. */
+  anchor?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Where the popover goes; above its trigger unless said otherwise. */
+  placement?: "top-start" | "bottom-start";
 };
 
 // The value of "Create new session" in the select; a session's is its id.
@@ -47,32 +56,63 @@ const NEW = "";
  *
  * The sessions are fetched each time the popover opens, not with the card:
  * a board of cards would otherwise ask for every story's sessions to show a
- * popover that is rarely opened.
+ * popover that is rarely opened. The story title menu's Run opens the same
+ * popover by the title (`anchor`, `open`), since a menu item is gone once
+ * chosen and cannot hold a popover of its own.
  */
-export function StoryPlayPopover({ idStory, title, tooltip, children }: Props) {
+export function StoryPlayPopover({
+  idStory,
+  title,
+  tooltip,
+  children,
+  anchor = false,
+  open: openGiven,
+  onOpenChange,
+  placement = "top-start",
+}: Props) {
   // One id for both machines' trigger, so the popover positions itself
   // against the same button the tooltip does (docs/standards.md).
   const triggerId = useId();
   const selectId = useId();
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openGiven ?? ownOpen;
   const [sessions, setSessions] = useState<UnfinishedSession[] | null>(null);
   const [choice, setChoice] = useState(NEW);
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setStarting] = useState(false);
 
-  async function load() {
-    setSessions(null);
-    setError(null);
-    let list: UnfinishedSession[] = [];
-    try {
-      list = await sa_listUnfinishedSessions(idStory);
-    } catch {
-      // Creating a new session is still on offer, which is what an empty
-      // list starts on.
+  // Closing clears what was shown, so the next opening starts loading.
+  const setOpen = (next: boolean) => {
+    if (!next) {
+      setSessions(null);
+      setError(null);
     }
-    setSessions(list);
-    setChoice(list.length > 0 ? String(list[0].idStorySession) : NEW);
-  }
+    setOwnOpen(next);
+    onOpenChange?.(next);
+  };
+
+  // The sessions are read as the popover opens, however it was opened.
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    sa_listUnfinishedSessions(idStory).then(
+      (list) => {
+        if (!live) return;
+        setSessions(list);
+        setChoice(list.length > 0 ? String(list[0].idStorySession) : NEW);
+      },
+      () => {
+        // Creating a new session is still on offer, which is what an empty
+        // list starts on.
+        if (!live) return;
+        setSessions([]);
+        setChoice(NEW);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [open, idStory]);
 
   async function start() {
     setStarting(true);
@@ -99,29 +139,30 @@ export function StoryPlayPopover({ idStory, title, tooltip, children }: Props) {
   return (
     <Popover.Root
       open={open}
-      onOpenChange={(details) => {
-        setOpen(details.open);
-        if (details.open) load();
-      }}
-      positioning={{ placement: "top-start" }}
+      onOpenChange={(details) => setOpen(details.open)}
+      positioning={{ placement }}
       ids={{ trigger: triggerId }}
     >
-      <Tooltip.Root
-        openDelay={200}
-        positioning={{ placement: "top" }}
-        ids={{ trigger: triggerId }}
-        // The popover opens upward, where the tooltip would sit on top of it.
-        disabled={open}
-      >
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>{children}</Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>{tooltip}</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      {anchor ? (
+        <Popover.Anchor asChild>{children}</Popover.Anchor>
+      ) : (
+        <Tooltip.Root
+          openDelay={200}
+          positioning={{ placement: "top" }}
+          ids={{ trigger: triggerId }}
+          // The popover opens upward, where the tooltip would sit on top of it.
+          disabled={open}
+        >
+          <Tooltip.Trigger asChild>
+            <Popover.Trigger asChild>{children}</Popover.Trigger>
+          </Tooltip.Trigger>
+          <Portal>
+            <Tooltip.Positioner>
+              <Tooltip.Content>{tooltip}</Tooltip.Content>
+            </Tooltip.Positioner>
+          </Portal>
+        </Tooltip.Root>
+      )}
       <Portal>
         <Popover.Positioner>
           {/* Clicks inside bubble through React's tree to the card, whose

@@ -2,9 +2,19 @@ import { afterEach, describe, it } from "node:test";
 import { expect } from "expect";
 import { NumberGenerator } from "@dice-roller/rpg-dice-roller";
 
-import { rollDice } from "./dice";
+import { rollDice, rollTotal } from "./dice";
 
 const generator = NumberGenerator.generator;
+
+describe("rollTotal", () => {
+  it("gives one roll's total, and nothing for what cannot be rolled", () => {
+    const total = rollTotal("2d6+1");
+    expect(total).toBeGreaterThanOrEqual(3);
+    expect(total).toBeLessThanOrEqual(13);
+    expect(rollTotal("12")).toBeNull();
+    expect(rollTotal("")).toBeNull();
+  });
+});
 
 describe("rollDice", () => {
   // rollDice sets its own engine on every roll, so each test swaps in the

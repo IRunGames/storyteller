@@ -1,6 +1,6 @@
 import { before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { ReactElement } from "react";
@@ -175,25 +175,9 @@ describe("StoryDetails", () => {
     expect(screen.getByText("A city of the dead.")).toBeInTheDocument();
   });
 
-  it("offers the storyteller an edit button that leads to the edit page", () => {
-    renderWithProviders(
-      <StoryDetails
-        story={{ ...story, isOwner: true }}
-        players={[]}
-        sessions={[]}
-        sessionStatusOptions={sessionStatusOptions}
-      />,
-    );
-
-    expect(screen.getByRole("link", { name: "Edit story" })).toHaveAttribute(
-      "href",
-      "/stories/-15/edit",
-    );
-  });
-
-  it("offers the storyteller a Build Scenes door to the last scene's live-edit page, and with none a button that makes the first scene and goes to it", async () => {
+  it("opens the storyteller's doors from the caret after the title, each a link", async () => {
     const user = userEvent.setup();
-    const { unmount } = renderWithProviders(
+    renderWithProviders(
       <StoryDetails
         story={{ ...story, isOwner: true }}
         players={[]}
@@ -202,12 +186,21 @@ describe("StoryDetails", () => {
         buildSceneId={-7}
       />,
     );
-    expect(screen.getByRole("link", { name: "Build Scenes" })).toHaveAttribute(
-      "href",
-      "/scenes/-7/live",
-    );
-    unmount();
 
+    const title = screen.getByRole("heading", { level: 1, name: "Vampire" });
+    await user.click(within(title).getByRole("button", { name: "Vampire" }));
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
+      ["Edit", "/stories/-15/edit"],
+      ["Library", "/libraries/-15"],
+      ["Build scenes", "/scenes/-7/live"],
+      ["Play", null],
+      ["Storyboard", "/stories/-15/storyboard"],
+    ]);
+  });
+
+  it("makes the first scene from Build scenes while the story has none, and goes to it", async () => {
+    const user = userEvent.setup();
     renderWithProviders(
       <StoryDetails
         story={{ ...story, isOwner: true }}
@@ -216,16 +209,21 @@ describe("StoryDetails", () => {
         sessionStatusOptions={sessionStatusOptions}
       />,
     );
-    expect(screen.queryByRole("link", { name: "Build Scenes" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Build Scenes" }));
+
+    await user.click(screen.getByRole("button", { name: "Vampire" }));
+    const build = await screen.findByRole("menuitem", { name: "Build scenes" });
+    expect(build).not.toHaveAttribute("href");
+    await user.click(build);
     await waitFor(() => expect(sa_createLiveScene.mock.callCount()).toBe(1));
     expect(sa_createLiveScene.mock.calls[0].arguments).toEqual([
       -15,
       { title: "New scene", description: "" },
     ]);
     await waitFor(() => expect(push.mock.calls.at(-1)?.arguments).toEqual(["/scenes/-70/live"]));
-    cleanup();
+  });
 
+  it("offers anyone but the storyteller the Storyboard alone", async () => {
+    const user = userEvent.setup();
     renderWithProviders(
       <StoryDetails
         story={story}
@@ -235,27 +233,12 @@ describe("StoryDetails", () => {
         buildSceneId={-7}
       />,
     );
-    expect(screen.queryByRole("link", { name: "Build Scenes" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Build Scenes" })).not.toBeInTheDocument();
-  });
 
-  it("follows the title with the Storyboard door, for everyone", () => {
-    renderWithProviders(
-      <StoryDetails
-        story={story}
-        players={[]}
-        sessions={[]}
-        sessionStatusOptions={sessionStatusOptions}
-      />,
-    );
-
-    const title = screen.getByRole("heading", { level: 1, name: "Vampire" });
-    const storyboard = screen.getByRole("link", { name: "Storyboard" });
-    expect(storyboard).toHaveAttribute("href", "/stories/-15/storyboard");
-    expect(title.parentElement).toContainElement(storyboard);
-    expect(
-      title.compareDocumentPosition(storyboard) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Vampire" }));
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
+      ["Storyboard", "/stories/-15/storyboard"],
+    ]);
   });
 
   it("wears a PUBLIC badge beside the title when anyone may read the story's sessions", () => {
@@ -279,39 +262,6 @@ describe("StoryDetails", () => {
       />,
     );
     expect(screen.queryByText("PUBLIC")).not.toBeInTheDocument();
-  });
-
-  it("offers the storyteller a Library button in the top corner beside Edit that leads to the library", () => {
-    renderWithProviders(
-      <StoryDetails
-        story={{ ...story, isOwner: true }}
-        players={[]}
-        sessions={[]}
-        sessionStatusOptions={sessionStatusOptions}
-      />,
-    );
-
-    const link = screen.getByRole("link", { name: "Library: Full Story Resources" });
-    expect(link).toHaveAttribute("href", "/libraries/-15");
-    // In the corner's row with Edit: the same parent, the library first.
-    const edit = screen.getByRole("link", { name: "Edit story" });
-    expect(link.parentElement?.parentElement).toBe(edit.parentElement?.parentElement);
-    expect(link.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("shows no Library button to anyone but the storyteller", () => {
-    renderWithProviders(
-      <StoryDetails
-        story={story}
-        players={[]}
-        sessions={[]}
-        sessionStatusOptions={sessionStatusOptions}
-      />,
-    );
-
-    expect(
-      screen.queryByRole("link", { name: "Library: Full Story Resources" }),
-    ).not.toBeInTheDocument();
   });
 
   it("gives the storyteller an Attachments section at the foot of the page, for this story", () => {
@@ -344,19 +294,6 @@ describe("StoryDetails", () => {
     );
 
     expect(screen.queryByRole("region", { name: "Attachments" })).not.toBeInTheDocument();
-  });
-
-  it("shows no edit button to anyone but the storyteller", () => {
-    renderWithProviders(
-      <StoryDetails
-        story={story}
-        players={[]}
-        sessions={[]}
-        sessionStatusOptions={sessionStatusOptions}
-      />,
-    );
-
-    expect(screen.queryByRole("link", { name: "Edit story" })).not.toBeInTheDocument();
   });
 
   it("offers the storyteller of an active story the card's Play, which asks which session", async () => {
@@ -646,15 +583,9 @@ describe("StoryDetails", () => {
 
     const expand = screen.getByRole("button", { name: "Expand page" });
     expect(expand).toHaveAttribute("aria-pressed", "false");
-    // At the end of the title's line, to the right of the heart; the doors
-    // are on the line below, across from the game system.
+    // At the end of the title's line, to the right of the heart.
     const title = screen.getByRole("heading", { level: 1, name: "Vampire" });
     expect(title.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const edit = screen.getByRole("link", { name: "Edit story" });
-    expect(expand.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const system = screen.getByText("Vampire: The Masquerade (5th)");
-    expect(system.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(edit.parentElement!.parentElement).toContainElement(system);
     expect(document.querySelector("[data-wide]")).toBeNull();
 
     await user.click(expand);

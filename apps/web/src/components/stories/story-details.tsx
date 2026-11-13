@@ -1,17 +1,5 @@
-import { useId, type ReactNode } from "react";
-import NextLink from "next/link";
-import {
-  Badge,
-  Box,
-  Heading,
-  HStack,
-  IconButton,
-  Portal,
-  Stack,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
-import { BookOpen, GalleryHorizontalEnd, Pencil } from "lucide-react";
+import { useId } from "react";
+import { Badge, Box, Heading, HStack, Stack, Text } from "@chakra-ui/react";
 import {
   cssUrlValue,
   systemLabel,
@@ -19,13 +7,12 @@ import {
   type StoryPlayer,
   type StorySession,
 } from "@/lib/stories";
-import { storyboardPath } from "@/lib/storyboard";
 import { LocalDate } from "@/components/dates/local-date";
 import { StoryAttachments } from "./story-attachments";
-import { StoryBuildScenesDoor } from "./story-build-scenes-door";
 import { StoryFavoriteButton } from "./story-favorite-button";
 import { StoryPanel } from "./story-panel";
 import { StoryPlayers } from "./story-players";
+import { StoryTitleMenu } from "./story-title-menu";
 import { PlayButton } from "./story-play-button";
 import type { StatusOption } from "@/lib/status";
 import { StorySessions } from "./story-sessions";
@@ -100,56 +87,20 @@ export function StoryDetails({
             onImage={!!story.imageUrl}
           />
         }
-        doors={
-          // The storyteller's doors, across from the game system under the
-          // title: the library, where the game is prepped (its scenes are
-          // what the players are not meant to see yet, so it is theirs
-          // alone), Build Scenes (StoryBuildScenesDoor) and the edit page.
-          // Links styled as buttons: each is a page of its own, so the back
-          // button returns here. The storyboard, which everyone may read,
-          // sits beside the title instead.
-          story.isOwner && (
-            <>
-              <Door
-                label="Library: Full Story Resources"
-                href={`/libraries/${story.idStory}`}
-                onImage={!!story.imageUrl}
-              >
-                <BookOpen size={18} />
-              </Door>
-              <StoryBuildScenesDoor
-                idStory={story.idStory}
-                buildSceneId={buildSceneId}
-                onImage={!!story.imageUrl}
-              />
-              <Door
-                label="Edit story"
-                href={`/stories/${story.idStory}/edit`}
-                onImage={!!story.imageUrl}
-              >
-                <Pencil size={18} />
-              </Door>
-            </>
-          )
-        }
-        // The title's line: the title, then a little apart from it the door
-        // to the storyboard, which shows each reader what the sessions below
-        // would, and the PUBLIC badge, both about the whole story. The heart
-        // and the expand button end the line (StoryPanel).
+        // The title's line: the title, whose caret opens the story's doors
+        // (StoryTitleMenu: the library, Build scenes and the edit page for
+        // the storyteller, the storyboard for everyone), and the PUBLIC
+        // badge, about the whole story. The heart and the expand button end
+        // the line (StoryPanel).
         heading={
           <HStack gap="2" align="center" wrap="wrap" minW="0">
-            <Heading as="h1" size="3xl">
-              {story.title}
-            </Heading>
-            <Box ms="2">
-              <Door
-                label="Storyboard"
-                href={storyboardPath(story.idStory)}
-                onImage={!!story.imageUrl}
-              >
-                <GalleryHorizontalEnd size={18} />
-              </Door>
-            </Box>
+            <StoryTitleMenu
+              idStory={story.idStory}
+              title={story.title}
+              isStoryteller={story.isOwner}
+              buildSceneId={buildSceneId}
+              onImage={!!story.imageUrl}
+            />
             {story.isPublic && (
               // Anyone signed in may read the story's sessions: said
               // beside the title, since it is a fact about the whole
@@ -224,45 +175,5 @@ export function StoryDetails({
         )}
       </StoryPanel>
     </Box>
-  );
-}
-
-/**
- * One of the page's doors: a link styled as an icon button, with the tooltip
- * every icon button carries, coloured for the dark panel over a cover.
- */
-function Door({
-  label,
-  href,
-  onImage,
-  children,
-}: {
-  label: string;
-  href: string;
-  onImage: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-      <Tooltip.Trigger asChild>
-        <IconButton
-          asChild
-          aria-label={label}
-          variant="ghost"
-          size="sm"
-          rounded="full"
-          flexShrink="0"
-          color={onImage ? "whiteAlpha.900" : undefined}
-          _hover={onImage ? { bg: "whiteAlpha.200" } : undefined}
-        >
-          <NextLink href={href}>{children}</NextLink>
-        </IconButton>
-      </Tooltip.Trigger>
-      <Portal>
-        <Tooltip.Positioner>
-          <Tooltip.Content>{label}</Tooltip.Content>
-        </Tooltip.Positioner>
-      </Portal>
-    </Tooltip.Root>
   );
 }

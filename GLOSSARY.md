@@ -57,16 +57,14 @@ engineering skills consume this file.
   table shows nothing.
 - **Computed**: a stat type that stores nothing and is worked out from a
   formula over other stats.
-- **Connected to**: a stat definition naming another stat whose value feeds
-  this one: a display's value, a pool's or stack's max. The element stores
-  nothing for the part that is fed.
 - **Description**: what a stat is for (`description` on its definition, "" for
   none), shown as a tooltip over the stat's title on the prep form and at the
-  table, and under it in the picker. The title is the label, or the name when
+  table, with what the stat is initialized as after a colon ("Hit Points:
+  8d8+3", `statTooltip`), and under it in the picker. The title is the label, or the name when
   there is no label (`statLabel`).
 - **Visible**: whether the table draws a stat (`visible` on its definition,
   on by default). A hidden stat is still filled in on the prep form and still
-  feeds connections and formulas; it is only left out of the element panel.
+  feeds formulas; it is only left out of the element panel.
 - **Format**: how a stat's value is held and written (`format` on its
   definition): `""` as it is, a number or a word; `"number"` a number only,
   which the prep form holds it to; `"number +/-"` a number only, written with
@@ -118,16 +116,32 @@ engineering skills consume this file.
   table draws a die on the group's heading, in the element panel and the
   stats pane, that rolls the first die of every row at once
   (`sa_rollGroupRows`), each roll under the element's title and the row's
-  key, and each row as many times as the element's multiple of the group.
+  key, and each row as many times as the row's multiple.
 - **Can have multiples**: a group flag (`canHaveMultiples`), offered on a
-  group that repeats: an element says
-  how many of the group it has in a Multiple box on its block's card, 1 to
-  start, stored under the block's `$multiples` key (`MULTIPLES`) by group
-  name; the table heads the group "Attack ×4" and Roll all rolls each row
-  that many times. Palladium's attacks per melee.
+  group that repeats: each row says how many of it the element has in a
+  Multiple column of the block's table, 1 to start, stored in the row under
+  `$multiple` (`MULTIPLE`) beside its stats; the table marks the row "Sword
+  ×4" and Roll all rolls it that many times. Palladium's attacks per melee
+  with each weapon.
+- **Initialized as**: a stat's starting roll (`initialRoll`, "" for none),
+  offered on a pool, a stack or a display held to a number from the template
+  editor's Initialized as box, a dice box with an eye that rolls an example.
+  Rolled once when the stat's block is added to an element, on the prep form
+  or at the table (`sa_addStatBlock`), or a row of it: a pool starts full at
+  the total, a stack at the total with it as its max, a display at it.
 - **Up/down**: a stat flag (`upDown`), offered on a stat held to a number: the
   table draws the up/down changer beside the number's box; without it the
   box alone is drawn. Off on templates written before the flag.
+- **Story title menu**: the story's title with a caret after it
+  (`StoryTitleMenu`), on the story page, the library, the run page and the
+  live page, which opens the story's doors as links: Edit, Library, Build
+  scenes and Play for the storyteller, the Storyboard for anyone. Play is the
+  Play button by another door: it opens the Play popover by the title, asking
+  which session, and the table opens from there; the mark at its end says so. The page the menu is
+  on is marked current and is no link. Build scenes goes to the scene touched
+  last (`sa_getSceneToBuild`); while the story has none it makes the first
+  scene (`sa_createLiveScene`) and goes to it. Any scene's live page counts
+  as it.
 - **Default row**: the first row of a repeating group, marked with a filled
   star on the prep form and at the table; a star on any other row moves it to
   the front (`sa_setDefaultRow`). Roll for all rolls a repeating group's stat

@@ -12,7 +12,6 @@ const stat = (
 ): StatDefinition => ({
   label: "",
   rack: [],
-  connectedTo: "",
   computedAs: "",
   visible: true,
   format: "",
@@ -22,6 +21,7 @@ const stat = (
   roll: "",
   global: false,
   upDown: true,
+  initialRoll: "",
   ...over,
 });
 

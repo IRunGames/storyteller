@@ -266,7 +266,15 @@ const lastSaved = async () => {
 
 describe("PrepBoard", () => {
   before(async () => {
-    mock.module("next/navigation", { namedExports: { useRouter: () => router } });
+    mock.module("@/app/(app)/(nav)/play/actions", {
+      namedExports: {
+        sa_listUnfinishedSessions: async () => [],
+        sa_startPlaying: async () => ({ error: "Not in this test." }),
+      },
+    });
+    mock.module("next/navigation", {
+      namedExports: { useRouter: () => router, usePathname: () => "/libraries/-15" },
+    });
     // The Timeline's list imports its server action itself; mocked so the
     // board renders without a database.
     mock.module("@/app/(app)/(nav)/stories/actions", {
@@ -354,16 +362,18 @@ describe("PrepBoard", () => {
     sa_setUserPreference.mock.resetCalls();
   });
 
-  it("names the page after the story in one line, with the title linking back to it", () => {
+  it("names the page after the story in one line, the title opening the story's doors", async () => {
+    const user = userEvent.setup();
     renderBoard();
 
     const heading = screen.getByRole("heading", {
       level: 1,
       name: "Library (Game Prep) for Vampire",
     });
-    expect(within(heading).getByRole("link", { name: "Vampire" })).toHaveAttribute(
+    await user.click(within(heading).getByRole("button", { name: "Vampire" }));
+    expect(await screen.findByRole("menuitem", { name: "Edit" })).toHaveAttribute(
       "href",
-      "/stories/-15",
+      "/stories/-15/edit",
     );
   });
 

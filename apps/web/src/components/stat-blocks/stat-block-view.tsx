@@ -21,6 +21,7 @@ import {
   isSignedFormat,
   signOf,
   statLines,
+  statTooltip,
   type EvaluatedGroup,
   type EvaluatedRow,
   type EvaluatedStat,
@@ -383,7 +384,7 @@ export function StatBlockView({
           ) : (
             <GroupView
               key={group.name}
-              label={groupTitle(group)}
+              label={group.label}
               stats={group.stats}
               canEdit={canEdit}
               busy={busy}
@@ -396,10 +397,6 @@ export function StatBlockView({
     </Stack>
   );
 }
-
-/** A group's heading: its label, with how many of it the element has where that is more than one. */
-const groupTitle = (group: EvaluatedGroup) =>
-  group.canHaveMultiples && group.multiple > 1 ? `${group.label} ×${group.multiple}` : group.label;
 
 /** Rolls one stat's die, a row's by the row's key. */
 type Roller = (group: string, stat: string, rowKey?: string) => Promise<void>;
@@ -547,7 +544,7 @@ function RepeatingGroupView({
     <Stack gap="2">
       <HStack gap="1">
         <GroupHeading
-          label={groupTitle(group)}
+          label={group.label}
           open={open}
           onToggle={() => setOpen((current) => !current)}
         />
@@ -571,6 +568,12 @@ function RepeatingGroupView({
                 <Text fontSize="sm" fontWeight="semibold">
                   {key}
                 </Text>
+                {/* How many of the row the element has, where more than one. */}
+                {row.multiple > 1 && (
+                  <Text as="span" fontSize="sm" color="fg.muted">
+                    ×{row.multiple}
+                  </Text>
+                )}
                 {index === 0 ? (
                   <Box
                     as="span"
@@ -619,28 +622,34 @@ function RepeatingGroupView({
 }
 
 /**
- * A stat's label in the panel, with its description, when the template
- * gives one, as a tooltip over it.
+ * A stat's label in the panel, with its description and what it is
+ * initialized as (statTooltip), when the template gives either, as a
+ * tooltip over it.
  */
-function StatLabel({ stat }: { stat: Pick<EvaluatedStat, "label" | "description"> }) {
+function StatLabel({
+  stat,
+}: {
+  stat: Pick<EvaluatedStat, "label" | "description" | "initialRoll">;
+}) {
+  const tooltip = statTooltip(stat);
   const label = (
     <Text
       as="span"
       fontSize="sm"
       color="fg.muted"
-      textDecoration={stat.description === "" ? undefined : "underline dotted"}
-      cursor={stat.description === "" ? undefined : "help"}
+      textDecoration={tooltip === "" ? undefined : "underline dotted"}
+      cursor={tooltip === "" ? undefined : "help"}
     >
       {stat.label}
     </Text>
   );
-  if (stat.description === "") return label;
+  if (tooltip === "") return label;
   return (
     <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
       <Tooltip.Trigger asChild>{label}</Tooltip.Trigger>
       <Portal>
         <Tooltip.Positioner>
-          <Tooltip.Content>{stat.description}</Tooltip.Content>
+          <Tooltip.Content>{tooltip}</Tooltip.Content>
         </Tooltip.Positioner>
       </Portal>
     </Tooltip.Root>
@@ -736,7 +745,7 @@ function StatCell({
     case "display":
       return (
         <HStack gap="2">
-          {stat.valueFrom === undefined && boxed ? (
+          {boxed ? (
             <StatNumber
               label={stat.label}
               value={stat.value as number | null}
@@ -748,11 +757,6 @@ function StatCell({
             />
           ) : (
             words
-          )}
-          {stat.valueFrom && (
-            <Text as="span" fontSize="xs" color="fg.muted">
-              from {stat.valueFrom}
-            </Text>
           )}
           {stat.roll !== "" && <RollMark roll={stat.roll} onRoll={onRoll} disabled={busy} />}
         </HStack>
@@ -817,11 +821,6 @@ function StatCell({
                 / {max}
               </Text>
             ))}
-          {stat.maxFrom && (
-            <Text as="span" fontSize="xs" color="fg.muted">
-              max from {stat.maxFrom}
-            </Text>
-          )}
           {stat.roll !== "" && <RollMark roll={stat.roll} onRoll={onRoll} disabled={busy} />}
         </HStack>
       );

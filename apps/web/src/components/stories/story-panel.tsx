@@ -7,8 +7,8 @@ import { Maximize2, Minimize2 } from "lucide-react";
 type Props = {
   /** True when the page has a cover behind it: the panel then draws itself. */
   onImage: boolean;
-  /** The storyteller's doors, at the end of the second line across from the details. */
-  doors: ReactNode;
+  /** Anything for the end of the second line, across from the details; the doors moved into the title's menu. */
+  doors?: ReactNode;
   /** At the end of the title's line, before the expand button: the story card's heart. */
   corner?: ReactNode;
   /** The title and what sits beside it, at the start of the first line. */

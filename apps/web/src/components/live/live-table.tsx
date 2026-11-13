@@ -45,6 +45,7 @@ import { DeleteButton } from "@/components/confirm/delete-button";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { toaster } from "@/components/ui/toaster";
 import { PlayHeader } from "@/components/play/play-header";
+import { StoryTitleMenu } from "@/components/stories/story-title-menu";
 import { SceneTextPopover } from "@/components/play/scene-text-popover";
 import { RunLibrary } from "@/components/run/run-library";
 import { RunLibrarySortMenu } from "@/components/run/run-library-sort-menu";
@@ -62,6 +63,8 @@ type Props = {
   idStory: number;
   /** The story the scene belongs to, shown in the header. */
   title: string;
+  /** The scene the title menu's Build scenes opens (sa_getSceneToBuild); null for none yet. */
+  buildSceneId?: number | null;
   /** The scene being edited, as sa_getScenePlaySpace read it. */
   scene: RunScene;
   /** The scene's stacks, its cover, and the elements brought into it. */
@@ -100,6 +103,7 @@ type Props = {
 export function LiveTable({
   idStory,
   title,
+  buildSceneId = null,
   scene: initialScene,
   initialTags,
   initialCoverUrl,
@@ -251,6 +255,17 @@ export function LiveTable({
     <Flex direction="column" h="100vh">
       <PlayHeader
         title={title}
+        titleContent={
+          <StoryTitleMenu
+            idStory={idStory}
+            title={title}
+            isStoryteller
+            buildSceneId={buildSceneId}
+            as="span"
+            size="lg"
+            fontWeight="medium"
+          />
+        }
         // A string so the header draws its session slot; the select is
         // what shows in it.
         session=""

@@ -12,7 +12,7 @@ import {
   statBlocksSchema,
 } from "./stat-block-schemas";
 import {
-  MULTIPLES,
+  MULTIPLE,
   type StatBlock,
   type StatBlockDefinition,
   type StatDefinition,
@@ -24,7 +24,6 @@ const stat = (
 ): StatDefinition => ({
   label: "",
   rack: [],
-  connectedTo: "",
   computedAs: "",
   visible: true,
   format: "",
@@ -34,6 +33,7 @@ const stat = (
   roll: "",
   global: false,
   upDown: true,
+  initialRoll: "",
   ...over,
 });
 
@@ -59,6 +59,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         }),
       ],
     },
@@ -69,14 +70,13 @@ const definition: StatBlockDefinition = {
       rollAll: false,
       canHaveMultiples: false,
       stats: [
-        stat({ name: "hp", type: "pool", connectedTo: "stats.str" }),
+        stat({ name: "hp", type: "pool" }),
         stat({ name: "mana", type: "pool" }),
         stat({ name: "rage", type: "stack" }),
         stat({ name: "die", type: "rack", rack: ["d4", "d6", 8] }),
-        stat({ name: "fed_label", type: "display", connectedTo: "stats.str" }),
       ],
     },
-    // A group that repeats by its weapon, with a pool fed from its own row.
+    // A group that repeats by its weapon, with a pool of its own on each row.
     {
       name: "attack",
       label: "Attack",
@@ -88,7 +88,7 @@ const definition: StatBlockDefinition = {
         stat({ name: "strike", type: "display" }),
         stat({ name: "die", type: "rack", rack: ["d4", "d6"] }),
         stat({ name: "sides", type: "rack", rack: [4, 6] }),
-        stat({ name: "uses", type: "pool", connectedTo: "strike" }),
+        stat({ name: "uses", type: "pool" }),
       ],
     },
   ],
@@ -194,8 +194,9 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               }),
-              stat({ name: "e", type: "rack", rack: ["d4"], connectedTo: "b" }),
+              stat({ name: "e", type: "rack", rack: ["d4"] }),
               stat({
                 name: "f",
                 type: "computed",
@@ -208,6 +209,7 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               }),
             ],
           },
@@ -218,10 +220,43 @@ describe("statBlockDefinitionSchema", () => {
     expect(errors["groups.0.stats.1.rack"]).toBe("Only a rack has entries.");
     expect(errors["groups.0.stats.2.computedAs"]).toBe("A computed stat needs a formula.");
     expect(errors["groups.0.stats.3.computedAs"]).toBe("Only a computed stat has a formula.");
-    expect(errors["groups.0.stats.4.connectedTo"]).toMatch(/Only a display, a pool or a stack/);
     expect(errors["groups.0.stats.5.computedAs"]).toBe(
       "The formula ends too soon. (at character 4)",
     );
+  });
+
+  it("lets a pool, a stack or a number display be initialized by a roll it can read", () => {
+    const errors = errorsOf(
+      statBlockDefinitionSchema.safeParse({
+        groups: [
+          {
+            name: "g",
+            label: "",
+            keyedBy: "",
+            rollAll: false,
+            canHaveMultiples: false,
+            stats: [
+              stat({ name: "a", type: "pool", format: "number", initialRoll: "2d6" }),
+              stat({ name: "b", type: "rack", rack: ["d4"], initialRoll: "2d6" }),
+              stat({ name: "c", type: "display", format: "", initialRoll: "2d6" }),
+              stat({ name: "d", type: "stack", format: "number", initialRoll: "twelve" }),
+              stat({ name: "e", type: "display", format: "number", initialRoll: "8d8+3" }),
+            ],
+          },
+        ],
+      }),
+    );
+    expect(errors["groups.0.stats.0.initialRoll"]).toBeUndefined();
+    expect(errors["groups.0.stats.1.initialRoll"]).toBe(
+      "Only a pool, a stack or a display held to a number is initialized by a roll.",
+    );
+    expect(errors["groups.0.stats.2.initialRoll"]).toBe(
+      "Only a pool, a stack or a display held to a number is initialized by a roll.",
+    );
+    expect(errors["groups.0.stats.3.initialRoll"]).toBe(
+      "That is not a roll I can read. Try 2d6+1.",
+    );
+    expect(errors["groups.0.stats.4.initialRoll"]).toBeUndefined();
   });
 
   it("lets only a group that repeats roll all or have multiples", () => {
@@ -277,7 +312,7 @@ describe("statBlockDefinitionSchema", () => {
     expect(repeating.success).toBe(true);
   });
 
-  it("wants every connection and reference to point at a stat that is there", () => {
+  it("wants every reference to point at a stat that is there", () => {
     const errors = errorsOf(
       statBlockDefinitionSchema.safeParse({
         groups: [
@@ -288,8 +323,8 @@ describe("statBlockDefinitionSchema", () => {
             rollAll: false,
             canHaveMultiples: false,
             stats: [
-              stat({ name: "a", type: "display", connectedTo: "nothing" }),
-              stat({ name: "b", type: "display", connectedTo: "b" }),
+              stat({ name: "a", type: "display" }),
+              stat({ name: "b", type: "display" }),
               stat({
                 name: "c",
                 type: "computed",
@@ -302,6 +337,7 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               }),
               stat({
                 name: "d",
@@ -315,6 +351,7 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               }),
               stat({ name: "e", type: "pool" }),
               stat({
@@ -329,16 +366,13 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               }),
             ],
           },
         ],
       }),
     );
-    expect(errors["groups.0.stats.0.connectedTo"]).toBe(
-      "There is no stat nothing. Name one as stat or group.stat.",
-    );
-    expect(errors["groups.0.stats.1.connectedTo"]).toBe("A stat cannot feed itself.");
     expect(errors["groups.0.stats.2.computedAs"]).toBe("There is no stat g.nothing.");
     expect(errors["groups.0.stats.3.computedAs"]).toBe(
       "g.a has no max; only a pool or a stack has one.",
@@ -369,29 +403,30 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               }),
-              stat({ name: "b", type: "display", connectedTo: "c" }),
-              stat({ name: "c", type: "display", connectedTo: "a" }),
-              stat({ name: "d", type: "display", connectedTo: "a" }),
+              stat({ name: "b", type: "computed", computedAs: "g.c.value" }),
+              stat({ name: "c", type: "computed", computedAs: "g.a.value" }),
+              stat({ name: "d", type: "computed", computedAs: "g.a.value" }),
             ],
           },
         ],
       }),
     );
     expect(errors["groups.0.stats.0.computedAs"]).toBe("This stat ends up depending on itself.");
-    expect(errors["groups.0.stats.1.connectedTo"]).toBe("This stat ends up depending on itself.");
-    expect(errors["groups.0.stats.2.connectedTo"]).toBe("This stat ends up depending on itself.");
-    expect(errors["groups.0.stats.3.connectedTo"]).toBeUndefined();
+    expect(errors["groups.0.stats.1.computedAs"]).toBe("This stat ends up depending on itself.");
+    expect(errors["groups.0.stats.2.computedAs"]).toBe("This stat ends up depending on itself.");
+    expect(errors["groups.0.stats.3.computedAs"]).toBeUndefined();
   });
 
-  it("lets a group repeat by one of its displays or racks that is not connected", () => {
+  it("lets a group repeat by one of its displays or racks", () => {
     expect(statBlockDefinitionSchema.safeParse(definition).success).toBe(true);
     expect(statBlockDefinitionSchema.safeParse(withKey(definition, "attack", "die")).success).toBe(
       true,
     );
   });
 
-  it("refuses a key that is not there, is a pool, stack or computed stat, or is fed", () => {
+  it("refuses a key that is not there, or is a pool, stack or computed stat", () => {
     expect(
       errorsOf(statBlockDefinitionSchema.safeParse(withKey(definition, "attack", "nope"))),
     ).toEqual({ "groups.2.keyedBy": "There is no stat nope in this group." });
@@ -401,15 +436,9 @@ describe("statBlockDefinitionSchema", () => {
       "groups.1.keyedBy":
         "A key is a display or a rack; a pool, stack or computed stat cannot tell rows apart.",
     });
-    expect(
-      errorsOf(statBlockDefinitionSchema.safeParse(withKey(definition, "combat", "fed_label"))),
-    ).toEqual({
-      "groups.1.keyedBy":
-        "A fed display is the same on every row; choose a stat the row holds itself.",
-    });
   });
 
-  it("refuses a reference or a connection into a repeating group from outside it", () => {
+  it("refuses a reference into a repeating group from outside it", () => {
     const outside = withStat(
       definition,
       "stats",
@@ -425,19 +454,11 @@ describe("statBlockDefinitionSchema", () => {
         roll: "",
         global: false,
         upDown: true,
+        initialRoll: "",
       }),
     );
     expect(errorsOf(statBlockDefinitionSchema.safeParse(outside))).toEqual({
       "groups.0.stats.2.computedAs":
-        "attack repeats; only a stat in attack can read attack.strike.",
-    });
-    const connected = withStat(
-      definition,
-      "stats",
-      stat({ name: "shown", type: "display", connectedTo: "attack.strike" }),
-    );
-    expect(errorsOf(statBlockDefinitionSchema.safeParse(connected))).toEqual({
-      "groups.0.stats.2.connectedTo":
         "attack repeats; only a stat in attack can read attack.strike.",
     });
   });
@@ -458,6 +479,7 @@ describe("statBlockDefinitionSchema", () => {
         roll: "",
         global: false,
         upDown: true,
+        initialRoll: "",
       }),
     );
     expect(statBlockDefinitionSchema.safeParse(inside).success).toBe(true);
@@ -485,7 +507,6 @@ describe("statBlockDefinitionSchema", () => {
       label: "",
       type: "display",
       rack: [],
-      connectedTo: "",
       computedAs: "",
     };
     const hp = { ...str, name: "hp", type: "pool" };
@@ -521,6 +542,7 @@ describe("statBlockDefinitionSchema", () => {
               roll: "",
               global: false,
               upDown: false,
+              initialRoll: "",
             },
             {
               ...hp,
@@ -532,6 +554,7 @@ describe("statBlockDefinitionSchema", () => {
               roll: "",
               global: false,
               upDown: false,
+              initialRoll: "",
             },
           ],
         },
@@ -564,8 +587,8 @@ describe("statBlockDefinitionFormSchema", () => {
             }),
             stat({
               name: "x",
-              type: "display",
-              connectedTo: "nothing",
+              type: "computed",
+              computedAs: "g.nothing + 1",
               rack: "" as unknown as never,
             }),
           ],
@@ -574,7 +597,7 @@ describe("statBlockDefinitionFormSchema", () => {
     });
     expect(parsed.success).toBe(false);
     expect(errorsOf(parsed)).toEqual({
-      "groups.0.stats.1.connectedTo": "There is no stat nothing. Name one as stat or group.stat.",
+      "groups.0.stats.1.computedAs": "There is no stat g.nothing.",
     });
     expect(splitRack(" d4, d6 ,8,, ")).toEqual(["d4", "d6", 8]);
     expect(joinRack(["d4", "d6", 8])).toBe("d4, d6, 8");
@@ -598,7 +621,7 @@ describe("statBlockSchema", () => {
     expect(parsed.data).toEqual({
       stats: { str: { value: 14 }, mod: {} },
       combat: {
-        hp: { value: 9, min: 0 },
+        hp: { value: 9, min: 0, max: 50 },
         mana: { value: 3, min: 1, max: 5 },
         rage: { value: 2 },
         die: { value: 8 },
@@ -741,22 +764,6 @@ describe("statBlockSchema", () => {
     });
   });
 
-  it("holds a value to the max that feeds it, once the shape is right", () => {
-    const errors = errorsOf(
-      schema.safeParse({
-        stats: { str: { value: 14 } },
-        combat: {
-          // hp's max is str, 14.
-          hp: { value: 20 },
-          mana: { value: 0, max: 0 },
-          rage: { value: 0 },
-          die: { value: "d4" },
-        },
-      }),
-    );
-    expect(errors).toEqual({ "combat.hp.value": "That is above the max of 14." });
-  });
-
   it("writes dice as xdy, counting one die when the count is left off, and keeps a blank", () => {
     const dice = statBlockSchema({
       groups: [
@@ -821,7 +828,6 @@ describe("statBlockSchema with a repeating group", () => {
       mana: { value: 3, min: 1, max: 5 },
       rage: { value: "0" },
       die: { value: "d4" },
-      fed_label: {},
     },
   };
   const row = (weapon: string, strike: string, over: Record<string, unknown> = {}) => ({
@@ -858,30 +864,47 @@ describe("statBlockSchema with a repeating group", () => {
     ]);
   });
 
-  it("takes an element's multiple of a group that can have them, 1 or more and whole", () => {
+  it("takes a row's multiple in a group that can have them, 1 or more and whole", () => {
     const withMultiples = statBlockSchema({
       groups: definition.groups.map((group) =>
         group.name === "attack" ? { ...group, canHaveMultiples: true } : group,
       ),
     });
-    // As the Multiple box posts it: text, read as its number; blank is none set.
+    // As the row's Multiple box posts it: text, read as its number; blank is none set.
     const parsed = withMultiples.safeParse({
-      attack: [],
-      [MULTIPLES]: { attack: { value: "4" } },
+      ...plain,
+      attack: [row("Sword", "4", { [MULTIPLE]: { value: "4" } }), row("Fist", "1")],
     });
-    expect(parsed.success && parsed.data[MULTIPLES]).toEqual({ attack: { value: 4 } });
+    expect(parsed.success && (parsed.data.attack as StatRow[])[0][MULTIPLE]).toEqual({ value: 4 });
+    expect(parsed.success && MULTIPLE in (parsed.data.attack as StatRow[])[1]).toBe(false);
     expect(
-      withMultiples.safeParse({ attack: [], [MULTIPLES]: { attack: { value: "" } } }).success,
+      withMultiples.safeParse({
+        ...plain,
+        attack: [row("Sword", "4", { [MULTIPLE]: { value: "" } })],
+      }).success,
     ).toBe(true);
     expect(
-      errorsOf(withMultiples.safeParse({ attack: [], [MULTIPLES]: { attack: { value: "0" } } })),
-    ).toEqual({ "$multiples.attack.value": "At least once." });
+      errorsOf(
+        withMultiples.safeParse({
+          ...plain,
+          attack: [row("Sword", "4", { [MULTIPLE]: { value: "0" } })],
+        }),
+      ),
+    ).toEqual({ "attack.0.$multiple.value": "At least once." });
     expect(
-      errorsOf(withMultiples.safeParse({ attack: [], [MULTIPLES]: { attack: { value: "2.5" } } })),
-    ).toEqual({ "$multiples.attack.value": "A whole number of times." });
+      errorsOf(
+        withMultiples.safeParse({
+          ...plain,
+          attack: [row("Sword", "4", { [MULTIPLE]: { value: "2.5" } })],
+        }),
+      ),
+    ).toEqual({ "attack.0.$multiple.value": "A whole number of times." });
     // A group that cannot have multiples takes none: the key is dropped.
-    const plain = schema.safeParse({ attack: [], [MULTIPLES]: { attack: { value: "4" } } });
-    expect(plain.success && MULTIPLES in plain.data).toBe(false);
+    const dropped = schema.safeParse({
+      ...plain,
+      attack: [row("Sword", "4", { [MULTIPLE]: { value: "4" } })],
+    });
+    expect(dropped.success && MULTIPLE in (dropped.data.attack as StatRow[])[0]).toBe(false);
   });
 
   it("takes no rows at all, posted as an empty array or left out", () => {
@@ -917,18 +940,6 @@ describe("statBlockSchema with a repeating group", () => {
       attack: "Keep it under 50 rows.",
     });
   });
-
-  it("holds a row's pool to the max its own row feeds", () => {
-    const result = schema.safeParse({
-      ...plain,
-      attack: [row("Sword", "4", { uses: { value: "5", min: "" } })],
-    });
-    expect(errorsOf(result)).toEqual({ "attack.0.uses.value": "That is above the max of 4." });
-    expect(
-      schema.safeParse({ ...plain, attack: [row("Sword", "4", { uses: { value: "4", min: "" } })] })
-        .success,
-    ).toBe(true);
-  });
 });
 
 describe("statBlocksSchema", () => {
@@ -953,7 +964,7 @@ describe("statBlocksSchema", () => {
       "-90": {
         stats: { str: { value: 14 } },
         combat: {
-          hp: { value: 99 },
+          hp: { value: 99, max: 14 },
           mana: { value: 0, max: 0 },
           rage: { value: 0 },
           die: { value: "d4" },

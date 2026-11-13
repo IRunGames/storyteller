@@ -50,7 +50,6 @@ const definition: StatBlockDefinition = {
           label: "Strength",
           type: "display",
           rack: [],
-          connectedTo: "",
           computedAs: "",
           visible: true,
           format: "",
@@ -60,13 +59,13 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         },
         {
           name: "mod",
           label: "",
           type: "computed",
           rack: [],
-          connectedTo: "",
           computedAs: "stats.str - 10",
           visible: true,
           format: "",
@@ -76,6 +75,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         },
       ],
     },
@@ -91,7 +91,6 @@ const definition: StatBlockDefinition = {
           label: "HP",
           type: "pool",
           rack: [],
-          connectedTo: "stats.str",
           computedAs: "",
           visible: true,
           format: "",
@@ -101,13 +100,13 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         },
         {
           name: "mana",
           label: "",
           type: "pool",
           rack: [],
-          connectedTo: "",
           computedAs: "",
           visible: true,
           format: "",
@@ -117,13 +116,13 @@ const definition: StatBlockDefinition = {
           roll: "1d6",
           global: true,
           upDown: true,
+          initialRoll: "",
         },
         {
           name: "rage",
           label: "",
           type: "stack",
           rack: [],
-          connectedTo: "",
           computedAs: "",
           visible: true,
           format: "",
@@ -133,13 +132,13 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         },
         {
           name: "die",
           label: "",
           type: "rack",
           rack: ["d4", "d6", "d8"],
-          connectedTo: "",
           computedAs: "",
           visible: true,
           format: "",
@@ -149,6 +148,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         },
       ],
     },
@@ -165,7 +165,6 @@ const definition: StatBlockDefinition = {
           label: "Weapon",
           type: "display",
           rack: [],
-          connectedTo: "",
           computedAs: "",
           visible: true,
           format: "",
@@ -175,13 +174,13 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         },
         {
           name: "strike",
           label: "",
           type: "display",
           rack: [],
-          connectedTo: "",
           computedAs: "",
           visible: true,
           format: "",
@@ -191,13 +190,13 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         },
         {
           name: "uses",
           label: "",
           type: "pool",
           rack: [],
-          connectedTo: "strike",
           computedAs: "",
           visible: true,
           format: "",
@@ -207,6 +206,7 @@ const definition: StatBlockDefinition = {
           roll: "1d6",
           global: true,
           upDown: true,
+          initialRoll: "",
         },
       ],
     },
@@ -344,7 +344,11 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         statBlocks: {
           [idSystem]: {
             attack: [
-              { weapon: { value: "Axe" }, strike: { value: 3 }, uses: { value: 1, min: 0 } },
+              {
+                weapon: { value: "Axe" },
+                strike: { value: 3 },
+                uses: { value: 1, min: 0, max: 5 },
+              },
             ],
           },
         },
@@ -384,16 +388,20 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       ["A hooded figure (Fist)", "1d6+3", "for A hooded figure (Fist): uses", false],
     ]);
 
-    // With two of the group, each row is rolled twice, numbered.
+    // A row the element has two of is rolled twice, numbered.
     await db
       .update(tables.sceneElements)
       .set({
         statBlocks: {
           [idSystem]: {
             attack: [
-              { weapon: { value: "Sword" }, strike: { value: 4 }, uses: { value: 1, min: 0 } },
+              {
+                weapon: { value: "Sword" },
+                strike: { value: 4 },
+                uses: { value: 1, min: 0 },
+                $multiple: { value: 2 },
+              },
             ],
-            $multiples: { attack: { value: 2 } },
           },
         },
       })
@@ -749,6 +757,49 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     }
   });
 
+  it("rolls a stat's Initialized as once as its block is made, for the value and the max", async () => {
+    const holder = { idStory: myStory, idSceneElement };
+    await db
+      .update(tables.sceneElements)
+      .set({ statBlocks: {} })
+      .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
+    // The fixture's mana, started by 2d4 for this test alone.
+    const rolled: StatBlockDefinition = {
+      groups: definition.groups.map((group) =>
+        group.name === "combat"
+          ? {
+              ...group,
+              stats: group.stats.map((stat) =>
+                stat.name === "mana" ? { ...stat, initialRoll: "2d4" } : stat,
+              ),
+            }
+          : group,
+      ),
+    };
+    await db
+      .update(tables.systems)
+      .set({ statBlockDefinition: rolled })
+      .where(eq(tables.systems.idSystem, idSystem));
+    try {
+      const result = await actions.sa_addStatBlock(holder, idSystem, "combat");
+      expect(result.ok).toBe(true);
+      const combat = ((await storedOnLink()) as StatBlocks)[idSystem].combat as StatRow;
+      expect(combat.mana.value).toBeGreaterThanOrEqual(2);
+      expect(combat.mana.value).toBeLessThanOrEqual(8);
+      expect(combat.mana.max).toBe(combat.mana.value);
+      expect(combat.hp).toEqual({ value: 0, min: 0, max: 0 });
+    } finally {
+      await db
+        .update(tables.systems)
+        .set({ statBlockDefinition: definition })
+        .where(eq(tables.systems.idSystem, idSystem));
+      await db
+        .update(tables.sceneElements)
+        .set({ statBlocks: {} })
+        .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
+    }
+  });
+
   it("picks a stat block for a holder and takes it off again, leaving the others", async () => {
     const holder = { idStory: myStory, idSceneElement };
     await db
@@ -761,7 +812,7 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     expect(await storedOnLink()).toEqual({
       [idSystem]: {
         combat: {
-          hp: { value: 0, min: 0 },
+          hp: { value: 0, min: 0, max: 0 },
           mana: { value: 0, min: 0, max: 0 },
           rage: { value: 0 },
           die: { value: "d4" },
@@ -806,8 +857,7 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       [idSystem]: {
         stats: { str: { value: "strong" } },
         combat: {
-          // hp's max is fed by stats.str, so a word there is dropped; mana's is its own.
-          hp: { value: "9", min: "", max: "x" },
+          hp: { value: "9", min: "", max: "20" },
           mana: { value: 1, min: 0, max: "x" },
           rage: { value: 0 },
           die: { value: "d6" },
@@ -886,17 +936,17 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       "hp",
       {
         value: 5,
+        max: 10,
       },
     );
     expect(second.ok && second.block.stored).toBe(true);
     expect(await stored()).toEqual({
-      [idSystem]: { stats: { str: { value: 12 } }, combat: { hp: { value: 5, min: 0 } } },
+      [idSystem]: { stats: { str: { value: 12 } }, combat: { hp: { value: 5, min: 0, max: 10 } } },
     });
     expect(second.ok && statOf(second.block, "stats", "mod").value).toBe(2);
   });
 
-  it("clamps a pool to the max that feeds it and to its min, and a stack to 0 and its max", async () => {
-    // hp's max is Strength, 12.
+  it("clamps a pool to its max and its min, and a stack to 0 and its max", async () => {
     let result = await actions.sa_setStat(
       { idStory: myStory, idElement },
       idSystem,
@@ -904,6 +954,7 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       "hp",
       {
         value: 20,
+        max: 12,
       },
     );
     expect(result.ok && statOf(result.block, "combat", "hp")).toMatchObject({ value: 12, max: 12 });
@@ -998,7 +1049,11 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
           [idSystem]: {
             ...current[idSystem],
             attack: [
-              { weapon: { value: "Sword" }, strike: { value: 4 }, uses: { value: 2, min: 0 } },
+              {
+                weapon: { value: "Sword" },
+                strike: { value: 4 },
+                uses: { value: 2, min: 0, max: 4 },
+              },
               { weapon: { value: "Fist" }, strike: { value: 1 }, uses: { value: 0, min: 0 } },
             ],
           },
@@ -1017,7 +1072,7 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     expect(result.ok).toBe(true);
     const block = (result as { ok: true; block: ElementStatBlock }).block;
     expect(rowsOf(block, "attack").map((row) => row.key)).toEqual(["Sword", "Fist"]);
-    // Clamped to the row's own strike.
+    // Clamped to the row's own max.
     expect(rowStatOf(block, "attack", "Sword", "uses")).toMatchObject({ value: 4, max: 4 });
     expect(rowStatOf(block, "attack", "Fist", "uses").value).toBe(0);
     expect(statOf(block, "stats", "str").value).toBe(12);

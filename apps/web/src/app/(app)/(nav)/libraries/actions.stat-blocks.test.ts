@@ -50,7 +50,6 @@ const definition: StatBlockDefinition = {
           label: "",
           type: "display",
           rack: [],
-          connectedTo: "",
           computedAs: "",
           visible: true,
           format: "",
@@ -60,6 +59,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         },
       ],
     },
@@ -75,7 +75,6 @@ const definition: StatBlockDefinition = {
           label: "HP",
           type: "pool",
           rack: [],
-          connectedTo: "stats.str",
           computedAs: "",
           visible: true,
           format: "",
@@ -85,13 +84,13 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         },
         {
           name: "rage",
           label: "",
           type: "stack",
           rack: [],
-          connectedTo: "",
           computedAs: "",
           visible: true,
           format: "",
@@ -101,6 +100,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          initialRoll: "",
         },
       ],
     },
@@ -223,7 +223,10 @@ describe("libraries stat block actions", { skip: !hasDb && "DATABASE_URL is not 
     const refused = await actions.sa_createElement(myStory, {
       ...baseValues,
       statBlocks: {
-        [key]: { stats: { str: { value: 12 } }, combat: { hp: { value: 20 }, rage: { value: 0 } } },
+        [key]: {
+          stats: { str: { value: 12 } },
+          combat: { hp: { value: 20, max: 12 }, rage: { value: 0 } },
+        },
         [String(bare)]: {},
       },
     });

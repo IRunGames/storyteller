@@ -5,7 +5,7 @@ import { LiveTable } from "@/components/live/live-table";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getPlayStory } from "@/app/(app)/play/[id]/actions";
 import { sa_getScenePlaySpace } from "@/app/(app)/run/[id]/actions";
-import { sa_getStorySceneForEdit } from "@/app/(app)/(nav)/libraries/actions";
+import { sa_getSceneToBuild, sa_getStorySceneForEdit } from "@/app/(app)/(nav)/libraries/actions";
 
 // The same int4 range as /run/[id]; see there.
 const idSchema = z.coerce.number().int().min(-2147483648).max(2147483647);
@@ -28,10 +28,13 @@ export default async function LiveScenePage({ params }: { params: Promise<{ id: 
   const scene = await sa_getStorySceneForEdit(id.data);
   if (!scene) notFound();
 
-  const [story, space, sceneStatusOptions] = await Promise.all([
+  const [story, space, sceneStatusOptions, buildSceneId] = await Promise.all([
     sa_getPlayStory(scene.idStory),
     sa_getScenePlaySpace(scene.idStory, id.data),
     sa_listStatusOptions("story_scenes"),
+    // Where the title menu's Build scenes goes: the scene touched last,
+    // this one once anything here is saved.
+    sa_getSceneToBuild(scene.idStory),
   ]);
   if (!story || !story.isOwner || !space.scene) notFound();
 
@@ -39,6 +42,7 @@ export default async function LiveScenePage({ params }: { params: Promise<{ id: 
     <LiveTable
       idStory={scene.idStory}
       title={story.title}
+      buildSceneId={buildSceneId}
       scene={space.scene}
       initialTags={space.tags}
       initialCoverUrl={space.coverUrl}

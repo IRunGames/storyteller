@@ -41,7 +41,6 @@ const systems: StatBlockSystems = {
                 label: "AR",
                 type: "display",
                 rack: [],
-                connectedTo: "",
                 computedAs: "",
                 visible: true,
                 format: "",
@@ -51,13 +50,13 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               },
               {
                 name: "sdc",
                 label: "SDC",
                 type: "pool",
                 rack: [],
-                connectedTo: "",
                 computedAs: "",
                 visible: true,
                 format: "",
@@ -67,13 +66,13 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               },
               {
                 name: "current_ar",
                 label: "Current AR",
                 type: "computed",
                 rack: [],
-                connectedTo: "",
                 computedAs:
                   "if(defense.sdc.value < defense.sdc.max / 2, defense.ar.value - 2, defense.ar.value)",
                 visible: true,
@@ -84,13 +83,13 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               },
               {
                 name: "rage",
                 label: "Rage",
                 type: "stack",
                 rack: [],
-                connectedTo: "ar",
                 computedAs: "",
                 visible: true,
                 format: "",
@@ -100,6 +99,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               },
             ],
           },
@@ -117,7 +117,6 @@ const systems: StatBlockSystems = {
                 label: "Weapon",
                 type: "display",
                 rack: [],
-                connectedTo: "",
                 computedAs: "",
                 visible: true,
                 format: "",
@@ -127,13 +126,13 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               },
               {
                 name: "strike",
                 label: "Strike",
                 type: "display",
                 rack: [],
-                connectedTo: "",
                 computedAs: "",
                 visible: true,
                 format: "",
@@ -143,13 +142,13 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               },
               {
                 name: "total",
                 label: "Total",
                 type: "computed",
                 rack: [],
-                connectedTo: "",
                 computedAs: "attack.strike.value + defense.ar.value",
                 visible: true,
                 format: "",
@@ -159,6 +158,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               },
             ],
           },
@@ -182,7 +182,6 @@ const systems: StatBlockSystems = {
                 label: "Agility",
                 type: "rack",
                 rack: ["d4", "d6", "d8"],
-                connectedTo: "",
                 computedAs: "",
                 visible: true,
                 format: "",
@@ -192,6 +191,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                initialRoll: "",
               },
             ],
           },
@@ -273,10 +273,8 @@ describe("ElementForm stat blocks", () => {
     const card = await screen.findByTestId("stat-block--90-defense");
     expect(within(card).getByRole("heading", { name: "Defense" })).toBeInTheDocument();
     expect(within(picker).queryByRole("button", { name: "Add Defense" })).not.toBeInTheDocument();
-    // Fields are labelled by the stat's name; the stack's max is fed by AR,
-    // so it has no max field of its own.
-    expect(within(card).getByText(/max 0 from AR/)).toBeInTheDocument();
-    expect(within(card).queryByRole("textbox", { name: "Rage max" })).not.toBeInTheDocument();
+    // Fields are labelled by the stat's name, a stack's max among them.
+    expect(within(card).getByRole("textbox", { name: "Rage max" })).toBeInTheDocument();
 
     const ar = within(card).getByRole("textbox", { name: "AR" });
     await user.clear(ar);
@@ -291,7 +289,6 @@ describe("ElementForm stat blocks", () => {
     await user.clear(sdc);
     await user.type(sdc, "6");
     expect(screen.getByTestId("computed-current_ar")).toHaveTextContent("10");
-    expect(within(card).getByText(/max 10 from AR/)).toBeInTheDocument();
   });
 
   it("titles a stat by its label, or its name without one, with the description as a tooltip", async () => {
@@ -308,7 +305,7 @@ describe("ElementForm stat blocks", () => {
                   ...group,
                   stats: group.stats.map((stat) =>
                     stat.name === "sdc"
-                      ? { ...stat, description: "Structural damage capacity" }
+                      ? { ...stat, description: "Structural damage capacity", initialRoll: "3d6" }
                       : stat.name === "ar"
                         ? { ...stat, label: "" }
                         : stat,
@@ -323,8 +320,9 @@ describe("ElementForm stat blocks", () => {
     const card = await screen.findByTestId("stat-block--90-defense");
     expect(within(card).getByRole("textbox", { name: "ar" })).toBeInTheDocument();
     expect(within(card).getByText("Rage")).toBeInTheDocument();
+    // What the stat is initialized as follows the description in the tooltip.
     await user.hover(within(card).getByText("SDC"));
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Structural damage capacity");
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Structural damage capacity: 3d6");
   });
 
   it("adds every block at once, and Remove asks before taking one off, which is then not posted", async () => {
@@ -375,7 +373,36 @@ describe("ElementForm stat blocks", () => {
     ]);
   });
 
-  it("gives a group that can have multiples a Multiple box, 1 to start, posted with the block", async () => {
+  it("rolls a stat's Initialized as when its block is added, filling the value and the max alike", async () => {
+    const user = userEvent.setup();
+    const rolled: StatBlockSystems = {
+      ...systems,
+      systems: systems.systems.map((system) => ({
+        ...system,
+        definition: {
+          groups: system.definition.groups.map((group) => ({
+            ...group,
+            stats: group.stats.map((stat) =>
+              stat.name === "sdc" ? { ...stat, initialRoll: "2d6" } : stat,
+            ),
+          })),
+        },
+      })),
+    };
+    renderWithProviders(<ElementForm idStory={-15} kind="PERSON" statBlockSystems={rolled} />);
+
+    await user.click(screen.getByRole("button", { name: "Add Defense" }));
+    const value = await screen.findByRole("textbox", { name: "SDC value" });
+    const max = screen.getByRole("textbox", { name: "SDC max" });
+    const total = Number((value as HTMLInputElement).value);
+    expect(total).toBeGreaterThanOrEqual(2);
+    expect(total).toBeLessThanOrEqual(12);
+    expect(max).toHaveValue(String(total));
+    // A stat without one starts at 0 as before.
+    expect(screen.getByRole("textbox", { name: "AR" })).toHaveValue("0");
+  });
+
+  it("gives each row of a group that can have multiples a Multiple box, 1 to start, posted with the row", async () => {
     const user = userEvent.setup();
     const withMultiples: StatBlockSystems = {
       ...systems,
@@ -393,8 +420,12 @@ describe("ElementForm stat blocks", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Add all" }));
-    // Only Attack has the box; Defense cannot have multiples.
-    const multiple = screen.getByRole("textbox", { name: "Multiple" });
+    // Each Attack row has its own Multiple, named by the row's key.
+    await user.click(screen.getByRole("button", { name: "Add Attack row" }));
+    const row = screen.getAllByRole("row")[1];
+    expect(screen.getByRole("columnheader", { name: "Multiple" })).toBeInTheDocument();
+    await user.type(within(row).getByLabelText("Weapon"), "Sword");
+    const multiple = screen.getByRole("textbox", { name: "Sword multiple" });
     expect(multiple).toHaveValue("1");
     await user.clear(multiple);
     await user.type(multiple, "3");
@@ -402,9 +433,8 @@ describe("ElementForm stat blocks", () => {
     await user.click(screen.getByRole("button", { name: "Create element" }));
     await waitFor(() => expect(sa_createElement.mock.callCount()).toBe(1));
     const [, values] = sa_createElement.mock.calls[0].arguments;
-    expect(
-      (values.statBlocks as Record<string, Record<string, unknown>>)["-90"].$multiples,
-    ).toEqual({ attack: { value: 3 } });
+    const attack = (values.statBlocks as Record<string, Record<string, unknown[]>>)["-90"].attack;
+    expect(attack[0]).toMatchObject({ weapon: { value: "Sword" }, $multiple: { value: 3 } });
   });
 
   it("stars the first row as the default, and a star on another moves it to the front", async () => {
