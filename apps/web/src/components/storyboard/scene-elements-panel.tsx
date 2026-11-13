@@ -17,13 +17,16 @@ type Props = {
   title: string;
 };
 
+// What was last read, with the scene it was read for: a read for another
+// scene is stale, so a new scene shows loading until its own read lands,
+// without the effect having to clear it.
 type Load =
   | { state: "loading" }
-  | { state: "ready"; scene: PlayScene }
+  | { state: "ready"; idStoryScene: number; scene: PlayScene }
   // The action answered null (the scene is gone, or no longer the viewer's
   // to see) or threw; the panel says the same for both, since neither is
   // the viewer's to fix.
-  | { state: "failed" };
+  | { state: "failed"; idStoryScene: number };
 
 /**
  * The lower half a scene card grows when its Elements button is pressed:
@@ -55,24 +58,30 @@ type Load =
  * dimming and its pills are set for the theme's text.
  */
 export function SceneElementsPanel({ id, idStory, idStoryScene, title }: Props) {
-  const [load, setLoad] = useState<Load>({ state: "loading" });
+  const [loaded, setLoaded] = useState<Load>({ state: "loading" });
   const [coverOpen, setCoverOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setLoad({ state: "loading" });
     sa_getStoryboardScene(idStoryScene)
-      .then((loaded) => {
+      .then((scene) => {
         if (cancelled) return;
-        setLoad(loaded ? { state: "ready", scene: loaded } : { state: "failed" });
+        setLoaded(
+          scene ? { state: "ready", idStoryScene, scene } : { state: "failed", idStoryScene },
+        );
       })
       .catch(() => {
-        if (!cancelled) setLoad({ state: "failed" });
+        if (!cancelled) setLoaded({ state: "failed", idStoryScene });
       });
     return () => {
       cancelled = true;
     };
   }, [idStoryScene]);
+
+  const load: Load =
+    loaded.state !== "loading" && loaded.idStoryScene === idStoryScene
+      ? loaded
+      : { state: "loading" };
 
   const coverUrl = load.state === "ready" ? load.scene.coverUrl : null;
 
