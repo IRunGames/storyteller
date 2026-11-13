@@ -1143,7 +1143,7 @@ describe("RunTable", () => {
     expect(within(panel).queryByRole("button", { name: "Remove from scene" })).toBeNull();
 
     // The scene's text opens to read, with no form.
-    await u.click(within(space).getByRole("button", { name: /^Describe / }));
+    await u.click(within(space).getByRole("button", { name: scene.title }));
     const text = await screen.findByRole("dialog", { name: scene.title });
     expect(await within(text).findByText("Fog on the water.")).toBeInTheDocument();
     expect(within(text).queryByRole("textbox")).toBeNull();
@@ -1604,10 +1604,11 @@ describe("RunTable", () => {
     });
     const space = screen.getByRole("region", { name: "Play space" });
 
-    const chevron = within(space).getByRole("button", {
-      name: "Describe Strangers in the morning",
-    });
+    // The title is the trigger, and says so on hover.
+    const chevron = within(space).getByRole("button", { name: "Strangers in the morning" });
     expect(chevron).toHaveAttribute("aria-expanded", "false");
+    await u.hover(chevron);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Click to open scene options");
     await u.click(chevron);
     const panel = await screen.findByRole("dialog", { name: "Strangers in the morning" });
     expect(chevron).toHaveAttribute("aria-expanded", "true");

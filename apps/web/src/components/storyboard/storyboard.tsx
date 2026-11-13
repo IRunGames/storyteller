@@ -1,7 +1,6 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
-import NextLink from "next/link";
 import {
   Badge,
   Box,
@@ -12,13 +11,12 @@ import {
   Heading,
   HStack,
   IconButton,
-  Link,
   Portal,
   Stack,
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { BookOpen, ChevronsLeft, ChevronsRight, Info, Pencil, ScrollText } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Info } from "lucide-react";
 import type { StatusOption } from "@/lib/status";
 import { SESSION_DONE_STATUS, cssUrlValue, sessionHeading, sessionStatusText } from "@/lib/stories";
 import type {
@@ -31,6 +29,7 @@ import {
   sa_getStoryboardUnplayed,
 } from "@/app/(app)/(nav)/stories/[id]/storyboard/actions";
 import { LocalDate } from "@/components/dates/local-date";
+import { StoryTitleMenu } from "@/components/stories/story-title-menu";
 import { SceneCard } from "./scene-card";
 import { SessionEditPopover } from "./session-edit-popover";
 
@@ -38,6 +37,8 @@ type Props = {
   board: StoryboardData;
   /** The story_scenes workflow, for the status word on each card. */
   sceneStatusOptions: StatusOption[];
+  /** The scene the title menu's Build scenes opens (sa_getSceneToBuild); null for none, or for a reader. */
+  buildSceneId?: number | null;
 };
 
 // How far in from the edge the board's rows start, and the gutter the
@@ -68,7 +69,7 @@ const GUTTER = { base: "4", md: "8" } as const;
  * a timeline reads left to right, and a board of a dozen sittings laid
  * down the page would be a long way to scroll past the ones already read.
  */
-export function Storyboard({ board, sceneStatusOptions }: Props) {
+export function Storyboard({ board, sceneStatusOptions, buildSceneId = null }: Props) {
   const [sessions, setSessions] = useState<StoryboardSession[]>(board.sessions);
   const [moreSessions, setMoreSessions] = useState(board.moreSessions);
   const [unplayed, setUnplayed] = useState<StoryboardScene[]>(board.unplayed);
@@ -179,63 +180,19 @@ export function Storyboard({ board, sceneStatusOptions }: Props) {
         color={board.imageUrl ? "white" : undefined}
       >
         <HStack gap="3" align="center" px={GUTTER}>
-          {/* The story's title is the way back to its page: the board has
-              no panel of its own to put a link in. */}
-          <Heading as="h1" size="3xl">
-            <Link asChild color="inherit" _hover={{ textDecoration: "underline" }}>
-              <NextLink href={`/stories/${board.idStory}`}>{board.title}</NextLink>
-            </Link>
-          </Heading>
+          {/* The story's title, whose caret opens the story's doors
+              (StoryTitleMenu): the story's page for anyone who can see the
+              board, and the storyteller's pages for the storyteller. */}
+          <StoryTitleMenu
+            idStory={board.idStory}
+            title={board.title}
+            isStoryteller={board.isStoryteller}
+            buildSceneId={buildSceneId}
+            onImage={!!board.imageUrl}
+          />
           <Badge variant="solid" colorPalette="blue" flexShrink="0">
             STORYBOARD
           </Badge>
-          {/* The story's doors, as its page has them beside its name: the
-              page itself for anyone who can see the board, and the library
-              and Edit story for the storyteller, whose pages those are. */}
-          <HStack gap="1" flexShrink="0">
-            {[
-              {
-                label: "Story",
-                href: `/stories/${board.idStory}`,
-                icon: <ScrollText size={18} />,
-              },
-              ...(board.isStoryteller
-                ? [
-                    {
-                      label: "Library: Full Story Resources",
-                      href: `/libraries/${board.idStory}`,
-                      icon: <BookOpen size={18} />,
-                    },
-                    {
-                      label: "Edit story",
-                      href: `/stories/${board.idStory}/edit`,
-                      icon: <Pencil size={18} />,
-                    },
-                  ]
-                : []),
-            ].map((door) => (
-              <Tooltip.Root key={door.label} openDelay={200} positioning={{ placement: "top" }}>
-                <Tooltip.Trigger asChild>
-                  <IconButton
-                    asChild
-                    aria-label={door.label}
-                    variant="ghost"
-                    size="sm"
-                    rounded="full"
-                    color={board.imageUrl ? "whiteAlpha.900" : undefined}
-                    _hover={board.imageUrl ? { bg: "whiteAlpha.200" } : undefined}
-                  >
-                    <NextLink href={door.href}>{door.icon}</NextLink>
-                  </IconButton>
-                </Tooltip.Trigger>
-                <Portal>
-                  <Tooltip.Positioner>
-                    <Tooltip.Content>{door.label}</Tooltip.Content>
-                  </Tooltip.Positioner>
-                </Portal>
-              </Tooltip.Root>
-            ))}
-          </HStack>
           {failed && (
             <Text role="alert" textStyle="sm" color={mutedColor}>
               More could not be loaded right now.

@@ -52,6 +52,7 @@ describe("StoryTitleMenu", () => {
 
   it("draws the title as the page's h1 with a caret, opening the storyteller's doors as links", async () => {
     const user = userEvent.setup();
+    pathname = "/somewhere/else";
     renderWithProviders(
       <StoryTitleMenu idStory={-15} title="Vampire" isStoryteller buildSceneId={-7} />,
     );
@@ -63,6 +64,7 @@ describe("StoryTitleMenu", () => {
     const menu = await screen.findByRole("menu");
     const links = screen.getAllByRole("menuitem");
     expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["Overview", "/stories/-15"],
       ["Edit", "/stories/-15/edit"],
       ["Library", "/libraries/-15"],
       ["Build scenes", "/scenes/-7/live"],
@@ -70,13 +72,10 @@ describe("StoryTitleMenu", () => {
       ["Storyboard", "/stories/-15/storyboard"],
     ]);
     // Real links, so the browser's own ways with them hold; Play opens the
-    // Play popover instead, and says so with the mark at its end.
+    // Play popover instead.
     for (const link of links) {
       if (link.textContent !== "Play") expect(link.tagName).toBe("A");
     }
-    expect(
-      screen.getByRole("menuitem", { name: "Play" }).querySelector("svg.lucide-external-link"),
-    ).not.toBeNull();
     expect(menu).toBeInTheDocument();
   });
 
@@ -161,9 +160,13 @@ describe("StoryTitleMenu", () => {
     renderWithProviders(<StoryTitleMenu idStory={-15} title="Vampire" isStoryteller={false} />);
 
     await user.click(screen.getByRole("button", { name: "Vampire" }));
-    expect((await screen.findAllByRole("menuitem")).map((link) => link.textContent)).toEqual([
-      "Storyboard",
+    // On the story's own page, so Overview is the current one.
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
+      ["Overview", null],
+      ["Storyboard", "/stories/-15/storyboard"],
     ]);
+    expect(items[0]).toHaveAttribute("aria-current", "page");
   });
 
   it("draws the title as whatever element the page asks for", () => {

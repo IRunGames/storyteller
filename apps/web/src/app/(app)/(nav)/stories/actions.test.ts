@@ -272,6 +272,84 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     expect(ids).not.toContain(storyC);
   });
 
+  it("lists the user's own, played-in and favorited stories on one page, searched and sorted in the database", async () => {
+    const page = (over: Record<string, unknown> = {}) =>
+      actions.sa_listMyStoryPage({
+        search: "",
+        showInactive: false,
+        sortBy: "recent",
+        sortDesc: true,
+        offset: 0,
+        ...over,
+      });
+    const ids = (rows: { idStory: number }[]) => rows.map((row) => row.idStory);
+
+    // Played in (A) and only favorited (B) are both here; someone else's
+    // story the user has no part in (C), their own retired one (D) and
+    // their archived favorite (E) are not.
+    const shown = ids(await page());
+    expect(shown).toEqual(expect.arrayContaining([storyA, storyB]));
+    for (const id of [storyC, storyD, storyE]) expect(shown).not.toContain(id);
+
+    // Show inactive brings the retired story of their own, never the archived one.
+    const withInactive = ids(await page({ showInactive: true }));
+    expect(withInactive).toContain(storyD);
+    expect(withInactive).not.toContain(storyE);
+    expect(withInactive).not.toContain(storyC);
+
+    // The search runs over stories.search_text.
+    expect(ids(await page({ search: "only favorites it" }))).toEqual([storyB]);
+    expect(await page({ search: "nothing has this in it" })).toEqual([]);
+
+    // And over the story's system, by its name, version or variant: B is
+    // given a fixture system of its own for this, and loses it after.
+    const [system] = await db
+      .insert(tables.systems)
+      .values({
+        systemName: "Fixture Stories Search System",
+        systemVersion: "9th",
+        variant: "Revised",
+      })
+      .returning({ idSystem: tables.systems.idSystem });
+    await db
+      .update(tables.stories)
+      .set({ idSystem: system.idSystem })
+      .where(eq(tables.stories.idStory, storyB));
+    try {
+      expect(ids(await page({ search: "stories search system" }))).toEqual([storyB]);
+      expect(ids(await page({ search: "9th" }))).toContain(storyB);
+      expect(ids(await page({ search: "System 9th Revised" }))).toEqual([storyB]);
+    } finally {
+      await db
+        .update(tables.stories)
+        .set({ idSystem: null })
+        .where(eq(tables.stories.idStory, storyB));
+      await db.delete(tables.systems).where(eq(tables.systems.idSystem, system.idSystem));
+    }
+
+    // Sorted by favorite, the favorites come first, and last the other way.
+    const byFavorite = await page({ sortBy: "favorite", sortDesc: true });
+    expect(byFavorite[0].idStory).toBe(storyB);
+    expect(byFavorite[0].isFavorite).toBe(true);
+    const unfavoriteFirst = await page({ sortBy: "favorite", sortDesc: false });
+    expect(unfavoriteFirst.at(-1)?.idStory).toBe(storyB);
+
+    // Sorted by title, case set aside; by a count, the counts in order.
+    const byTitle = (await page({ sortBy: "title", sortDesc: false })).map((row) =>
+      row.title.toLowerCase(),
+    );
+    expect(byTitle).toEqual([...byTitle].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+    const bySessions = (await page({ sortBy: "sessions", sortDesc: true })).map(
+      (row) => row.sessionCount,
+    );
+    expect(bySessions).toEqual([...bySessions].sort((a, b) => b - a));
+    const byStatus = await page({ showInactive: true, sortBy: "status", sortDesc: false });
+    expect(byStatus[0].isActive).toBe(false);
+
+    await expect(page({ sortBy: "nonsense" })).rejects.toThrow();
+    await expect(page({ offset: -1 })).rejects.toThrow();
+  });
+
   it("counts who is waiting on a card, leaving out the viewer", async () => {
     // Both waiting for story A: the viewer (the test user) and one other.
     // Rows cascade away with the fixture stories in after().

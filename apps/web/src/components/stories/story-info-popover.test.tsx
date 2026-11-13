@@ -27,6 +27,9 @@ const story: StoryCardData = {
   isPlayer: false,
   isPublic: false,
   presentCount: 0,
+  sessionCount: 0,
+  playMinutes: 0,
+  buildSceneId: null,
 };
 
 // The popover imports its server action itself, so the module is mocked

@@ -63,27 +63,11 @@ export function StorySection({
           {emptyAction}
         </Stack>
       ) : (
-        // Two regimes. Up to lg the grid has a fixed column count and the
-        // cards stretch to fill it: one wide card on a phone, two on a
-        // tablet. From lg up a card may grow only from 16rem to 20rem, and
-        // any further width becomes another column rather than wider cards.
-        <Grid
-          templateColumns={{
-            base: "1fr",
-            md: "repeat(2, minmax(0, 1fr))",
-            lg: "repeat(auto-fill, minmax(16rem, 20rem))",
-          }}
-          gap="4"
-        >
-          {stories.map((story) => (
-            <StoryCard
-              key={story.idStory}
-              story={story}
-              onToggleFavorite={onToggleFavorite}
-              favoritePending={pendingFavorites.has(story.idStory)}
-            />
-          ))}
-        </Grid>
+        <StoryCardGrid
+          stories={stories}
+          onToggleFavorite={onToggleFavorite}
+          pendingFavorites={pendingFavorites}
+        />
       )}
 
       {hasMore && (
@@ -95,5 +79,42 @@ export function StorySection({
         </Box>
       )}
     </Stack>
+  );
+}
+
+/**
+ * Stories as their cards. Two regimes. Up to lg the grid has a fixed column
+ * count and the cards stretch to fill it: one wide card on a phone, two on
+ * a tablet. From lg up a card may grow only from 16rem to 20rem, and any
+ * further width becomes another column rather than wider cards. The
+ * sections and the Stories page (MyStories) draw their cards with it.
+ */
+export function StoryCardGrid({
+  stories,
+  onToggleFavorite,
+  pendingFavorites,
+}: {
+  stories: StoryCardData[];
+  onToggleFavorite: (story: StoryCardData, isFavorite: boolean) => void;
+  pendingFavorites: ReadonlySet<number>;
+}) {
+  return (
+    <Grid
+      templateColumns={{
+        base: "1fr",
+        md: "repeat(2, minmax(0, 1fr))",
+        lg: "repeat(auto-fill, minmax(16rem, 20rem))",
+      }}
+      gap="4"
+    >
+      {stories.map((story) => (
+        <StoryCard
+          key={story.idStory}
+          story={story}
+          onToggleFavorite={onToggleFavorite}
+          favoritePending={pendingFavorites.has(story.idStory)}
+        />
+      ))}
+    </Grid>
   );
 }

@@ -28,6 +28,9 @@ function stories(count: number, from = 1, isFavorite = false): StoryCardData[] {
     isPlayer: false,
     isPublic: false,
     presentCount: 0,
+    sessionCount: 0,
+    playMinutes: 0,
+    buildSceneId: null,
   }));
 }
 
@@ -275,7 +278,9 @@ describe("StoriesBoard", () => {
     expect(
       within(section("Looking for Players")).getByRole("button", { name: "Remove from Favorites" }),
     ).toBeInTheDocument();
-    expect(within(section("Favorites")).getByRole("link", { name: "Story 7" })).toBeInTheDocument();
+    expect(
+      within(section("Favorites")).getByRole("link", { name: "Open Story 7" }),
+    ).toBeInTheDocument();
   });
 
   it("pages Favorites from the server offset after an optimistic add", async () => {

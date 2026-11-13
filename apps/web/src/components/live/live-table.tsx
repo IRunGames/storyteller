@@ -474,11 +474,31 @@ export function LiveTable({
                 pe="1"
                 py="1"
               >
-                <Heading as="h2" size="md" minW="0" truncate title={scene.title}>
-                  {scene.title}
-                </Heading>
-                {/* A little room either side, so the chip stands apart from
-                    the title before it and the chevron after it. */}
+                {/* The title is the popover's own trigger, the chevron after
+                    it, so the chip follows them. */}
+                <SceneTextPopover
+                  asTitle
+                  title={scene.title}
+                  text={scene.text ?? EMPTY_SCENE_TEXT}
+                  save={(values) => sa_setLiveSceneText(idStory, scene.idStoryScene, values)}
+                  onSaved={(text, savedTitle) =>
+                    setScene((current) => ({
+                      ...current,
+                      text,
+                      title: savedTitle ?? current.title,
+                    }))
+                  }
+                  readOnly={isComplete}
+                  editTitle
+                  notesHint="The players can edit this box too."
+                  pictures={{
+                    idStory,
+                    idStoryScene: scene.idStoryScene,
+                    onCoverChange: setCoverUrl,
+                    onPicturesChange: picturesChanged,
+                  }}
+                />
+                {/* A little room before the chip, so it stands apart from the title. */}
                 <Box mx="1.5" flexShrink="0">
                   <StatusPill
                     table="story_scenes"
@@ -509,27 +529,6 @@ export function LiveTable({
                     onChanged={(status) => setScene((current) => ({ ...current, status }))}
                   />
                 </Box>
-                <SceneTextPopover
-                  title={scene.title}
-                  text={scene.text ?? EMPTY_SCENE_TEXT}
-                  save={(values) => sa_setLiveSceneText(idStory, scene.idStoryScene, values)}
-                  onSaved={(text, savedTitle) =>
-                    setScene((current) => ({
-                      ...current,
-                      text,
-                      title: savedTitle ?? current.title,
-                    }))
-                  }
-                  readOnly={isComplete}
-                  editTitle
-                  notesHint="The players can edit this box too."
-                  pictures={{
-                    idStory,
-                    idStoryScene: scene.idStoryScene,
-                    onCoverChange: setCoverUrl,
-                    onPicturesChange: picturesChanged,
-                  }}
-                />
               </HStack>
               <Text
                 rounded="2xl"

@@ -1,5 +1,6 @@
 "use client";
 
+import NextLink from "next/link";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -239,9 +240,19 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
             )}
           />
 
-          <Button type="submit" loading={isSubmitting || isSubmitSuccessful} alignSelf="flex-start">
-            {story ? "Save changes" : "Create story"}
-          </Button>
+          {/* At the lower right, as a dialog's footer lays them out: Cancel,
+              then the action. Cancel is a link back to the story's page with
+              nothing saved, so the back button and a new tab behave. */}
+          <HStack justify="flex-end" gap="2">
+            {story && (
+              <Button asChild variant="ghost">
+                <NextLink href={`/stories/${story.idStory}`}>Cancel</NextLink>
+              </Button>
+            )}
+            <Button type="submit" loading={isSubmitting || isSubmitSuccessful}>
+              {story ? "Save changes" : "Create story"}
+            </Button>
+          </HStack>
         </Stack>
       </form>
     </Stack>

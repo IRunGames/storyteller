@@ -305,7 +305,7 @@ describe("LiveTable", () => {
     renderTable();
 
     const space = screen.getByRole("region", { name: "Play space" });
-    await u.click(within(space).getByRole("button", { name: `Describe ${scene.title}` }));
+    await u.click(within(space).getByRole("button", { name: scene.title }));
     const panel = await screen.findByRole("dialog", { name: scene.title });
     expect(within(panel).getByText("The players can edit this box too.")).toBeInTheDocument();
     // The scene's pictures under the fields, the cover in an area of its own.

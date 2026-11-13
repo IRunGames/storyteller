@@ -211,15 +211,18 @@ export function StoriesBoard<K extends SectionKey>({
     });
   }
 
+  // Favorites earn their place at the top; an empty block there would only
+  // push My Stories down for everyone who has not hearted anything. But an
+  // empty list with more on the server is a paging state, not an empty one —
+  // keep the section so its More button can fetch the rest.
+  const shown = sections.filter(
+    (key) => !(key === "favorites" && board[key].stories.length === 0 && !board[key].hasMore),
+  );
+
   return (
     <Stack gap="10">
-      {sections.map((key) => {
+      {shown.map((key) => {
         const { stories, hasMore, isLoadingMore } = board[key];
-        // Favorites earn their place at the top; an empty block there would
-        // only push My Stories down for everyone who has not hearted anything.
-        // But an empty list with more on the server is a paging state, not an
-        // empty one — keep the section so its More button can fetch the rest.
-        if (key === "favorites" && stories.length === 0 && !hasMore) return null;
         return (
           <StorySection
             key={key}

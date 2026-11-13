@@ -28,6 +28,9 @@ function stories(count: number, from = 1): StoryCardData[] {
     isPlayer: false,
     isPublic: false,
     presentCount: 0,
+    sessionCount: 0,
+    playMinutes: 0,
+    buildSceneId: null,
   }));
 }
 

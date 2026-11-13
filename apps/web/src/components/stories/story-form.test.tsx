@@ -127,6 +127,8 @@ describe("StoryForm", () => {
 
     renderWithProviders(<StoryForm systems={systems} story={existing} />);
     expect(screen.getByRole("heading", { name: "Edit story" })).toBeInTheDocument();
+    // Cancel is a link back to the story's page, beside Save.
+    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", "/stories/-15");
     // Active is on the heading's line, before the fields, beside Archive.
     const active = screen.getByLabelText(/Active/);
     expect(

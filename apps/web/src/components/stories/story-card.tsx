@@ -23,6 +23,7 @@ import { BookOpen, GalleryHorizontalEnd, Heart } from "lucide-react";
 import { LocalDate } from "@/components/dates/local-date";
 import { PlayerCount } from "./player-count";
 import { PlayButton } from "./story-play-button";
+import { StoryTitleMenu } from "./story-title-menu";
 
 type Props = {
   story: StoryCardData;
@@ -33,8 +34,9 @@ type Props = {
 };
 
 // One story on the Stories page. The whole card links to the story; the
-// "more" link and the heart are the two things inside it that do something
-// else, so they stop the click before LinkOverlay sees it.
+// title, which opens the story's doors as a menu (StoryTitleMenu), the
+// "more" link and the heart are the things inside it that do something
+// else, so they sit above the LinkOverlay or stop the click before it sees it.
 export function StoryCard({ story, onToggleFavorite, favoritePending = false }: Props) {
   const system = systemLabel(story);
   const summary = story.summary ?? "";
@@ -116,11 +118,23 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
       <Stack position="relative" h="full" p="4" gap="2">
         {/* Room on the right for the heart, which floats over this corner. */}
         <Stack gap="0" pr="12">
-          <Text as="h3" textStyle="lg" fontWeight="semibold" lineClamp={2}>
-            <LinkOverlay asChild>
-              <NextLink href={`/stories/${story.idStory}`}>{story.title}</NextLink>
-            </LinkOverlay>
-          </Text>
+          {/* The card's own link to the story, named for it; its ::before
+              covers the card, under the title menu and the buttons. */}
+          <LinkOverlay asChild>
+            <NextLink href={`/stories/${story.idStory}`} aria-label={`Open ${story.title}`} />
+          </LinkOverlay>
+          <Box position="relative" zIndex="1" minW="0">
+            <StoryTitleMenu
+              idStory={story.idStory}
+              title={story.title}
+              isStoryteller={story.isOwner}
+              buildSceneId={story.buildSceneId}
+              as="h3"
+              size="md"
+              fontWeight="semibold"
+              onImage
+            />
+          </Box>
           {system && (
             <Text textStyle="xs" color="whiteAlpha.800">
               {system}

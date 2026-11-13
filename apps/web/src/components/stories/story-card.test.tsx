@@ -43,6 +43,9 @@ const story: StoryCardData = {
   isPlayer: false,
   isPublic: false,
   presentCount: 0,
+  sessionCount: 0,
+  playMinutes: 0,
+  buildSceneId: null,
 };
 
 describe("StoryCard", () => {
@@ -59,10 +62,19 @@ describe("StoryCard", () => {
     sa_startPlaying.mock.resetCalls();
   });
 
-  it("shows the title as a link to the story, the system line and the date", () => {
+  it("opens the story from the card, the title opening the story's doors, with the system line and the date", async () => {
+    const user = userEvent.setup();
     renderWithProviders(<StoryCard story={story} />);
 
-    expect(screen.getByRole("link", { name: "The Devil's Spine" })).toHaveAttribute(
+    // The card's own link to the story, which covers it.
+    expect(screen.getByRole("link", { name: "Open The Devil's Spine" })).toHaveAttribute(
+      "href",
+      "/stories/-13",
+    );
+    // The title is the story title menu, as on the story's page.
+    const title = screen.getByRole("heading", { level: 3, name: "The Devil's Spine" });
+    await user.click(within(title).getByRole("button", { name: "The Devil's Spine" }));
+    expect(await screen.findByRole("menuitem", { name: "Overview" })).toHaveAttribute(
       "href",
       "/stories/-13",
     );

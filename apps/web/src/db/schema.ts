@@ -246,6 +246,13 @@ export const stories = pgTable("stories", {
   // The code in the story's join link, /join/<code>; null until the
   // storyteller first asks for the link (sa_getJoinLink).
   joinCode: text("join_code").unique(),
+  // title, summary and standard_tags joined for the Stories page's search,
+  // built by the database from the search_fields recipe on the stories row
+  // of _tables (db/migrations/..._add_stories_search_text.sql). Generated,
+  // so an insert or update never names it.
+  searchText: text("search_text").generatedAlwaysAs(
+    sql`immutable_concat_ws(' ', title, summary, immutable_array_to_string(standard_tags, ' '))`,
+  ),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),

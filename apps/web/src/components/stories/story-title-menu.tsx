@@ -8,10 +8,10 @@ import {
   BookOpen,
   ChevronDown,
   Clapperboard,
-  ExternalLink,
   GalleryHorizontalEnd,
   Pencil,
   Play,
+  ScrollText,
 } from "lucide-react";
 import { storyboardPath } from "@/lib/storyboard";
 import { StoryPlayPopover } from "./story-play-popover";
@@ -42,10 +42,10 @@ type Props = {
 
 /**
  * The story's title with a caret after it, which opens the story's doors as
- * a menu: Edit, Library, Build scenes and Play for the storyteller, and the
- * Storyboard for anyone. Play is the Play button by another door: it opens
+ * a menu: Overview, the story's own page, first for anyone; Edit, Library,
+ * Build scenes and Play for the storyteller; and the Storyboard for anyone. Play is the Play button by another door: it opens
  * the same popover by the title (StoryPlayPopover), asking which session,
- * and the table opens from there, which the mark at the item's end says. Each item is a real link, so the browser's own
+ * and the table opens from there. Each item is a real link, so the browser's own
  * ways with links hold, Cmd-click opening one in another tab among them,
  * but for the page the menu is on, which is marked as the current one and
  * is no link, since there is nowhere to go, and for Build scenes on a story
@@ -67,28 +67,7 @@ export function StoryTitleMenu({
   onImage = false,
 }: Props) {
   const pathname = usePathname();
-  const router = useRouter();
-  const [isMaking, setMaking] = useState(false);
   const [playOpen, setPlayOpen] = useState(false);
-
-  // Build scenes with nothing built yet: a plain "New scene", renamed from
-  // the panel behind its title once there.
-  async function makeFirstScene() {
-    if (isMaking) return;
-    setMaking(true);
-    try {
-      const result = await sa_createLiveScene(idStory, { title: "New scene", description: "" });
-      if (!result.ok || !result.space.scene) {
-        toaster.create({ title: "The scene could not be made. Try again.", type: "error" });
-        return;
-      }
-      router.push(`/scenes/${result.space.scene.idStoryScene}/live`);
-    } catch {
-      toaster.create({ title: "The scene could not be made. Try again.", type: "error" });
-    } finally {
-      setMaking(false);
-    }
-  }
 
   // Which door is the page itself: Build scenes is any scene's live page,
   // not only the one it would open, since that is where scenes are built.
@@ -102,6 +81,7 @@ export function StoryTitleMenu({
     /** The item opens the Play popover rather than following its address. */
     opens?: boolean;
   }[] = [
+    { value: "overview", label: "Overview", href: `/stories/${idStory}`, icon: <ScrollText /> },
     ...(isStoryteller
       ? [
           { value: "edit", label: "Edit", href: `/stories/${idStory}/edit`, icon: <Pencil /> },
@@ -123,8 +103,10 @@ export function StoryTitleMenu({
     },
   ];
 
+  // lazyMount: the items are only drawn while the menu is open, so a page
+  // of story cards draws none of them until one is asked for.
   return (
-    <Menu.Root positioning={{ placement: "bottom-start" }}>
+    <Menu.Root positioning={{ placement: "bottom-start" }} lazyMount unmountOnExit>
       <StoryPlayPopover
         idStory={idStory}
         title={title}
@@ -164,15 +146,13 @@ export function StoryTitleMenu({
           <Menu.Content>
             {items.map((item) =>
               item.href === null ? (
-                <Menu.Item
+                <FirstSceneItem
                   key={item.value}
+                  idStory={idStory}
                   value={item.value}
-                  disabled={isMaking}
-                  onClick={() => void makeFirstScene()}
-                >
-                  {item.icon}
-                  {item.label}
-                </Menu.Item>
+                  icon={item.icon}
+                  label={item.label}
+                />
               ) : isCurrent(item.value, item.href) ? (
                 <Menu.Item
                   key={item.value}
@@ -188,9 +168,6 @@ export function StoryTitleMenu({
                 <Menu.Item key={item.value} value={item.value} onClick={() => setPlayOpen(true)}>
                   {item.icon}
                   {item.label}
-                  <chakra.span ms="auto" ps="4" display="inline-flex" color="fg.muted" aria-hidden>
-                    <ExternalLink size={14} />
-                  </chakra.span>
                 </Menu.Item>
               ) : (
                 <Menu.Item key={item.value} value={item.value} asChild>
@@ -205,5 +182,56 @@ export function StoryTitleMenu({
         </Menu.Positioner>
       </Portal>
     </Menu.Root>
+  );
+}
+
+/**
+ * Build scenes on a story with no scene yet, which has no page to link to:
+ * it makes the first scene, a plain "New scene" renamed from the panel
+ * behind its title once there (sa_createLiveScene, as the live page's +
+ * does), and goes to it. The menu stays open while it works, the item
+ * disabled, so the press is seen to be taken.
+ */
+function FirstSceneItem({
+  idStory,
+  value,
+  icon,
+  label,
+}: {
+  idStory: number;
+  value: string;
+  icon: ReactNode;
+  label: string;
+}) {
+  const router = useRouter();
+  const [isMaking, setMaking] = useState(false);
+
+  async function makeFirstScene() {
+    if (isMaking) return;
+    setMaking(true);
+    try {
+      const result = await sa_createLiveScene(idStory, { title: "New scene", description: "" });
+      if (!result.ok || !result.space.scene) {
+        toaster.create({ title: "The scene could not be made. Try again.", type: "error" });
+        return;
+      }
+      router.push(`/scenes/${result.space.scene.idStoryScene}/live`);
+    } catch {
+      toaster.create({ title: "The scene could not be made. Try again.", type: "error" });
+    } finally {
+      setMaking(false);
+    }
+  }
+
+  return (
+    <Menu.Item
+      value={value}
+      disabled={isMaking}
+      closeOnSelect={false}
+      onClick={() => void makeFirstScene()}
+    >
+      {icon}
+      {label}
+    </Menu.Item>
   );
 }

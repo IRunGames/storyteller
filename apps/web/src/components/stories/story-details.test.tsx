@@ -44,6 +44,9 @@ const story: StoryCardData = {
   isPlayer: false,
   isPublic: false,
   presentCount: 0,
+  sessionCount: 0,
+  playMinutes: 0,
+  buildSceneId: null,
 };
 
 const players: StoryPlayer[] = [
@@ -191,6 +194,7 @@ describe("StoryDetails", () => {
     await user.click(within(title).getByRole("button", { name: "Vampire" }));
     const items = await screen.findAllByRole("menuitem");
     expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
+      ["Overview", null],
       ["Edit", "/stories/-15/edit"],
       ["Library", "/libraries/-15"],
       ["Build scenes", "/scenes/-7/live"],
@@ -237,6 +241,7 @@ describe("StoryDetails", () => {
     await user.click(screen.getByRole("button", { name: "Vampire" }));
     const items = await screen.findAllByRole("menuitem");
     expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
+      ["Overview", null],
       ["Storyboard", "/stories/-15/storyboard"],
     ]);
   });

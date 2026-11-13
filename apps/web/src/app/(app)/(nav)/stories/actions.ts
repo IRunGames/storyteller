@@ -15,16 +15,31 @@ import {
   not,
   or,
   sql,
+  type SQL,
 } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { createInvitation, emailInvitation } from "@/db/invitations";
 import { storyAccess } from "@/db/story-access";
-import { cardOrder, cardQuery, notArchived, playerName } from "@/db/story-cards";
+import {
+  cardOrder,
+  cardQuery,
+  favoritedBy,
+  notArchived,
+  playerCount,
+  playerName,
+  playMinutes,
+  sessionCount,
+} from "@/db/story-cards";
 import { requireAccount, requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
 import { safeRedirect } from "@/lib/safe-redirect";
+import {
+  MY_STORIES_PAGE_SIZE,
+  myStoryListQuerySchema,
+  type StorySortKey,
+} from "@/lib/story-list-schemas";
 import {
   PAGE_SIZE,
   PLAYER_SEARCH_LIMIT,
@@ -114,6 +129,61 @@ export async function sa_listMyStories(
     .orderBy(...cardOrder)
     .limit(PAGE_SIZE)
     .offset(skip);
+}
+
+/**
+ * One page of the Stories page's list: every story the user runs, plays in
+ * or has favorited, less the archived and, unless asked, the retired ones;
+ * searched over stories.search_text (title, summary and standard tags) and
+ * the story's system (name, version and variant), and sorted in the database, so More brings the next rows in the same order
+ * whatever the sort. The favorites are in it so the page needs no section
+ * of its own for them. Ties in the sorted column fall back to the page's
+ * own order, touched last first, then the id, so a page never repeats or
+ * skips a row. Bad input throws: the page builds the query itself.
+ */
+export async function sa_listMyStoryPage(input: unknown): Promise<StoryCardData[]> {
+  const user = await requireAccount();
+  const query = myStoryListQuerySchema.parse(input);
+
+  const playsIn = db
+    .select({ one: storyPlayers.idStoryPlayer })
+    .from(storyPlayers)
+    .where(and(eq(storyPlayers.idStory, stories.idStory), eq(storyPlayers.idUser, user.id)));
+  const favorite = favoritedBy(user.id);
+
+  const conditions = [
+    or(eq(stories.idCreatedByUser, user.id), exists(playsIn), favorite),
+    notArchived,
+  ];
+  if (!query.showInactive) conditions.push(eq(stories.isActive, true));
+  if (query.search !== "") {
+    // The story's own search_text, or its system's name, version and
+    // variant, which the card query joins already: a generated column can
+    // only read its own row, so the system is matched here rather than
+    // copied onto the story, and a renamed system is found by its new name.
+    const pattern = likeContains(query.search);
+    const systemText = sql`concat_ws(' ', ${systems.systemName}, ${systems.systemVersion}, ${systems.variant})`;
+    conditions.push(or(ilike(stories.searchText, pattern), ilike(systemText, pattern)));
+  }
+
+  const sortColumns: Record<Exclude<StorySortKey, "recent">, SQL> = {
+    title: sql`lower(${stories.title})`,
+    status: sql`${stories.isActive}`,
+    favorite,
+    players: playerCount,
+    sessions: sessionCount,
+    played: playMinutes,
+  };
+  const sorted =
+    query.sortBy === "recent"
+      ? []
+      : [query.sortDesc ? desc(sortColumns[query.sortBy]) : asc(sortColumns[query.sortBy])];
+
+  return cardQuery(user.id)
+    .where(and(...conditions))
+    .orderBy(...sorted, ...cardOrder, asc(stories.idStory))
+    .limit(MY_STORIES_PAGE_SIZE)
+    .offset(query.offset);
 }
 
 /** Stories the user has favorited, less any that have since been archived. */

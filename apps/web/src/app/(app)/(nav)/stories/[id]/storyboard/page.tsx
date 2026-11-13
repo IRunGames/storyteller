@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
 import { Storyboard } from "@/components/storyboard/storyboard";
 import { sa_listStatusOptions } from "@/components/status/actions";
+import { sa_getSceneToBuild } from "@/app/(app)/(nav)/libraries/actions";
 import { sa_getStoryboard } from "./actions";
 
 // A story's storyboard, behind the Storyboard door on its page: the scenes
@@ -19,13 +20,17 @@ export default async function StoryboardPage({ params }: { params: Promise<{ id:
   // says why Number() alone would not do.
   if (!/^-?\d+$/.test(id)) notFound();
 
-  const [board, sceneStatusOptions] = await Promise.all([
+  const [board, sceneStatusOptions, buildSceneId] = await Promise.all([
     sa_getStoryboard(Number(id)),
     // The scene workflow, so each card's status is the same word the board
     // and the session page use for it.
     sa_listStatusOptions("story_scenes"),
+    // Where the title menu's Build scenes goes; null for anyone but the storyteller.
+    sa_getSceneToBuild(Number(id)),
   ]);
   if (!board) notFound();
 
-  return <Storyboard board={board} sceneStatusOptions={sceneStatusOptions} />;
+  return (
+    <Storyboard board={board} sceneStatusOptions={sceneStatusOptions} buildSceneId={buildSceneId} />
+  );
 }

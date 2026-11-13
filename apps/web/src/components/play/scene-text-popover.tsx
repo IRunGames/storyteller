@@ -1,7 +1,16 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { chakra, IconButton, Popover, Portal, Stack, Text, Tooltip } from "@chakra-ui/react";
+import {
+  chakra,
+  Heading,
+  IconButton,
+  Popover,
+  Portal,
+  Stack,
+  Text,
+  Tooltip,
+} from "@chakra-ui/react";
 import { ChevronDown, Info, Pencil } from "lucide-react";
 import type { SceneTextValues } from "@/lib/scene-schemas";
 import type { SceneText, SetSceneTextResult } from "@/lib/scenes";
@@ -35,11 +44,19 @@ type Props = {
   icon?: "chevron" | "info" | "pencil";
   /** The button's colour; the storyboard's card passes its white. */
   color?: string;
+  /**
+   * The storyteller's tables: the scene's title itself is the trigger, an
+   * h2 holding a button of the title and the chevron, named by the title,
+   * with "Click to open scene options" on hover; `icon` is then the chevron.
+   */
+  asTitle?: boolean;
 };
 
 /**
- * The chevron beside the scene's title at either table, and the panel it
- * opens: the scene editor (SceneTextForm), the description and notes for
+ * The chevron beside the scene's title at either table, or on the
+ * storyteller's tables the title itself with the chevron after it
+ * (asTitle), and the panel it opens: the scene editor (SceneTextForm), the
+ * description and notes for
  * the storyteller at /run and the players at /play alike, so what the scene
  * is and what is being kept about it can be written up as it is played, and
  * for the storyteller the title and the scene's pictures as well.
@@ -60,6 +77,7 @@ export function SceneTextPopover({
   editTitle = false,
   notesHint,
   pictures,
+  asTitle = false,
 }: Props) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps
   // the popover from opening at the page corner (nav-theme-menu.tsx).
@@ -80,35 +98,78 @@ export function SceneTextPopover({
       initialFocusEl={() => content.current?.querySelector("textarea") ?? null}
     >
       <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label={label}
-              aria-expanded={open}
-              size="xs"
-              variant="ghost"
-              rounded="full"
-              color={color}
-            >
-              {icon === "info" ? (
-                <Info />
-              ) : icon === "pencil" ? (
-                <Pencil />
-              ) : (
-                <chakra.span
+        {asTitle ? (
+          <Heading as="h2" size="md" minW="0" display="inline-flex">
+            <Tooltip.Trigger asChild>
+              <Popover.Trigger asChild>
+                <chakra.button
+                  type="button"
+                  aria-expanded={open}
                   display="inline-flex"
-                  transition="transform 0.15s"
-                  transform={open ? "rotate(180deg)" : undefined}
+                  alignItems="center"
+                  gap="1"
+                  minW="0"
+                  maxW="full"
+                  cursor="pointer"
+                  rounded="md"
+                  px="1"
+                  textAlign="start"
+                  _hover={{ bg: "bg.muted" }}
+                  _focusVisible={{ outline: "2px solid", outlineColor: "colorPalette.focusRing" }}
                 >
-                  <ChevronDown />
-                </chakra.span>
-              )}
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
+                  <chakra.span truncate title={title}>
+                    {title}
+                  </chakra.span>
+                  <chakra.span
+                    display="inline-flex"
+                    flexShrink="0"
+                    transition="transform 0.15s"
+                    transform={open ? "rotate(180deg)" : undefined}
+                    aria-hidden
+                  >
+                    <ChevronDown size={18} />
+                  </chakra.span>
+                </chakra.button>
+              </Popover.Trigger>
+            </Tooltip.Trigger>
+          </Heading>
+        ) : (
+          <Tooltip.Trigger asChild>
+            <Popover.Trigger asChild>
+              <IconButton
+                aria-label={label}
+                aria-expanded={open}
+                size="xs"
+                variant="ghost"
+                rounded="full"
+                color={color}
+              >
+                {icon === "info" ? (
+                  <Info />
+                ) : icon === "pencil" ? (
+                  <Pencil />
+                ) : (
+                  <chakra.span
+                    display="inline-flex"
+                    transition="transform 0.15s"
+                    transform={open ? "rotate(180deg)" : undefined}
+                  >
+                    <ChevronDown />
+                  </chakra.span>
+                )}
+              </IconButton>
+            </Popover.Trigger>
+          </Tooltip.Trigger>
+        )}
         <Portal>
           <Tooltip.Positioner>
-            <Tooltip.Content>{icon === "pencil" ? label : "Description and notes"}</Tooltip.Content>
+            <Tooltip.Content>
+              {asTitle
+                ? "Click to open scene options"
+                : icon === "pencil"
+                  ? label
+                  : "Description and notes"}
+            </Tooltip.Content>
           </Tooltip.Positioner>
         </Portal>
       </Tooltip.Root>

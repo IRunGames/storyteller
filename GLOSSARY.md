@@ -132,12 +132,23 @@ engineering skills consume this file.
 - **Up/down**: a stat flag (`upDown`), offered on a stat held to a number: the
   table draws the up/down changer beside the number's box; without it the
   box alone is drawn. Off on templates written before the flag.
+- **Stories view**: the Stories page's toggle in its upper right between Icon
+  view, the story cards, and List view, a table of the stories (on TanStack
+  Table) with columns for status, favorite, players, sessions and play time
+  (the finished sessions' lengths summed), every one sortable. Kept as the
+  user's `stories.view` preference. The page is one list, My Stories: every
+  story the user runs, plays in or has favorited (`sa_listMyStoryPage`), with
+  no Favorites section of its own; a search box over `stories.search_text`
+  (title, summary and standard tags) and the story's system (name, version
+  and variant, matched in the query) and the column sorts are answered by the
+  database, so More continues in the same order.
 - **Story title menu**: the story's title with a caret after it
   (`StoryTitleMenu`), on the story page, the library, the run page and the
-  live page, which opens the story's doors as links: Edit, Library, Build
-  scenes and Play for the storyteller, the Storyboard for anyone. Play is the
+  live page, which opens the story's doors as links: Overview (the story's
+  page) first for anyone, Edit, Library, Build scenes and Play for the
+  storyteller, the Storyboard for anyone. Play is the
   Play button by another door: it opens the Play popover by the title, asking
-  which session, and the table opens from there; the mark at its end says so. The page the menu is
+  which session, and the table opens from there. The page the menu is
   on is marked current and is no link. Build scenes goes to the scene touched
   last (`sa_getSceneToBuild`); while the story has none it makes the first
   scene (`sa_createLiveScene`) and goes to it. Any scene's live page counts

@@ -242,6 +242,19 @@ describe("Storyboard", () => {
       namedExports: { sa_getSessionForEdit, sa_updateStorySession, sa_deleteStorySession },
     });
     mock.module("@/app/(app)/run/[id]/actions", { namedExports: { sa_setSceneText } });
+    // The title's menu reads the page's path and holds the Play popover.
+    mock.module("next/navigation", {
+      namedExports: {
+        usePathname: () => "/stories/7/storyboard",
+        useRouter: () => ({ push: () => {}, refresh: () => {} }),
+      },
+    });
+    mock.module("@/app/(app)/(nav)/play/actions", {
+      namedExports: {
+        sa_listUnfinishedSessions: async () => [],
+        sa_startPlaying: async () => ({ error: "Not in this test." }),
+      },
+    });
     // The session panel's cover pictures have test files of their own.
     mock.module("@/components/uploads/attachment-list-field", {
       namedExports: { AttachmentListField: () => <p>Pictures</p> },
@@ -282,30 +295,33 @@ describe("Storyboard", () => {
     );
   }
 
-  it("puts the story's doors beside its name: the story page for anyone, the library and Edit story for the storyteller", () => {
+  it("opens the story's doors from the caret after its name: the story page for anyone, the rest for the storyteller", async () => {
+    const user = userEvent.setup();
     render(tellersBoard);
-    expect(screen.getByRole("link", { name: "Story" })).toHaveAttribute("href", "/stories/7");
-    expect(screen.getByRole("link", { name: "Library: Full Story Resources" })).toHaveAttribute(
-      "href",
-      "/libraries/7",
-    );
-    expect(screen.getByRole("link", { name: "Edit story" })).toHaveAttribute(
-      "href",
-      "/stories/7/edit",
-    );
+    await user.click(screen.getByRole("button", { name: "Psychoneira" }));
+    let items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
+      ["Overview", "/stories/7"],
+      ["Edit", "/stories/7/edit"],
+      ["Library", "/libraries/7"],
+      ["Build scenes", null],
+      ["Play", null],
+      // The board itself, so no link.
+      ["Storyboard", null],
+    ]);
+    expect(items[5]).toHaveAttribute("aria-current", "page");
     cleanup();
 
     render();
-    expect(screen.getByRole("link", { name: "Story" })).toHaveAttribute("href", "/stories/7");
-    expect(screen.queryByRole("link", { name: /Library/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Edit story" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Psychoneira" }));
+    items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(["Overview", "Storyboard"]);
   });
 
   it("lays the sittings side by side, each a band over its scenes in play order, on the story's cover", () => {
     render();
 
     expect(screen.getByRole("heading", { level: 1, name: "Psychoneira" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Psychoneira" })).toHaveAttribute("href", "/stories/7");
     expect(screen.getByTestId("storyboard-backdrop").style.backgroundImage).toContain(
       "https://x.test/cover.jpg",
     );

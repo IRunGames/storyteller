@@ -31,6 +31,9 @@ const story: StoryCardData = {
   isPlayer: false,
   isPublic: false,
   presentCount: 0,
+  sessionCount: 0,
+  playMinutes: 0,
+  buildSceneId: null,
 };
 
 const sessions: StorySession[] = [

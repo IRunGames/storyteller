@@ -837,10 +837,9 @@ export function RunTable({
                         <RefreshCw />
                       </PrepIconButton>
                     )}
-                    <Heading as="h2" size="md" minW="0" truncate title={scene.title}>
-                      {scene.title}
-                    </Heading>
+                    {/* The title is the popover's own trigger, the chevron after it. */}
                     <SceneTextPopover
+                      asTitle
                       title={scene.title}
                       text={scene.text ?? EMPTY_SCENE_TEXT}
                       save={(values) => sa_setSceneText(idStory, scene.idStoryScene, values)}

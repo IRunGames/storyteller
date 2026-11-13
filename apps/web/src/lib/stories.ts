@@ -42,6 +42,15 @@ export type StoryCardData = {
   hasOpenSession: boolean;
   /** How many players sit at the table; the storyteller is not one of them. */
   playerCount: number;
+  /** How many sessions the story has, whatever their status. */
+  sessionCount: number;
+  /** Minutes played across the story's finished sessions; one under way is not counted yet. */
+  playMinutes: number;
+  /**
+   * The scene the title menu's Build scenes opens, the one the storyteller
+   * touched last; null for a story with none yet, and for anyone else.
+   */
+  buildSceneId: number | null;
   /**
    * How many players are in the waiting room for the table to open; see
    * db/session-player-counts.ts, leaving out the viewer. Play shows it: on the
@@ -241,6 +250,11 @@ export function formatSessionLength(minutes: number): string {
 /** "3 players", "1 player". */
 export function formatPlayerCount(count: number): string {
   return `${count} ${count === 1 ? "player" : "players"}`;
+}
+
+/** "4 sessions", "1 session". */
+export function formatSessionCount(count: number): string {
+  return `${count} ${count === 1 ? "session" : "sessions"}`;
 }
 
 /**

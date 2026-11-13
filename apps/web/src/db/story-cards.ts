@@ -3,7 +3,15 @@ import { and, desc, eq, exists, sql } from "drizzle-orm";
 import { attachmentUrl } from "./attachment-url";
 import { db } from "./index";
 import { hasOpenSession } from "./open-session";
-import { stories, storyFavorites, storyPlayers, systems, user as users } from "./schema";
+import {
+  stories,
+  storyFavorites,
+  storyPlayers,
+  storyScenes,
+  storySessions,
+  systems,
+  user as users,
+} from "./schema";
 import { presentCount, waitingCount } from "./session-player-counts";
 
 // The story card's query, shared by the Stories page's actions and the profile
@@ -24,7 +32,7 @@ function playedBy(userId: string) {
   ).mapWith(Boolean);
 }
 
-function favoritedBy(userId: string) {
+export function favoritedBy(userId: string) {
   return exists(
     db
       .select({ one: storyFavorites.idStoryFavorite })
@@ -39,6 +47,30 @@ function favoritedBy(userId: string) {
 export const playerCount = sql<number>`(
   select count(*) from ${storyPlayers} where ${storyPlayers.idStory} = ${stories.idStory}
 )`.mapWith(Number);
+
+// How many sessions the story has, whatever their status, and how many
+// minutes its finished ones were played for in all: a session's length is
+// only worked out once it is done (story_sessions.length), so one under way
+// does not count yet. Correlated subqueries for the reason playerCount gives.
+export const sessionCount = sql<number>`(
+  select count(*) from ${storySessions} where ${storySessions.idStory} = ${stories.idStory}
+)`.mapWith(Number);
+export const playMinutes = sql<number>`(
+  select coalesce(sum(${storySessions.length}), 0) from ${storySessions}
+  where ${storySessions.idStory} = ${stories.idStory}
+)`.mapWith(Number);
+
+// The scene the storyteller touched last, which the title menu's Build
+// scenes opens, as sa_getSceneToBuild picks it; null for a story with none,
+// and for anyone but the storyteller, whose scenes they are.
+function sceneToBuild(userId: string) {
+  return sql<number | null>`case when ${stories.idCreatedByUser} = ${userId} then (
+    select ${storyScenes.idStoryScene} from ${storyScenes}
+    where ${storyScenes.idStory} = ${stories.idStory}
+    order by ${storyScenes.updatedAt} desc, ${storyScenes.idStoryScene} desc
+    limit 1
+  ) end`;
+}
 
 // How a user is shown everywhere, storyteller or player: the same preference
 // the account menu uses (nickname, else name), and NULLIF so a nickname that
@@ -71,6 +103,9 @@ export function cardColumns(userId: string) {
     storytellerName: sql<string | null>`${playerName}`,
     hasOpenSession,
     playerCount,
+    sessionCount,
+    playMinutes,
+    buildSceneId: sceneToBuild(userId),
     // Everyone waiting but the viewer: the storyteller never waits, and a
     // player waiting in another tab is not someone else waiting.
     waitingCount: waitingCount(stories.idStory, userId),
