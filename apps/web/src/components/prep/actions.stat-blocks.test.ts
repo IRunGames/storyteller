@@ -59,6 +59,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
       ],
@@ -84,6 +85,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
         {
@@ -100,6 +102,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
       ],

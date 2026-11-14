@@ -15,7 +15,9 @@ import { StoryPlayers } from "./story-players";
 import { StoryTitleMenu } from "./story-title-menu";
 import { PlayButton } from "./story-play-button";
 import type { StatusOption } from "@/lib/status";
+import type { StoryStatBlockDefinition } from "@/app/(app)/(nav)/stories/[id]/stat-blocks/actions";
 import { StorySessions } from "./story-sessions";
+import { StoryStatBlock } from "./story-stat-block";
 
 type Props = {
   story: StoryCardData;
@@ -24,13 +26,15 @@ type Props = {
   sessions: StorySession[];
   /** The story_sessions workflow, for the status pill on each row. */
   sessionStatusOptions: StatusOption[];
+  /** The stat block the story's elements carry, its own copy and its system's; null draws no section. */
+  statBlock: StoryStatBlockDefinition | null;
 };
 
 // The story page's body: the cover as a full-bleed backdrop when there is one,
 // and the text in a dark panel over it (StoryPanel, which also holds the
 // column's width). No hooks beyond useId, so the page can render it on the
 // server. Presentational only; stories/[id]/page.tsx loads the data.
-export function StoryDetails({ story, players, sessions, sessionStatusOptions }: Props) {
+export function StoryDetails({ story, players, sessions, sessionStatusOptions, statBlock }: Props) {
   const playersId = useId();
   const sessionsId = useId();
   const system = systemLabel(story);
@@ -150,6 +154,13 @@ export function StoryDetails({ story, players, sessions, sessionStatusOptions }:
             showTitles
           />
         </Stack>
+
+        {statBlock && (
+          // After the sessions, since it is what the table plays with rather
+          // than what has been played; it draws nothing for a story with no
+          // game system and no copy of its own.
+          <StoryStatBlock idStory={story.idStory} initial={statBlock} mutedColor={mutedColor} />
+        )}
 
         {story.isOwner && (
           // The one place a story's pictures are added or removed: the New

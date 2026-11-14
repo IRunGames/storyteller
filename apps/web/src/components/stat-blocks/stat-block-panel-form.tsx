@@ -4,6 +4,7 @@ import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Alert, Button, HStack, Stack } from "@chakra-ui/react";
+import { toaster } from "@/components/ui/toaster";
 import type { StatBlockSystems } from "@/components/prep/actions";
 import type { ElementFormInput } from "@/lib/element-schemas";
 import { statBlocksSchema } from "@/lib/stat-block-schemas";
@@ -61,6 +62,14 @@ export function StatBlockPanelForm({ holder, block, onSaved, onCancel }: Props) 
     }
     if (result.ok) {
       onSaved(result.blocks);
+      // A scene element's first stats went to an element with none of its
+      // own as well (sa_setStatBlocks); said, since the element changed too.
+      if (result.copiedToElement) {
+        toaster.create({
+          title: "The element had no stats of its own, so it has these too.",
+          type: "success",
+        });
+      }
       return;
     }
     for (const [path, message] of Object.entries(result.errors)) {

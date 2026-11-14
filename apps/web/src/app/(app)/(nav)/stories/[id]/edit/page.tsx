@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
 import { StoryForm } from "@/components/stories/story-form";
 import { sa_getStoryForEdit, sa_listSystems } from "../../actions";
+import { sa_getStoryStatBlockDefinition } from "../stat-blocks/actions";
 
 // The story page's edit form, behind its pencil button. requireSession() here
 // rather than trusting the group layout; see lib/require-session.ts for why.
@@ -16,12 +17,19 @@ export default async function EditStoryPage({ params }: { params: Promise<{ id: 
   const idStory = parseRouteId(id);
   if (idStory === null) notFound();
 
-  const [values, systems] = await Promise.all([sa_getStoryForEdit(idStory), sa_listSystems()]);
+  const [values, systems, statBlock] = await Promise.all([
+    sa_getStoryForEdit(idStory),
+    sa_listSystems(),
+    sa_getStoryStatBlockDefinition(idStory),
+  ]);
   if (!values) notFound();
 
   return (
     <Container maxW="lg" py="8">
-      <StoryForm systems={systems} story={{ idStory, values }} />
+      <StoryForm
+        systems={systems}
+        story={{ idStory, values, hasOwnStatBlock: !!statBlock?.copy }}
+      />
     </Container>
   );
 }

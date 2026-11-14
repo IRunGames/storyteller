@@ -4,6 +4,7 @@ import { parseRouteId } from "@/lib/route-ids";
 import { StoryDetails } from "@/components/stories/story-details";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getStory, sa_listStoryPlayers, sa_listStorySessions } from "../actions";
+import { sa_getStoryStatBlockDefinition } from "./stat-blocks/actions";
 
 // One story, behind a card's title. requireSession() here rather than
 // trusting the group layout; see lib/require-session.ts for why. Every action
@@ -15,13 +16,14 @@ export default async function StoryPage({ params }: { params: Promise<{ id: stri
   const idStory = parseRouteId(id);
   if (idStory === null) notFound();
 
-  const [story, players, sessions, sessionStatusOptions] = await Promise.all([
+  const [story, players, sessions, sessionStatusOptions, statBlock] = await Promise.all([
     sa_getStory(idStory),
     sa_listStoryPlayers(idStory),
     sa_listStorySessions(idStory, 0),
     // The story_sessions workflow, so the rows here read the same as the
     // Prep Work timeline: a status pill rather than a word.
     sa_listStatusOptions("story_sessions"),
+    sa_getStoryStatBlockDefinition(idStory),
   ]);
   if (!story) notFound();
 
@@ -31,6 +33,7 @@ export default async function StoryPage({ params }: { params: Promise<{ id: stri
       players={players}
       sessions={sessions}
       sessionStatusOptions={sessionStatusOptions}
+      statBlock={statBlock}
     />
   );
 }

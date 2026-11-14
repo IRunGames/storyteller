@@ -59,6 +59,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
         {
@@ -75,6 +76,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
       ],
@@ -100,6 +102,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
         {
@@ -116,6 +119,7 @@ const definition: StatBlockDefinition = {
           roll: "1d6",
           global: true,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
         {
@@ -132,6 +136,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
         {
@@ -148,6 +153,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: true,
           initialRoll: "",
         },
       ],
@@ -174,6 +180,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
         {
@@ -190,6 +197,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
         {
@@ -206,6 +214,7 @@ const definition: StatBlockDefinition = {
           roll: "1d6",
           global: true,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
       ],
@@ -227,6 +236,18 @@ async function storedOnLink(): Promise<unknown> {
     .from(tables.sceneElements)
     .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
   return row.statBlocks;
+}
+
+/** Empties the stat blocks of this file's own element and link, and of no other row. */
+async function clearFixtureBlocks(): Promise<void> {
+  await db
+    .update(tables.elements)
+    .set({ statBlocks: {} })
+    .where(eq(tables.elements.idElement, idElement));
+  await db
+    .update(tables.sceneElements)
+    .set({ statBlocks: {} })
+    .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
 }
 
 const statOf = (block: ElementStatBlock, group: string, name: string) =>
@@ -314,6 +335,60 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     expect(blocks![0].groups.map((g) => g.name)).toEqual(["stats", "combat", "attack"]);
     expect(statOf(blocks![0], "combat", "rage")).toMatchObject({ stored: null });
     expect(statOf(blocks![0], "combat", "die")).toMatchObject({ stored: null });
+  });
+
+  it("reads and checks a story's own copy of its system's definition in the system's place", async () => {
+    // The copy keeps only the stats group, under a new label and with a
+    // stat the system's definition does not have.
+    const stats = definition.groups[0];
+    const copy: StatBlockDefinition = {
+      groups: [
+        {
+          ...stats,
+          label: "Attributes",
+          stats: [...stats.stats, { ...stats.stats[0], name: "luck", label: "Luck" }],
+        },
+      ],
+    };
+    await db
+      .update(tables.stories)
+      .set({ statBlockDefinition: copy })
+      .where(eq(tables.stories.idStory, myStory));
+    try {
+      const blocks = await actions.sa_getStatBlocks({ idStory: myStory, idElement });
+      expect(blocks![0].groups.map((g) => [g.name, g.label])).toEqual([["stats", "Attributes"]]);
+      // A stat only the copy has can be set; a group only the system has cannot.
+      const set = await actions.sa_setStat(
+        { idStory: myStory, idElement },
+        idSystem,
+        "stats",
+        "luck",
+        { value: 3 },
+      );
+      expect(set.ok && statOf(set.block, "stats", "luck")).toMatchObject({ value: 3 });
+      expect(
+        await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "combat", "rage", {
+          value: 1,
+        }),
+      ).toMatchObject({ ok: false });
+      // Another story of the same system still reads the system's.
+      getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
+      const theirs = await actions.sa_getStatBlocks({
+        idStory: theirStory,
+        idElement: theirElement,
+      });
+      expect(theirs![0].groups.map((g) => g.name)).toEqual(["stats", "combat", "attack"]);
+    } finally {
+      getSession.mock.restore();
+      await db
+        .update(tables.stories)
+        .set({ statBlockDefinition: null })
+        .where(eq(tables.stories.idStory, myStory));
+      await db
+        .update(tables.elements)
+        .set({ statBlocks: {} })
+        .where(eq(tables.elements.idElement, idElement));
+    }
   });
 
   it("reads a scene element linked before links held blocks as one with none, not as its element", async () => {
@@ -558,6 +633,7 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         value: 3,
         global: true,
         upDown: true,
+        leftRight: false,
       });
       // Another's story, or a scene that is not the story's, lists nothing.
       expect(await actions.sa_getSceneStatBlocks(theirStory, idStoryScene)).toBeNull();
@@ -885,6 +961,47 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       ok: false,
       errors: { root: "That element is not one of your story's." },
     });
+    // The fixture element had none of its own, so the save gave it these
+    // too; the tests after this one start from the fixture element and its
+    // link with none. Only this file's own rows, named by id.
+    await clearFixtureBlocks();
+  });
+
+  it("gives an element with no stat blocks the ones first saved on its scene element, and leaves one with its own alone", async () => {
+    const holder = { idStory: myStory, idSceneElement };
+    await clearFixtureBlocks();
+    try {
+      // The panel says the element has no block to lose before the save.
+      const before = await actions.sa_getStatBlocks(holder);
+      expect(before![0].onElement).toBe(false);
+
+      const first = await actions.sa_setStatBlocks(holder, {
+        [idSystem]: { stats: { str: { value: "14" } } },
+      });
+      expect(first).toMatchObject({ ok: true, copiedToElement: true });
+      const seeded = { [idSystem]: { stats: { str: { value: 14 } } } };
+      expect(await storedOnLink()).toEqual(seeded);
+      expect(await stored()).toEqual(seeded);
+      expect(first.ok && first.blocks[0].onElement).toBe(true);
+
+      // The element has its own now, so the next save is the link's alone.
+      const next = await actions.sa_setStatBlocks(holder, {
+        [idSystem]: { stats: { str: { value: "9" } } },
+      });
+      expect(next).toMatchObject({ ok: true, copiedToElement: false });
+      expect(await storedOnLink()).toEqual({ [idSystem]: { stats: { str: { value: 9 } } } });
+      expect(await stored()).toEqual(seeded);
+
+      // An element's own save has no element to give to.
+      const own = await actions.sa_setStatBlocks(
+        { idStory: myStory, idElement },
+        { [idSystem]: { stats: { str: { value: "15" } } } },
+      );
+      expect(own).toMatchObject({ ok: true, copiedToElement: false });
+      expect(own.ok && own.blocks[0].onElement).toBeUndefined();
+    } finally {
+      await clearFixtureBlocks();
+    }
   });
 
   it("answers null for a story that is not the caller's, and an element that is not the story's", async () => {

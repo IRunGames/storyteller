@@ -55,6 +55,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
         {
@@ -71,6 +72,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
       ],
@@ -176,6 +178,7 @@ describe("admin systems actions", { skip: !hasDb && "DATABASE_URL is not set" },
               roll: "",
               global: false,
               upDown: true,
+              leftRight: false,
               initialRoll: "",
             },
             {
@@ -192,6 +195,7 @@ describe("admin systems actions", { skip: !hasDb && "DATABASE_URL is not set" },
               roll: "",
               global: false,
               upDown: true,
+              leftRight: false,
               initialRoll: "",
             },
           ],
@@ -205,11 +209,18 @@ describe("admin systems actions", { skip: !hasDb && "DATABASE_URL is not set" },
     expect((await actions.sa_getAdminSystem(idSystem))?.definition).toEqual({ groups: [] });
   });
 
-  it("saves a sound definition and reads it back, counted on the list", async () => {
-    expect(await actions.sa_setSystemStatBlockDefinition(idSystem, definition)).toEqual({
-      ok: true,
-    });
-    expect((await actions.sa_getAdminSystem(idSystem))?.definition).toEqual(definition);
+  it("saves a sound definition stamped with when, and reads it back, counted on the list", async () => {
+    const before = Date.now();
+    // A stamp the editor posts is not the one kept: the save writes its own.
+    expect(
+      await actions.sa_setSystemStatBlockDefinition(idSystem, {
+        ...definition,
+        updatedAt: "2000-01-01T00:00:00.000Z",
+      }),
+    ).toEqual({ ok: true });
+    const saved = (await actions.sa_getAdminSystem(idSystem))?.definition;
+    expect(saved).toEqual({ ...definition, updatedAt: expect.any(String) });
+    expect(Date.parse(saved!.updatedAt!)).toBeGreaterThanOrEqual(before);
     const found = (await actions.sa_listAdminSystems()).find((row) => row.idSystem === idSystem);
     expect(found).toMatchObject({ groupCount: 2, statCount: 2 });
     const [row] = await db

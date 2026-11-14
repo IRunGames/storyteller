@@ -755,6 +755,48 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     });
   });
 
+  it("keeps the story's copy of its system's stat block definition through an edit, and lets it go with the system only when told it goes", async () => {
+    const values = {
+      title: TITLE_D,
+      idSystem: -26,
+      summary: "",
+      isLookingForPlayers: false,
+      isActive: false,
+      isArchived: false,
+      isPublic: false,
+    };
+    const copy = { groups: [], updatedAt: "2026-11-01T00:00:00.000Z" };
+    const row = async () =>
+      (
+        await db
+          .select({ idSystem: tables.stories.idSystem, copy: tables.stories.statBlockDefinition })
+          .from(tables.stories)
+          .where(eq(tables.stories.idStory, storyD))
+      )[0];
+    await db
+      .update(tables.stories)
+      .set({ idSystem: -26, statBlockDefinition: copy })
+      .where(eq(tables.stories.idStory, storyD));
+
+    await expect(actions.sa_updateStory(storyD, values)).rejects.toThrow(/NEXT_REDIRECT/);
+    expect(await row()).toEqual({ idSystem: -26, copy });
+    // The copy was of Numenera's definition; The Strange has its own. A save
+    // that was not told the copy goes changes nothing, the form's warning
+    // being the only way to say it.
+    expect(await actions.sa_updateStory(storyD, { ...values, idSystem: -27 })).toEqual({
+      ok: false,
+      errors: {
+        idSystem:
+          "This story has its own stat block, which changing its system would delete. Reload the page to see what goes.",
+      },
+    });
+    expect(await row()).toEqual({ idSystem: -26, copy });
+    await expect(
+      actions.sa_updateStory(storyD, { ...values, idSystem: -27 }, { dropStatBlock: true }),
+    ).rejects.toThrow(/NEXT_REDIRECT/);
+    expect(await row()).toEqual({ idSystem: -27, copy: null });
+  });
+
   it("archives a story as inactive and not looking for players, stamped with the archiver, and undoes all of it", async () => {
     const values = {
       title: TITLE_D,

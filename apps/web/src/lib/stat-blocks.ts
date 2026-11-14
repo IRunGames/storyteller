@@ -132,6 +132,13 @@ export type StatDefinition = {
    */
   upDown: boolean;
   /**
+   * Whether a rack at the table has the left/right buttons that move it to
+   * the entry before or after, as upDown gives a number its clicker; without
+   * them the entry is only shown. Only a rack has entries to move through,
+   * so on any other stat it is idle; a static rack has none either way.
+   */
+  leftRight: boolean;
+  /**
    * The dice rolled once when the stat's block is added to an element
    * ("2d6", "8d8+3"), for its starting value and, on a pool or a stack, its
    * max; "" for a stat that starts at 0. Only a pool, a stack or a display
@@ -168,7 +175,21 @@ export type StatGroupDefinition = {
   canHaveMultiples: boolean;
   stats: StatDefinition[];
 };
-export type StatBlockDefinition = { groups: StatGroupDefinition[] };
+export type StatBlockDefinition = {
+  groups: StatGroupDefinition[];
+  /**
+   * When the definition was last saved, as an ISO timestamp: stamped by every
+   * action that writes one (stampDefinition), so a story's copy and its
+   * system's can be compared by age. Absent on a definition last saved
+   * before the stamp was kept.
+   */
+  updatedAt?: string;
+};
+
+/** The definition as a save writes it, stamped with the moment of the save. */
+export function stampDefinition(definition: StatBlockDefinition): StatBlockDefinition {
+  return { ...definition, updatedAt: new Date().toISOString() };
+}
 
 /** Whether a group stores rows rather than one record. */
 export function isRepeating(group: Pick<StatGroupDefinition, "keyedBy">): boolean {
@@ -379,6 +400,8 @@ export type EvaluatedStat = {
   global: boolean;
   /** As the definition says. */
   upDown: boolean;
+  /** As the definition says. */
+  leftRight: boolean;
   /** The current value; null for nothing to show (unset, a formula that is not a number, a rack entry gone). */
   value: number | string | null;
   /** A pool's floor. */
@@ -470,6 +493,7 @@ export function evaluateStatBlock(
       roll: stat.roll,
       global: stat.global,
       upDown: stat.upDown,
+      leftRight: stat.leftRight,
       value: null,
       stored: null,
     };

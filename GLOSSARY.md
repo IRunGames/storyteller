@@ -8,7 +8,19 @@ engineering skills consume this file.
 
 - **Template**: a system's stat block definition, `systems.stat_block_definition`,
   edited by administrators under Systems. Its groups are the stat blocks on
-  offer to the system's elements.
+  offer to the system's elements. Carries `updatedAt`, the moment it was last
+  saved, stamped by the action that saved it (absent on one last saved before
+  2026-11-14).
+- **Story template**: a story's own copy of its system's template,
+  `stories.stat_block_definition`, made by the storyteller with Copy to this
+  story on the story's page and changed on `/stories/[id]/stat-blocks`. It is
+  read in the template's place wherever the story's elements are
+  (`statBlockSystems(idStory)`); every other story of the system keeps the
+  template. NULL means the story reads its system's. Overwrite with the
+  game's puts the template as it stands over it, after asking. Changing the
+  story's system deletes it, but only once Edit story has warned and the
+  storyteller saves with Save and delete stat block; `sa_updateStory` refuses
+  the change otherwise. Not a Copy in the sense below.
 - **Stat block**: one group of the template as carried by an element or a
   scene element, with its values. An element carries any number of them,
   picked from the template on the prep form or at the table; stored on
@@ -34,7 +46,11 @@ engineering skills consume this file.
   copy's pencil writes the element's blocks over the link's
   (`sa_copyStatBlocksFromElement`), and the table's edit form offers the
   other way, a block back over the element's (`sa_copyStatBlocksToElement`),
-  when play should become the new baseline. ADR 0001.
+  when play should become the new baseline. Each asks first when it would
+  overwrite stats (the paste when the link carries any, the copy back when
+  the element carries a block of that system) and is made at once otherwise.
+  A link's first stat blocks, saved from the table's edit form, go to an
+  element with none of its own as well (`sa_setStatBlocks`). ADR 0001.
 - **Holder**: whose stat blocks an action reads or changes: an element's own,
   or a scene element's copy (`StatBlockHolder` in
   `apps/web/src/components/stat-blocks/actions.ts`).
@@ -132,6 +148,10 @@ engineering skills consume this file.
 - **Up/down**: a stat flag (`upDown`), offered on a stat held to a number: the
   table draws the up/down changer beside the number's box; without it the
   box alone is drawn. Off on templates written before the flag.
+- **Left/right**: a stat flag (`leftRight`), offered on a rack: the table draws
+  the buttons that move the rack to the entry before or after; without it,
+  or on a static rack, the entry is only shown. On for a rack in a template
+  written before the flag, which drew them always.
 - **Stories view**: the Stories page's toggle in its upper right between Icon
   view, the story cards, and List view, a table of the stories (on TanStack
   Table) with columns for status, favorite, players, sessions and play time

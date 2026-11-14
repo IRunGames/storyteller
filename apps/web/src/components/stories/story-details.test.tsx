@@ -139,6 +139,11 @@ describe("StoryDetails", () => {
     mock.module("@/app/(app)/(nav)/play/actions", {
       namedExports: { sa_listUnfinishedSessions, sa_startPlaying },
     });
+    // The Stat block section copies through its own action; its test file
+    // covers that.
+    mock.module("@/app/(app)/(nav)/stories/[id]/stat-blocks/actions", {
+      namedExports: { sa_copySystemStatBlockDefinition: async () => ({ ok: false, error: "" }) },
+    });
     mock.module("next/navigation", {
       namedExports: {
         useRouter: () => ({ push: mock.fn(), refresh: mock.fn() }),
@@ -155,6 +160,7 @@ describe("StoryDetails", () => {
         players={players}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -173,6 +179,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -197,6 +204,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -215,6 +223,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
     expect(screen.getByText("PUBLIC")).toBeInTheDocument();
@@ -226,6 +235,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
     expect(screen.queryByText("PUBLIC")).not.toBeInTheDocument();
@@ -238,6 +248,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -257,6 +268,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -271,6 +283,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -303,6 +316,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -319,6 +333,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
     expect(screen.queryByRole("button", { name: "Play" })).not.toBeInTheDocument();
@@ -330,6 +345,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
     expect(screen.queryByRole("button", { name: "Play" })).not.toBeInTheDocument();
@@ -342,6 +358,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
     expect(
@@ -355,6 +372,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
     expect(screen.queryByRole("button", { name: "Invite Players" })).not.toBeInTheDocument();
@@ -372,6 +390,7 @@ describe("StoryDetails", () => {
         players={players}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -387,6 +406,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
     const backdrop = screen.getByTestId("story-backdrop");
@@ -399,6 +419,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
     expect(screen.queryByTestId("story-backdrop")).not.toBeInTheDocument();
@@ -411,6 +432,7 @@ describe("StoryDetails", () => {
         players={players}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -433,6 +455,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -447,6 +470,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={sessions}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -464,6 +488,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={sessions}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -486,12 +511,63 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={sessions}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
     const items = within(section("Recent sessions")).getAllByRole("listitem");
     // FIRST leads to LAST in this workflow, so that pill is a menu.
     expect(within(items[1]).getByRole("button", { name: "First" })).toBeInTheDocument();
+  });
+
+  it("shows the story's stat block after its sessions, and no section when it has none", () => {
+    const { unmount } = renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+        statBlock={{
+          isStoryteller: false,
+          system: {
+            idSystem: -60,
+            label: "Vampire: The Masquerade (5th)",
+            definition: {
+              groups: [
+                {
+                  name: "attributes",
+                  label: "Attributes",
+                  keyedBy: "",
+                  rollAll: false,
+                  canHaveMultiples: false,
+                  stats: [],
+                },
+              ],
+            },
+          },
+          copy: null,
+        }}
+      />,
+    );
+    const regions = screen
+      .getAllByRole("region")
+      .map((region) => region.getAttribute("aria-labelledby"));
+    expect(within(section("Stat block")).getByText("Attributes")).toBeInTheDocument();
+    expect(regions.indexOf(section("Stat block").getAttribute("aria-labelledby"))).toBeGreaterThan(
+      regions.indexOf(section("Recent sessions").getAttribute("aria-labelledby")),
+    );
+    unmount();
+
+    renderWithProviders(
+      <StoryDetails
+        story={story}
+        players={[]}
+        sessions={[]}
+        sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
+      />,
+    );
+    expect(screen.queryByRole("region", { name: "Stat block" })).toBeNull();
   });
 
   it("says so when there are no sessions yet", () => {
@@ -501,6 +577,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -515,6 +592,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 
@@ -545,6 +623,7 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
+        statBlock={null}
       />,
     );
 

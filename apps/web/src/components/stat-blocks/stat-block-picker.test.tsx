@@ -21,6 +21,7 @@ const stat = (
   roll: "",
   global: false,
   upDown: true,
+  leftRight: false,
   initialRoll: "",
   ...over,
 });

@@ -33,6 +33,7 @@ const stat = (
   roll: "",
   global: false,
   upDown: true,
+  leftRight: false,
   initialRoll: "",
   ...over,
 });
@@ -59,6 +60,7 @@ const definition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         }),
       ],
@@ -194,6 +196,7 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               }),
               stat({ name: "e", type: "rack", rack: ["d4"] }),
@@ -209,6 +212,7 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               }),
             ],
@@ -337,6 +341,7 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               }),
               stat({
@@ -351,6 +356,7 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               }),
               stat({ name: "e", type: "pool" }),
@@ -366,6 +372,7 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               }),
             ],
@@ -403,6 +410,7 @@ describe("statBlockDefinitionSchema", () => {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               }),
               stat({ name: "b", type: "computed", computedAs: "g.c.value" }),
@@ -454,6 +462,7 @@ describe("statBlockDefinitionSchema", () => {
         roll: "",
         global: false,
         upDown: true,
+        leftRight: false,
         initialRoll: "",
       }),
     );
@@ -479,6 +488,7 @@ describe("statBlockDefinitionSchema", () => {
         roll: "",
         global: false,
         upDown: true,
+        leftRight: false,
         initialRoll: "",
       }),
     );
@@ -501,7 +511,7 @@ describe("statBlockDefinitionSchema", () => {
     });
   });
 
-  it("reads a stored stat without the flags as shown, in its type's format, and not sticky", () => {
+  it("reads a stored stat without the flags as shown, in its type's format, and not sticky, a rack with its left/right buttons", () => {
     const str = {
       name: "str",
       label: "",
@@ -510,6 +520,8 @@ describe("statBlockDefinitionSchema", () => {
       computedAs: "",
     };
     const hp = { ...str, name: "hp", type: "pool" };
+    // A rack drew its buttons before Left/right was a flag, so it keeps them.
+    const die = { ...str, name: "die", type: "rack", rack: ["d4", "d6"] };
     // Each stored without roll, so both read as rolling nothing.
     const stored = {
       groups: [
@@ -519,7 +531,7 @@ describe("statBlockDefinitionSchema", () => {
           keyedBy: "",
           rollAll: false,
           canHaveMultiples: false,
-          stats: [str, hp],
+          stats: [str, hp, die],
         },
       ],
     };
@@ -542,6 +554,7 @@ describe("statBlockDefinitionSchema", () => {
               roll: "",
               global: false,
               upDown: false,
+              leftRight: false,
               initialRoll: "",
             },
             {
@@ -554,6 +567,20 @@ describe("statBlockDefinitionSchema", () => {
               roll: "",
               global: false,
               upDown: false,
+              leftRight: false,
+              initialRoll: "",
+            },
+            {
+              ...die,
+              visible: true,
+              format: "",
+              description: "",
+              sticky: false,
+              static: false,
+              roll: "",
+              global: false,
+              upDown: false,
+              leftRight: true,
               initialRoll: "",
             },
           ],

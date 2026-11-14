@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireAdmin } from "@/lib/authorize";
 import { readStatBlockDefinition, statBlockDefinitionSchema } from "@/lib/stat-block-schemas";
-import type { StatBlockDefinition } from "@/lib/stat-blocks";
+import { stampDefinition, type StatBlockDefinition } from "@/lib/stat-blocks";
 import { systemLabel } from "@/lib/stories";
 import { systemFieldsSchema } from "@/lib/system-schemas";
 
@@ -245,7 +245,7 @@ export async function sa_setSystemStatBlockDefinition(
 
   const updated = await db
     .update(systems)
-    .set({ statBlockDefinition: parsed.data, idUpdatedByUser: admin.id })
+    .set({ statBlockDefinition: stampDefinition(parsed.data), idUpdatedByUser: admin.id })
     .where(eq(systems.idSystem, id))
     .returning({ idSystem: systems.idSystem });
   if (updated.length === 0)

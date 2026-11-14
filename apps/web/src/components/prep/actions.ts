@@ -731,22 +731,27 @@ export async function sa_listStatBlockSystems(idStory: number): Promise<StatBloc
         .where(eq(stories.idStory, id.data))
         .limit(1)
     : [];
+  const owns = id.success && story?.owner === user.id;
   return {
-    storySystem: story?.owner === user.id ? story.idSystem : null,
-    systems: await statBlockSystems(),
+    storySystem: owns ? story.idSystem : null,
+    // The story's own copy of its system's definition, when it has one, is
+    // the storyteller's to see, as the story's system is.
+    systems: await statBlockSystems(owns ? id.data : null),
   };
 }
 
 /**
- * The blocks a form posted, checked against their systems' definitions, or
- * the field errors keyed under statBlocks as the form names its inputs.
- * Nothing when the form posted none.
+ * The blocks a form posted, checked against their systems' definitions (the
+ * story's own copy standing in for its system's), or the field errors keyed
+ * under statBlocks as the form names its inputs. Nothing when the form
+ * posted none.
  */
 async function parseStatBlocks(
+  idStory: number,
   posted: Record<string, unknown> | undefined,
 ): Promise<{ blocks: StatBlocks | undefined } | SceneFormResult> {
   if (posted === undefined) return { blocks: undefined };
-  const parsed = statBlocksSchema(await statBlockSystems()).safeParse(posted);
+  const parsed = statBlocksSchema(await statBlockSystems(idStory)).safeParse(posted);
   if (!parsed.success) {
     return formErrors(
       parsed.error.issues.map((issue) => ({ ...issue, path: ["statBlocks", ...issue.path] })),
@@ -771,7 +776,7 @@ export async function sa_createElement(idStory: number, input: unknown): Promise
   const parsed = elementSchema.safeParse(input);
   if (!parsed.success) return formErrors(parsed.error.issues);
   const values = parsed.data;
-  const statBlocks = await parseStatBlocks(values.statBlocks);
+  const statBlocks = await parseStatBlocks(id, values.statBlocks);
   if ("ok" in statBlocks) return statBlocks;
 
   await db.insert(elements).values({
@@ -916,7 +921,7 @@ export async function sa_updateElement(
   const parsed = elementSchema.safeParse(input);
   if (!parsed.success) return formErrors(parsed.error.issues);
   const values = parsed.data;
-  const statBlocks = await parseStatBlocks(values.statBlocks);
+  const statBlocks = await parseStatBlocks(row.idStory, values.statBlocks);
   if ("ok" in statBlocks) return statBlocks;
 
   // The blocks are written per system: the keys the form took off go, the

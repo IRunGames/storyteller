@@ -36,6 +36,7 @@ const stat = (
   roll: "",
   global: false,
   upDown: true,
+  leftRight: false,
   initialRoll: "",
   ...over,
 });
@@ -58,6 +59,7 @@ const definition: StatBlockDefinition = {
           roll: "1d20",
           global: true,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         }),
         stat({ name: "hp", label: "HP", type: "pool" }),

@@ -29,10 +29,11 @@ type StoryInput = z.input<typeof storySchema>;
 type Props = {
   systems: { idSystem: number; label: string }[];
   /**
-   * The story being edited, with its current values. Absent for the New
+   * The story being edited, with its current values and whether it has its
+   * own stat block, which a change of system deletes. Absent for the New
    * story page: the same fields then start empty and create a story instead.
    */
-  story?: { idStory: number; values: StoryValues };
+  story?: { idStory: number; values: StoryValues; hasOwnStatBlock: boolean };
   /**
    * Where to go once a new story is made, when the page that linked here
    * said (stories/new/page.tsx); else the story's own page. Only read when
@@ -83,9 +84,20 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
     }
   }
 
+  // A story's own stat block is a copy of its system's and stands in for
+  // that system's alone, so saving it with another system deletes it. The
+  // form says so the moment another system is chosen, the Save button
+  // becomes Save and delete stat block, and only then is the action told it
+  // may drop it; it refuses a change of system otherwise. The select holds
+  // a string and the saved system a number, so both are compared as text.
+  const idSystem = useWatch({ control, name: "idSystem" });
+  const dropsStatBlock =
+    !!story?.hasOwnStatBlock && String(idSystem ?? "") !== String(story.values.idSystem ?? "");
+  const savedSystem = systems.find((system) => system.idSystem === story?.values.idSystem);
+
   async function onSubmit(values: StoryValues) {
     const result = story
-      ? await sa_updateStory(story.idStory, values)
+      ? await sa_updateStory(story.idStory, values, { dropStatBlock: dropsStatBlock })
       : await sa_createStory(values, afterCreate);
 
     // On success the action redirects and this never runs. Anything that
@@ -190,6 +202,23 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
             <Field.ErrorText>{errors.idSystem?.message}</Field.ErrorText>
           </Field.Root>
 
+          {dropsStatBlock && (
+            // role="alert", which Chakra's Alert does not set itself, so the
+            // warning is read out as it appears rather than only when found.
+            <Alert.Root role="alert" status="warning">
+              <Alert.Indicator />
+              <Alert.Content>
+                <Alert.Title>This deletes the story&apos;s own stat block.</Alert.Title>
+                <Alert.Description>
+                  It was copied from {savedSystem?.label ?? "its system"} and stands in for that
+                  system&apos;s alone, so saving with another system deletes it and every change
+                  made to it. This cannot be undone. Choose {savedSystem?.label ?? "that system"}{" "}
+                  again to keep it.
+                </Alert.Description>
+              </Alert.Content>
+            </Alert.Root>
+          )}
+
           <Field.Root invalid={!!errors.summary}>
             <Field.Label>Summary</Field.Label>
             <Textarea rows={5} {...register("summary")} />
@@ -249,8 +278,16 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
                 <NextLink href={`/stories/${story.idStory}`}>Cancel</NextLink>
               </Button>
             )}
-            <Button type="submit" loading={isSubmitting || isSubmitSuccessful}>
-              {story ? "Save changes" : "Create story"}
+            <Button
+              type="submit"
+              loading={isSubmitting || isSubmitSuccessful}
+              colorPalette={dropsStatBlock ? "red" : undefined}
+            >
+              {!story
+                ? "Create story"
+                : dropsStatBlock
+                  ? "Save and delete stat block"
+                  : "Save changes"}
             </Button>
           </HStack>
         </Stack>

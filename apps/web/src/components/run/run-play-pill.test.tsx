@@ -285,6 +285,7 @@ const statDefinition: StatBlockDefinition = {
           roll: "",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         },
       ],
@@ -1473,10 +1474,14 @@ describe("RunPlayPill", () => {
       expect(within(folded).queryByRole("button", { name: "HP up" })).toBeNull();
 
       // The paste beside the block's pencil writes the element's blocks over
-      // the link's, which show as they come back.
+      // the link's, which show as they come back. The link carries stats of
+      // its own, so it asks first.
       await u.click(
         within(sceneBlocks).getByRole("button", { name: "Copy stats from the element" }),
       );
+      await screen.findByRole("dialog", { name: "Overwrite the stats in this scene?" });
+      expect(sa_copyStatBlocksFromElement.mock.callCount()).toBe(0);
+      await u.click(screen.getByRole("button", { name: "Overwrite" }));
       await waitFor(() => expect(sa_copyStatBlocksFromElement.mock.callCount()).toBe(1));
       expect(sa_copyStatBlocksFromElement.mock.calls[0].arguments).toEqual([
         { idStory: -4, idSceneElement: 9 },

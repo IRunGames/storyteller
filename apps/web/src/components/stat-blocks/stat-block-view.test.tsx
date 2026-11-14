@@ -39,6 +39,7 @@ const stat = (
   roll: "",
   global: false,
   upDown: true,
+  leftRight: false,
   initialRoll: "",
   ...over,
 });
@@ -57,7 +58,13 @@ const definition: StatBlockDefinition = {
       stats: [
         stat({ name: "hp", label: "HP", type: "pool", format: "number +/-", roll: "1d8" }),
         stat({ name: "rage", label: "Rage", type: "stack", sticky: true }),
-        stat({ name: "die", label: "Die", type: "rack", rack: ["d4", "d6", "d8"] }),
+        stat({
+          name: "die",
+          label: "Die",
+          type: "rack",
+          rack: ["d4", "d6", "d8"],
+          leftRight: true,
+        }),
         stat({ name: "ar", label: "AR", type: "display", format: "number" }),
         stat({
           name: "bonus",
@@ -68,6 +75,7 @@ const definition: StatBlockDefinition = {
           roll: "1d20",
           global: false,
           upDown: true,
+          leftRight: false,
           initialRoll: "",
         }),
         stat({ name: "secret", label: "Secret", type: "display", visible: false }),
@@ -204,7 +212,7 @@ const sa_rollGroupRows = mock.fn(
 const sa_setStatBlocks = mock.fn(
   async (_holder: StatBlockHolder, blocks: unknown): Promise<SetStatBlocksResult> => {
     stored = (blocks as Record<string, StatBlock>)["-90"];
-    return { ok: true, blocks: [blockOf()] };
+    return { ok: true, blocks: [blockOf()], copiedToElement: false };
   },
 );
 
@@ -368,6 +376,66 @@ describe("ElementStatBlocks", () => {
     expect(within(screen.getByTestId("stat-row-Fist")).getByTestId("stat-uses")).toHaveValue("0");
   });
 
+  it("puts a row's key on one line with its stats when they fit, the star before the key", async () => {
+    renderWithProviders(<ElementStatBlocks holder={holder} canEdit />);
+
+    const sword = await screen.findByTestId("stat-row-Sword");
+    expect(sword).toHaveAttribute("data-layout", "line");
+    const follows = (first: Element, then: Element) =>
+      Boolean(first.compareDocumentPosition(then) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const swordKey = within(sword).getByText("Sword");
+    // The key is a pill, so it stands out from the stats.
+    expect(swordKey).toHaveClass("chakra-badge");
+    expect(
+      follows(within(sword).getByRole("img", { name: "Sword is the default" }), swordKey),
+    ).toBe(true);
+    expect(follows(swordKey, within(sword).getByTestId("stat-uses"))).toBe(true);
+    const fist = screen.getByTestId("stat-row-Fist");
+    expect(
+      follows(
+        within(fist).getByRole("button", { name: "Make Fist the default" }),
+        within(fist).getByText("Fist"),
+      ),
+    ).toBe(true);
+  });
+
+  it("stacks a row's key over its stats when they run past its width, and tries the line again when they change", async () => {
+    const user = userEvent.setup();
+    // jsdom lays nothing out, so the widths are stubbed: a row drawn on one
+    // line needs 400 across, and the rows are as wide as rowWidth says.
+    let rowWidth = 300;
+    const scroll = Object.getOwnPropertyDescriptor(Element.prototype, "scrollWidth")!;
+    const client = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!;
+    Object.defineProperty(Element.prototype, "clientWidth", {
+      configurable: true,
+      get: () => rowWidth,
+    });
+    Object.defineProperty(Element.prototype, "scrollWidth", {
+      configurable: true,
+      get(this: Element) {
+        return this.getAttribute("data-layout") === "line" ? 400 : rowWidth;
+      },
+    });
+    try {
+      renderWithProviders(<ElementStatBlocks holder={holder} canEdit />);
+
+      const sword = await screen.findByTestId("stat-row-Sword");
+      expect(sword).toHaveAttribute("data-layout", "stacked");
+      // The key heads the row on its own, still after its star.
+      expect(within(sword).getByRole("img", { name: "Sword is the default" })).toBeInTheDocument();
+
+      // Wide enough now; the next change to the row's stats lays it out again.
+      rowWidth = 500;
+      await user.click(within(sword).getByRole("button", { name: "Uses up" }));
+      await waitFor(() =>
+        expect(screen.getByTestId("stat-row-Sword")).toHaveAttribute("data-layout", "line"),
+      );
+    } finally {
+      Object.defineProperty(Element.prototype, "scrollWidth", scroll);
+      Object.defineProperty(Element.prototype, "clientWidth", client);
+    }
+  });
+
   it("shows words alone without canEdit, and a dash for a word where a number should be", async () => {
     stored = {
       ...stored,
@@ -441,8 +509,9 @@ describe("ElementStatBlocks", () => {
     ).toBeInTheDocument();
   });
 
-  it("copies a scene element's block back to the element from a button beside the pencil", async () => {
+  it("copies a scene element's block back to the element from beside the pencil, asking first over the element's own", async () => {
     const user = userEvent.setup();
+    sa_getStatBlocks.mock.mockImplementationOnce(async () => [{ ...blockOf(), onElement: true }]);
     renderWithProviders(
       <>
         <ElementStatBlocks holder={holder} canEdit />
@@ -455,9 +524,42 @@ describe("ElementStatBlocks", () => {
     expect(screen.queryByRole("button", { name: "Copy stats to the element" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Edit stat blocks" }));
     await user.click(await screen.findByRole("button", { name: "Copy stats to the element" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Overwrite the element's stats?" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The element's own Palladium stats, the ones it is prepared with, are replaced by these as they stand in this scene. This cannot be undone.",
+      ),
+    ).toBeInTheDocument();
+    expect(sa_copyStatBlocksToElement.mock.callCount()).toBe(0);
+    await user.click(screen.getByRole("button", { name: "Overwrite" }));
     await waitFor(() => expect(sa_copyStatBlocksToElement.mock.callCount()).toBe(1));
     expect(sa_copyStatBlocksToElement.mock.calls[0].arguments).toEqual([holder, -90]);
     expect(await screen.findByText("Stats copied to the element")).toBeInTheDocument();
+  });
+
+  it("copies straight back to an element with no block of the system, which loses nothing", async () => {
+    const user = userEvent.setup();
+    sa_getStatBlocks.mock.mockImplementationOnce(async () => [{ ...blockOf(), onElement: false }]);
+    renderWithProviders(
+      <>
+        <ElementStatBlocks holder={holder} canEdit />
+        <Toaster />
+      </>,
+    );
+
+    await screen.findByTestId("stat-hp");
+    await user.click(screen.getByRole("button", { name: "Edit stat blocks" }));
+    await user.click(await screen.findByRole("button", { name: "Copy stats to the element" }));
+    await waitFor(() => expect(sa_copyStatBlocksToElement.mock.callCount()).toBe(1));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(await screen.findByText("Stats copied to the element")).toBeInTheDocument();
+    // It has one now, so the next copy asks.
+    await user.click(screen.getByRole("button", { name: "Copy stats to the element" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Overwrite the element's stats?" }),
+    ).toBeInTheDocument();
   });
 
   it("offers no copy back for an element's own block", async () => {
@@ -512,6 +614,29 @@ describe("ElementStatBlocks", () => {
     expect(screen.queryByRole("button", { name: "HP down" })).toBeNull();
     // Rage keeps its clicker.
     expect(screen.getByRole("button", { name: "Rage up" })).toBeInTheDocument();
+  });
+
+  it("leaves a rack's left/right buttons off where the template does, and off a static rack", async () => {
+    const withDie = (over: Partial<StatDefinition>) =>
+      blockOf(stored, {
+        groups: definition.groups.map((group) => ({
+          ...group,
+          stats: group.stats.map((stat) => (stat.name === "die" ? { ...stat, ...over } : stat)),
+        })),
+      });
+
+    sa_getStatBlocks.mock.mockImplementationOnce(async () => [withDie({ leftRight: false })]);
+    const { unmount } = renderWithProviders(<ElementStatBlocks holder={holder} canEdit />);
+    expect(await screen.findByTestId("stat-die")).toHaveTextContent("d6");
+    expect(screen.queryByRole("button", { name: "Die up" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Die down" })).toBeNull();
+    unmount();
+
+    sa_getStatBlocks.mock.mockImplementationOnce(async () => [withDie({ static: true })]);
+    renderWithProviders(<ElementStatBlocks holder={holder} canEdit />);
+    expect(await screen.findByTestId("stat-die")).toHaveTextContent("d6");
+    expect(screen.queryByRole("button", { name: "Die up" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Die down" })).toBeNull();
   });
 
   it("steps a number with the arrow keys in its box, held to the pool's min and max", async () => {
@@ -604,7 +729,7 @@ describe("ElementStatBlocks", () => {
     expect(screen.queryByTestId("stat-hp")).toBeNull();
   });
 
-  it("pastes the element's blocks over a scene element's from beside the pencil", async () => {
+  it("pastes the element's blocks over a scene element's from beside the pencil, asking first over the stats it has", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <>
@@ -615,11 +740,59 @@ describe("ElementStatBlocks", () => {
 
     expect(await screen.findByTestId("stat-hp")).toHaveValue("13");
     await user.click(screen.getByRole("button", { name: "Copy stats from the element" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Overwrite the stats in this scene?" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The element's stats replace the ones it has in this scene, and what play has made of them is lost. This cannot be undone.",
+      ),
+    ).toBeInTheDocument();
+    expect(sa_copyStatBlocksFromElement.mock.callCount()).toBe(0);
+    await user.click(screen.getByRole("button", { name: "Overwrite" }));
     await waitFor(() => expect(sa_copyStatBlocksFromElement.mock.callCount()).toBe(1));
     expect(sa_copyStatBlocksFromElement.mock.calls[0].arguments).toEqual([holder]);
     expect(await screen.findByText("Stats copied from the element")).toBeInTheDocument();
     // The blocks show as they come back, the element's values again.
     await waitFor(() => expect(screen.getByTestId("stat-hp")).toHaveValue("14"));
+  });
+
+  it("pastes straight onto a scene element with no stats yet, which loses nothing", async () => {
+    const user = userEvent.setup();
+    sa_getStatBlocks.mock.mockImplementationOnce(async () => [{ ...blockOf({}), stored: false }]);
+    renderWithProviders(
+      <>
+        <ElementStatBlocks holder={holder} canEdit copyFromElement />
+        <Toaster />
+      </>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Copy stats from the element" }));
+    await waitFor(() => expect(sa_copyStatBlocksFromElement.mock.callCount()).toBe(1));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(await screen.findByText("Stats copied from the element")).toBeInTheDocument();
+  });
+
+  it("says so when a first save gave the element the scene element's stats", async () => {
+    const user = userEvent.setup();
+    sa_setStatBlocks.mock.mockImplementationOnce(async () => ({
+      ok: true,
+      blocks: [blockOf()],
+      copiedToElement: true,
+    }));
+    renderWithProviders(
+      <>
+        <ElementStatBlocks holder={holder} canEdit />
+        <Toaster />
+      </>,
+    );
+
+    await screen.findByTestId("stat-hp");
+    await user.click(screen.getByRole("button", { name: "Edit stat blocks" }));
+    await user.click(await screen.findByRole("button", { name: "Save stat blocks" }));
+    expect(
+      await screen.findByText("The element had no stats of its own, so it has these too."),
+    ).toBeInTheDocument();
   });
 
   it("offers the paste only where the element has a block, and not while editing", async () => {

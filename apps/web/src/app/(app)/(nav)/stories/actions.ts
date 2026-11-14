@@ -934,10 +934,23 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
  * the client sent; a mismatch is thrown, since the form cannot fix it. The
  * same predicate is repeated in the UPDATE's WHERE so the write cannot land
  * on a row that changed hands between the read and the write.
+ *
+ * A story with its own stat block (stories.stat_block_definition) loses it
+ * when its system changes, since the copy stands in for the system it was
+ * taken from. That is only done when the form says so with dropStatBlock,
+ * which it sends once it has warned that the stat block goes; otherwise a
+ * change of system is refused on the System field and nothing is saved, so
+ * a form opened before the copy was made cannot delete it unwarned. The
+ * check is in the UPDATE's WHERE, so a copy made after the read is kept too.
  */
-export async function sa_updateStory(idStory: number, input: unknown): Promise<StoryFormResult> {
+export async function sa_updateStory(
+  idStory: number,
+  input: unknown,
+  options: { dropStatBlock?: boolean } = {},
+): Promise<StoryFormResult> {
   const user = await requireAccount();
   const id = idStorySchema.parse(idStory);
+  const dropStatBlock = z.boolean().optional().parse(options.dropStatBlock) ?? false;
 
   const [story] = await db
     .select({ idCreatedByUser: stories.idCreatedByUser })
@@ -953,11 +966,18 @@ export async function sa_updateStory(idStory: number, input: unknown): Promise<S
   if (!parsed.success) return fieldErrors(parsed);
 
   const values = parsed.data;
+  // Whether this save changes the story's system, against the row's own
+  // system as the UPDATE reads it.
+  const systemChanges = sql`${stories.idSystem} IS DISTINCT FROM ${values.idSystem}::integer`;
+  const owned = and(eq(stories.idStory, id), eq(stories.idCreatedByUser, user.id));
   const updated = await db
     .update(stories)
     .set({
       title: values.title,
       idSystem: values.idSystem,
+      // The story's own stat block goes with the system it was copied
+      // from; the WHERE below has made sure the form said it may.
+      statBlockDefinition: sql`CASE WHEN ${systemChanges} THEN NULL ELSE ${stories.statBlockDefinition} END`,
       summary: values.summary || null,
       isLookingForPlayers: values.isLookingForPlayers,
       isActive: values.isActive,
@@ -969,9 +989,23 @@ export async function sa_updateStory(idStory: number, input: unknown): Promise<S
       idArchivedByUser: values.isArchived ? user.id : null,
       idUpdatedByUser: user.id,
     })
-    .where(and(eq(stories.idStory, id), eq(stories.idCreatedByUser, user.id)))
+    .where(
+      dropStatBlock
+        ? owned
+        : and(owned, not(and(systemChanges, isNotNull(stories.statBlockDefinition))!)),
+    )
     .returning({ idStory: stories.idStory });
-  if (updated.length === 0) throw new Error("Story not found");
+  if (updated.length === 0) {
+    // The story was read as the caller's above, so a write that found no
+    // row is the stat block standing in the way.
+    return {
+      ok: false,
+      errors: {
+        idSystem:
+          "This story has its own stat block, which changing its system would delete. Reload the page to see what goes.",
+      },
+    };
+  }
 
   redirect(`/stories/${id}`);
 }

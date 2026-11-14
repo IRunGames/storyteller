@@ -50,6 +50,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               },
               {
@@ -66,6 +67,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               },
               {
@@ -83,6 +85,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               },
               {
@@ -99,6 +102,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               },
             ],
@@ -126,6 +130,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               },
               {
@@ -142,6 +147,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               },
               {
@@ -158,6 +164,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: false,
                 initialRoll: "",
               },
             ],
@@ -191,6 +198,7 @@ const systems: StatBlockSystems = {
                 roll: "",
                 global: false,
                 upDown: true,
+                leftRight: true,
                 initialRoll: "",
               },
             ],

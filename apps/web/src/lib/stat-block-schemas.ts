@@ -83,6 +83,7 @@ export const statDefinitionSchema = z.object({
     .max(MAX_ROLL_NOTATION, `Keep a roll under ${MAX_ROLL_NOTATION} characters.`),
   global: z.boolean(),
   upDown: z.boolean(),
+  leftRight: z.boolean(),
   initialRoll: z
     .string()
     .trim()
@@ -289,6 +290,9 @@ export const statBlockDefinitionSchema = z
     groups: z
       .array(statGroupDefinitionSchema)
       .max(MAX_GROUPS, `Keep it under ${MAX_GROUPS} groups.`),
+    // The action's stamp (stampDefinition), not the editor's: kept when a
+    // stored definition is read, and replaced by the action on every save.
+    updatedAt: z.iso.datetime().optional(),
   })
   .superRefine((definition, ctx) => {
     if (JSON.stringify(definition).length > MAX_DEFINITION_LENGTH) {
@@ -351,12 +355,13 @@ export function readStatBlockDefinition(raw: unknown): StatBlockDefinition {
 /**
  * A stored definition with the fields later versions added: keyedBy,
  * rollAll and canHaveMultiples on every group, and description, visible,
- * format, sticky, static, roll, global, upDown and initialRoll on every stat. Columns
- * written before groups could repeat have no keyedBy and read as plain
- * groups that do not roll all and have no multiples; those written before a
- * stat had the flags read as shown, in the format its type starts with, not
- * sticky, not static, with no roll, not global, without the up/down
- * changer and starting at 0. Each reads that way rather than failing whole.
+ * format, sticky, static, roll, global, upDown, leftRight and initialRoll
+ * on every stat. Columns written before groups could repeat have no keyedBy
+ * and read as plain groups that do not roll all and have no multiples;
+ * those written before a stat had the flags read as shown, in the format
+ * its type starts with, not sticky, not static, with no roll, not global,
+ * without the up/down changer, with the left/right buttons on a rack alone,
+ * and starting at 0. Each reads that way rather than failing whole.
  * Anything that is not the expected shape is handed on as it is for the
  * schema to refuse.
  */
@@ -381,6 +386,9 @@ function withDefaults(raw: unknown): unknown {
       roll: "",
       global: false,
       upDown: false,
+      // A rack drew its left/right buttons before the template could say,
+      // so one stored without the flag keeps them.
+      leftRight: stat.type === "rack",
       initialRoll: "",
     });
     const stats = Array.isArray(group.stats)

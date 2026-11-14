@@ -1,7 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Box, chakra, Flex, Heading, HStack, Portal, Stack, Text, Tooltip } from "@chakra-ui/react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Badge,
+  Box,
+  chakra,
+  Flex,
+  Heading,
+  HStack,
+  Portal,
+  Stack,
+  Text,
+  Tooltip,
+} from "@chakra-ui/react";
 import {
   ChevronDown,
   ChevronLeft,
@@ -13,6 +24,7 @@ import {
   Star,
 } from "lucide-react";
 import { toaster } from "@/components/ui/toaster";
+import { DeleteButton, type DeleteOutcome } from "@/components/confirm/delete-button";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import {
   formatStatValue,
@@ -93,6 +105,9 @@ export function ElementStatBlocks({
   }, [idStory, idElement, idSceneElement]);
 
   if (!blocks || blocks.length === 0) return null;
+  // Whether the holder carries stats a paste of the element's would replace,
+  // in any system, since the paste writes every system's at once.
+  const carriesStats = blocks.some((block) => block.stored && block.carried.length > 0);
   const views = (
     <Stack gap="3" data-testid="element-stat-blocks">
       {blocks.map((block) => (
@@ -103,6 +118,7 @@ export function ElementStatBlocks({
           canEdit={canEdit}
           rollAs={rollAs}
           copyFromElement={copyFromElement}
+          pasteOverwrites={carriesStats}
           onChange={(changed) =>
             setBlocks((current) =>
               current
@@ -144,7 +160,8 @@ export function ElementStatBlocks({
  * get toasted together. With canEdit, a
  * number is an entry box, with an up/down clicker where the template asks
  * for one (StatNumber, `upDown`), a pool has
- * its "/ max" as a button that refills it, said in its tooltip, a rack ◀ ▶;
+ * its "/ max" as a button that refills it, said in its tooltip, a rack ◀ ▶
+ * where the template asks for them (`leftRight`) and the rack is not static;
  * a display word, a computed stat and a static stat
  * are shown as they are, the computed one dimmer. A signed format
  * shows its sign beside the number. Every control sends one change
@@ -158,7 +175,10 @@ export function ElementStatBlocks({
  * The other way, while the form is closed and the element carries a block
  * of its own (copyFromElement), a paste button beside the pencil writes the
  * element's blocks over the holder's (sa_copyStatBlocksFromElement),
- * starting the scene element again from what it was prepared with.
+ * starting the scene element again from what it was prepared with. Either
+ * asks first when it would overwrite stats: the paste when the scene
+ * element carries any (`pasteOverwrites`), the copy back when the element
+ * carries a block of this system (`onElement`).
  *
  * The stats pane names each element itself and keeps the pencil on that
  * line, so it leaves the heading line out (`showLabel` and `showControls`
@@ -171,6 +191,7 @@ export function StatBlockView({
   canEdit,
   rollAs,
   copyFromElement,
+  pasteOverwrites = true,
   showLabel = true,
   showControls = true,
   editing: editingGiven,
@@ -184,6 +205,11 @@ export function StatBlockView({
   rollAs?: RollAs;
   /** The element itself carries a block, so the paste from it is offered beside the pencil. */
   copyFromElement?: boolean;
+  /**
+   * Whether the holder carries stats the paste would replace, so it asks
+   * first; left out, it is assumed to, so a paste never overwrites unasked.
+   */
+  pasteOverwrites?: boolean;
   /** Whether the system's name heads the block; false where the holder names it already. */
   showLabel?: boolean;
   /** Whether the pencil and the copy buttons are drawn here; false where the holder draws a pencil of its own. */
@@ -204,31 +230,32 @@ export function StatBlockView({
   };
   const [copying, setCopying] = useState(false);
 
-  // The copy back to the element, offered while a scene element's form is open.
-  async function copyToElement() {
-    setCopying(true);
-    try {
-      const result = await sa_copyStatBlocksToElement(holder, block.idSystem);
-      if (result.ok) toaster.create({ title: "Stats copied to the element", type: "success" });
-      else toaster.create({ title: result.error, type: "error" });
-    } catch {
-      toaster.create({ title: "The stats could not be copied. Try again.", type: "error" });
-    } finally {
-      setCopying(false);
-    }
+  // The copy back to the element, offered while a scene element's form is
+  // open. Once it is made the element carries this system's block, so the
+  // next copy asks first.
+  async function copyToElement(): Promise<DeleteOutcome> {
+    const result = await sa_copyStatBlocksToElement(holder, block.idSystem);
+    if (result.ok) onChange({ ...block, onElement: true });
+    return result;
   }
 
   // The element's blocks over the holder's, every system at once: what the
   // element was prepared with becomes the scene element's again, whatever
   // play made of them.
-  async function pasteFromElement() {
+  async function pasteFromElement(): Promise<DeleteOutcome> {
+    const result = await sa_copyStatBlocksFromElement(holder);
+    if (result.ok) onBlocks(result.blocks);
+    return result.ok ? { ok: true } : result;
+  }
+
+  // A copy that loses nothing is made at once, toasted as DeleteButton
+  // toasts the one it asked about.
+  async function copyUnasked(copy: () => Promise<DeleteOutcome>, done: string) {
     setCopying(true);
     try {
-      const result = await sa_copyStatBlocksFromElement(holder);
-      if (result.ok) {
-        onBlocks(result.blocks);
-        toaster.create({ title: "Stats copied from the element", type: "success" });
-      } else toaster.create({ title: result.error, type: "error" });
+      const result = await copy();
+      if (result && !result.ok) toaster.create({ title: result.error, type: "error" });
+      else toaster.create({ title: done, type: "success" });
     } catch {
       toaster.create({ title: "The stats could not be copied. Try again.", type: "error" });
     } finally {
@@ -325,24 +352,61 @@ export function StatBlockView({
           )}
           {showControls && canEdit && (
             <HStack gap="0">
-              {!editing && copyFromElement && "idSceneElement" in holder && (
-                <PrepIconButton
-                  label="Copy stats from the element"
-                  disabled={copying}
-                  onClick={() => void pasteFromElement()}
-                >
-                  <ClipboardPaste />
-                </PrepIconButton>
-              )}
-              {editing && "idSceneElement" in holder && (
-                <PrepIconButton
-                  label="Copy stats to the element"
-                  disabled={copying}
-                  onClick={() => void copyToElement()}
-                >
-                  <Copy />
-                </PrepIconButton>
-              )}
+              {/* Each copy writes over stats that may hold what play or prep
+                  made of them, so it asks first, through DeleteButton, when
+                  there are any to lose, and is made at once when there are
+                  none: a scene element with no stats yet, or an element with
+                  no block of this system. */}
+              {!editing &&
+                copyFromElement &&
+                "idSceneElement" in holder &&
+                (pasteOverwrites ? (
+                  <DeleteButton
+                    label="Copy stats from the element"
+                    icon={<ClipboardPaste />}
+                    verb="Overwrite"
+                    thing="the stats in this scene"
+                    done="Stats copied from the element"
+                    failed="The stats could not be copied. Try again."
+                    onDelete={pasteFromElement}
+                  >
+                    The element&apos;s stats replace the ones it has in this scene, and what play
+                    has made of them is lost. This cannot be undone.
+                  </DeleteButton>
+                ) : (
+                  <PrepIconButton
+                    label="Copy stats from the element"
+                    disabled={copying}
+                    onClick={() =>
+                      void copyUnasked(pasteFromElement, "Stats copied from the element")
+                    }
+                  >
+                    <ClipboardPaste />
+                  </PrepIconButton>
+                ))}
+              {editing &&
+                "idSceneElement" in holder &&
+                (block.onElement === false ? (
+                  <PrepIconButton
+                    label="Copy stats to the element"
+                    disabled={copying}
+                    onClick={() => void copyUnasked(copyToElement, "Stats copied to the element")}
+                  >
+                    <Copy />
+                  </PrepIconButton>
+                ) : (
+                  <DeleteButton
+                    label="Copy stats to the element"
+                    icon={<Copy />}
+                    verb="Overwrite"
+                    thing="the element's stats"
+                    done="Stats copied to the element"
+                    failed="The stats could not be copied. Try again."
+                    onDelete={copyToElement}
+                  >
+                    {`The element's own ${block.label} stats, the ones it is prepared with, are replaced by these as they stand in this scene. This cannot be undone.`}
+                  </DeleteButton>
+                ))}
               <PrepIconButton
                 label={editing ? "Done editing stat blocks" : "Edit stat blocks"}
                 expanded={editing}
@@ -494,16 +558,14 @@ function StatLines({
       {statLines(stats).map((line) => (
         <Flex key={line[0].name} wrap="wrap" columnGap="5" rowGap="1" data-stat-line>
           {line.map((stat) => (
-            <HStack key={stat.name} gap="2" align="center">
-              <StatLabel stat={stat} />
-              <StatCell
-                stat={stat}
-                canEdit={canEdit}
-                busy={busy}
-                onChange={(patch) => onChange(stat.name, patch)}
-                onRoll={onRoll && (() => onRoll(stat.name))}
-              />
-            </HStack>
+            <StatItem
+              key={stat.name}
+              stat={stat}
+              canEdit={canEdit}
+              busy={busy}
+              onChange={onChange}
+              onRoll={onRoll}
+            />
           ))}
         </Flex>
       ))}
@@ -511,13 +573,38 @@ function StatLines({
   );
 }
 
+/** One stat on a line: its label, then its value and controls. */
+function StatItem({
+  stat,
+  canEdit,
+  busy,
+  onChange,
+  onRoll,
+}: {
+  stat: EvaluatedStat;
+  canEdit: boolean;
+  busy: boolean;
+  onChange: (stat: string, patch: StatPatch) => void;
+  onRoll?: (stat: string) => void;
+}) {
+  return (
+    <HStack gap="2" align="center" flexShrink="0">
+      <StatLabel stat={stat} />
+      <StatCell
+        stat={stat}
+        canEdit={canEdit}
+        busy={busy}
+        onChange={(patch) => onChange(stat.name, patch)}
+        onRoll={onRoll && (() => onRoll(stat.name))}
+      />
+    </HStack>
+  );
+}
+
 /**
- * A repeating group at the table: the group's label, then each row headed
- * by its key with the row's other visible stats on their lines under it,
- * and one quiet line when there are no rows yet. Rows reach the table
- * tidied, so every key is there and distinct. The first row is the group's
- * default, marked with a filled star; with onDefault, every other row has
- * an empty one that makes it the default (sa_setDefaultRow).
+ * A repeating group at the table: the group's label, then each row
+ * (RepeatingRow), and one quiet line when there are no rows yet. Rows reach
+ * the table tidied, so every key is there and distinct.
  */
 function RepeatingGroupView({
   group,
@@ -538,8 +625,6 @@ function RepeatingGroupView({
   onDefault?: (rowKey: string) => void;
 }) {
   const [open, setOpen] = useState(true);
-  const others = (row: EvaluatedRow) =>
-    row.stats.filter((stat) => stat.visible && stat.name !== group.keyedBy);
   return (
     <Stack gap="2">
       <HStack gap="1">
@@ -560,63 +645,161 @@ function RepeatingGroupView({
         </Text>
       )}
       {open &&
-        group.rows.map((row, index) => {
-          const key = String(row.key);
-          return (
-            <Stack key={key} gap="1" data-testid={`stat-row-${key}`}>
-              <HStack gap="1">
-                <Text fontSize="sm" fontWeight="semibold">
-                  {key}
-                </Text>
-                {/* How many of the row the element has, where more than one. */}
-                {row.multiple > 1 && (
-                  <Text as="span" fontSize="sm" color="fg.muted">
-                    ×{row.multiple}
-                  </Text>
-                )}
-                {index === 0 ? (
-                  <Box
-                    as="span"
-                    role="img"
-                    aria-label={`${key} is the default`}
-                    color="fg.muted"
-                    display="inline-flex"
-                  >
-                    <Star size={12} fill="currentColor" />
-                  </Box>
-                ) : (
-                  onDefault && (
-                    <chakra.button
-                      type="button"
-                      aria-label={`Make ${key} the default`}
-                      color="fg.subtle"
-                      display="inline-flex"
-                      cursor="pointer"
-                      rounded="sm"
-                      disabled={busy}
-                      _hover={{ color: "fg" }}
-                      _disabled={{ opacity: 0.5, cursor: "default" }}
-                      _focusVisible={{
-                        outline: "2px solid",
-                        outlineColor: "colorPalette.focusRing",
-                      }}
-                      onClick={() => onDefault(key)}
-                    >
-                      <Star size={12} />
-                    </chakra.button>
-                  )
-                )}
-              </HStack>
-              <StatLines
-                stats={others(row)}
-                canEdit={canEdit}
-                busy={busy}
-                onChange={(stat, patch) => onChange(stat, patch, key)}
-                onRoll={onRoll && ((stat) => onRoll(stat, key))}
-              />
-            </Stack>
-          );
-        })}
+        group.rows.map((row, index) => (
+          <RepeatingRow
+            key={String(row.key)}
+            row={row}
+            stats={row.stats.filter((stat) => stat.visible && stat.name !== group.keyedBy)}
+            isDefault={index === 0}
+            canEdit={canEdit}
+            busy={busy}
+            onChange={onChange}
+            onRoll={onRoll}
+            onDefault={onDefault}
+          />
+        ))}
+    </Stack>
+  );
+}
+
+/**
+ * One row of a repeating group: its key in a pill, led by its star and
+ * holding how many of it the element has, and the row's other visible
+ * stats. On one line when they all fit across the row, the stats side by
+ * side after the key; otherwise the key on a line of its own over the stats on their lines,
+ * as a plain group draws them. The first row is the group's default, marked
+ * with a filled star; with onDefault, every other row has an empty one that
+ * makes it the default (sa_setDefaultRow). A row with no star keeps its
+ * place, so the keys line up.
+ *
+ * Whether the line fits turns on the values shown, so it is measured, as
+ * OverflowTooltip measures: drawn on one line, a row whose content runs past
+ * its width (scrollWidth past clientWidth) is drawn stacked before the
+ * browser paints, and the width the line needed is kept. A stacked row tries
+ * the line again once it is that wide, or when its stats change, since the
+ * width kept was for the values as they were.
+ */
+function RepeatingRow({
+  row,
+  stats,
+  isDefault,
+  canEdit,
+  busy,
+  onChange,
+  onRoll,
+  onDefault,
+}: {
+  row: EvaluatedRow;
+  stats: EvaluatedStat[];
+  isDefault: boolean;
+  canEdit: boolean;
+  busy: boolean;
+  onChange: (stat: string, patch: StatPatch, rowKey: string) => void;
+  onRoll?: (stat: string, rowKey: string) => void;
+  onDefault?: (rowKey: string) => void;
+}) {
+  const key = String(row.key);
+  const ref = useRef<HTMLDivElement>(null);
+  const [oneLine, setOneLine] = useState(true);
+  // What the one line needed when it last ran over, and for which values.
+  const needed = useRef<{ row: EvaluatedRow; width: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      if (oneLine) {
+        if (element.scrollWidth > element.clientWidth) {
+          needed.current = { row, width: element.scrollWidth };
+          setOneLine(false);
+        }
+        return;
+      }
+      const known = needed.current;
+      if (!known || known.row !== row || element.clientWidth >= known.width) setOneLine(true);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [oneLine, row]);
+
+  const star = isDefault ? (
+    <Box
+      as="span"
+      role="img"
+      aria-label={`${key} is the default`}
+      color="fg.muted"
+      display="inline-flex"
+    >
+      <Star size={12} fill="currentColor" />
+    </Box>
+  ) : onDefault ? (
+    <chakra.button
+      type="button"
+      aria-label={`Make ${key} the default`}
+      color="fg.subtle"
+      display="inline-flex"
+      cursor="pointer"
+      rounded="sm"
+      disabled={busy}
+      _hover={{ color: "fg" }}
+      _disabled={{ opacity: 0.5, cursor: "default" }}
+      _focusVisible={{ outline: "2px solid", outlineColor: "colorPalette.focusRing" }}
+      onClick={() => onDefault(key)}
+    >
+      <Star size={12} />
+    </chakra.button>
+  ) : (
+    // The star's room, so this row's key starts where the others' do.
+    <Box as="span" w="12px" flexShrink="0" aria-hidden />
+  );
+  const title = (
+    <HStack gap="1" flexShrink="0">
+      {star}
+      {/* A solid pill, so each row's key stands out from the stats beside and under it. */}
+      <Badge size="md" variant="solid" colorPalette="gray" rounded="full" fontWeight="semibold">
+        {key}
+        {/* How many of the row the element has, where more than one. */}
+        {row.multiple > 1 && (
+          <chakra.span fontWeight="normal" opacity="0.8">
+            ×{row.multiple}
+          </chakra.span>
+        )}
+      </Badge>
+    </HStack>
+  );
+  const change = (stat: string, patch: StatPatch) => onChange(stat, patch, key);
+  const roll = onRoll && ((stat: string) => onRoll(stat, key));
+
+  if (oneLine) {
+    return (
+      <Flex
+        ref={ref}
+        align="center"
+        columnGap="5"
+        overflow="hidden"
+        data-layout="line"
+        data-testid={`stat-row-${key}`}
+      >
+        {title}
+        {stats.map((stat) => (
+          <StatItem
+            key={stat.name}
+            stat={stat}
+            canEdit={canEdit}
+            busy={busy}
+            onChange={change}
+            onRoll={roll}
+          />
+        ))}
+      </Flex>
+    );
+  }
+  return (
+    <Stack ref={ref} gap="1" data-layout="stacked" data-testid={`stat-row-${key}`}>
+      {title}
+      <StatLines stats={stats} canEdit={canEdit} busy={busy} onChange={change} onRoll={roll} />
     </Stack>
   );
 }
@@ -837,9 +1020,12 @@ function StatCell({
     case "rack": {
       const rack = stat.rack ?? [];
       const index = stat.rackIndex ?? -1;
+      // The buttons where the template asks for them (Left/right), and never
+      // on a static rack, which is shown as it is, as a static number is.
+      const moves = active && stat.leftRight && !stat.static;
       return (
         <HStack gap="1">
-          {active && (
+          {moves && (
             <PrepIconButton
               label={`${stat.label} down`}
               onClick={() => index > 0 && onChange({ value: rack[index - 1] })}
@@ -848,7 +1034,7 @@ function StatCell({
             </PrepIconButton>
           )}
           {words}
-          {active && (
+          {moves && (
             <PrepIconButton
               label={`${stat.label} up`}
               onClick={() =>

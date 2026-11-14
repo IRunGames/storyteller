@@ -1,6 +1,6 @@
 import { before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
@@ -18,7 +18,10 @@ const noErrors = async (): Promise<Result> => ({ ok: false, errors: {} });
 // a database, and so each test can see which one it called and with what.
 const sa_createStory =
   mock.fn<(values: StoryValues, afterCreate?: string) => Promise<Result>>(noErrors);
-const sa_updateStory = mock.fn<(idStory: number, values: StoryValues) => Promise<Result>>(noErrors);
+const sa_updateStory =
+  mock.fn<
+    (idStory: number, values: StoryValues, options: { dropStatBlock: boolean }) => Promise<Result>
+  >(noErrors);
 
 let StoryForm: typeof import("./story-form").StoryForm;
 
@@ -33,6 +36,7 @@ const existing = {
     isArchived: false,
     isPublic: false,
   },
+  hasOwnStatBlock: false,
 };
 
 describe("StoryForm", () => {
@@ -152,8 +156,56 @@ describe("StoryForm", () => {
     expect(sa_updateStory.mock.calls[0].arguments).toEqual([
       -15,
       { ...existing.values, title: "Vampire: Chicago" },
+      { dropStatBlock: false },
     ]);
     expect(sa_createStory.mock.callCount()).toBe(0);
+  });
+
+  it("warns before a change of system deletes the story's own stat block, and saves only as Save and delete", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(
+      <StoryForm systems={systems} story={{ ...existing, hasOwnStatBlock: true }} />,
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.selectOptions(screen.getByLabelText(/System/), "-26");
+    const warning = screen.getByRole("alert");
+    expect(
+      within(warning).getByText("This deletes the story's own stat block."),
+    ).toBeInTheDocument();
+    expect(warning).toHaveTextContent(
+      "It was copied from Daggerheart (1e) and stands in for that system's alone, so saving with another system deletes it and every change made to it. This cannot be undone. Choose Daggerheart (1e) again to keep it.",
+    );
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save and delete stat block" }));
+
+    await waitFor(() => expect(sa_updateStory.mock.callCount()).toBe(1));
+    expect(sa_updateStory.mock.calls[0].arguments).toEqual([
+      -15,
+      { ...existing.values, idSystem: -26 },
+      { dropStatBlock: true },
+    ]);
+
+    // Back on the system it was copied from, nothing goes.
+    await user.selectOptions(screen.getByLabelText(/System/), "-6");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+  });
+
+  it("changes the system of a story with no stat block of its own without a warning", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(<StoryForm systems={systems} story={existing} />);
+    await user.selectOptions(screen.getByLabelText(/System/), "");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(sa_updateStory.mock.callCount()).toBe(1));
+    expect(sa_updateStory.mock.calls[0].arguments).toEqual([
+      -15,
+      { ...existing.values, idSystem: null },
+      { dropStatBlock: false },
+    ]);
   });
 
   it("archiving turns off active and looking for players, and unarchiving frees them again", async () => {

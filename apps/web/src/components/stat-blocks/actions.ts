@@ -63,6 +63,13 @@ export type ElementStatBlock = {
   /** The names of the template's groups the block carries, in template order. */
   carried: string[];
   groups: EvaluatedGroup[];
+  /**
+   * For a scene element's block, whether its element carries a block of
+   * the same system, which Copy stats to the element would overwrite and so
+   * asks about first. Absent for an element's own block, and wherever the
+   * answer was not read.
+   */
+  onElement?: boolean;
 };
 
 /** What a change to one stat carries: the parts the stat stores. */
@@ -83,7 +90,13 @@ export type RollStatResult =
   { ok: true; roll: Roll; posted: boolean } | { ok: false; error: string };
 
 export type SetStatBlocksResult =
-  { ok: true; blocks: ElementStatBlock[] } | { ok: false; errors: Record<string, string> };
+  | {
+      ok: true;
+      blocks: ElementStatBlock[];
+      /** The element had no stat blocks, so it was given the scene element's (sa_setStatBlocks). */
+      copiedToElement: boolean;
+    }
+  | { ok: false; errors: Record<string, string> };
 
 export type CopyStatBlocksResult = { ok: true } | { ok: false; error: string };
 
@@ -153,6 +166,8 @@ type Loaded = {
   storySystem: number | null;
   /** For a scene element, what its change is published as. */
   link: { idStoryScene: number; idElement: number } | null;
+  /** For a scene element, its element's own blocks; null for an element. */
+  elementBlocks: StatBlocks | null;
 };
 
 async function loadHolder(holder: StatBlockHolder): Promise<Loaded | null> {
@@ -164,7 +179,12 @@ async function loadHolder(holder: StatBlockHolder): Promise<Loaded | null> {
       .where(and(eq(elements.idElement, holder.idElement), eq(elements.idStory, holder.idStory)))
       .limit(1);
     return row
-      ? { blocks: readStatBlocks(row.statBlocks), storySystem: row.storySystem, link: null }
+      ? {
+          blocks: readStatBlocks(row.statBlocks),
+          storySystem: row.storySystem,
+          link: null,
+          elementBlocks: null,
+        }
       : null;
   }
   const [row] = await db
@@ -173,10 +193,12 @@ async function loadHolder(holder: StatBlockHolder): Promise<Loaded | null> {
       storySystem: stories.idSystem,
       idStoryScene: sceneElements.idStoryScene,
       idElement: sceneElements.idElement,
+      elementBlocks: elements.statBlocks,
     })
     .from(sceneElements)
     .innerJoin(storyScenes, eq(storyScenes.idStoryScene, sceneElements.idStoryScene))
     .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
+    .innerJoin(elements, eq(elements.idElement, sceneElements.idElement))
     .where(
       and(
         eq(sceneElements.idSceneElement, holder.idSceneElement),
@@ -189,6 +211,7 @@ async function loadHolder(holder: StatBlockHolder): Promise<Loaded | null> {
         blocks: readStatBlocks(row.statBlocks),
         storySystem: row.storySystem,
         link: { idStoryScene: row.idStoryScene, idElement: row.idElement },
+        elementBlocks: readStatBlocks(row.elementBlocks),
       }
     : null;
 }
@@ -239,10 +262,21 @@ function announce(holder: StatBlockHolder, loaded: Loaded) {
   }
 }
 
+/** Whether stored blocks carry a stat block, of one system or of any. */
+function carries(blocks: StatBlocks, idSystem?: number): boolean {
+  const keys = idSystem === undefined ? Object.keys(blocks) : [systemKey(idSystem)];
+  return keys.some((key) => Object.keys(blocks[key] ?? {}).length > 0);
+}
+
+/**
+ * One system's block worked out for showing; for a scene element, given its
+ * element's blocks, with whether the element carries one of the system.
+ */
 function evaluated(
   system: StatBlockSystem,
   block: StatBlock | undefined,
   stored: boolean,
+  elementBlocks: StatBlocks | null = null,
 ): ElementStatBlock {
   const tidy = block ? tidyStatBlock(system.definition, block) : {};
   return {
@@ -253,6 +287,7 @@ function evaluated(
     block: tidy,
     carried: carriedGroups(system.definition, tidy).map((group) => group.name),
     groups: evaluateStatBlock(system.definition, tidy),
+    ...(elementBlocks === null ? {} : { onElement: carries(elementBlocks, system.idSystem) }),
   };
 }
 
@@ -274,7 +309,12 @@ export async function sa_getStatBlocks(
 
   const found = await loadHolder(parsed.data);
   if (!found) return null;
-  return blocksOf(await statBlockSystems(), found.storySystem, found.blocks);
+  return blocksOf(
+    await statBlockSystems(parsed.data.idStory),
+    found.storySystem,
+    found.blocks,
+    found.elementBlocks,
+  );
 }
 
 /** Every block in the stored blocks, worked out, the story's own system first and always there. */
@@ -282,17 +322,18 @@ function blocksOf(
   systems: StatBlockSystem[],
   storySystem: number | null,
   blocks: StatBlocks,
+  elementBlocks: StatBlocks | null = null,
 ): ElementStatBlock[] {
   const result: ElementStatBlock[] = [];
   const own = systems.find((system) => system.idSystem === storySystem);
   if (own) {
     const key = systemKey(own.idSystem);
-    result.push(evaluated(own, blocks[key], key in blocks));
+    result.push(evaluated(own, blocks[key], key in blocks, elementBlocks));
   }
   for (const system of systems) {
     if (system === own) continue;
     const block = blocks[systemKey(system.idSystem)];
-    if (block) result.push(evaluated(system, block, true));
+    if (block) result.push(evaluated(system, block, true, elementBlocks));
   }
   return result;
 }
@@ -370,7 +411,7 @@ async function target(
   if (!(await ownsStory(userId, parsed.idStory))) return { ok: false, error: GONE };
   const found = await loadHolder(parsed);
   if (!found) return { ok: false, error: GONE };
-  const systems = await statBlockSystems();
+  const systems = await statBlockSystems(parsed.idStory);
   const known = systems.find((candidate) => candidate.idSystem === system);
   if (!known) return { ok: false, error: "That system has no stats to fill in." };
   return { ok: true, holder: parsed, found, system: known };
@@ -439,7 +480,10 @@ export async function sa_setStat(
     if (written === undefined) return { ok: false, error: GONE };
 
     announce(checked.holder, found);
-    return { ok: true, block: evaluated(system, readStatBlocks(written)[systemKeyText], true) };
+    return {
+      ok: true,
+      block: evaluated(system, readStatBlocks(written)[systemKeyText], true, found.elementBlocks),
+    };
   }
 
   const label = groupDefinition.label || groupDefinition.name;
@@ -475,7 +519,12 @@ export async function sa_setStat(
   announce(checked.holder, found);
   return {
     ok: true,
-    block: evaluated(system, readStatBlocks(result.statBlocks)[systemKeyText], true),
+    block: evaluated(
+      system,
+      readStatBlocks(result.statBlocks)[systemKeyText],
+      true,
+      found.elementBlocks,
+    ),
   };
 }
 
@@ -530,7 +579,10 @@ export async function sa_addStatBlock(
   );
   if (written === undefined) return { ok: false, error: GONE };
   announce(checked.holder, found);
-  return { ok: true, block: evaluated(system, readStatBlocks(written)[systemKeyText], true) };
+  return {
+    ok: true,
+    block: evaluated(system, readStatBlocks(written)[systemKeyText], true, found.elementBlocks),
+  };
 }
 
 /**
@@ -558,7 +610,10 @@ export async function sa_removeStatBlock(
   );
   if (written === undefined) return { ok: false, error: GONE };
   announce(checked.holder, found);
-  return { ok: true, block: evaluated(system, readStatBlocks(written)[systemKeyText], true) };
+  return {
+    ok: true,
+    block: evaluated(system, readStatBlocks(written)[systemKeyText], true, found.elementBlocks),
+  };
 }
 
 /**
@@ -567,6 +622,13 @@ export async function sa_removeStatBlock(
  * (statBlocksSchema), the errors keyed by the form's field paths. Only the
  * systems posted are written; a stored block for another system is left as
  * it is.
+ *
+ * A scene element's first stat blocks go to its element as well when the
+ * element has none of its own, so stats made up at the table become what
+ * the element is prepared with and the next copy of it starts from them
+ * (copiedToElement says so). An element that carries any block keeps it
+ * untouched: the check is in the UPDATE's WHERE, so nothing of the
+ * element's is ever overwritten here.
  */
 export async function sa_setStatBlocks(
   holder: StatBlockHolder,
@@ -580,7 +642,7 @@ export async function sa_setStatBlocks(
   const found = await loadHolder(parsed.data);
   if (!found) return gone;
 
-  const systems = await statBlockSystems();
+  const systems = await statBlockSystems(parsed.data.idStory);
   const checked = statBlocksSchema(systems).safeParse(blocks ?? {});
   if (!checked.success) {
     return {
@@ -600,7 +662,49 @@ export async function sa_setStatBlocks(
   );
   if (written === undefined) return gone;
   announce(parsed.data, found);
-  return { ok: true, blocks: blocksOf(systems, found.storySystem, readStatBlocks(written)) };
+  const saved = readStatBlocks(written);
+  const copiedToElement =
+    found.link !== null &&
+    carries(saved) &&
+    (await giveToBareElement(parsed.data.idStory, found.link.idElement, saved, user.id));
+  return {
+    ok: true,
+    blocks: blocksOf(
+      systems,
+      found.storySystem,
+      saved,
+      copiedToElement ? saved : found.elementBlocks,
+    ),
+    copiedToElement,
+  };
+}
+
+/**
+ * Writes a scene element's blocks onto its element when the element
+ * carries none of its own, telling the table; whether it did. An element
+ * whose blocks hold any group is left alone, decided in the WHERE so a
+ * block given to it since the scene element was read is not overwritten.
+ */
+async function giveToBareElement(
+  idStory: number,
+  idElement: number,
+  blocks: StatBlocks,
+  userId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .update(elements)
+    .set({ statBlocks: blocks, idUpdatedByUser: userId })
+    .where(
+      and(
+        eq(elements.idElement, idElement),
+        eq(elements.idStory, idStory),
+        sql`NOT EXISTS (SELECT 1 FROM jsonb_each(${elements.statBlocks}) AS held(key, block) WHERE held.block <> '{}'::jsonb)`,
+      ),
+    )
+    .returning({ idElement: elements.idElement });
+  if (!row) return false;
+  publishLater(() => publishElementChanged(idStory, idElement));
+  return true;
 }
 
 /**
@@ -670,7 +774,12 @@ export async function sa_copyStatBlocksFromElement(
   announce(parsed.data, found);
   return {
     ok: true,
-    blocks: blocksOf(await statBlockSystems(), found.storySystem, readStatBlocks(written)),
+    blocks: blocksOf(
+      await statBlockSystems(parsed.data.idStory),
+      found.storySystem,
+      readStatBlocks(written),
+      readStatBlocks(element.statBlocks),
+    ),
   };
 }
 
@@ -724,7 +833,12 @@ export async function sa_setDefaultRow(
   announce(checked.holder, found);
   return {
     ok: true,
-    block: evaluated(system, readStatBlocks(result.statBlocks)[systemKeyText], true),
+    block: evaluated(
+      system,
+      readStatBlocks(result.statBlocks)[systemKeyText],
+      true,
+      found.elementBlocks,
+    ),
   };
 }
 
@@ -875,6 +989,7 @@ async function sceneLinks(idStory: number, idStoryScene: number) {
       title: elements.title,
       label: sceneElements.label,
       statBlocks: sceneElements.statBlocks,
+      elementBlocks: elements.statBlocks,
       storySystem: stories.idSystem,
     })
     .from(sceneElements)
@@ -925,12 +1040,15 @@ export async function sa_getSceneStatBlocks(
     .limit(1);
   if (!known) return null;
 
-  const systems = await statBlockSystems();
+  const systems = await statBlockSystems(story);
   const result: SceneStatBlocks[] = [];
   for (const link of await sceneLinks(story, scene)) {
-    const blocks = blocksOf(systems, link.storySystem, readStatBlocks(link.statBlocks)).filter(
-      (block) => block.stored,
-    );
+    const blocks = blocksOf(
+      systems,
+      link.storySystem,
+      readStatBlocks(link.statBlocks),
+      readStatBlocks(link.elementBlocks),
+    ).filter((block) => block.stored);
     if (blocks.length === 0) continue;
     result.push({
       idSceneElement: link.idSceneElement,
@@ -967,7 +1085,7 @@ export async function sa_rollStatForAll(
   const story = idSchema.parse(idStory);
   const scene = idSchema.parse(idStoryScene);
   if (!(await ownsStory(user.id, story))) return { ok: false, error: GONE };
-  const system = (await statBlockSystems()).find(
+  const system = (await statBlockSystems(story)).find(
     (candidate) => candidate.idSystem === idSchema.parse(idSystem),
   );
   if (!system) return { ok: false, error: "That system has no stats to fill in." };

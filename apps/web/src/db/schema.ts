@@ -253,6 +253,10 @@ export const stories = pgTable("stories", {
   searchText: text("search_text").generatedAlwaysAs(
     sql`immutable_concat_ws(' ', title, summary, immutable_array_to_string(standard_tags, ' '))`,
   ),
+  // The story's own copy of its system's statBlockDefinition, read in its
+  // place wherever the story's elements are (db/stat-block-systems.ts); null
+  // reads the system's. Untyped for the reason systems.statBlockDefinition is.
+  statBlockDefinition: jsonb("stat_block_definition"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   idCreatedByUser: uuid("id_created_by_user"),
