@@ -44,10 +44,11 @@ export const LOGO_URL = "/images/storyteller-logo.png";
 
 /**
  * The Storyteller logo alone, with no link or name: the brand mark's icon,
- * and the display table's (/table/[id]), which shows it over the scene. The
- * same on every theme, being the app's mark rather than the theme's; the
- * theme menu's button shows which theme is in force. Decorative, as the name
- * beside it says what it is. The size is the caller's.
+ * and the display table's (/stories/[id]/table), which shows it over the
+ * scene. The same on every theme, being the app's mark rather than the
+ * theme's; the theme menu's button shows which theme is in force.
+ * Decorative, as the name beside it says what it is. The size is the
+ * caller's.
  */
 export function LogoMark({ size = "8" }: { size?: string }) {
   return <Image src={LOGO_URL} alt="" boxSize={size} rounded="md" flexShrink="0" />;

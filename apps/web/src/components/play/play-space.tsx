@@ -16,7 +16,7 @@ import { toPlayItem, type PlayScene } from "@/lib/play-scene";
 import { playStacks } from "@/lib/run";
 import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS, type SceneText } from "@/lib/scenes";
 import { cssUrlValue } from "@/lib/stories";
-import { sa_setPlaySceneText } from "@/app/(app)/play/[id]/actions";
+import { sa_setPlaySceneText } from "@/components/play/actions";
 import { AttachmentPreviewDialog } from "@/components/uploads/attachment-preview";
 import { BackgroundToggle } from "./background-toggle";
 import { PlayPill } from "./play-pill";

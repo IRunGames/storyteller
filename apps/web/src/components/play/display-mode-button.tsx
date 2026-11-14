@@ -7,7 +7,7 @@ import { NAV_DRAWER_BUTTON, useNavDrawer } from "@/components/nav/nav-drawer-con
 
 /**
  * The button in the middle of a table's header, beside its panel toggles,
- * that goes to the story's display table (/table/[id]): the same scene,
+ * that goes to the story's display table (/stories/[id]/table): the same scene,
  * large, with nothing to press, for a screen the whole table reads. A link
  * in the toggles' clothes, since it leaves the page rather than opening a
  * panel. The display table's own button comes back. In the hamburger's
@@ -19,7 +19,7 @@ export function DisplayModeButton({ idStory }: { idStory: number }) {
   if (drawer) {
     return (
       <Button {...NAV_DRAWER_BUTTON} asChild color="nav.icon">
-        <NextLink href={`/table/${idStory}`}>
+        <NextLink href={`/stories/${idStory}/table`}>
           <Monitor />
           Display mode
         </NextLink>
@@ -31,7 +31,7 @@ export function DisplayModeButton({ idStory }: { idStory: number }) {
     <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
       <Tooltip.Trigger asChild>
         <IconButton asChild variant="ghost" boxSize="11" rounded="10px" color="nav.icon">
-          <NextLink href={`/table/${idStory}`} aria-label="Display mode">
+          <NextLink href={`/stories/${idStory}/table`} aria-label="Display mode">
             <Monitor />
           </NextLink>
         </IconButton>

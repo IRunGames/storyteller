@@ -4,7 +4,7 @@ import { z } from "zod";
 // preprocess turns both into what the stories.id_system column wants.
 const idSystem = z.preprocess(
   (value) => (value === "" || value === null || value === undefined ? null : Number(value)),
-  z.number().int().nullable(),
+  z.int32().nullable(),
 );
 
 // One schema for creating and editing: both forms post the same fields.

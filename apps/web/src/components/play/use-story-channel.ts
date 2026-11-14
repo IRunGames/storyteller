@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import mqtt from "mqtt";
 import { parseStoryEvent, storyEventTitle, type StoryEvent } from "@/lib/realtime/events";
 import { chatEventTitle, parseChatEvent, type ChatEvent } from "@/lib/realtime/chat-events";
-import { sa_getStoryChannel } from "@/app/(app)/play/[id]/actions";
+import { sa_getStoryChannel } from "@/components/play/actions";
 
 /** Where the connection to the broker stands. */
 export type ChannelStatus =

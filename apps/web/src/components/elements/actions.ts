@@ -10,9 +10,7 @@ import { sessionHeading } from "@/lib/stories";
 
 const { stories, storyPlayers, sceneElements, vStoryScenes } = schema;
 
-// Ids are int4; one outside that range is a query error to Postgres rather
-// than a missing row, so it is turned away before the query.
-const idSchema = z.number().int().min(-2147483648).max(2147483647);
+const idSchema = z.int32();
 const offsetSchema = z.number().int().min(0).max(10_000);
 
 /** One scene an element has been in, as the panel's History lists it. */

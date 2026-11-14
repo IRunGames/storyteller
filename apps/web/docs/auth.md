@@ -4,13 +4,13 @@ How sign-up, sign-in and route protection work in the web app.
 
 ## Stack
 
-| Piece | What it does |
-|---|---|
-| [better-auth](https://better-auth.com) 1.7.x | Issues sessions, hashes passwords, runs the OAuth dance |
-| Drizzle adapter | Lets Better Auth read/write our own tables instead of its default ones |
-| node-postgres (`pg`) | The driver, pointed at the `irun` schema |
-| Next.js 16 App Router | Route groups for access tiers, `proxy.ts` for the cheap gate |
-| Chakra UI v3 | The forms |
+| Piece                                        | What it does                                                           |
+| -------------------------------------------- | ---------------------------------------------------------------------- |
+| [better-auth](https://better-auth.com) 1.7.x | Issues sessions, hashes passwords, runs the OAuth dance                |
+| Drizzle adapter                              | Lets Better Auth read/write our own tables instead of its default ones |
+| node-postgres (`pg`)                         | The driver, pointed at the `irun` schema                               |
+| Next.js 16 App Router                        | Route groups for access tiers, `proxy.ts` for the cheap gate           |
+| Chakra UI v3                                 | The forms                                                              |
 
 Two sign-in methods are enabled: **email + password** (minimum 8 characters) and
 **Google OAuth**. A third kind of session has no account behind it: a **guest**,
@@ -24,16 +24,16 @@ Route groups set the access tier. The group name is not part of the URL.
 
 These are the only pages reachable without a session.
 
-| URL | Source | Who can reach it |
-|---|---|---|
-| `/` | [`(public)/page.tsx`](<../src/app/(public)/page.tsx>) | Anyone, signed in or not |
-| `/login` | [`(auth)/login/`](<../src/app/(auth)/login/page.tsx>) | Signed-out only — signed-in users bounce to `/home`, guests excepted |
-| `/signup` | [`(auth)/signup/`](<../src/app/(auth)/signup/page.tsx>) | Signed-out only — same bounce |
-| `/join/[code]` | [`(public)/join/[code]/`](<../src/app/(public)/join/[code]/page.tsx>) | Anyone holding a story's join link; see [Guests](#guests) |
-| `/invite/[token]` | [`(public)/invite/[token]/`](<../src/app/(public)/invite/[token]/page.tsx>) | Anyone holding an invitation's link; see [Invitations](#invitations) |
-| `/api/auth/*` | [`api/auth/[...all]/route.ts`](<../src/app/api/auth/[...all]/route.ts>) | Better Auth's own handler |
-| `/api/cron/*` | [`api/cron/`](../src/app/api/cron/) | Vercel Cron only — no session, each job checks `Authorization: Bearer $CRON_SECRET` itself: `blob-sweep` and `guest-sweep` |
-| `/images/*` | [`public/images/`](../public/images/) | Anyone — the pictures the landing, waiting and error pages paint; the proxy skips them so a visitor with no cookie sees the landing page's |
+| URL               | Source                                                                      | Who can reach it                                                                                                                           |
+| ----------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/`               | [`(public)/page.tsx`](<../src/app/(public)/page.tsx>)                       | Anyone, signed in or not                                                                                                                   |
+| `/login`          | [`(auth)/login/`](<../src/app/(auth)/login/page.tsx>)                       | Signed-out only — signed-in users bounce to `/home`, guests excepted                                                                       |
+| `/signup`         | [`(auth)/signup/`](<../src/app/(auth)/signup/page.tsx>)                     | Signed-out only — same bounce                                                                                                              |
+| `/join/[code]`    | [`(public)/join/[code]/`](<../src/app/(public)/join/[code]/page.tsx>)       | Anyone holding a story's join link; see [Guests](#guests)                                                                                  |
+| `/invite/[token]` | [`(public)/invite/[token]/`](<../src/app/(public)/invite/[token]/page.tsx>) | Anyone holding an invitation's link; see [Invitations](#invitations)                                                                       |
+| `/api/auth/*`     | [`api/auth/[...all]/route.ts`](../src/app/api/auth/[...all]/route.ts)       | Better Auth's own handler                                                                                                                  |
+| `/api/cron/*`     | [`api/cron/`](../src/app/api/cron/)                                         | Vercel Cron only — no session, each job checks `Authorization: Bearer $CRON_SECRET` itself: `blob-sweep` and `guest-sweep`                 |
+| `/images/*`       | [`public/images/`](../public/images/)                                       | Anyone — the pictures the landing, waiting and error pages paint; the proxy skips them so a visitor with no cookie sees the landing page's |
 
 ### Private pages
 
@@ -42,14 +42,23 @@ Everything else lives under `(app)`, whose
 `UserProvider`. Within it there are two groups; a new signed-in page goes in
 one of them and is protected by being there.
 
-| Group | Source | What it holds |
-|---|---|---|
-| `(app)/(nav)` | [`(nav)/layout.tsx`](<../src/app/(app)/(nav)/layout.tsx>) | Every signed-in page that carries the menu bar: the landing page after login (`/home`) and the sections the bar links to |
-| `(app)/play` | [`play/[id]/page.tsx`](<../src/app/(app)/play/[id]/page.tsx>) | The players' table and waiting room, with their own full-screen layout and no menu bar. The story's owner is sent on to `/run/[id]` |
-| `(app)/run` | [`run/[id]/page.tsx`](<../src/app/(app)/run/[id]/page.tsx>) | The storyteller's table, with the story's library down the side. Only the story's owner gets in; anyone else gets the not-found page |
-| `(app)/table` | [`table/[id]/page.tsx`](<../src/app/(app)/table/[id]/page.tsx>) | The display table: the scene large, with nothing to press, for a shared screen or a guest. The story's owner and its players get in, guests included; anyone else gets the not-found page |
-| `(app)/(nav)/admin` | [`admin/invitations/page.tsx`](<../src/app/(app)/(nav)/admin/invitations/page.tsx>) | The administrators' tools, behind the menu bar's wrench. Anyone short of an administrator gets the not-found page, and every action checks `requireAdmin()` |
-| `(app)/preview` | [`preview/scene/[id]/page.tsx`](<../src/app/(app)/preview/scene/[id]/page.tsx>) | A read-only look at one scene as the players would see it, keyed on the scene, opened in a new tab from the storyteller's scene selector. The story's owner and its players get in; anyone else gets the not-found page |
+| Group                      | Source                                                                              | What it holds                                                                                                                                                                                                           |
+| -------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `(app)/(nav)`              | [`(nav)/layout.tsx`](<../src/app/(app)/(nav)/layout.tsx>)                           | Every signed-in page that carries the menu bar: the landing page after login (`/home`) and the sections the bar links to                                                                                                |
+| `(app)/stories/[id]/play`  | [`stories/[id]/play/page.tsx`](<../src/app/(app)/stories/[id]/play/page.tsx>)       | The players' table and waiting room, with their own full-screen layout and no menu bar. The story's owner is sent on to `/stories/[id]/run`                                                                             |
+| `(app)/stories/[id]/run`   | [`stories/[id]/run/page.tsx`](<../src/app/(app)/stories/[id]/run/page.tsx>)         | The storyteller's table, with the story's library down the side. Only the story's owner gets in; anyone else gets the not-found page                                                                                    |
+| `(app)/stories/[id]/table` | [`stories/[id]/table/page.tsx`](<../src/app/(app)/stories/[id]/table/page.tsx>)     | The display table: the scene large, with nothing to press, for a shared screen or a guest. The story's owner and its players get in, guests included; anyone else gets the not-found page                               |
+| `(app)/(nav)/admin`        | [`admin/invitations/page.tsx`](<../src/app/(app)/(nav)/admin/invitations/page.tsx>) | The administrators' tools, behind the menu bar's wrench. Anyone short of an administrator gets the not-found page, and every action checks `requireAdmin()`                                                             |
+| `(app)/preview`            | [`preview/scene/[id]/page.tsx`](<../src/app/(app)/preview/scene/[id]/page.tsx>)     | A read-only look at one scene as the players would see it, keyed on the scene, opened in a new tab from the storyteller's scene selector. The story's owner and its players get in; anyone else gets the not-found page |
+
+Every page about one story has an address under `/stories/[id]/` (except
+`/sessions/[id]`, `/elements/[id]/edit` and `/preview/scene/[id]`, which
+deliberately keep ids of their own), but the files sit in two folders:
+`(app)/(nav)/stories/[id]/` for the pages with the menu bar (the story, its
+edit form, the storyboard, the library and a scene's info and edit pages),
+and `(app)/stories/[id]/` for the full-screen ones (the three tables above
+and the scene builder). The tables must stay out of `(nav)`: its layout sends
+a guest to `/signup`.
 
 ## The flow
 
@@ -78,14 +87,14 @@ on both pages with different wording.
 Two tiers, and you need both.
 
 **Tier 1 — [`proxy.ts`](../src/proxy.ts)** (Next 16's name for middleware). Calls
-`getSessionCookie()` to check a session cookie is *present*. This is an
+`getSessionCookie()` to check a session cookie is _present_. This is an
 optimistic filter, not a security boundary: it never touches the database, so a
 stale or forged cookie passes it. It cannot query the database — this runtime
 can't open a `pg` pool. All it buys is skipping a round trip to a page that
 would redirect anyway.
 
 It only guards the signed-out direction (no cookie on a protected route →
-`/login`). It deliberately does *not* bounce cookie-holders away from `/login`:
+`/login`). It deliberately does _not_ bounce cookie-holders away from `/login`:
 a stale cookie (session row deleted or expired while the browser still has the
 token) would then loop — `(app)/layout` sends the visitor to `/login`, the proxy
 sends them straight back. Better Auth tries to clear the stale cookie from
@@ -167,7 +176,8 @@ keep them there:
 
 - `(nav)/layout.tsx` sends a guest to `/signup`: nothing behind the menu bar
   is theirs;
-- `/play/[id]` and its waiting room send a guest to `/table/[id]`;
+- `/stories/[id]/play` and its waiting room send a guest to
+  `/stories/[id]/table`;
 - `(auth)/layout.tsx` lets a guest's session through to `/login` and
   `/signup` instead of bouncing it to `/home`.
 
@@ -189,7 +199,7 @@ both users, then deletes the anonymous one.
 seats, presence and chat lines to the account. It has to: `story_players`,
 `user_preferences` and `user_systems` would block the delete, and `chats`
 would lose its authors to `ON DELETE SET NULL`. The display table's Log in /
-Sign up button carries `redirectTo=/table/[id]`, and the links between
+Sign up button carries `redirectTo=/stories/[id]/table`, and the links between
 `/login` and `/signup` keep it, so the new account lands back at the table.
 
 **Removing guests.** A guest is nothing but their seats, so a guest who
@@ -267,7 +277,7 @@ still works; the invited address only fills in the signup form. On the
 invite page:
 
 - someone signed in with an account presses Accept (`sa_acceptInvitation`)
-  and goes on to `/play/[id]` for a story, or `/home`;
+  and goes on to `/stories/[id]/play` for a story, or `/home`;
 - anyone else, a guest included, is offered Sign up
   (`/signup?redirectTo=/invite/<token>&email=<invited>`) or Log in, and comes
   back to the invite page to accept. Google's `callbackURL` carries the same

@@ -20,7 +20,7 @@ export type LibraryStory = {
 /**
  * Every story the caller is the storyteller of, newest first: the stories
  * that have a library they can open, since a library is its storyteller's
- * alone (libraries/[id_story]/page.tsx). A story they only play in has none
+ * alone (stories/[id]/library/page.tsx). A story they only play in has none
  * for them, so it is left out.
  *
  * Inactive and archived stories stay in: their libraries are still there,

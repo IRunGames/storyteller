@@ -20,7 +20,7 @@ import {
   SCENE_ELEMENT_TAPPED,
   type PlayItem,
 } from "@/lib/run";
-import { sa_untapPlaySceneElement } from "@/app/(app)/play/[id]/actions";
+import { sa_untapPlaySceneElement } from "@/components/play/actions";
 import { toaster } from "@/components/ui/toaster";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { ElementHistory } from "@/components/elements/element-history";

@@ -30,7 +30,6 @@ const base: StoryCardData = {
   presentCount: 0,
   sessionCount: 4,
   playMinutes: 150,
-  buildSceneId: -7,
 };
 const kildealg: StoryCardData = {
   ...base,
@@ -103,7 +102,7 @@ describe("StoryTable", () => {
     await user.click(within(vampire).getByRole("button", { name: "Vampire" }));
     expect(await screen.findByRole("menuitem", { name: "Build scenes" })).toHaveAttribute(
       "href",
-      "/scenes/-7/live",
+      "/stories/-15/scenes",
     );
   });
 

@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import type { ElementValues } from "@/lib/element-schemas";
-import type { StatBlockSystems } from "@/app/(app)/(nav)/libraries/actions";
+import type { StatBlockSystems } from "@/components/prep/actions";
 
 type Result = { ok: true } | { ok: false; errors: Record<string, string> };
 
@@ -242,7 +242,7 @@ const grok = {
 
 describe("ElementForm stat blocks", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: { sa_createElement, sa_updateElement, sa_deleteElement },
     });
     mock.module("next/navigation", {

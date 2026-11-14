@@ -13,10 +13,7 @@ const { stories, storyPlayers, storySessions } = schema;
 // storyteller and the players alike. Every action here starts with
 // requireAccount(), and reads the session through the caller's seat.
 
-// story_sessions.id_story_session is int4; an id outside that range is a
-// query error to Postgres rather than a missing row, so it is turned away
-// before the query.
-const idSchema = z.number().int().min(-2147483648).max(2147483647);
+const idSchema = z.int32();
 
 /** The session's notes and lingering questions as stored; null for one not written. */
 export type SessionNotes = { notes: string | null; lingeringQuestions: string | null };

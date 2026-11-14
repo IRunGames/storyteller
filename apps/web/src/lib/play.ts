@@ -1,7 +1,7 @@
 /**
- * What /play/[id] and its waiting room need to know about a story before
- * deciding which of them to show: whether it can be played at all, whether
- * the caller is the storyteller, and whether a session is under way.
+ * What /stories/[id]/play and its waiting room need to know about a story
+ * before deciding which of them to show: whether it can be played at all,
+ * whether the caller is the storyteller, and whether a session is under way.
  */
 export type PlayStory = {
   idStory: number;

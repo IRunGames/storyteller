@@ -8,8 +8,9 @@ import {
 } from "@/lib/elements";
 import type { SceneText } from "@/lib/scenes";
 
-// The storyteller's table, /run/[id]: the pieces its library panel and play
-// space share. The player's table is /play/[id]; see lib/play.ts.
+// The storyteller's table, /stories/[id]/run: the pieces its library panel
+// and play space share. The player's table is /stories/[id]/play; see
+// lib/play.ts.
 
 /** How many matches each of the library panel's tabs lists. */
 export const RUN_LIST_SIZE = 10;

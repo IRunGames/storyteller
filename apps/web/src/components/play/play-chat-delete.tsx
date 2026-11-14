@@ -1,6 +1,6 @@
 "use client";
 
-import { sa_deleteChat } from "@/app/(app)/play/[id]/actions";
+import { sa_deleteChat } from "@/components/play/actions";
 import { DeleteButton } from "@/components/confirm/delete-button";
 
 type Props = {

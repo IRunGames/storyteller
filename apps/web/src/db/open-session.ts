@@ -21,9 +21,9 @@ import { stories, storySessions } from "./schema";
  * order in sa_getStorySession, which reads the active_at column that the
  * ACTIVE key gives its name to.
  *
- * It lives here rather than in stories/actions.ts because play/[id] needs it
- * too, and a "use server" module may only export server actions; see
- * attachment-url.ts.
+ * It lives here rather than in stories/actions.ts because the play actions
+ * (components/play/actions.ts) need it too, and a "use server" module may
+ * only export server actions; see attachment-url.ts.
  */
 export const hasOpenSession = exists(
   db

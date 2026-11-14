@@ -24,11 +24,7 @@ import {
   type WaitingRoomState,
 } from "@/lib/play";
 import type { StorySession } from "@/lib/stories";
-import {
-  sa_leaveAsGuest,
-  sa_leaveWaitingRoom,
-  sa_waitForSession,
-} from "@/app/(app)/play/[id]/actions";
+import { sa_leaveAsGuest, sa_leaveWaitingRoom, sa_waitForSession } from "@/components/play/actions";
 import { useUser } from "@/components/auth/user-provider";
 import { StorySessions } from "@/components/stories/story-sessions";
 import { LeaveWaitingRoomDialog } from "./leave-waiting-room-dialog";
@@ -47,9 +43,9 @@ type Props = {
    */
   background: string;
   /**
-   * The table the room hands over to once it opens: /play/[id] unless the
-   * player came from the display table, /table/[id], which has a room of its
-   * own so they go back to the screen they chose.
+   * The table the room hands over to once it opens: /stories/[id]/play
+   * unless the player came from the display table, /stories/[id]/table,
+   * which has a room of its own so they go back to the screen they chose.
    */
   tableHref?: string;
 };
@@ -63,8 +59,8 @@ type Props = {
  * The page keeps a heartbeat going while it is open. Each beat keeps the
  * caller's session_players row WAITING, brings back the count, and says
  * whether the table has opened; when it has, or the story was put away
- * meanwhile, the room hands over to /play/[id], which decides between the
- * table and the dialog.
+ * meanwhile, the room hands over to /stories/[id]/play, which decides
+ * between the table and the dialog.
  *
  * Leaving is deliberate. Give up deletes the caller's waiting row and goes
  * home, or, for a guest, deletes the guest (sa_leaveAsGuest) and goes to
@@ -86,7 +82,7 @@ export function WaitingRoom({ story, initial, sessions, background, tableHref }:
   });
   const [state, setState] = useState(initial);
   const { idStory } = story;
-  const table = tableHref ?? `/play/${idStory}`;
+  const table = tableHref ?? `/stories/${idStory}/play`;
   // True until the room has decided to go: to the table, or out once the
   // waiting row is gone. It arms the leave guard, and tells the cleanup
   // whether the row still needs deleting.

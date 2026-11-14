@@ -24,25 +24,13 @@ type Props = {
   sessions: StorySession[];
   /** The story_sessions workflow, for the status pill on each row. */
   sessionStatusOptions: StatusOption[];
-  /**
-   * The scene the storyteller's Build Scenes door opens, or null for the
-   * library when the story has none (sa_getSceneToBuild). Only read for
-   * the storyteller, who alone has the door.
-   */
-  buildSceneId?: number | null;
 };
 
 // The story page's body: the cover as a full-bleed backdrop when there is one,
 // and the text in a dark panel over it (StoryPanel, which also holds the
 // column's width). No hooks beyond useId, so the page can render it on the
 // server. Presentational only; stories/[id]/page.tsx loads the data.
-export function StoryDetails({
-  story,
-  players,
-  sessions,
-  sessionStatusOptions,
-  buildSceneId = null,
-}: Props) {
+export function StoryDetails({ story, players, sessions, sessionStatusOptions }: Props) {
   const playersId = useId();
   const sessionsId = useId();
   const system = systemLabel(story);
@@ -98,7 +86,6 @@ export function StoryDetails({
               idStory={story.idStory}
               title={story.title}
               isStoryteller={story.isOwner}
-              buildSceneId={buildSceneId}
               onImage={!!story.imageUrl}
             />
             {story.isPublic && (

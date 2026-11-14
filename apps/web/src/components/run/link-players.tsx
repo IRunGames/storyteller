@@ -8,7 +8,7 @@ import {
   sa_removeLinkPlayer,
   type LinkPlayer,
   type LinkPlayerStatus,
-} from "@/app/(app)/run/[id]/actions";
+} from "@/components/run/actions";
 
 const STATUS_TEXT: Record<NonNullable<LinkPlayerStatus>, string> = {
   PRESENT: "At the table",

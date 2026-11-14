@@ -82,10 +82,7 @@ const offsetSchema = z.number().int().min(0);
 // asking for the whole table.
 const pageSizeSchema = z.number().int().min(1).max(100);
 
-// stories.id_story is int4. An id outside that range is not "not found yet" to
-// Postgres, it is a query error, so it gets filtered out before the query
-// rather than after.
-const idStorySchema = z.number().int().min(-2147483648).max(2147483647);
+const idStorySchema = z.int32();
 
 // One session row as every session list shows it, read from v_story_sessions,
 // which numbers each session in its story and counts who came as the info
@@ -135,11 +132,14 @@ export async function sa_listMyStories(
  * One page of the Stories page's list: every story the user runs, plays in
  * or has favorited, less the archived and, unless asked, the retired ones;
  * searched over stories.search_text (title, summary and standard tags) and
- * the story's system (name, version and variant), and sorted in the database, so More brings the next rows in the same order
- * whatever the sort. The favorites are in it so the page needs no section
- * of its own for them. Ties in the sorted column fall back to the page's
- * own order, touched last first, then the id, so a page never repeats or
- * skips a row. Bad input throws: the page builds the query itself.
+ * the story's system (name, version and variant), and sorted in the
+ * database, so More brings the next rows in the same order whatever the
+ * sort. The favorites are in it too, so the List view shows them among the
+ * rest; the Icon view also puts them first in a Favorites section of their
+ * own (sa_listFavoriteStories). Ties in the sorted column fall back to the
+ * page's own order, touched last first, then the id, so a page never
+ * repeats or skips a row. Bad input throws: the page builds the query
+ * itself.
  */
 export async function sa_listMyStoryPage(input: unknown): Promise<StoryCardData[]> {
   const user = await requireAccount();
@@ -573,7 +573,7 @@ export async function sa_revokeStoryInvitation(
 ): Promise<{ ok: boolean }> {
   const user = await requireAccount();
   const id = await requireOwnedStory(user.id, idStory);
-  const invitationId = z.number().int().positive().max(2147483647).parse(idInvitation);
+  const invitationId = z.int32().positive().parse(idInvitation);
   const revoked = await db
     .update(invitations)
     .set({ revokedAt: sql`now()`, idUpdatedByUser: user.id })
@@ -659,8 +659,8 @@ export async function sa_getStorySession(
 ): Promise<StorySessionDetail | null> {
   const user = await requireUser();
 
-  // The same int4 range as a story id, and the same reasoning: an id
-  // Postgres cannot compare is not a session rather than a query error.
+  // An id outside int4, which Postgres cannot compare, is not a session
+  // rather than a query error.
   const id = idStorySchema.safeParse(idStorySession);
   if (!id.success) return null;
 

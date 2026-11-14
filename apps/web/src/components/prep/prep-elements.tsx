@@ -10,7 +10,7 @@ import {
   type StoryElement,
 } from "@/lib/elements";
 import type { StatusOption } from "@/lib/status";
-import { sa_listStoryElements } from "@/app/(app)/(nav)/libraries/actions";
+import { sa_listStoryElements } from "@/components/prep/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { IconLink } from "@/components/links/icon-link";
 

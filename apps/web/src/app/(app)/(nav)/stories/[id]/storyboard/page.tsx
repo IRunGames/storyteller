@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
+import { parseRouteId } from "@/lib/route-ids";
 import { Storyboard } from "@/components/storyboard/storyboard";
 import { sa_listStatusOptions } from "@/components/status/actions";
-import { sa_getSceneToBuild } from "@/app/(app)/(nav)/libraries/actions";
 import { sa_getStoryboard } from "./actions";
 
 // A story's storyboard, behind the Storyboard door on its page: the scenes
@@ -16,21 +16,16 @@ export default async function StoryboardPage({ params }: { params: Promise<{ id:
   await requireSession();
 
   const { id } = await params;
-  // Only plain decimal digits are a story id here; stories/[id]/page.tsx
-  // says why Number() alone would not do.
-  if (!/^-?\d+$/.test(id)) notFound();
+  const idStory = parseRouteId(id);
+  if (idStory === null) notFound();
 
-  const [board, sceneStatusOptions, buildSceneId] = await Promise.all([
-    sa_getStoryboard(Number(id)),
+  const [board, sceneStatusOptions] = await Promise.all([
+    sa_getStoryboard(idStory),
     // The scene workflow, so each card's status is the same word the board
     // and the session page use for it.
     sa_listStatusOptions("story_scenes"),
-    // Where the title menu's Build scenes goes; null for anyone but the storyteller.
-    sa_getSceneToBuild(Number(id)),
   ]);
   if (!board) notFound();
 
-  return (
-    <Storyboard board={board} sceneStatusOptions={sceneStatusOptions} buildSceneId={buildSceneId} />
-  );
+  return <Storyboard board={board} sceneStatusOptions={sceneStatusOptions} />;
 }

@@ -18,11 +18,11 @@ type Props = {
   children?: ReactNode;
 };
 
-// A /play/[id] screen that is not the table yet: the header, then the story's
-// cover filling the rest of the window behind whatever is in front of it.
-// The cover sits on its own layer under a scrim, so what is placed over it
-// keeps its own panel colours and reads the same on a bright cover, a dark
-// one, or none.
+// A /stories/[id]/play screen that is not the table yet: the header, then
+// the story's cover filling the rest of the window behind whatever is in
+// front of it. The cover sits on its own layer under a scrim, so what is
+// placed over it keeps its own panel colours and reads the same on a bright
+// cover, a dark one, or none.
 export function PlayCover({ title, imageUrl, placement = "center", children }: Props) {
   return (
     <Flex direction="column" minH="100vh">

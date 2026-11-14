@@ -12,9 +12,7 @@ import { newSessionTitle } from "@/lib/play";
 
 const { stories, storyPlayers, storySessions, vStorySessions } = schema;
 
-// stories.id_story and story_sessions.id_story_session are int4; an id
-// outside that range is a query error to Postgres rather than a missing row.
-const idSchema = z.number().int().min(-2147483648).max(2147483647);
+const idSchema = z.int32();
 
 // The title the picker sends for a new session. Only its length is held to
 // anything: it is the storyteller's own text, renamed freely afterwards.
@@ -206,6 +204,6 @@ export async function sa_startPlaying(
 
   // Outside the transaction: redirect() throws to navigate, which would
   // otherwise roll it back. Straight to the storyteller's own table rather
-  // than through /play/[id], which would only send them on.
-  redirect(`/run/${story.data}`);
+  // than through /stories/[id]/play, which would only send them on.
+  redirect(`/stories/${story.data}/run`);
 }

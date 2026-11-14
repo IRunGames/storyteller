@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
+import { parseRouteId } from "@/lib/route-ids";
 import { StoryDetails } from "@/components/stories/story-details";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getStory, sa_listStoryPlayers, sa_listStorySessions } from "../actions";
-import { sa_getSceneToBuild } from "../../libraries/actions";
 
 // One story, behind a card's title. requireSession() here rather than
 // trusting the group layout; see lib/require-session.ts for why. Every action
@@ -12,22 +12,16 @@ export default async function StoryPage({ params }: { params: Promise<{ id: stri
   await requireSession();
 
   const { id } = await params;
-  // Number() would also accept "0x2a", "1e3", " 4 " and "Infinity", each of
-  // which is a different URL for the same row. Only plain decimal digits (with
-  // an optional sign) are a story id here.
-  if (!/^-?\d+$/.test(id)) notFound();
-  const idStory = Number(id);
+  const idStory = parseRouteId(id);
+  if (idStory === null) notFound();
 
-  const [story, players, sessions, sessionStatusOptions, buildSceneId] = await Promise.all([
+  const [story, players, sessions, sessionStatusOptions] = await Promise.all([
     sa_getStory(idStory),
     sa_listStoryPlayers(idStory),
     sa_listStorySessions(idStory, 0),
     // The story_sessions workflow, so the rows here read the same as the
     // Prep Work timeline: a status pill rather than a word.
     sa_listStatusOptions("story_sessions"),
-    // Where the storyteller's Build Scenes button goes; null for everyone
-    // else, who are not shown one.
-    sa_getSceneToBuild(idStory),
   ]);
   if (!story) notFound();
 
@@ -37,7 +31,6 @@ export default async function StoryPage({ params }: { params: Promise<{ id: stri
       players={players}
       sessions={sessions}
       sessionStatusOptions={sessionStatusOptions}
-      buildSceneId={buildSceneId}
     />
   );
 }

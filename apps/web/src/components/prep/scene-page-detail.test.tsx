@@ -43,7 +43,7 @@ let ScenePageDetail: typeof import("./scene-page-detail").ScenePageDetail;
 
 describe("ScenePageDetail", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: { sa_getStoryScene: async () => detail, sa_listStoryScenes: async () => [] },
     });
     mock.module("@/components/status/actions", {

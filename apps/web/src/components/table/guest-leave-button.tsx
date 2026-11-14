@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button, Dialog, Portal, Text } from "@chakra-ui/react";
 import { LogOut } from "lucide-react";
-import { sa_leaveAsGuest } from "@/app/(app)/play/[id]/actions";
+import { sa_leaveAsGuest } from "@/components/play/actions";
 
 /**
  * A guest's way out of the display table. A guest has no account to come

@@ -145,7 +145,7 @@ describe("LiveTable", () => {
     mock.module("next/navigation", {
       namedExports: {
         useRouter: () => ({ push, refresh: mock.fn() }),
-        usePathname: () => "/scenes/-15/live",
+        usePathname: () => "/stories/-4/scenes/-15",
       },
     });
     mock.module("@/lib/auth-client", { namedExports: { signOut: mock.fn() } });
@@ -167,7 +167,7 @@ describe("LiveTable", () => {
     mock.module("@/components/elements/actions", {
       namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
-    mock.module("@/app/(app)/run/[id]/actions", {
+    mock.module("@/components/run/actions", {
       namedExports: {
         sa_linkSceneElement: mock.fn(),
         sa_createRunScene: mock.fn(),
@@ -187,7 +187,7 @@ describe("LiveTable", () => {
         sa_setElementTags: mock.fn(),
       },
     });
-    mock.module("@/app/(app)/scenes/[id]/live/actions", {
+    mock.module("@/components/live/actions", {
       namedExports: {
         sa_setLiveSceneSession,
         sa_setLiveSceneText,
@@ -199,7 +199,7 @@ describe("LiveTable", () => {
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions: mock.fn(async () => []), sa_setRowStatus },
     });
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: { sa_listStoryElements: mock.fn(async () => []) },
     });
 
@@ -347,6 +347,20 @@ describe("LiveTable", () => {
     // It searches for the scenes in no session to start with.
     await waitFor(() => expect(sa_searchLiveScenes.mock.callCount()).toBeGreaterThan(0));
     expect(sa_searchLiveScenes.mock.calls.at(-1)?.arguments[1]).toMatchObject({ sessions: [] });
+  });
+
+  it("opens a scene made with the + on its own page, under the story's address", async () => {
+    const u = userEvent.setup();
+    renderTable();
+
+    await u.click(within(screen.getByRole("banner")).getByRole("button", { name: "New scene" }));
+    const dialog = await screen.findByRole("dialog", { name: "New scene" });
+    await u.type(within(dialog).getByRole("textbox", { name: /^Title/ }), "The docks at night");
+    await u.click(within(dialog).getByRole("button", { name: "Create scene" }));
+
+    await waitFor(() =>
+      expect(push.mock.calls.at(-1)?.arguments).toEqual(["/stories/-4/scenes/-17"]),
+    );
   });
 
   it("shows a cover icon at the end of the title line only while the scene has a cover, which asks before taking the cover off", async () => {

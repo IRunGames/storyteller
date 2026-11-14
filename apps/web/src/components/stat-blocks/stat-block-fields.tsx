@@ -29,7 +29,7 @@ import {
   Tooltip,
 } from "@chakra-ui/react";
 import { Plus, Star, Trash2, X } from "lucide-react";
-import type { StatBlockSystems } from "@/app/(app)/(nav)/libraries/actions";
+import type { StatBlockSystems } from "@/components/prep/actions";
 import { DeleteButton } from "@/components/confirm/delete-button";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import type { ElementFormInput, ElementValues } from "@/lib/element-schemas";

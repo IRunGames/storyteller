@@ -5,7 +5,7 @@ import { Button, Field, HStack, IconButton, Input } from "@chakra-ui/react";
 import { SendHorizontal } from "lucide-react";
 import { useUser } from "@/components/auth/user-provider";
 import { parseChatCommand } from "@/lib/chat-commands";
-import { sa_postChat } from "@/app/(app)/play/[id]/actions";
+import { sa_postChat } from "@/components/play/actions";
 import type { StoryChat } from "./use-story-chat";
 
 type Props = {

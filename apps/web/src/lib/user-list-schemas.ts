@@ -26,7 +26,7 @@ export type UserPageSize = (typeof USER_PAGE_SIZES)[number];
 export const userListQuerySchema = z.object({
   search: z.string().trim().max(200),
   statuses: z.array(z.enum(USER_STATUSES)).max(USER_STATUSES.length),
-  idUserTypes: z.array(z.number().int()).max(50),
+  idUserTypes: z.array(z.int32()).max(50),
   sortBy: z.enum(USER_SORT_KEYS),
   sortDesc: z.boolean(),
   page: z.number().int().min(0).max(100_000),

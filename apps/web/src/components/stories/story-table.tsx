@@ -65,7 +65,6 @@ export function StoryTable({
                 idStory={story.idStory}
                 title={story.title}
                 isStoryteller={story.isOwner}
-                buildSceneId={story.buildSceneId}
                 as="h3"
                 size="sm"
                 fontWeight="medium"

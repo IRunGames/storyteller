@@ -20,7 +20,7 @@ import type {
   SetSceneElementShowingResult,
   SetSceneElementShowInfoResult,
   SetSceneElementStatusResult,
-} from "@/app/(app)/run/[id]/actions";
+} from "@/components/run/actions";
 
 const sa_setSceneElementStatus = mock.fn(
   async (
@@ -322,7 +322,7 @@ describe("RunPlayPill", () => {
         sa_copyStatBlocksFromElement,
       },
     });
-    mock.module("@/app/(app)/run/[id]/actions", {
+    mock.module("@/components/run/actions", {
       namedExports: {
         sa_setSceneElementStatus,
         sa_setSceneElementShowInfo,

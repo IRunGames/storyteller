@@ -19,7 +19,7 @@ import {
   Tooltip,
 } from "@chakra-ui/react";
 import { Link2 } from "lucide-react";
-import { sa_getJoinCount, sa_getJoinLink, type JoinLink } from "@/app/(app)/run/[id]/actions";
+import { sa_getJoinCount, sa_getJoinLink, type JoinLink } from "@/components/run/actions";
 import { LinkPlayers } from "./link-players";
 
 /**

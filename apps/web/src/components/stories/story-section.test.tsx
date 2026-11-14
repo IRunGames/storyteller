@@ -30,7 +30,6 @@ function stories(count: number, from = 1): StoryCardData[] {
     presentCount: 0,
     sessionCount: 0,
     playMinutes: 0,
-    buildSceneId: null,
   }));
 }
 

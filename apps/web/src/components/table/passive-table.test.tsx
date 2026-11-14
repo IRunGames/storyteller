@@ -155,7 +155,7 @@ describe("PassiveTable", () => {
     mock.module("@/components/elements/actions", {
       namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
-    mock.module("@/app/(app)/play/[id]/actions", {
+    mock.module("@/components/play/actions", {
       namedExports: {
         sa_setPlayElementNotes,
         sa_untapPlaySceneElement: mock.fn(),
@@ -295,7 +295,7 @@ describe("PassiveTable", () => {
 
     expect(screen.getByRole("link", { name: "Back to the play table" })).toHaveAttribute(
       "href",
-      "/play/7",
+      "/stories/7/play",
     );
   });
 
@@ -304,7 +304,7 @@ describe("PassiveTable", () => {
 
     expect(screen.getByRole("link", { name: "Back to the run table" })).toHaveAttribute(
       "href",
-      "/run/7",
+      "/stories/7/run",
     );
   });
 
@@ -313,7 +313,7 @@ describe("PassiveTable", () => {
 
     expect(screen.getByRole("link", { name: "Log in / Sign up" })).toHaveAttribute(
       "href",
-      "/signup?redirectTo=%2Ftable%2F7",
+      "/signup?redirectTo=%2Fstories%2F7%2Ftable",
     );
   });
 

@@ -116,7 +116,7 @@ describe("ScenePreview", () => {
     mock.module("@/components/elements/actions", {
       namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
-    mock.module("@/app/(app)/play/[id]/actions", {
+    mock.module("@/components/play/actions", {
       namedExports: {
         sa_getStoryChannel: mock.fn(),
         sa_getPlayScene: mock.fn(),
@@ -204,7 +204,7 @@ describe("ScenePreview", () => {
     const space = screen.getByRole("region", { name: "Play space" });
 
     const pencil = within(space).getByRole("link", { name: "Edit scene" });
-    expect(pencil).toHaveAttribute("href", "/scenes/3/edit?from=%2Fpreview%2Fscene%2F3");
+    expect(pencil).toHaveAttribute("href", "/stories/7/scenes/3/edit?from=%2Fpreview%2Fscene%2F3");
     await u.hover(pencil);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Edit scene");
     unmount();

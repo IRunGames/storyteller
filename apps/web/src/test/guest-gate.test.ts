@@ -20,14 +20,14 @@ const SRC = join(process.cwd(), "src");
 // goes; the (app) layout reads their preferences. Nothing here writes
 // anything but the guest's own seat and presence.
 const GUEST_ACTIONS = new Set([
-  "app/(app)/play/[id]/actions.ts sa_getPlayStory",
-  "app/(app)/play/[id]/actions.ts sa_waitForSession",
-  "app/(app)/play/[id]/actions.ts sa_leaveWaitingRoom",
-  "app/(app)/play/[id]/actions.ts sa_joinSession",
-  "app/(app)/play/[id]/actions.ts sa_getPlayScene",
-  "app/(app)/play/[id]/actions.ts sa_getStoryChannel",
-  "app/(app)/play/[id]/actions.ts sa_listChats",
-  "app/(app)/play/[id]/actions.ts sa_leaveAsGuest",
+  "components/play/actions.ts sa_getPlayStory",
+  "components/play/actions.ts sa_waitForSession",
+  "components/play/actions.ts sa_leaveWaitingRoom",
+  "components/play/actions.ts sa_joinSession",
+  "components/play/actions.ts sa_getPlayScene",
+  "components/play/actions.ts sa_getStoryChannel",
+  "components/play/actions.ts sa_listChats",
+  "components/play/actions.ts sa_leaveAsGuest",
   "app/(app)/(nav)/stories/actions.ts sa_getStorySession",
   "app/(app)/(nav)/stories/actions.ts sa_getStorySessionNeighbours",
   "app/(app)/(nav)/stories/actions.ts sa_listStorySessions",

@@ -102,7 +102,7 @@ describe("SessionInfoPopover", () => {
     mock.module("@/app/(app)/(nav)/stories/actions", {
       namedExports: { sa_getStorySession },
     });
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: { sa_getStoryScene },
     });
     mock.module("@/components/status/actions", {

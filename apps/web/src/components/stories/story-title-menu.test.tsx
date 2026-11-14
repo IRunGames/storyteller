@@ -1,3 +1,4 @@
+import { forwardRef, type ComponentProps } from "react";
 import { afterEach, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
@@ -7,17 +8,9 @@ import { renderWithProviders } from "@/test/render";
 
 // The page the menu is on, as the router would say.
 let pathname = "/stories/-15";
-const push = mock.fn((_href: string) => {});
-// Build scenes makes the first scene of a story without one.
-const sa_createLiveScene = mock.fn(async (_idStory: number, values: { title: string }) => ({
-  ok: true as const,
-  space: {
-    scene: { idStoryScene: -70, title: values.title, status: "PENDING" },
-    tags: [],
-    coverUrl: null,
-    inPlay: [],
-  },
-}));
+// Every Link the menu draws, as the props it was given: a link's prefetch is
+// not in the markup, so this is how the test sees it.
+const linkProps = mock.fn((_props: { href: string; prefetch?: boolean | "auto" | null }) => {});
 // Run asks which session, as Play does: a suspended one to resume, or a new one.
 const sa_listUnfinishedSessions = mock.fn(async (_idStory: number) => [
   { idStorySession: 7, number: 3, title: "Kildealg", status: "SUSPENDED" },
@@ -31,21 +24,26 @@ let StoryTitleMenu: typeof import("./story-title-menu").StoryTitleMenu;
 
 describe("StoryTitleMenu", () => {
   before(async () => {
-    mock.module("next/navigation", {
-      namedExports: { usePathname: () => pathname, useRouter: () => ({ push }) },
-    });
+    mock.module("next/navigation", { namedExports: { usePathname: () => pathname } });
+    // The real Link, wrapped so each render reports its props.
+    const { default: NextLink } = await import("next/link");
+    const RecordingLink = forwardRef<HTMLAnchorElement, ComponentProps<typeof NextLink>>(
+      function RecordingLink(props, ref) {
+        linkProps({ href: String(props.href), prefetch: props.prefetch });
+        return <NextLink ref={ref} {...props} />;
+      },
+    );
+    mock.module("next/link", { defaultExport: RecordingLink });
     mock.module("@/app/(app)/(nav)/play/actions", {
       namedExports: { sa_listUnfinishedSessions, sa_startPlaying },
     });
-    mock.module("@/app/(app)/run/[id]/actions", { namedExports: { sa_createLiveScene } });
     ({ StoryTitleMenu } = await import("./story-title-menu"));
   });
 
   afterEach(() => {
     cleanup();
     pathname = "/stories/-15";
-    push.mock.resetCalls();
-    sa_createLiveScene.mock.resetCalls();
+    linkProps.mock.resetCalls();
     sa_listUnfinishedSessions.mock.resetCalls();
     sa_startPlaying.mock.resetCalls();
   });
@@ -53,9 +51,7 @@ describe("StoryTitleMenu", () => {
   it("draws the title as the page's h1 with a caret, opening the storyteller's doors as links", async () => {
     const user = userEvent.setup();
     pathname = "/somewhere/else";
-    renderWithProviders(
-      <StoryTitleMenu idStory={-15} title="Vampire" isStoryteller buildSceneId={-7} />,
-    );
+    renderWithProviders(<StoryTitleMenu idStory={-15} title="Vampire" isStoryteller />);
 
     const heading = screen.getByRole("heading", { level: 1, name: "Vampire" });
     const trigger = screen.getByRole("button", { name: "Vampire" });
@@ -66,8 +62,8 @@ describe("StoryTitleMenu", () => {
     expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
       ["Overview", "/stories/-15"],
       ["Edit", "/stories/-15/edit"],
-      ["Library", "/libraries/-15"],
-      ["Build scenes", "/scenes/-7/live"],
+      ["Library", "/stories/-15/library"],
+      ["Build scenes", "/stories/-15/scenes"],
       ["Play", null],
       ["Storyboard", "/stories/-15/storyboard"],
     ]);
@@ -98,10 +94,8 @@ describe("StoryTitleMenu", () => {
 
   it("marks the page it is on as current, and that item is no link", async () => {
     const user = userEvent.setup();
-    pathname = "/libraries/-15";
-    renderWithProviders(
-      <StoryTitleMenu idStory={-15} title="Vampire" isStoryteller buildSceneId={-7} />,
-    );
+    pathname = "/stories/-15/library";
+    renderWithProviders(<StoryTitleMenu idStory={-15} title="Vampire" isStoryteller />);
 
     await user.click(screen.getByRole("button", { name: "Vampire" }));
     const library = await screen.findByRole("menuitem", { name: "Library" });
@@ -115,7 +109,7 @@ describe("StoryTitleMenu", () => {
 
   it("marks Play on the storyteller's table", async () => {
     const user = userEvent.setup();
-    pathname = "/run/-15";
+    pathname = "/stories/-15/run";
     renderWithProviders(<StoryTitleMenu idStory={-15} title="Vampire" isStoryteller />);
 
     await user.click(screen.getByRole("button", { name: "Vampire" }));
@@ -126,10 +120,8 @@ describe("StoryTitleMenu", () => {
 
   it("counts any scene's live page as Build scenes", async () => {
     const user = userEvent.setup();
-    pathname = "/scenes/-3/live";
-    renderWithProviders(
-      <StoryTitleMenu idStory={-15} title="Vampire" isStoryteller buildSceneId={-7} />,
-    );
+    pathname = "/stories/-15/scenes/-3";
+    renderWithProviders(<StoryTitleMenu idStory={-15} title="Vampire" isStoryteller />);
 
     await user.click(screen.getByRole("button", { name: "Vampire" }));
     expect(await screen.findByRole("menuitem", { name: "Build scenes" })).toHaveAttribute(
@@ -138,21 +130,20 @@ describe("StoryTitleMenu", () => {
     );
   });
 
-  it("makes the first scene from Build scenes while the story has none, and goes to it", async () => {
+  it("links Build scenes to the page that picks the scene, and never prefetches it", async () => {
     const user = userEvent.setup();
     renderWithProviders(<StoryTitleMenu idStory={-15} title="Vampire" isStoryteller />);
 
     await user.click(screen.getByRole("button", { name: "Vampire" }));
     const build = await screen.findByRole("menuitem", { name: "Build scenes" });
-    // No page to link to yet, so no link.
-    expect(build).not.toHaveAttribute("href");
-    await user.click(build);
-    await waitFor(() => expect(sa_createLiveScene.mock.callCount()).toBe(1));
-    expect(sa_createLiveScene.mock.calls[0].arguments).toEqual([
-      -15,
-      { title: "New scene", description: "" },
-    ]);
-    await waitFor(() => expect(push.mock.calls.at(-1)?.arguments).toEqual(["/scenes/-70/live"]));
+    expect(build).toHaveAttribute("href", "/stories/-15/scenes");
+    // That page makes a first scene for a story with none, so a prefetch,
+    // which loads the page before any click, must not reach it.
+    const drawn = linkProps.mock.calls
+      .map((call) => call.arguments[0])
+      .filter((props) => props.href === "/stories/-15/scenes");
+    expect(drawn.length).toBeGreaterThan(0);
+    for (const props of drawn) expect(props.prefetch).toBe(false);
   });
 
   it("offers a reader the Storyboard alone", async () => {

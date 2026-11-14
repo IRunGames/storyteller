@@ -7,7 +7,7 @@ import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
 import type { CurrentUser } from "@/lib/current-user";
 import type { ChatEvent, PublicChat } from "@/lib/realtime/chat-events";
-import type { ChatLoad } from "@/app/(app)/play/[id]/actions";
+import type { ChatLoad } from "@/components/play/actions";
 import type { StoryChat } from "./use-story-chat";
 
 const user: CurrentUser = {
@@ -80,7 +80,7 @@ const ids = () => current.entries.map((entry) => entry.idChat);
 
 describe("useStoryChat", () => {
   before(async () => {
-    mock.module("@/app/(app)/play/[id]/actions", { namedExports: { sa_listChats } });
+    mock.module("@/components/play/actions", { namedExports: { sa_listChats } });
     ({ useStoryChat } = await import("./use-story-chat"));
   });
 

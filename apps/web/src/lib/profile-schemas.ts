@@ -44,9 +44,7 @@ const colorValues = PROFILE_COLORS.map((color) => color.value) as [ProfileColor,
 /** One of the palette's colours and nothing else. */
 export const profileColorSchema = z.enum(colorValues, { error: "Pick one of the colours." });
 
-// systems.id_system is int4; anything outside it is a query error to
-// Postgres rather than "not found", so it is refused before the query.
-export const systemIdSchema = z.number().int().min(-2147483648).max(2147483647);
+export const systemIdSchema = z.int32();
 
 /** How many systems a profile may list as liked. */
 export const MAX_LIKED_SYSTEMS = 20;

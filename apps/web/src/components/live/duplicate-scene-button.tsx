@@ -15,7 +15,7 @@ import {
 import { Copy } from "lucide-react";
 import type { RunScene } from "@/lib/run";
 import { duplicateSceneTitle } from "@/lib/scenes";
-import { sa_duplicateLiveScene } from "@/app/(app)/scenes/[id]/live/actions";
+import { sa_duplicateLiveScene } from "@/components/live/actions";
 import { toaster } from "@/components/ui/toaster";
 
 type Props = {

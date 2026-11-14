@@ -20,7 +20,7 @@ import {
   sa_setSceneElementShowing,
   sa_setSceneElementShowInfo,
   sa_setSceneElementStatus,
-} from "@/app/(app)/run/[id]/actions";
+} from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
 import { OverflowTooltip } from "@/components/popovers/overflow-tooltip";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";

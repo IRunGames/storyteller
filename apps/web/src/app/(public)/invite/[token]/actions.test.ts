@@ -186,7 +186,7 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       });
 
       // The token is enough: the player's address is not the invited one.
-      expect(await accept(player, invitation.token)).toBe(`/play/${story}`);
+      expect(await accept(player, invitation.token)).toBe(`/stories/${story}/play`);
       expect(await seats()).toEqual([{ idUser: player, isFromLink: false }]);
 
       expect(await invite.sa_getInvitation(invitation.token)).toBeNull();
@@ -206,8 +206,8 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       await db.insert(tables.storyPlayers).values({ idStory: story, idUser: player });
       const first = await storyInvite(NEWCOMER);
       const second = await storyInvite(OTHER);
-      expect(await accept(player, first.invitation.token)).toBe(`/play/${story}`);
-      expect(await accept(owner, second.invitation.token)).toBe(`/play/${story}`);
+      expect(await accept(player, first.invitation.token)).toBe(`/stories/${story}/play`);
+      expect(await accept(owner, second.invitation.token)).toBe(`/stories/${story}/play`);
       expect(await seats()).toEqual([{ idUser: player, isFromLink: false }]);
     });
 

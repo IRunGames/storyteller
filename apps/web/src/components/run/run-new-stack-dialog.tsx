@@ -14,7 +14,7 @@ import {
   Stack,
 } from "@chakra-ui/react";
 import { newStackSchema, type NewStackValues } from "@/lib/stack-schemas";
-import { sa_setSceneStacks } from "@/app/(app)/run/[id]/actions";
+import { sa_setSceneStacks } from "@/components/run/actions";
 
 type Props = {
   idStory: number;

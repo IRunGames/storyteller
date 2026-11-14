@@ -194,7 +194,7 @@ describe("RunLibrary", () => {
     mock.module("next/navigation", {
       namedExports: { useRouter: () => ({ push: mock.fn(), refresh: mock.fn() }) },
     });
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: { sa_listStoryElements },
     });
     // An element's info button asks for the element and its workflow.
@@ -205,7 +205,7 @@ describe("RunLibrary", () => {
     mock.module("@/components/stat-blocks/actions", {
       namedExports: { sa_getStatBlocks, sa_setStat: mock.fn() },
     });
-    mock.module("@/app/(app)/run/[id]/actions", {
+    mock.module("@/components/run/actions", {
       namedExports: {
         sa_setElementTags: mock.fn(),
         sa_getElementDetail,

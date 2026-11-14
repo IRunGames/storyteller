@@ -17,7 +17,7 @@ import { Image as ImageIcon, Plus } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import { attachmentLabel, type PlayItem, type SceneLink } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
-import { sa_setSceneElementShowInfo } from "@/app/(app)/run/[id]/actions";
+import { sa_setSceneElementShowInfo } from "@/components/run/actions";
 import {
   sa_attachAsCover,
   sa_detachFromHolder,

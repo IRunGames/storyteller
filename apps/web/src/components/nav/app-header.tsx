@@ -8,8 +8,8 @@ import { NAV_ITEMS, isActive } from "./nav-items";
 import { NavLink } from "./nav-link";
 import { NavSubMenu } from "./nav-sub-menu";
 
-// The signed-in app's menu bar. The table at /play/[id] has its own header
-// and does not mount this; every page under (app)/(nav)/ does.
+// The signed-in app's menu bar. The table at /stories/[id]/play has its own
+// header and does not mount this; every page under (app)/(nav)/ does.
 export function AppHeader() {
   const pathname = usePathname();
 

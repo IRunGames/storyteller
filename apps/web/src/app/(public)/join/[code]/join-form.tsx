@@ -62,7 +62,7 @@ export function JoinForm({ code, title, isFull, hasSession, member, suggested }:
       setError("root", { message: joined.error });
       return;
     }
-    router.push(`/table/${joined.idStory}`);
+    router.push(`/stories/${joined.idStory}/table`);
     // The pages were rendered with no session; refresh re-runs them with
     // the guest's cookie in place.
     router.refresh();

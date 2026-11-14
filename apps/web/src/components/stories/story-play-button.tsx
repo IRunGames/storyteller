@@ -117,8 +117,8 @@ type Props = {
  * story page and the Play page. For the storyteller it opens the session
  * popover (StoryPlayPopover), where they choose a session or make a new one
  * before the table opens; for a player it is a link to the table,
- * /play/[id], which decides between the table, the waiting room and why the
- * story cannot be played.
+ * /stories/[id]/play, which decides between the table, the waiting room
+ * and why the story cannot be played.
  */
 export function PlayButton({ story, size = "sm" }: Props) {
   if (story === null) {
@@ -141,7 +141,7 @@ export function PlayButton({ story, size = "sm" }: Props) {
           live={live}
           label={label}
           size={size}
-          href={`/play/${story.idStory}`}
+          href={`/stories/${story.idStory}/play`}
         />
       </Tooltip.Trigger>
       <Portal>

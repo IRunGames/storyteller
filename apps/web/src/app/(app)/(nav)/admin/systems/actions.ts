@@ -36,9 +36,7 @@ export type AdminSystemDetail = {
   definition: StatBlockDefinition;
 };
 
-// As in stories/actions.ts: an id outside int4 is a query error rather than
-// a missing row, so it is refused before it reaches Postgres.
-const idSystemSchema = z.number().int().min(-2147483648).max(2147483647);
+const idSystemSchema = z.int32();
 
 // The systems table is a hundred-odd seeded rows and whatever storytellers
 // add; the page holds them all and filters in the browser, so there is no

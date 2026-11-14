@@ -33,7 +33,6 @@ const story: StoryCardData = {
   presentCount: 0,
   sessionCount: 0,
   playMinutes: 0,
-  buildSceneId: null,
 };
 
 const sessions: StorySession[] = [
@@ -276,7 +275,7 @@ describe("PrepBoard", () => {
       },
     });
     mock.module("next/navigation", {
-      namedExports: { useRouter: () => router, usePathname: () => "/libraries/-15" },
+      namedExports: { useRouter: () => router, usePathname: () => "/stories/-15/library" },
     });
     // The Timeline's list imports its server action itself; mocked so the
     // board renders without a database.
@@ -322,7 +321,7 @@ describe("PrepBoard", () => {
     // The Scenes column searches the database rather than filtering the rows
     // in hand, so its action answers here the way story_scenes.search_text
     // would: a substring of the title, the description or the status.
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: {
         sa_listStoryScenes: listScenes,
         sa_countStoryScenes: async () => scenes.length,
@@ -917,7 +916,7 @@ describe("PrepBoard", () => {
     const [open, done] = within(column("Scenes")).getAllByRole("listitem");
     const edit = within(open).getByRole("link", { name: "Edit scene" });
     // The live-edit page, rather than the form.
-    expect(edit).toHaveAttribute("href", `/scenes/${scenes[0].idStoryScene}/live`);
+    expect(edit).toHaveAttribute("href", `/stories/-15/scenes/${scenes[0].idStoryScene}`);
     // In a tab of its own, so the board stays where it was.
     expect(edit).toHaveAttribute("target", "_blank");
     expect(within(done).queryByRole("link", { name: "Edit scene" })).not.toBeInTheDocument();

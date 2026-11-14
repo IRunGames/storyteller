@@ -44,7 +44,7 @@ export const elementSchema = z.object({
   // form took off, since a key that is simply absent is one the form never
   // showed.
   statBlocks: z.record(z.string(), z.unknown()).optional(),
-  removedSystems: z.array(z.number().int().min(-2147483648).max(2147483647)).max(50).optional(),
+  removedSystems: z.array(z.int32()).max(50).optional(),
 });
 
 export type ElementValues = z.infer<typeof elementSchema>;

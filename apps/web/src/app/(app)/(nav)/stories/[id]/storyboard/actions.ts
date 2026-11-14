@@ -25,10 +25,7 @@ import {
 
 const { stories, storyScenes, storySessions, vStoryScenes, vStorySessions } = schema;
 
-// stories.id_story and story_scenes.id_story_scene are int4; an id outside
-// that range is a query error to Postgres rather than a missing row, so it is
-// turned away first.
-const idSchema = z.number().int().min(-2147483648).max(2147483647);
+const idSchema = z.int32();
 const cursorSchema = z.object({ number: z.number().int(), idStorySession: idSchema });
 const offsetSchema = z.number().int().min(0);
 

@@ -37,8 +37,6 @@ type Props = {
   board: StoryboardData;
   /** The story_scenes workflow, for the status word on each card. */
   sceneStatusOptions: StatusOption[];
-  /** The scene the title menu's Build scenes opens (sa_getSceneToBuild); null for none, or for a reader. */
-  buildSceneId?: number | null;
 };
 
 // How far in from the edge the board's rows start, and the gutter the
@@ -69,7 +67,7 @@ const GUTTER = { base: "4", md: "8" } as const;
  * a timeline reads left to right, and a board of a dozen sittings laid
  * down the page would be a long way to scroll past the ones already read.
  */
-export function Storyboard({ board, sceneStatusOptions, buildSceneId = null }: Props) {
+export function Storyboard({ board, sceneStatusOptions }: Props) {
   const [sessions, setSessions] = useState<StoryboardSession[]>(board.sessions);
   const [moreSessions, setMoreSessions] = useState(board.moreSessions);
   const [unplayed, setUnplayed] = useState<StoryboardScene[]>(board.unplayed);
@@ -187,7 +185,6 @@ export function Storyboard({ board, sceneStatusOptions, buildSceneId = null }: P
             idStory={board.idStory}
             title={board.title}
             isStoryteller={board.isStoryteller}
-            buildSceneId={buildSceneId}
             onImage={!!board.imageUrl}
           />
           <Badge variant="solid" colorPalette="blue" flexShrink="0">

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, Dialog, Portal, Text } from "@chakra-ui/react";
-import { sa_suspendInactiveSession } from "@/app/(app)/run/[id]/actions";
+import { sa_suspendInactiveSession } from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
 import { ANSWER_WITHIN_MS, INACTIVE_AFTER_MS, useInactivity } from "./use-inactivity";
 

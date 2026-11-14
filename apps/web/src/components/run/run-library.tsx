@@ -29,8 +29,8 @@ import {
   type PlayItem,
   type RunLibrarySource,
 } from "@/lib/run";
-import { sa_listStoryElements } from "@/app/(app)/(nav)/libraries/actions";
-import { sa_listSceneLibraryElements } from "@/app/(app)/run/[id]/actions";
+import { sa_listStoryElements } from "@/components/prep/actions";
+import { sa_listSceneLibraryElements } from "@/components/run/actions";
 import {
   sa_attachAsCover,
   sa_attachToHolder,

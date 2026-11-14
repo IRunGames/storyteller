@@ -21,7 +21,7 @@ import {
   sa_listRunScenes,
   sa_loadRunScene,
   type CreateRunSceneResult,
-} from "@/app/(app)/run/[id]/actions";
+} from "@/components/run/actions";
 import type { RunSceneValues } from "@/lib/scene-schemas";
 import { toaster } from "@/components/ui/toaster";
 import { RunNewSceneDialog } from "./run-new-scene-dialog";

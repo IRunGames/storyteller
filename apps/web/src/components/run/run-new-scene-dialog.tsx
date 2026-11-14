@@ -16,7 +16,7 @@ import {
 } from "@chakra-ui/react";
 import type { RunPlaySpace } from "@/lib/run";
 import { runSceneSchema, type RunSceneValues } from "@/lib/scene-schemas";
-import { sa_createRunScene, type CreateRunSceneResult } from "@/app/(app)/run/[id]/actions";
+import { sa_createRunScene, type CreateRunSceneResult } from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
 
 type Props = {

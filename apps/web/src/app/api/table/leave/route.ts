@@ -5,7 +5,7 @@ import { requireUser, UnauthorizedError } from "@/lib/authorize";
 import { GUEST_AWAY_GRACE_MS } from "@/lib/play";
 import { recountTable, removeGuestsFrom } from "@/lib/guests";
 
-const bodySchema = z.object({ idStory: z.number().int().min(-2147483648).max(2147483647) });
+const bodySchema = z.object({ idStory: z.int32() });
 
 /**
  * Where a guest's display table reports that its page is going (pagehide),

@@ -4,8 +4,12 @@ import { AppHeader } from "@/components/nav/app-header";
 import { requireUser } from "@/lib/authorize";
 
 // Every page that carries the menu bar lives in this group, the Play primer
-// included. Only the tables, (app)/play/[id], (app)/run/[id] and
-// (app)/table/[id], sit outside it, because they draw their own chrome.
+// included. Only the full-screen pages sit outside it, because they draw
+// their own chrome: a scene's preview, (app)/preview, and the pages under
+// (app)/stories/[id], which are the tables (play, run and table) and the
+// scene builder (scenes). They share the /stories/[id]/… addresses with the
+// story's pages in here; the folders differ, the URLs do not. A table must
+// stay out of this group in any case, since a guest is sent away from it.
 //
 // (app)/layout.tsx above is the gate and mounts UserProvider, and the header
 // reads the user from that. The one thing checked here is a guest: someone

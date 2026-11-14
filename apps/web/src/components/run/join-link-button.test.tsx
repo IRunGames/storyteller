@@ -32,7 +32,7 @@ let JoinLinkButton: typeof import("./join-link-button").JoinLinkButton;
 
 describe("JoinLinkButton", () => {
   before(async () => {
-    mock.module("@/app/(app)/run/[id]/actions", {
+    mock.module("@/components/run/actions", {
       namedExports: { sa_getJoinLink, sa_getJoinCount, sa_listLinkPlayers, sa_removeLinkPlayer },
     });
     ({ JoinLinkButton } = await import("./join-link-button"));

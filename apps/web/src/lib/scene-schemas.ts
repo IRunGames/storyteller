@@ -4,7 +4,7 @@ import { z } from "zod";
 // preprocess turns both into what story_scenes.id_story_session wants.
 const idStorySession = z.preprocess(
   (value) => (value === "" || value === null || value === undefined ? null : Number(value)),
-  z.number().int().min(-2147483648).max(2147483647).nullable(),
+  z.int32().nullable(),
 );
 
 // One schema for creating and editing a scene: both forms post the same

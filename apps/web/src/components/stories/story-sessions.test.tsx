@@ -67,7 +67,7 @@ describe("StorySessions", () => {
         sa_deleteStorySession,
       },
     });
-    mock.module("@/app/(app)/scenes/[id]/live/actions", {
+    mock.module("@/components/live/actions", {
       namedExports: { sa_setLiveSceneSession },
     });
     // The panel's cover pictures are the scene form's two pieces, each with

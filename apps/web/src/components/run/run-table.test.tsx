@@ -300,7 +300,7 @@ describe("RunTable", () => {
     mock.module("next/navigation", {
       namedExports: {
         useRouter: () => ({ push, refresh: mock.fn() }),
-        usePathname: () => "/run/-4",
+        usePathname: () => "/stories/-4/run",
       },
     });
     mock.module("@/lib/auth-client", { namedExports: { signOut: mock.fn() } });
@@ -330,7 +330,7 @@ describe("RunTable", () => {
         sa_setElementStat: mock.fn(),
       },
     });
-    mock.module("@/app/(app)/run/[id]/actions", {
+    mock.module("@/components/run/actions", {
       namedExports: {
         sa_suspendInactiveSession: mock.fn(),
         sa_getJoinCount: mock.fn(async () => ({ joined: 0, cap: 3 })),
@@ -376,7 +376,7 @@ describe("RunTable", () => {
         sa_setSessionNotes: mock.fn(),
       },
     });
-    mock.module("@/app/(app)/play/[id]/actions", {
+    mock.module("@/components/play/actions", {
       namedExports: {
         sa_getStoryChannel,
         sa_getPlayScene: mock.fn(),
@@ -387,7 +387,7 @@ describe("RunTable", () => {
       },
     });
     mock.module("mqtt", { defaultExport: { connect } });
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: { sa_listStoryElements },
     });
 

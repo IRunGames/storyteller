@@ -1,6 +1,7 @@
 import { Container } from "@chakra-ui/react";
 import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
+import { parseRouteId } from "@/lib/route-ids";
 import { StoryForm } from "@/components/stories/story-form";
 import { sa_getStoryForEdit, sa_listSystems } from "../../actions";
 
@@ -12,10 +13,8 @@ export default async function EditStoryPage({ params }: { params: Promise<{ id: 
   await requireSession();
 
   const { id } = await params;
-  // Only plain decimal digits are a story id here; stories/[id]/page.tsx
-  // says why Number() alone would not do.
-  if (!/^-?\d+$/.test(id)) notFound();
-  const idStory = Number(id);
+  const idStory = parseRouteId(id);
+  if (idStory === null) notFound();
 
   const [values, systems] = await Promise.all([sa_getStoryForEdit(idStory), sa_listSystems()]);
   if (!values) notFound();

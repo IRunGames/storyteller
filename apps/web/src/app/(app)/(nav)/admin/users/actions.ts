@@ -202,7 +202,7 @@ export async function sa_setUserStatus(
 export type SetUserTypeResult =
   { ok: true; idUserType: number; userTypeName: string } | { ok: false; error: string };
 
-const idUserTypeSchema = z.number().int();
+const idUserTypeSchema = z.int32();
 
 /**
  * Give one account another s_user_types type, taking effect on that

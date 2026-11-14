@@ -22,7 +22,7 @@ import { elementTagSchema } from "@/lib/element-schemas";
 import type { ElementDetail } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { StatusPill } from "@/components/status/status-pill";
-import { sa_setElementImage, sa_setElementTags } from "@/app/(app)/run/[id]/actions";
+import { sa_setElementImage, sa_setElementTags } from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
 import { TagsPopover } from "@/components/popovers/tags-popover";
 import { RunElementImagePicker } from "./run-element-image-popover";

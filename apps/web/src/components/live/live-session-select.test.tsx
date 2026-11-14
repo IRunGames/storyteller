@@ -14,7 +14,7 @@ let LiveSessionSelect: typeof import("./live-session-select").LiveSessionSelect;
 
 describe("LiveSessionSelect", () => {
   before(async () => {
-    mock.module("@/app/(app)/scenes/[id]/live/actions", {
+    mock.module("@/components/live/actions", {
       namedExports: { sa_setLiveSceneSession: mock.fn() },
     });
     ({ LiveSessionSelect } = await import("./live-session-select"));

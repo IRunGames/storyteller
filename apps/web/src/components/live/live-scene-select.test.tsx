@@ -77,10 +77,10 @@ let LiveSceneSelect: typeof import("./live-scene-select").LiveSceneSelect;
 describe("LiveSceneSelect", () => {
   before(async () => {
     Element.prototype.scrollIntoView = () => {};
-    mock.module("@/app/(app)/scenes/[id]/live/actions", {
+    mock.module("@/components/live/actions", {
       namedExports: { sa_searchLiveScenes, sa_duplicateLiveScene },
     });
-    mock.module("@/app/(app)/run/[id]/actions", {
+    mock.module("@/components/run/actions", {
       namedExports: { sa_createLiveScene, sa_createRunScene: mock.fn() },
     });
     ({ LiveSceneSelect } = await import("./live-scene-select"));

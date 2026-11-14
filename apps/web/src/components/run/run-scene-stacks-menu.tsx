@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button, chakra, Menu, Portal, Text } from "@chakra-ui/react";
 import { ChevronDown } from "lucide-react";
 import type { PlayItem } from "@/lib/run";
-import { sa_setSceneElementTags } from "@/app/(app)/run/[id]/actions";
+import { sa_setSceneElementTags } from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
 import { tagList } from "./run-element-detail";
 

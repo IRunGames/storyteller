@@ -55,7 +55,7 @@ describe("WaitingRoom", () => {
     mock.module("next/navigation", {
       namedExports: {
         useRouter: () => ({ push, replace, refresh: mock.fn() }),
-        usePathname: () => "/play/7/waiting",
+        usePathname: () => "/stories/7/play/waiting",
       },
     });
     mock.module("@/lib/auth-client", { namedExports: { signOut: mock.fn() } });
@@ -76,7 +76,7 @@ describe("WaitingRoom", () => {
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions: mock.fn(async () => []), sa_setRowStatus: mock.fn() },
     });
-    mock.module("@/app/(app)/play/[id]/actions", {
+    mock.module("@/components/play/actions", {
       namedExports: { sa_waitForSession, sa_leaveWaitingRoom, sa_leaveAsGuest },
     });
 
@@ -163,7 +163,7 @@ describe("WaitingRoom", () => {
     render();
 
     await waitFor(() => expect(replace.mock.callCount()).toBe(1));
-    expect(replace.mock.calls[0].arguments).toEqual(["/play/7"]);
+    expect(replace.mock.calls[0].arguments).toEqual(["/stories/7/play"]);
   });
 
   it("follows the count as the heartbeat brings it back", async () => {

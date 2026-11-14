@@ -48,7 +48,7 @@ describe("JoinForm", () => {
     expect(name).toHaveValue("Ferocious Hamster");
     await u.click(screen.getByRole("button", { name: "Join" }));
 
-    await waitFor(() => expect(push.mock.calls[0]?.arguments).toEqual(["/table/7"]));
+    await waitFor(() => expect(push.mock.calls[0]?.arguments).toEqual(["/stories/7/table"]));
     expect(sa_joinAsGuest.mock.calls[0].arguments).toEqual(["AbCdEfGhIjKl", "Ferocious Hamster"]);
     expect(sa_joinByLink.mock.callCount()).toBe(0);
   });

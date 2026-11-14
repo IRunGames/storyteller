@@ -14,7 +14,7 @@ let DeleteSceneButton: typeof import("./delete-scene-button").DeleteSceneButton;
 
 describe("DeleteSceneButton", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: { sa_deleteStoryScene },
     });
     ({ DeleteSceneButton } = await import("./delete-scene-button"));

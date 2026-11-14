@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { sa_deleteElement } from "@/app/(app)/(nav)/libraries/actions";
+import { sa_deleteElement } from "@/components/prep/actions";
 import { DeleteButton } from "@/components/confirm/delete-button";
 
 type Props = {
@@ -11,7 +11,8 @@ type Props = {
 };
 
 /**
- * The edit page's Delete, and the dialog that asks first (DeleteButton).
+ * The edit page's trashcan, by its heading, and the popover that asks first
+ * (DeleteButton).
  *
  * Deleting is not undoable, and it reaches further than the page shows: the
  * element leaves every scene it was brought into, with its status and stack
@@ -25,10 +26,10 @@ export function DeleteElementButton({ idElement, name }: Props) {
     <DeleteButton
       thing={name}
       label="Delete element"
-      trigger="button"
+      variant="outline"
       onDelete={async () => {
         const result = await sa_deleteElement(idElement);
-        if (result.ok) router.push(`/libraries/${result.idStory}`);
+        if (result.ok) router.push(`/stories/${result.idStory}/library`);
         return result;
       }}
       failed="The element could not be deleted. Try again."

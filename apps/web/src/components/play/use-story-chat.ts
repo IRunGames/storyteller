@@ -5,7 +5,7 @@ import { useUser } from "@/components/auth/user-provider";
 import { toaster } from "@/components/ui/toaster";
 import { mergeChatEntries, toChatEntry, type ChatEntry } from "@/lib/chat";
 import type { ChatEvent, PublicChat } from "@/lib/realtime/chat-events";
-import { sa_listChats, type ChatLoad } from "@/app/(app)/play/[id]/actions";
+import { sa_listChats, type ChatLoad } from "@/components/play/actions";
 
 /** The table chat as a table holds it; what the chat panel draws and the Chat toggle counts. */
 export type StoryChat = {

@@ -226,7 +226,7 @@ describe("Storyboard", () => {
     // The pills reach for the players' table's actions and the element
     // history's; neither is called from a read-only board, so each is
     // mocked empty and a stray call fails loudly.
-    mock.module("@/app/(app)/play/[id]/actions", {
+    mock.module("@/components/play/actions", {
       namedExports: {
         sa_setPlaySceneText: mock.fn(),
         sa_setPlayElementNotes: mock.fn(),
@@ -241,7 +241,7 @@ describe("Storyboard", () => {
     mock.module("@/app/(app)/(nav)/stories/actions", {
       namedExports: { sa_getSessionForEdit, sa_updateStorySession, sa_deleteStorySession },
     });
-    mock.module("@/app/(app)/run/[id]/actions", { namedExports: { sa_setSceneText } });
+    mock.module("@/components/run/actions", { namedExports: { sa_setSceneText } });
     // The title's menu reads the page's path and holds the Play popover.
     mock.module("next/navigation", {
       namedExports: {
@@ -303,8 +303,8 @@ describe("Storyboard", () => {
     expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
       ["Overview", "/stories/7"],
       ["Edit", "/stories/7/edit"],
-      ["Library", "/libraries/7"],
-      ["Build scenes", null],
+      ["Library", "/stories/7/library"],
+      ["Build scenes", "/stories/7/scenes"],
       ["Play", null],
       // The board itself, so no link.
       ["Storyboard", null],

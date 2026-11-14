@@ -38,8 +38,6 @@ import { PrepScenes } from "./prep-scenes";
 
 type Props = {
   story: StoryCardData;
-  /** The scene the title menu's Build scenes opens (sa_getSceneToBuild); null for none yet. */
-  buildSceneId?: number | null;
   /** The first page of the story's sessions; the Timeline fetches the rest. */
   sessions: StorySession[];
   /** The first page of the story's scenes; the column fetches the rest. */
@@ -72,7 +70,6 @@ const SAVE_DELAY_MS = 500;
 // the board comes back as it was left.
 export function PrepBoard({
   story,
-  buildSceneId = null,
   sessions,
   scenes,
   elements,
@@ -222,7 +219,6 @@ export function PrepBoard({
             idStory={story.idStory}
             title={story.title}
             isStoryteller={story.isOwner}
-            buildSceneId={buildSceneId}
             as="span"
             size="2xl"
           />

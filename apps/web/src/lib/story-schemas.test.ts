@@ -74,6 +74,13 @@ describe("storySchema", () => {
     expect(result.data?.idSystem).toBe(-25);
   });
 
+  it("refuses a system id outside the int4 range, which the column could not hold", () => {
+    expect(storySchema.safeParse({ ...good, idSystem: 2147483647 }).success).toBe(true);
+    expect(storySchema.safeParse({ ...good, idSystem: 2147483648 }).success).toBe(false);
+    expect(storySchema.safeParse({ ...good, idSystem: "2147483648" }).success).toBe(false);
+    expect(storySchema.safeParse({ ...good, idSystem: -2147483649 }).success).toBe(false);
+  });
+
   it("refuses a summary over 4000 characters", () => {
     expect(messagesFor(storySchema.safeParse({ ...good, summary: "x".repeat(4001) }))).toEqual({
       summary: "Keep the summary under 4000 characters.",

@@ -26,7 +26,7 @@ import {
 import { SCENE_LOCKED_STATUS } from "@/lib/scenes";
 import type { SessionForEdit } from "@/lib/stories";
 import { sa_getSessionForEdit, sa_updateStorySession } from "@/app/(app)/(nav)/stories/actions";
-import { sa_setLiveSceneSession } from "@/app/(app)/scenes/[id]/live/actions";
+import { sa_setLiveSceneSession } from "@/components/live/actions";
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";

@@ -1,12 +1,9 @@
 import { notFound } from "next/navigation";
-import { z } from "zod";
 import { requireSession } from "@/lib/require-session";
+import { parseRouteId } from "@/lib/route-ids";
 import { ScenePreview } from "@/components/play/scene-preview";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getScenePreview } from "./actions";
-
-// The same int4 range as /play/[id]; see there.
-const idSchema = z.coerce.number().int().min(-2147483648).max(2147483647);
 
 // A look at one scene as the players would see it, keyed on the scene, from
 // the eye beside each scene in the storyteller's scene selector. Nothing on
@@ -17,12 +14,13 @@ const idSchema = z.coerce.number().int().min(-2147483648).max(2147483647);
 export default async function ScenePreviewPage({ params }: { params: Promise<{ id: string }> }) {
   await requireSession();
 
-  const id = idSchema.safeParse((await params).id);
-  if (!id.success) notFound();
+  const { id } = await params;
+  const idStoryScene = parseRouteId(id);
+  if (idStoryScene === null) notFound();
 
   // The scene workflow names each status in the title's dropdown.
   const [preview, statusOptions] = await Promise.all([
-    sa_getScenePreview(id.data),
+    sa_getScenePreview(idStoryScene),
     sa_listStatusOptions("story_scenes"),
   ]);
   if (!preview) notFound();

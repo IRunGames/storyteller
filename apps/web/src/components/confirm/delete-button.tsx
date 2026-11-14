@@ -29,6 +29,12 @@ type Props = {
   icon?: ReactNode;
   /** The icon button's size; 2xs beside a line of text, and compact smaller still in a tight list. */
   size?: "xs" | "2xs";
+  /**
+   * The icon button's look: ghost on a row or a card, where the trashcan is
+   * one of several; outline where it stands alone, by a page's heading, so
+   * its circle shows before the pointer reaches it.
+   */
+  variant?: "ghost" | "outline";
   compact?: boolean;
   /** "Delete", or "Remove" where the thing lives on: heads the question and the confirm. */
   verb?: string;
@@ -57,7 +63,7 @@ type Props = {
 
 /**
  * A delete button and the popover that asks first, for every place something
- * is taken away for good: a scene card's trashcan, an element page's Delete, an
+ * is taken away for good: a scene card's trashcan, an element page's, an
  * invitation row's, a session's, an attachment card's, a system row's. One
  * shape so the question, the Cancel and Delete pair, the inline refusal and
  * the success toast read the same everywhere; the caller supplies the words
@@ -74,6 +80,7 @@ export function DeleteButton({
   trigger = "icon",
   icon = <Trash2 />,
   size = "xs",
+  variant = "ghost",
   compact = false,
   verb = "Delete",
   confirmText = verb,
@@ -120,7 +127,7 @@ export function DeleteButton({
       <IconButton
         type="button"
         aria-label={label}
-        variant="ghost"
+        variant={variant}
         size={size}
         rounded="full"
         boxSize={compact ? "5" : undefined}

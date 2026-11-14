@@ -24,7 +24,7 @@ import {
   SCENE_ELEMENT_HIDDEN,
   type PlayItem,
 } from "@/lib/run";
-import { sa_createSceneElement } from "@/app/(app)/run/[id]/actions";
+import { sa_createSceneElement } from "@/components/run/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { RunElementForm } from "./run-element-form";

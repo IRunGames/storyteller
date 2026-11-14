@@ -136,12 +136,14 @@ engineering skills consume this file.
   view, the story cards, and List view, a table of the stories (on TanStack
   Table) with columns for status, favorite, players, sessions and play time
   (the finished sessions' lengths summed), every one sortable. Kept as the
-  user's `stories.view` preference. The page is one list, My Stories: every
-  story the user runs, plays in or has favorited (`sa_listMyStoryPage`), with
-  no Favorites section of its own; a search box over `stories.search_text`
-  (title, summary and standard tags) and the story's system (name, version
-  and variant, matched in the query) and the column sorts are answered by the
-  database, so More continues in the same order.
+  user's `stories.view` preference. The page's list is My Stories: every
+  story the user runs, plays in or has favorited (`sa_listMyStoryPage`); a
+  search box over `stories.search_text` (title, summary and standard tags)
+  and the story's system (name, version and variant, matched in the query)
+  and the column sorts are answered by the database, so More continues in
+  the same order. Icon view also puts the favorites first, in a Favorites
+  section of their own (`sa_listFavoriteStories`), left out while there are
+  none and not filtered by the search or Show inactive.
 - **Story title menu**: the story's title with a caret after it
   (`StoryTitleMenu`), on the story page, the library, the run page and the
   live page, which opens the story's doors as links: Overview (the story's
@@ -149,10 +151,11 @@ engineering skills consume this file.
   storyteller, the Storyboard for anyone. Play is the
   Play button by another door: it opens the Play popover by the title, asking
   which session, and the table opens from there. The page the menu is
-  on is marked current and is no link. Build scenes goes to the scene touched
-  last (`sa_getSceneToBuild`); while the story has none it makes the first
-  scene (`sa_createLiveScene`) and goes to it. Any scene's live page counts
-  as it.
+  on is marked current and is no link. Build scenes is a plain link to
+  `/stories/<id>/scenes`, left unprefetched because that page can write: it
+  opens the scene touched last, and while the story has none it makes a "New
+  scene" and opens that (`sa_getOrCreateSceneToBuild`). Any scene's live page
+  counts as it.
 - **Default row**: the first row of a repeating group, marked with a filled
   star on the prep form and at the table; a star on any other row moves it to
   the front (`sa_setDefaultRow`). Roll for all rolls a repeating group's stat

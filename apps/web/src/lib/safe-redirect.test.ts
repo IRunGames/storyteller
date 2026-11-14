@@ -48,7 +48,9 @@ describe("safeRedirect", () => {
 
 describe("withRedirect", () => {
   it("carries a destination on, and leaves the default off", () => {
-    expect(withRedirect("/login", "/table/7")).toBe("/login?redirectTo=%2Ftable%2F7");
+    expect(withRedirect("/login", "/stories/7/table")).toBe(
+      "/login?redirectTo=%2Fstories%2F7%2Ftable",
+    );
     expect(withRedirect("/signup", "/home")).toBe("/signup");
   });
 });

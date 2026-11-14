@@ -17,7 +17,7 @@ import { WAITING_STALE_SECONDS } from "@/lib/play";
  * A correlated scalar subquery on the outer row's story, for the reason
  * favoritedBy in stories/actions.ts gives: it never duplicates or drops the
  * outer row, and so is presentCount below. Both live here because the card
- * (stories/actions.ts) and the play pages (play/[id]/actions.ts) must count
+ * (stories/actions.ts) and the play pages (components/play/actions.ts) must count
  * the same way, and a "use server" module may only export server actions.
  */
 export function waitingCount(idStory: SQLWrapper, excludeUserId?: string) {

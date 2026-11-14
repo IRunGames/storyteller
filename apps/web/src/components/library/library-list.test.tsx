@@ -29,7 +29,7 @@ describe("LibraryList", () => {
     expect(rows).toHaveLength(3);
     expect(
       screen.getByRole("link", { name: "Open the library for An Eastern King" }),
-    ).toHaveAttribute("href", "/libraries/-1");
+    ).toHaveAttribute("href", "/stories/-1/library");
     expect(rows[0]).toHaveTextContent("City of Mist (1e)");
     expect(rows[0]).not.toHaveTextContent(/inactive|archived/i);
     expect(within(rows[1]).getByText("Inactive")).toBeInTheDocument();

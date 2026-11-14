@@ -31,9 +31,7 @@ const { stories, storyScenes, storySessions, elements, sceneElements } = schema;
 // else is not a table with a workflow, it is someone trying their luck.
 const tableSchema = z.enum(STATUS_TABLES);
 
-// Every one of these tables carries int4 keys, as story ids do: an id outside the range is a
-// query error rather than a missing row, so it is refused up front.
-const idSchema = z.number().int().min(-2147483648).max(2147483647);
+const idSchema = z.int32();
 
 // A status key is only ever compared against the workflow's own list, never
 // interpolated, but a bound on the length keeps a runaway string out of the

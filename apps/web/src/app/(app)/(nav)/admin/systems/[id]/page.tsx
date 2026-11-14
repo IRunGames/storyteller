@@ -4,6 +4,7 @@ import { Container, Heading, Stack } from "@chakra-ui/react";
 import { SystemDetailsForm } from "./system-details-form";
 import { SystemStatBlockEditor } from "./system-stat-block-editor";
 import { requireUser } from "@/lib/authorize";
+import { parseRouteId } from "@/lib/route-ids";
 import { USER_TYPES } from "@/lib/user-types";
 import { sa_getAdminSystem } from "../actions";
 
@@ -20,8 +21,9 @@ export default async function SystemPage({ params }: { params: Promise<{ id: str
   if (user.isAnonymous || user.idUserType > USER_TYPES.administrator) notFound();
 
   const { id } = await params;
-  if (!/^-?\d+$/.test(id)) notFound();
-  const system = await sa_getAdminSystem(Number(id));
+  const idSystem = parseRouteId(id);
+  if (idSystem === null) notFound();
+  const system = await sa_getAdminSystem(idSystem);
   if (!system) notFound();
 
   return (

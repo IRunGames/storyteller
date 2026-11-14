@@ -8,7 +8,7 @@ import { UserProvider } from "@/components/auth/user-provider";
 import type { CurrentUser } from "@/lib/current-user";
 import { toChatEntry, type ChatEntry } from "@/lib/chat";
 import type { PublicChat } from "@/lib/realtime/chat-events";
-import type { ChatResult, DeleteChatResult } from "@/app/(app)/play/[id]/actions";
+import type { ChatResult, DeleteChatResult } from "@/components/play/actions";
 import type { StoryChat } from "./use-story-chat";
 
 const user: CurrentUser = {
@@ -87,7 +87,7 @@ describe("PlayChat", () => {
   before(async () => {
     Element.prototype.scrollIntoView = () => {};
     mock.module("@/lib/auth-client", { namedExports: { signOut: mock.fn() } });
-    mock.module("@/app/(app)/play/[id]/actions", {
+    mock.module("@/components/play/actions", {
       namedExports: { sa_postChat, sa_editChat, sa_deleteChat, sa_listChats: mock.fn() },
     });
     mock.module("@/components/preferences/actions", { namedExports: { sa_setUserPreference } });

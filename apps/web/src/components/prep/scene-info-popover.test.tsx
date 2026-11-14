@@ -68,7 +68,7 @@ async function open(user = userEvent.setup()) {
 
 describe("SceneInfoPopover", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: { sa_getStoryScene, sa_listStoryScenes: async () => [] },
     });
     mock.module("@/components/status/actions", {
@@ -90,7 +90,12 @@ describe("SceneInfoPopover", () => {
 
   const render = (canEdit = true) =>
     renderWithProviders(
-      <SceneInfoPopover idStoryScene={-15} statusOptions={options} canEdit={canEdit} />,
+      <SceneInfoPopover
+        idStory={-4}
+        idStoryScene={-15}
+        statusOptions={options}
+        canEdit={canEdit}
+      />,
     );
 
   it("fetches the scene on open, not before, and shows everything the card could not", async () => {
@@ -209,7 +214,7 @@ describe("SceneInfoPopover", () => {
     await screen.findByRole("dialog", { name: detail.title });
 
     const popout = within(dialog).getByRole("link", { name: "Open in a new tab" });
-    expect(popout).toHaveAttribute("href", "/scenes/-15");
+    expect(popout).toHaveAttribute("href", "/stories/-4/scenes/-15/info");
     expect(popout).toHaveAttribute("target", "_blank");
     expect(popout).toHaveAttribute("rel", "noopener noreferrer");
   });

@@ -8,7 +8,7 @@ import {
   sa_listSceneSessionOptions,
   sa_listStatBlockSystems,
   type StatBlockSystems,
-} from "@/app/(app)/(nav)/libraries/actions";
+} from "@/components/prep/actions";
 import { ElementForm } from "./element-form";
 import { SceneForm } from "./scene-form";
 

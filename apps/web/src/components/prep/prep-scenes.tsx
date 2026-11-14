@@ -23,7 +23,7 @@ import {
   type StoryScene,
 } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
-import { sa_listStoryScenes } from "@/app/(app)/(nav)/libraries/actions";
+import { sa_listStoryScenes } from "@/components/prep/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { LocalDate } from "@/components/dates/local-date";
 import { IconLink } from "@/components/links/icon-link";
@@ -225,7 +225,11 @@ export function PrepScenes({
                       scene's live-edit page, in a tab of its own, so the
                       board stays where it was. */}
                   {canEdit && scene.status !== SCENE_LOCKED_STATUS && (
-                    <IconLink label="Edit scene" href={`/scenes/${scene.idStoryScene}/live`} newTab>
+                    <IconLink
+                      label="Edit scene"
+                      href={`/stories/${idStory}/scenes/${scene.idStoryScene}`}
+                      newTab
+                    >
                       <Pencil />
                     </IconLink>
                   )}
@@ -241,6 +245,7 @@ export function PrepScenes({
                   {/* The card shows the first lines of what the storyteller
                       wrote; the panel behind this button shows all of it. */}
                   <SceneInfoPopover
+                    idStory={idStory}
                     idStoryScene={scene.idStoryScene}
                     statusOptions={statusOptions}
                     canEdit={canEdit}

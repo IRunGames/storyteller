@@ -23,9 +23,9 @@ type Props = {
   idStory: number;
   chat: StoryChat;
   /**
-   * Whether the box to type in shows. The display table (/table/[id]) leaves
-   * it out for a guest, who reads the table's lines but has no account to
-   * speak with.
+   * Whether the box to type in shows. The display table
+   * (/stories/[id]/table) leaves it out for a guest, who reads the table's
+   * lines but has no account to speak with.
    */
   canPost?: boolean;
   /** Whether the layout picker shows; the display table has no other layout to pick. */

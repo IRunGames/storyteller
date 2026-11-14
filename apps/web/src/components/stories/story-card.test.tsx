@@ -45,7 +45,6 @@ const story: StoryCardData = {
   presentCount: 0,
   sessionCount: 0,
   playMinutes: 0,
-  buildSceneId: null,
 };
 
 describe("StoryCard", () => {
@@ -311,7 +310,7 @@ describe("StoryCard", () => {
 
     renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
     const prep = screen.getByRole("link", { name: "Library: Full Story Resources" });
-    expect(prep).toHaveAttribute("href", "/libraries/-13");
+    expect(prep).toHaveAttribute("href", "/stories/-13/library");
     // Right of Play: it comes after it in document order.
     expect(
       screen.getByRole("button", { name: "Play" }).compareDocumentPosition(prep) &
@@ -325,7 +324,7 @@ describe("StoryCard", () => {
     renderWithProviders(<StoryCard story={{ ...story, isOwner: true, isActive: false }} />);
     expect(screen.getByRole("link", { name: "Library: Full Story Resources" })).toHaveAttribute(
       "href",
-      "/libraries/-13",
+      "/stories/-13/library",
     );
   });
 
@@ -334,7 +333,7 @@ describe("StoryCard", () => {
     renderWithProviders(<StoryCard story={story} />);
 
     const play = screen.getByRole("link", { name: "Play" });
-    expect(play).toHaveAttribute("href", "/play/-13");
+    expect(play).toHaveAttribute("href", "/stories/-13/play");
     // Plain: the word, with no count and no glow.
     expect(play).toHaveTextContent(/^Play$/);
     await user.hover(play);
@@ -346,7 +345,7 @@ describe("StoryCard", () => {
     renderWithProviders(<StoryCard story={{ ...story, hasOpenSession: true, presentCount: 3 }} />);
 
     const play = screen.getByRole("link", { name: "Play, 3 players at the table" });
-    expect(play).toHaveAttribute("href", "/play/-13");
+    expect(play).toHaveAttribute("href", "/stories/-13/play");
     expect(play).toHaveTextContent("(3)");
     expect(play.querySelector(".lucide-play")).toBeInTheDocument();
     await user.hover(play);
@@ -373,7 +372,7 @@ describe("StoryCard", () => {
     renderWithProviders(<StoryCard story={{ ...story, waitingCount: 2 }} />);
 
     const play = screen.getByRole("link", { name: "Play, 2 players waiting" });
-    expect(play).toHaveAttribute("href", "/play/-13");
+    expect(play).toHaveAttribute("href", "/stories/-13/play");
     expect(play).toHaveTextContent("(2)");
     await user.hover(play);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("2 waiting for the storyteller");

@@ -13,6 +13,7 @@
   - react-hook-form for form state, wired to Zod via @hookform/resolvers
   - better-auth for authentication (drizzle adapter), with its anonymous plugin for guests who join a story by link (docs/auth.md)
   - Chakra ui v3
+    - @emotion/cache for the cache `src/components/ui/emotion-registry.tsx` hands Chakra's Emotion, so the server's styles go into `<head>` through `useServerInsertedHTML` rather than inline in `<body>`, where moving them broke hydration
   - lucide-react for icons; the only hand-drawn SVGs are marks (the themes' marks in `src/components/nav/icons.tsx`, the Google mark in the sign-in button)
   - next-themes
     > For SSR: the recommended pattern reads the active theme from a cookie during your Next.js RootLayout render and injects the matching theme CSS inline in <head>, so the server-rendered HTML is already correct on first paint — same flash-free approach you'd expect from MUI's SSR theme setup.

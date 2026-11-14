@@ -11,9 +11,7 @@ const { news, newsReads } = schema;
 // The only way the home page touches the news tables; requireAccount() proves
 // who is asking before anything is read or written.
 
-// news.id_news is int4. An id outside that range is a query error to Postgres,
-// not "no such row", so it is refused before the query rather than after.
-const idNewsSchema = z.number().int().min(-2147483648).max(2147483647);
+const idNewsSchema = z.int32();
 
 /**
  * The announcements to show the caller right now: started, not expired, not

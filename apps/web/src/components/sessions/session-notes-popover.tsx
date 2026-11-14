@@ -35,10 +35,11 @@ const FIELDS = [
 /**
  * The info button beside the session's heading at either table, and the
  * panel it opens: the session's notes and lingering questions in a form,
- * for the storyteller at /run and the players at /play alike, so what is
- * being kept about the sitting can be written up as it is played. The form
- * is only drawn while the panel is open and reads the session as it opens,
- * so each opening starts from what is stored now, whoever last saved it.
+ * for the storyteller at /stories/[id]/run and the players at
+ * /stories/[id]/play alike, so what is being kept about the sitting can be
+ * written up as it is played. The form is only drawn while the panel is
+ * open and reads the session as it opens, so each opening starts from what
+ * is stored now, whoever last saved it.
  */
 export function SessionNotesPopover({ idStorySession, heading }: Props) {
   // Tooltip and popover each look their trigger up by id; sharing one keeps

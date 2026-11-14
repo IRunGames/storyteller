@@ -128,7 +128,6 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
               idStory={story.idStory}
               title={story.title}
               isStoryteller={story.isOwner}
-              buildSceneId={story.buildSceneId}
               as="h3"
               size="md"
               fontWeight="semibold"
@@ -230,7 +229,10 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
               <GalleryHorizontalEnd size={18} />
             </Door>
             {story.isOwner && (
-              <Door label="Library: Full Story Resources" href={`/libraries/${story.idStory}`}>
+              <Door
+                label="Library: Full Story Resources"
+                href={`/stories/${story.idStory}/library`}
+              >
                 <BookOpen size={18} />
               </Door>
             )}

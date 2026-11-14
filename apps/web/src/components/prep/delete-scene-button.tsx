@@ -1,6 +1,6 @@
 "use client";
 
-import { sa_deleteStoryScene } from "@/app/(app)/(nav)/libraries/actions";
+import { sa_deleteStoryScene } from "@/components/prep/actions";
 import { DeleteButton } from "@/components/confirm/delete-button";
 
 type Props = {

@@ -387,14 +387,14 @@ function TableButton({
   if (isGuest) {
     return (
       <Button asChild size="sm" variant="solid">
-        <NextLink href={withRedirect("/signup", `/table/${idStory}`)}>
+        <NextLink href={withRedirect("/signup", `/stories/${idStory}/table`)}>
           <LogIn />
           Log in / Sign up
         </NextLink>
       </Button>
     );
   }
-  const href = isOwner ? `/run/${idStory}` : `/play/${idStory}`;
+  const href = isOwner ? `/stories/${idStory}/run` : `/stories/${idStory}/play`;
   return (
     <Button asChild size="sm" variant="subtle">
       <NextLink href={href}>

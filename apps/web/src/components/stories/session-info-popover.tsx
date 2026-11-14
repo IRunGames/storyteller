@@ -205,6 +205,7 @@ export function SessionDetail({
                           {/* The scene's own panel, over this one. Read
                               only, like the pill beside it. */}
                           <SceneInfoPopover
+                            idStory={detail.idStory}
                             idStoryScene={scene.idStoryScene}
                             statusOptions={sceneStatusOptions}
                             canEdit={false}

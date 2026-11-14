@@ -11,9 +11,9 @@ import {
   type PlayItem,
 } from "@/lib/run";
 
-// The players' play space: what /play/[id] loads of the scene being played,
-// and how each message on the story's state topic changes it. No React
-// here; the hooks in components/play call applyStoryEvent and keep the
+// The players' play space: what /stories/[id]/play loads of the scene being
+// played, and how each message on the story's state topic changes it. No
+// React here; the hooks in components/play call applyStoryEvent and keep the
 // result.
 
 /** One element in the scene as the players see it: the element and its link, as published. */

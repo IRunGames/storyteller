@@ -4,7 +4,7 @@ import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Alert, Button, HStack, Stack } from "@chakra-ui/react";
-import type { StatBlockSystems } from "@/app/(app)/(nav)/libraries/actions";
+import type { StatBlockSystems } from "@/components/prep/actions";
 import type { ElementFormInput } from "@/lib/element-schemas";
 import { statBlocksSchema } from "@/lib/stat-block-schemas";
 import { systemKey, toStatBlockFields, type StatBlockSystem } from "@/lib/stat-blocks";

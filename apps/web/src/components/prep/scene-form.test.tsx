@@ -48,7 +48,7 @@ let SceneForm: typeof import("./scene-form").SceneForm;
 
 describe("SceneForm", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: { sa_createStoryScene, sa_updateStoryScene },
     });
     mock.module("@/components/status/actions", { namedExports: { sa_setRowStatus } });
@@ -207,7 +207,10 @@ describe("SceneForm", () => {
         }}
       />,
     );
-    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", "/libraries/-15");
+    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute(
+      "href",
+      "/stories/-15/library",
+    );
   });
 
   it("goes back where it was opened from, when told, on Cancel and on save", async () => {

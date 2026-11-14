@@ -47,11 +47,6 @@ export type StoryCardData = {
   /** Minutes played across the story's finished sessions; one under way is not counted yet. */
   playMinutes: number;
   /**
-   * The scene the title menu's Build scenes opens, the one the storyteller
-   * touched last; null for a story with none yet, and for anyone else.
-   */
-  buildSceneId: number | null;
-  /**
    * How many players are in the waiting room for the table to open; see
    * db/session-player-counts.ts, leaving out the viewer. Play shows it: on the
    * storyteller's card always, and on a player's while no session is on.

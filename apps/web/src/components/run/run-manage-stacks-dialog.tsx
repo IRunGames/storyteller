@@ -17,7 +17,7 @@ import {
 } from "@chakra-ui/react";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import { stackNameSchema, stacksSchema, type StackRename } from "@/lib/stack-schemas";
-import { sa_setSceneStacks } from "@/app/(app)/run/[id]/actions";
+import { sa_setSceneStacks } from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 

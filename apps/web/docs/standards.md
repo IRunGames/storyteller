@@ -141,6 +141,11 @@ openDelay={200} positioning={{ placement: "top" }}`. When the button also
   union: `{ ok: true }` or `{ ok: false, errors: Record<string, string> }`
   keyed by the issue path. Throw only for things the UI cannot fix (not found,
   not signed in). `redirect()` on success when a navigation is expected.
+- **An id is checked the same way everywhere.** A page reads an id from its URL
+  with `parseRouteId` ([`route-ids.ts`](../src/lib/route-ids.ts)) and calls
+  `notFound()` on `null`; an action or schema validates an id with `z.int32()`,
+  the range of every id column. An id outside it is a query error rather than a
+  missing row, and neither side writes its own regex or range.
 - **Anything derived from the request** (the client IP, say) is read from
   `next/headers` inside the action, treated as a record only, and tolerated
   when absent: local development has no proxy in front of Next.

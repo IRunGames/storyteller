@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { applyStoryEvent, type PlayScene } from "@/lib/play-scene";
 import type { SceneText } from "@/lib/scenes";
 import type { StoryEvent } from "@/lib/realtime/events";
-import { sa_getPlayScene } from "@/app/(app)/play/[id]/actions";
+import { sa_getPlayScene } from "@/components/play/actions";
 import { useStoryChannel, type ChannelHandlers, type ChannelState } from "./use-story-channel";
 
 /** A pulse about one element of the scene the table is on, as it came over the topic. */

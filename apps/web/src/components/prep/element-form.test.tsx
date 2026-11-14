@@ -27,7 +27,7 @@ let ElementForm: typeof import("./element-form").ElementForm;
 
 describe("ElementForm", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/libraries/actions", {
+    mock.module("@/components/prep/actions", {
       namedExports: { sa_createElement, sa_updateElement, sa_deleteElement },
     });
     // Delete goes back to the board once the element is gone.
@@ -75,7 +75,7 @@ describe("ElementForm", () => {
     expect(sa_deleteElement.mock.callCount()).toBe(0);
     await user.click(within(ask).getByRole("button", { name: "Delete" }));
 
-    await waitFor(() => expect(push.mock.calls[0]?.arguments).toEqual(["/libraries/-15"]));
+    await waitFor(() => expect(push.mock.calls[0]?.arguments).toEqual(["/stories/-15/library"]));
     expect(sa_deleteElement.mock.calls[0].arguments).toEqual([7]);
     expect(await screen.findByText("Glenys has been deleted.")).toBeInTheDocument();
     toaster.remove();
@@ -102,6 +102,21 @@ describe("ElementForm", () => {
       "That element is not one of your story's.",
     );
     expect(push.mock.callCount()).toBe(0);
+  });
+
+  it("puts the trashcan by the heading, and Cancel then Save on the last line", () => {
+    renderWithProviders(<ElementForm idStory={-15} element={editing} />);
+
+    const heading = screen.getByRole("heading", { name: "Edit element" });
+    const trashcan = screen.getByRole("button", { name: "Delete element" });
+    expect(heading.parentElement).toContainElement(trashcan);
+    // The icon alone; its name is its label and tooltip.
+    expect(trashcan.textContent).toBe("");
+
+    const cancel = screen.getByRole("link", { name: "Cancel" });
+    const save = screen.getByRole("button", { name: "Save changes" });
+    expect(cancel.parentElement).toBe(save.parentElement);
+    expect(cancel.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("offers no Delete on a new element", () => {
@@ -181,7 +196,10 @@ describe("ElementForm", () => {
 
     expect(screen.getByRole("heading", { name: "Edit element" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: /Initial name/ })).toHaveValue("The stranger");
-    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", "/libraries/-15");
+    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute(
+      "href",
+      "/stories/-15/library",
+    );
 
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(sa_updateElement.mock.callCount()).toBe(1));

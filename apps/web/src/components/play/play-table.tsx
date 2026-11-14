@@ -34,8 +34,8 @@ const DIAGNOSTICS_ID = "play-panel-diagnostics";
 
 // The players' table: where a story is played. It draws its own chrome
 // instead of the menu bar (PlayHeader), so its page sits under
-// (app)/play/[id] rather than (app)/(nav). The storyteller has their own,
-// RunTable at /run/[id].
+// (app)/stories/[id]/play rather than (app)/(nav). The storyteller has their
+// own, RunTable at /stories/[id]/run.
 //
 // Three parts. On the left, the play space on top, which is always there,
 // and the character space below it; on the right, the chat. The toggles in

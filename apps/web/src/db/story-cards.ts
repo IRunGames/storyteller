@@ -7,7 +7,6 @@ import {
   stories,
   storyFavorites,
   storyPlayers,
-  storyScenes,
   storySessions,
   systems,
   user as users,
@@ -60,18 +59,6 @@ export const playMinutes = sql<number>`(
   where ${storySessions.idStory} = ${stories.idStory}
 )`.mapWith(Number);
 
-// The scene the storyteller touched last, which the title menu's Build
-// scenes opens, as sa_getSceneToBuild picks it; null for a story with none,
-// and for anyone but the storyteller, whose scenes they are.
-function sceneToBuild(userId: string) {
-  return sql<number | null>`case when ${stories.idCreatedByUser} = ${userId} then (
-    select ${storyScenes.idStoryScene} from ${storyScenes}
-    where ${storyScenes.idStory} = ${stories.idStory}
-    order by ${storyScenes.updatedAt} desc, ${storyScenes.idStoryScene} desc
-    limit 1
-  ) end`;
-}
-
 // How a user is shown everywhere, storyteller or player: the same preference
 // the account menu uses (nickname, else name), and NULLIF so a nickname that
 // was blanked out does not win over the name.
@@ -105,7 +92,6 @@ export function cardColumns(userId: string) {
     playerCount,
     sessionCount,
     playMinutes,
-    buildSceneId: sceneToBuild(userId),
     // Everyone waiting but the viewer: the storyteller never waits, and a
     // player waiting in another tab is not someone else waiting.
     waitingCount: waitingCount(stories.idStory, userId),

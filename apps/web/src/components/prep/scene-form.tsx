@@ -21,7 +21,7 @@ import { sceneSchema, type SceneValues } from "@/lib/scene-schemas";
 import { SCENE_LOCKED_STATUS, type SceneSessionOption } from "@/lib/scenes";
 import type { PlayItem } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
-import { sa_createStoryScene, sa_updateStoryScene } from "@/app/(app)/(nav)/libraries/actions";
+import { sa_createStoryScene, sa_updateStoryScene } from "@/components/prep/actions";
 import { ScenePictures } from "@/components/play/scene-pictures";
 import { StatusPill } from "@/components/status/status-pill";
 import { SceneElements } from "./scene-elements";
@@ -228,7 +228,7 @@ export function SceneForm({
         <HStack justify="space-between" gap="3">
           {scene ? (
             <Button asChild variant="ghost">
-              <NextLink href={returnTo ?? `/libraries/${idStory}`}>Cancel</NextLink>
+              <NextLink href={returnTo ?? `/stories/${idStory}/library`}>Cancel</NextLink>
             </Button>
           ) : (
             <Button type="button" variant="ghost" onClick={onCancel}>

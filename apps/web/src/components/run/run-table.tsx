@@ -48,11 +48,7 @@ import type { StatusOption } from "@/lib/status";
 import { EMPTY_SCENE_TEXT, SCENE_LOCKED_STATUS } from "@/lib/scenes";
 import type { StackRename } from "@/lib/stack-schemas";
 import { cssUrlValue, sessionHeading, type StorySession } from "@/lib/stories";
-import {
-  sa_getRunPlaySpace,
-  sa_linkSceneElement,
-  sa_setSceneText,
-} from "@/app/(app)/run/[id]/actions";
+import { sa_getRunPlaySpace, sa_linkSceneElement, sa_setSceneText } from "@/components/run/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { useUser } from "@/components/auth/user-provider";
 import { SessionNotesPopover } from "@/components/sessions/session-notes-popover";
@@ -103,8 +99,6 @@ type Props = {
   idStory: number;
   /** The story being run, shown in the header. */
   title: string;
-  /** The scene the title menu's Build scenes opens (sa_getSceneToBuild); null for none yet. */
-  buildSceneId?: number | null;
   /**
    * The story's cover, behind the play space while the table is on no scene
    * or on one without a cover of its own.
@@ -127,11 +121,11 @@ type Props = {
   sessionStatusOptions: StatusOption[];
 };
 
-// The storyteller's table, /run/[id]: the player's table (PlayTable) with the
-// story's library down the left. It began as a copy of PlayTable rather than
-// a mode of it, so that what only the storyteller may see lives in a page and
-// a component a player never loads; the page proves the caller owns the
-// story before drawing any of it.
+// The storyteller's table, /stories/[id]/run: the player's table (PlayTable)
+// with the story's library down the left. It began as a copy of PlayTable
+// rather than a mode of it, so that what only the storyteller may see lives
+// in a page and a component a player never loads; the page proves the
+// caller owns the story before drawing any of it.
 //
 // The play space opens with the scene the session is on and the elements
 // brought into it (sa_getRunPlaySpace), in one stack per scene tag with the
@@ -160,7 +154,6 @@ type Props = {
 export function RunTable({
   idStory,
   title,
-  buildSceneId = null,
   storyCoverUrl,
   isOwner,
   sessions,
@@ -505,7 +498,6 @@ export function RunTable({
             idStory={idStory}
             title={title}
             isStoryteller={isOwner}
-            buildSceneId={buildSceneId}
             as="span"
             size="lg"
             fontWeight="medium"

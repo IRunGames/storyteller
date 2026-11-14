@@ -39,7 +39,7 @@ export function LibraryList({ stories }: Props) {
                 aria-label={`Open the library for ${story.title}`}
                 variant="ghost"
               >
-                <NextLink href={`/libraries/${story.idStory}`}>
+                <NextLink href={`/stories/${story.idStory}/library`}>
                   <BookOpen />
                 </NextLink>
               </IconButton>

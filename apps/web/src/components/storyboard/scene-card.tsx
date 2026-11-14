@@ -19,7 +19,7 @@ import { formatSceneLength } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import { cssUrlValue } from "@/lib/stories";
 import type { StoryboardScene } from "@/lib/storyboard";
-import { sa_setSceneText } from "@/app/(app)/run/[id]/actions";
+import { sa_setSceneText } from "@/components/run/actions";
 import { SceneTextPopover } from "@/components/play/scene-text-popover";
 import { SceneElementsPanel } from "./scene-elements-panel";
 

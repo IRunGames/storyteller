@@ -113,7 +113,7 @@ describe("PlayPicker", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "My Story..." }), "9");
 
     const play = screen.getByRole("link", { name: "Play" });
-    expect(play).toHaveAttribute("href", "/play/9");
+    expect(play).toHaveAttribute("href", "/stories/9/play");
     expect(play.querySelector(".lucide-play")).toBeInTheDocument();
     expect(sa_listUnfinishedSessions.mock.callCount()).toBe(0);
   });

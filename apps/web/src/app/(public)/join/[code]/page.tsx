@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 // (JoinLinkButton). Public, so someone with no account can follow it; see
 // proxy.ts. The visitor picks a name and is seated at the story, signed in
 // as a guest first if they have no session (join-form.tsx), and goes on to
-// the story's display table, /table/[id].
+// the story's display table, /stories/[id]/table.
 //
 // Someone already at the table, its storyteller included, has nothing to
 // join and is sent straight there. A code that names no story, or an
@@ -28,7 +28,7 @@ export default async function JoinPage({ params }: { params: Promise<{ code: str
   const { code } = await params;
   const story = await sa_getJoinStory(code);
   if (!story) notFound();
-  if (story.isAtTable) redirect(`/table/${story.idStory}`);
+  if (story.isAtTable) redirect(`/stories/${story.idStory}/table`);
 
   const session = await getSession();
   // A guest joining a second table keeps the name they already go by.

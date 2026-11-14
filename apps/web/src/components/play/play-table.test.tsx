@@ -12,7 +12,7 @@ import type { CurrentUser } from "@/lib/current-user";
 import { EMPTY_PLAY_SCENE, type PlayScene } from "@/lib/play-scene";
 import type { StorySession } from "@/lib/stories";
 import type { StoryEvent } from "@/lib/realtime/events";
-import type { SetElementNotesResult, UntapSceneElementResult } from "@/app/(app)/play/[id]/actions";
+import type { SetElementNotesResult, UntapSceneElementResult } from "@/components/play/actions";
 
 // A storyteller (-2), so the diagnostics toggle is offered; the player test
 // overrides the type.
@@ -233,7 +233,7 @@ describe("PlayTable", () => {
     mock.module("next/navigation", {
       namedExports: {
         useRouter: () => ({ push: mock.fn(), refresh: mock.fn() }),
-        usePathname: () => "/play/7",
+        usePathname: () => "/stories/7/play",
       },
     });
     mock.module("@/lib/auth-client", { namedExports: { signOut: mock.fn() } });
@@ -249,7 +249,7 @@ describe("PlayTable", () => {
     mock.module("@/components/sessions/actions", {
       namedExports: { sa_getSessionNotes, sa_setSessionNotes },
     });
-    mock.module("@/app/(app)/play/[id]/actions", {
+    mock.module("@/components/play/actions", {
       namedExports: {
         sa_getStoryChannel,
         sa_getPlayScene,
@@ -335,7 +335,7 @@ describe("PlayTable", () => {
     const banner = screen.getByRole("banner");
     expect(within(banner).getByRole("link", { name: "Display mode" })).toHaveAttribute(
       "href",
-      "/table/7",
+      "/stories/7/table",
     );
   });
 

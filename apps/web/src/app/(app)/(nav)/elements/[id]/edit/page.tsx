@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import { Container } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
+import { parseRouteId } from "@/lib/route-ids";
 import { ElementForm } from "@/components/prep/element-form";
-import { sa_getElementForEdit, sa_listStatBlockSystems } from "../../../libraries/actions";
+import { sa_getElementForEdit, sa_listStatBlockSystems } from "@/components/prep/actions";
 
 // An element's edit form, behind the pencil on its card. requireSession()
 // here rather than trusting the group layout; see lib/require-session.ts for
@@ -12,8 +13,8 @@ export default async function EditElementPage({ params }: { params: Promise<{ id
   await requireSession();
 
   const { id } = await params;
-  if (!/^-?\d+$/.test(id)) notFound();
-  const idElement = Number(id);
+  const idElement = parseRouteId(id);
+  if (idElement === null) notFound();
 
   const element = await sa_getElementForEdit(idElement);
   if (!element) notFound();

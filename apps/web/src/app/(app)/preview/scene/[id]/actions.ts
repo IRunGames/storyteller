@@ -13,9 +13,7 @@ import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
 
 const { stories, storyPlayers, storyScenes, vStoryScenes } = schema;
 
-// story_scenes.id_story_scene is int4; an id outside that range is a query
-// error to Postgres rather than a missing row, so it is turned away first.
-const idSchema = z.number().int().min(-2147483648).max(2147483647);
+const idSchema = z.int32();
 
 /** A scene of the story, for the chevrons round the title and the title's dropdown. */
 export type SceneNeighbour = {

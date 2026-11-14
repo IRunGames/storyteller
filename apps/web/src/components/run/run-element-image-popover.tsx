@@ -21,7 +21,7 @@ import type { Attachment } from "@/lib/attachments";
 import { ELEMENT_SEARCH_DELAY_MS } from "@/lib/elements";
 import { attachmentLabel } from "@/lib/run";
 import { sa_listAttachments, sa_searchAttachments } from "@/components/uploads/actions";
-import { sa_setElementImage } from "@/app/(app)/run/[id]/actions";
+import { sa_setElementImage } from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 

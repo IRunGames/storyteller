@@ -35,11 +35,11 @@ type Props = {
   centerInMenu?: boolean;
 };
 
-// The header every /play/[id] and /run/[id] screen draws in place of the menu
-// bar: the tables, the waiting room and the screen that says a story cannot
-// be played. With no menu bar here, the name is the way back to the home
-// page. Three columns with equal outer ones, so whatever is in the middle
-// stays centred on the window however wide the two sides are.
+// The header every /stories/[id]/play and /stories/[id]/run screen draws in
+// place of the menu bar: the tables, the waiting room and the screen that
+// says a story cannot be played. With no menu bar here, the name is the way
+// back to the home page. Three columns with equal outer ones, so whatever is
+// in the middle stays centred on the window however wide the two sides are.
 //
 // The outer columns are minmax(0, 1fr) rather than 1fr, whose minimum is its
 // content: on a narrow window a long title and session would otherwise hold

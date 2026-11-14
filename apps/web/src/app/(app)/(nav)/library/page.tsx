@@ -5,7 +5,7 @@ import { sa_listLibraryStories } from "./actions";
 
 // The way into the storyteller's libraries, behind the "Library" nav item:
 // what a library is, then the caller's own stories with a book into each.
-// The libraries themselves are libraries/[id_story]. requireSession() here
+// The libraries themselves are /stories/[id]/library. requireSession() here
 // rather than trusting the group layout; see lib/require-session.ts for why.
 export default async function LibraryPage() {
   await requireSession();

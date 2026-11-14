@@ -20,7 +20,7 @@ describe("StoryUnavailableDialog", () => {
     mock.module("next/navigation", {
       namedExports: { useRouter: () => ({ push: mock.fn(), replace: mock.fn(), refresh }) },
     });
-    mock.module("@/app/(app)/play/[id]/actions", { namedExports: { sa_activateStory } });
+    mock.module("@/components/play/actions", { namedExports: { sa_activateStory } });
     ({ StoryUnavailableDialog } = await import("./story-unavailable-dialog"));
   });
 

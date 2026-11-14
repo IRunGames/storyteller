@@ -5,7 +5,7 @@ import NextLink from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Dialog, Portal, Stack, Text } from "@chakra-ui/react";
 import type { PlayStory } from "@/lib/play";
-import { sa_activateStory } from "@/app/(app)/play/[id]/actions";
+import { sa_activateStory } from "@/components/play/actions";
 import { toaster } from "@/components/ui/toaster";
 
 type Props = {
@@ -13,10 +13,10 @@ type Props = {
 };
 
 /**
- * What /play/[id] shows in place of the table when the story is switched
- * off or archived. It cannot be dismissed — there is no table behind it to
- * go back to — so it has no close button, and neither Escape nor a click
- * outside closes it; every way out is one of its buttons.
+ * What /stories/[id]/play shows in place of the table when the story is
+ * switched off or archived. It cannot be dismissed — there is no table
+ * behind it to go back to — so it has no close button, and neither Escape
+ * nor a click outside closes it; every way out is one of its buttons.
  *
  * The storyteller can go and edit the story, and an inactive one can be
  * switched back on from here. An archived one is only offered the edit
@@ -42,8 +42,9 @@ export function StoryUnavailableDialog({ story }: Props) {
         setError(result.error);
         return;
       }
-      // The page decides what /play/[id] shows, so a refresh is what swaps
-      // this dialog for the table. The button stays loading until it does.
+      // The page decides what /stories/[id]/play shows, so a refresh is what
+      // swaps this dialog for the table. The button stays loading until it
+      // does.
       setActivated(true);
       toaster.create({ title: `${story.title} is active.`, type: "success" });
       router.refresh();

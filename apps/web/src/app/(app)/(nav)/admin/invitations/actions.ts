@@ -15,7 +15,7 @@ const acceptedBy = alias(users, "accepted_by");
 // requireAdmin(); the wrench that leads to the page is only drawn for an
 // administrator, which decides nothing on its own.
 
-const idSchema = z.number().int().positive().max(2147483647);
+const idSchema = z.int32().positive();
 
 export type InvitationStatus = "pending" | "accepted" | "expired" | "revoked";
 

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { NativeSelect } from "@chakra-ui/react";
 import type { SceneSessionOption } from "@/lib/scenes";
-import { sa_setLiveSceneSession } from "@/app/(app)/scenes/[id]/live/actions";
+import { sa_setLiveSceneSession } from "@/components/live/actions";
 import { toaster } from "@/components/ui/toaster";
 
 // How many of the story's sittings the select offers, newest first.

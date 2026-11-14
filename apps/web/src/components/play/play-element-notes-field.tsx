@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, Field, HStack, Textarea } from "@chakra-ui/react";
-import { sa_setPlayElementNotes } from "@/app/(app)/play/[id]/actions";
+import { sa_setPlayElementNotes } from "@/components/play/actions";
 
 type Props = {
   idStory: number;

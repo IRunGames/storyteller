@@ -39,8 +39,8 @@ import type { StatusOption } from "@/lib/status";
 import { EMPTY_SCENE_TEXT, SCENE_LOCKED_STATUS, type SceneSessionOption } from "@/lib/scenes";
 import type { StackRename } from "@/lib/stack-schemas";
 import { cssUrlValue } from "@/lib/stories";
-import { sa_linkSceneElement } from "@/app/(app)/run/[id]/actions";
-import { sa_clearLiveSceneCover, sa_setLiveSceneText } from "@/app/(app)/scenes/[id]/live/actions";
+import { sa_linkSceneElement } from "@/components/run/actions";
+import { sa_clearLiveSceneCover, sa_setLiveSceneText } from "@/components/live/actions";
 import { DeleteButton } from "@/components/confirm/delete-button";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { toaster } from "@/components/ui/toaster";
@@ -63,8 +63,6 @@ type Props = {
   idStory: number;
   /** The story the scene belongs to, shown in the header. */
   title: string;
-  /** The scene the title menu's Build scenes opens (sa_getSceneToBuild); null for none yet. */
-  buildSceneId?: number | null;
   /** The scene being edited, as sa_getScenePlaySpace read it. */
   scene: RunScene;
   /** The scene's stacks, its cover, and the elements brought into it. */
@@ -79,10 +77,11 @@ type Props = {
   sceneStatusOptions: StatusOption[];
 };
 
-// A scene's live-edit page, /scenes/[id]/live, behind the pencil on the
-// library's scene cards. It began as a copy of the run page's RunTable, so a
-// scene is prepared with the very library, stacks and pills it is played
-// with, and each change is saved and published as the run page's are.
+// A scene's live-edit page, /stories/[id]/scenes/[idScene], behind the
+// pencil on the library's scene cards. It began as a copy of the run page's
+// RunTable, so a scene is prepared with the very library, stacks and pills it
+// is played with, and each change is saved and published as the run page's
+// are.
 //
 // What makes it a page for one scene rather than a table to play at: it is
 // opened on that scene, and the scene's status chip sits beside its title in
@@ -103,7 +102,6 @@ type Props = {
 export function LiveTable({
   idStory,
   title,
-  buildSceneId = null,
   scene: initialScene,
   initialTags,
   initialCoverUrl,
@@ -114,7 +112,8 @@ export function LiveTable({
 }: Props) {
   const preferences = useUserPreferences();
   const router = useRouter();
-  const openScene = (idStoryScene: number) => router.push(`/scenes/${idStoryScene}/live`);
+  const openScene = (idStoryScene: number) =>
+    router.push(`/stories/${idStory}/scenes/${idStoryScene}`);
   const [scene, setScene] = useState<RunScene>(initialScene);
   // The library's tab, held here for the sort menu beside its heading.
   const [libraryTab, setLibraryTab] = useState<RunLibrarySource>("ATTACHMENT");
@@ -260,7 +259,6 @@ export function LiveTable({
             idStory={idStory}
             title={title}
             isStoryteller
-            buildSceneId={buildSceneId}
             as="span"
             size="lg"
             fontWeight="medium"

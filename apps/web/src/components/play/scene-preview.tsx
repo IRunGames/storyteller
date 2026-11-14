@@ -52,10 +52,10 @@ type Props = {
  * (SceneChevron), the left to the entry below and the right to the entry
  * above, named in their tooltips, shut at either end. For the story's
  * owner a pencil after the info button opens the scene's edit form, the
- * board's own (/scenes/[id]/edit), told to come back here when it is
- * done, so the scene can be moved to another sitting from this tab. No
- * chat, no character space, no live connection: it is a look, not a seat
- * at the table.
+ * board's own (/stories/[id]/scenes/[idScene]/edit), told to come back here
+ * when it is done, so the scene can be moved to another sitting from this
+ * tab. No chat, no character space, no live connection: it is a look, not a
+ * seat at the table.
  */
 export function ScenePreview({
   idStory,
@@ -93,7 +93,7 @@ export function ScenePreview({
                   <Tooltip.Trigger asChild>
                     <IconButton asChild size="xs" variant="ghost" rounded="full">
                       <NextLink
-                        href={`/scenes/${scene.scene.idStoryScene}/edit?from=${encodeURIComponent(here)}`}
+                        href={`/stories/${idStory}/scenes/${scene.scene.idStoryScene}/edit?from=${encodeURIComponent(here)}`}
                         aria-label="Edit scene"
                       >
                         <Pencil />

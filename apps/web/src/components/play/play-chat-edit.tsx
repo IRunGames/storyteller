@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Field, Input } from "@chakra-ui/react";
 import type { PublicChat } from "@/lib/realtime/chat-events";
-import { sa_editChat } from "@/app/(app)/play/[id]/actions";
+import { sa_editChat } from "@/components/play/actions";
 
 type Props = {
   idStory: number;

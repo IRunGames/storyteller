@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
 import { appIcons } from "@/lib/app-icons";
 import { currentEnvironment } from "@/lib/environment";
+import { EmotionRegistry } from "@/components/ui/emotion-registry";
 import { Provider } from "@/components/ui/provider";
 import { Toaster } from "@/components/ui/toaster";
 
@@ -24,11 +25,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={figtree.variable}>
         {/* The Toaster sits here, not inside Provider: every test renders
             through Provider, and the toast machine's mount-time update would
-            trip React's act() warning in tests that never toast. */}
-        <Provider>
-          {children}
-          <Toaster />
-        </Provider>
+            trip React's act() warning in tests that never toast. The
+            registry is here for the same reason: it only matters to the
+            server render, and in Provider every test would make a cache. */}
+        <EmotionRegistry>
+          <Provider>
+            {children}
+            <Toaster />
+          </Provider>
+        </EmotionRegistry>
       </body>
     </html>
   );

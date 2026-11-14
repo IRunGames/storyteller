@@ -18,7 +18,7 @@ import {
   sa_unlinkSceneElement,
   sa_updateSceneElement,
   sa_updateStoryElement,
-} from "@/app/(app)/run/[id]/actions";
+} from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
 import { DeleteButton } from "@/components/confirm/delete-button";

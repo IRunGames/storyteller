@@ -4,7 +4,7 @@ import { Accordion, HStack, Image, List, Stack, Text } from "@chakra-ui/react";
 import { ELEMENT_KIND_LABELS, type ElementKind } from "@/lib/elements";
 import { formatSceneLength, type SceneElementInfo, type StorySceneDetail } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
-import { sa_getStoryScene } from "@/app/(app)/(nav)/libraries/actions";
+import { sa_getStoryScene } from "@/components/prep/actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { InfoPopover } from "@/components/popovers/info-popover";
@@ -12,6 +12,8 @@ import { LocalDate } from "@/components/dates/local-date";
 import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
 
 type Props = {
+  /** The story the scene belongs to, which the pop-out's address names. */
+  idStory: number;
   idStoryScene: number;
   /** The story_scenes workflow, so the panel's pill matches the card's. */
   statusOptions: StatusOption[];
@@ -25,11 +27,18 @@ type Props = {
 // the sitting it was played in, everything the storyteller wrote about it
 // — the NPCs in it and anything of note, which the card can only show the
 // opening of — and the elements linked to it, folded away. InfoPopover owns the button, the panel and the fetch; the
-// button beside the heading opens the same detail on /scenes/[id].
+// button beside the heading opens the same detail on
+// /stories/[id]/scenes/[idScene]/info.
 //
 // The status is the one live thing in here, so the pill tells the column when
 // it moves and the panel keeps showing what the card shows.
-export function SceneInfoPopover({ idStoryScene, statusOptions, canEdit, onStatusChanged }: Props) {
+export function SceneInfoPopover({
+  idStory,
+  idStoryScene,
+  statusOptions,
+  canEdit,
+  onStatusChanged,
+}: Props) {
   return (
     <InfoPopover<SceneInfo>
       label="Scene info"
@@ -45,7 +54,7 @@ export function SceneInfoPopover({ idStoryScene, statusOptions, canEdit, onStatu
       missingText="This scene is no longer here."
       errorText="Could not load the scene."
       heading={(detail) => detail?.title ?? "Scene"}
-      popoutHref={`/scenes/${idStoryScene}`}
+      popoutHref={`/stories/${idStory}/scenes/${idStoryScene}/info`}
     >
       {(detail, setDetail) => (
         <SceneDetail

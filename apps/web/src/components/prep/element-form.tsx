@@ -3,17 +3,7 @@
 import NextLink from "next/link";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  Alert,
-  Box,
-  Button,
-  Field,
-  Heading,
-  HStack,
-  Input,
-  Stack,
-  Textarea,
-} from "@chakra-ui/react";
+import { Alert, Button, Field, Heading, HStack, Input, Stack, Textarea } from "@chakra-ui/react";
 import {
   elementFormSchema,
   type ElementFormInput,
@@ -25,7 +15,7 @@ import {
   sa_createElement,
   sa_updateElement,
   type StatBlockSystems,
-} from "@/app/(app)/(nav)/libraries/actions";
+} from "@/components/prep/actions";
 import { StatBlockFields } from "@/components/stat-blocks/stat-block-fields";
 import { DeleteElementButton } from "./delete-element-button";
 import { ElementKindSelect } from "./element-kind-select";
@@ -157,7 +147,14 @@ export function ElementForm({
 
   return (
     <Stack gap="6">
-      {element && <Heading size="2xl">Edit element</Heading>}
+      {/* The trashcan at the heading's far end, well away from Save at the
+          foot: an edit's way out of the story altogether, which asks first. */}
+      {element && (
+        <HStack justify="space-between" align="center" gap="4">
+          <Heading size="2xl">Edit element</Heading>
+          <DeleteElementButton idElement={element.idElement} name={element.values.name} />
+        </HStack>
+      )}
 
       {errors.root && (
         <Alert.Root status="error">
@@ -229,26 +226,21 @@ export function ElementForm({
             <Field.ErrorText>{errors.urlText?.message}</Field.ErrorText>
           </Field.Root>
 
-          <HStack gap="3">
-            <Button type="submit" loading={isSubmitting || isSubmitSuccessful}>
-              {element ? "Save changes" : "Create element"}
-            </Button>
+          {/* Cancel at the lower left and the action at the far end of the
+              same line. */}
+          <HStack justify="space-between" gap="3">
             {element ? (
               <Button asChild variant="ghost">
-                <NextLink href={`/libraries/${idStory}`}>Cancel</NextLink>
+                <NextLink href={`/stories/${idStory}/library`}>Cancel</NextLink>
               </Button>
             ) : (
               <Button type="button" variant="ghost" onClick={onCancel}>
                 Cancel
               </Button>
             )}
-            {/* At the far end, apart from Save: an edit's way out of the
-                story altogether, which asks first. */}
-            {element && (
-              <Box ms="auto">
-                <DeleteElementButton idElement={element.idElement} name={element.values.name} />
-              </Box>
-            )}
+            <Button type="submit" loading={isSubmitting || isSubmitSuccessful}>
+              {element ? "Save changes" : "Create element"}
+            </Button>
           </HStack>
         </Stack>
       </form>

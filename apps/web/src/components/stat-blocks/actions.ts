@@ -116,7 +116,7 @@ export type RolledForOne = {
 
 export type RollAllResult = { ok: true; rolls: RolledForOne[] } | { ok: false; error: string };
 
-const idSchema = z.number().int().min(-2147483648).max(2147483647);
+const idSchema = z.int32();
 const nameSchema = z.string().min(1).max(40);
 const rowKeySchema = z.string().trim().min(1).max(200).optional();
 const rollAsSchema = z.object({ title: z.string().trim().max(200), quiet: z.boolean() });

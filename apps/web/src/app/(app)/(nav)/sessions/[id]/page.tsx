@@ -3,11 +3,12 @@ import NextLink from "next/link";
 import { Container, Heading, HStack, Link, Stack } from "@chakra-ui/react";
 import { sessionHeading } from "@/lib/stories";
 import { requireSession } from "@/lib/require-session";
+import { parseRouteId } from "@/lib/route-ids";
 import { SessionNeighbourChevron } from "@/components/stories/session-neighbour-chevron";
 import { SessionPageDetail } from "@/components/stories/session-page-detail";
 import { SessionScenesAccordion } from "@/components/stories/session-scenes-accordion";
 import { sa_listStatusOptions } from "@/components/status/actions";
-import { sa_getStoryScene } from "../../libraries/actions";
+import { sa_getStoryScene } from "@/components/prep/actions";
 import { sa_getStorySession, sa_getStorySessionNeighbours } from "../../stories/actions";
 
 // A session's info panel on a page of its own, opened in a new tab from the
@@ -24,11 +25,10 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
   await requireSession();
 
   const { id } = await params;
-  // Only plain decimal digits are an id here; stories/[id]/page.tsx says why
-  // Number() alone would not do.
-  if (!/^-?\d+$/.test(id)) notFound();
+  const idStorySession = parseRouteId(id);
+  if (idStorySession === null) notFound();
 
-  const detail = await sa_getStorySession(Number(id));
+  const detail = await sa_getStorySession(idStorySession);
   if (!detail) notFound();
   // As in the popover: the scenes' workflows are only worth asking for when
   // there are scenes to colour. Each scene is loaded as its own panel loads

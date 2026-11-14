@@ -46,7 +46,6 @@ const story: StoryCardData = {
   presentCount: 0,
   sessionCount: 0,
   playMinutes: 0,
-  buildSceneId: null,
 };
 
 const players: StoryPlayer[] = [
@@ -96,17 +95,6 @@ const sa_startPlaying = mock.fn(
 );
 
 const sa_setFavorite = mock.fn(async (_idStory: number, isFavorite: boolean) => ({ isFavorite }));
-// The Build Scenes door makes the first scene of a story without one.
-const sa_createLiveScene = mock.fn(async (_idStory: number, values: { title: string }) => ({
-  ok: true as const,
-  space: {
-    scene: { idStoryScene: -70, title: values.title, status: "PENDING" },
-    tags: [],
-    coverUrl: null,
-    inPlay: [],
-  },
-}));
-const push = mock.fn((_href: string) => {});
 
 const section = (name: string) => screen.getByRole("region", { name });
 
@@ -151,10 +139,9 @@ describe("StoryDetails", () => {
     mock.module("@/app/(app)/(nav)/play/actions", {
       namedExports: { sa_listUnfinishedSessions, sa_startPlaying },
     });
-    mock.module("@/app/(app)/run/[id]/actions", { namedExports: { sa_createLiveScene } });
     mock.module("next/navigation", {
       namedExports: {
-        useRouter: () => ({ push, refresh: mock.fn() }),
+        useRouter: () => ({ push: mock.fn(), refresh: mock.fn() }),
         usePathname: () => "/stories/-15",
       },
     });
@@ -186,7 +173,6 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
-        buildSceneId={-7}
       />,
     );
 
@@ -196,34 +182,11 @@ describe("StoryDetails", () => {
     expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
       ["Overview", null],
       ["Edit", "/stories/-15/edit"],
-      ["Library", "/libraries/-15"],
-      ["Build scenes", "/scenes/-7/live"],
+      ["Library", "/stories/-15/library"],
+      ["Build scenes", "/stories/-15/scenes"],
       ["Play", null],
       ["Storyboard", "/stories/-15/storyboard"],
     ]);
-  });
-
-  it("makes the first scene from Build scenes while the story has none, and goes to it", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(
-      <StoryDetails
-        story={{ ...story, isOwner: true }}
-        players={[]}
-        sessions={[]}
-        sessionStatusOptions={sessionStatusOptions}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: "Vampire" }));
-    const build = await screen.findByRole("menuitem", { name: "Build scenes" });
-    expect(build).not.toHaveAttribute("href");
-    await user.click(build);
-    await waitFor(() => expect(sa_createLiveScene.mock.callCount()).toBe(1));
-    expect(sa_createLiveScene.mock.calls[0].arguments).toEqual([
-      -15,
-      { title: "New scene", description: "" },
-    ]);
-    await waitFor(() => expect(push.mock.calls.at(-1)?.arguments).toEqual(["/scenes/-70/live"]));
   });
 
   it("offers anyone but the storyteller the Storyboard alone", async () => {
@@ -234,7 +197,6 @@ describe("StoryDetails", () => {
         players={[]}
         sessions={[]}
         sessionStatusOptions={sessionStatusOptions}
-        buildSceneId={-7}
       />,
     );
 
@@ -346,7 +308,7 @@ describe("StoryDetails", () => {
 
     expect(within(section("Recent sessions")).getByRole("link", { name: "Play" })).toHaveAttribute(
       "href",
-      "/play/-15",
+      "/stories/-15/play",
     );
   });
 

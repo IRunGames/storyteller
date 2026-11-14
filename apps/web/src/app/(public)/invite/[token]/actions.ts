@@ -43,5 +43,5 @@ export async function sa_acceptInvitation(token: string): Promise<AcceptInvitati
 
   const redeemed = await redeemInvitation(parsed.data, user.id);
   if (!redeemed.ok) return redeemed;
-  redirect(redeemed.idStory !== null ? `/play/${redeemed.idStory}` : "/home");
+  redirect(redeemed.idStory !== null ? `/stories/${redeemed.idStory}/play` : "/home");
 }

@@ -11,7 +11,7 @@ import {
 import { PlayInfoPopover } from "@/components/play/play-pill";
 
 /**
- * One element on the display table (/table/[id]): the players' pill
+ * One element on the display table (/stories/[id]/table): the players' pill
  * (PlayPill) cut down to what reads from across a room. The name large, the
  * title under it when the storyteller shows the info, and nothing to press:
  * no info popover, no link, no untapping. The storyteller runs this screen
