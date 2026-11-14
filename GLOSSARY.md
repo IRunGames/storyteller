@@ -41,7 +41,10 @@ engineering skills consume this file.
 - **Scene element's stat blocks**: the copy a scene element holds of its
   element's stat blocks (`scene_elements.stat_blocks`), taken when the link
   is made and changed in play, so the element's values stay the baseline it
-  was prepared with. The pill's panel draws the copy in its scene card and
+  was prepared with. Every stat with an Initialized as is rolled afresh for
+  the copy as the link is made (`rollStartingBlocks`), from the element's
+  own dice for one rolled from a Dice stat, so each scene element of a
+  creature, every copy among them, has its own hit points. The pill's panel draws the copy in its scene card and
   the element's own blocks folded under its rows, to read; a paste beside the
   copy's pencil writes the element's blocks over the link's
   (`sa_copyStatBlocksFromElement`), and the table's edit form offers the
@@ -144,7 +147,15 @@ engineering skills consume this file.
   editor's Initialized as box, a dice box with an eye that rolls an example.
   Rolled once when the stat's block is added to an element, on the prep form
   or at the table (`sa_addStatBlock`), or a row of it: a pool starts full at
-  the total, a stack at the total with it as its max, a display at it.
+  the total, a stack at the total with it as its max, a display at it. The
+  select beside the box offers, in place of dice typed there, a Dice stat to
+  roll ("Roll Hit Dice", `initialFrom`), for dice that differ from element to
+  element: any in a plain group for a stat in a plain group, its own row's
+  for a stat in a group that repeats (`initialSource`). Its dice are rolled
+  into the stat on the element's edit form when its box is left, while the
+  stat is still empty (blank, or 0 to 0), and as the block is added when
+  another block already holds them; the die after the stat's boxes rolls
+  them in again whatever it holds.
 - **Up/down**: a stat flag (`upDown`), offered on a stat held to a number: the
   table draws the up/down changer beside the number's box; without it the
   box alone is drawn. Off on templates written before the flag.

@@ -24,6 +24,7 @@ const strength: StatDefinition = {
   upDown: false,
   leftRight: false,
   initialRoll: "3d6",
+  initialFrom: "",
 };
 
 const gameDefinition: StatBlockDefinition = {

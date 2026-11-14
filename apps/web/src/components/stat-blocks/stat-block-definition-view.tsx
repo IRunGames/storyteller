@@ -1,6 +1,7 @@
 import { Box, HStack, Stack, Text } from "@chakra-ui/react";
 import { joinRack } from "@/lib/stat-block-schemas";
 import {
+  initializedAs,
   isRepeating,
   STAT_FORMAT_LABELS,
   STAT_TYPE_LABELS,
@@ -12,17 +13,19 @@ import {
 /**
  * What a stat is, in one line after its name: its type, then only what sets
  * it apart from a plain stat of that type (a format, a rack's entries, a
- * formula, a roll, its starting roll, and the flags that are not the
- * default), so a short line means an ordinary stat.
+ * formula, a roll, what it starts at, and the flags that are not the
+ * default), so a short line means an ordinary stat. `startsAt` is what
+ * initializedAs says, which needs the whole definition to name a Dice stat;
+ * without it the stat's own starting roll is said.
  */
-export function statSummary(stat: StatDefinition): string {
+export function statSummary(stat: StatDefinition, startsAt = stat.initialRoll): string {
   return [
     STAT_TYPE_LABELS[stat.type],
     stat.format !== "" && STAT_FORMAT_LABELS[stat.format],
     stat.type === "rack" && joinRack(stat.rack),
     stat.type === "computed" && `= ${stat.computedAs}`,
     stat.roll !== "" && `rolls ${stat.roll}`,
-    stat.initialRoll !== "" && `starts at ${stat.initialRoll}`,
+    startsAt !== "" && `starts at ${startsAt}`,
     !stat.visible && "hidden at the table",
     stat.static && "static",
     stat.global && "rolled for all",
@@ -75,7 +78,9 @@ export function StatBlockDefinitionView({
                   <Box as="li" key={stat.name} fontSize="sm" py="0.5">
                     <HStack gap="2" wrap="wrap">
                       <Text>{statLabel(stat)}</Text>
-                      <Text color={mutedColor}>{statSummary(stat)}</Text>
+                      <Text color={mutedColor}>
+                        {statSummary(stat, initializedAs(definition, group.name, stat))}
+                      </Text>
                     </HStack>
                     {stat.description && (
                       <Text color={mutedColor} fontStyle="italic">

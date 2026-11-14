@@ -568,8 +568,16 @@ export async function sa_addStatBlock(
   const groupDefinition = system.definition.groups.find((g) => g.name === groupName);
   if (!groupDefinition) return { ok: false, error: "That stat block is not in the template." };
   const systemKeyText = systemKey(system.idSystem);
-  // Each stat's Initialized as is rolled here, once, as the block is made.
-  const starting = emptyStatGroup(system.definition, groupDefinition, rollTotal);
+  // Each stat's Initialized as is rolled here, once, as the block is made,
+  // and so are the dice a Dice stat in another of the holder's blocks holds
+  // for the stats initialized from it.
+  const held = found.blocks[systemKeyText];
+  const starting = emptyStatGroup(
+    system.definition,
+    groupDefinition,
+    rollTotal,
+    held ? tidyStatBlock(system.definition, held) : undefined,
+  );
 
   const written = await writeBlocks(
     checked.holder,

@@ -38,6 +38,7 @@ const stat = (
   upDown: true,
   leftRight: false,
   initialRoll: "",
+  initialFrom: "",
   ...over,
 });
 
@@ -61,6 +62,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         }),
         stat({ name: "hp", label: "HP", type: "pool" }),
       ],

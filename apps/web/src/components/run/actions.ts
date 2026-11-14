@@ -16,6 +16,10 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { statBlockSystems } from "@/db/stat-block-systems";
+import { rollTotal } from "@/lib/dice";
+import { readStatBlocks } from "@/lib/stat-block-schemas";
+import { rollStartingBlocks } from "@/lib/stat-blocks";
 import { attachmentUrl, sceneElementImageUrl } from "@/db/attachment-url";
 import { elementOrderBy } from "@/db/element-order";
 import { COVER_TAG } from "@/lib/attachments";
@@ -1221,7 +1225,9 @@ export type LinkSceneElementResult =
  * linked again rather than refused, a copy with its own status, stack,
  * pictures and stat blocks, its pill showing a label of the element's name
  * with a counter ("Goblin 1" for the first copy, "Goblin 2" for the next);
- * `duplicate` says so, for the table to warn the storyteller.
+ * `duplicate` says so, for the table to warn the storyteller. Every link
+ * rolls its own Initialized as (rollStartingBlocks), so no two goblins
+ * share the hit points rolled for the element.
  *
  * Refused when the scene or the element is not this story's, or the caller
  * is not its storyteller; nothing in the database holds a link's element to
@@ -1280,15 +1286,23 @@ export async function sa_linkSceneElement(
     );
   const label = copies > 0 ? `${row.name} ${copies}` : null;
 
-  // The link takes a copy of the element's stat blocks as they stand, to be
-  // changed in play while the element keeps its baseline; a copy of the
-  // element takes its own copy, so each is played apart.
+  // The link takes a copy of the element's stat blocks, to be changed in
+  // play while the element keeps its baseline; a copy of the element takes
+  // its own copy, so each is played apart. Every stat with an Initialized as
+  // is rolled afresh for it, from the element's own dice for one rolled from
+  // a Dice stat, so each scene element of a creature has its own hit points;
+  // the rest is the element's as it stands.
+  const statBlocks = rollStartingBlocks(
+    await statBlockSystems(story.data),
+    readStatBlocks(row.statBlocks),
+    rollTotal,
+  );
   const [made] = await db
     .insert(sceneElements)
     .values({
       idStoryScene: scene.data,
       idElement: row.idElement,
-      statBlocks: row.statBlocks,
+      statBlocks,
       tags,
       label,
       // A copy's pill shows its label, so two goblins are told apart at once.

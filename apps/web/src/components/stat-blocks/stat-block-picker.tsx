@@ -3,6 +3,7 @@
 import { Box, Button, Card, Heading, HStack, SimpleGrid, Stack, Text } from "@chakra-ui/react";
 import { Plus } from "lucide-react";
 import {
+  initializedAs,
   isRepeating,
   STAT_FORMAT_LABELS,
   STAT_TYPE_LABELS,
@@ -44,25 +45,41 @@ export function StatBlockPicker({ definition, carried, onAdd, onAddAll }: Props)
       </HStack>
       <SimpleGrid columns={{ base: 1, md: 2 }} gap="3">
         {offered.map((group) => (
-          <PreviewCard key={group.name} group={group} onAdd={() => onAdd(group.name)} />
+          <PreviewCard
+            key={group.name}
+            definition={definition}
+            group={group}
+            onAdd={() => onAdd(group.name)}
+          />
         ))}
       </SimpleGrid>
     </Stack>
   );
 }
 
-/** One stat as its preview line: the label it will show under, then what it is. */
-function statLine(stat: StatGroupDefinition["stats"][number]): string {
+/**
+ * One stat as its preview line: the label it will show under, then what it
+ * is. `startsAt` is what initializedAs says the stat starts at.
+ */
+function statLine(stat: StatGroupDefinition["stats"][number], startsAt: string): string {
   const parts = [STAT_TYPE_LABELS[stat.type].toLowerCase()];
   if (stat.format !== "") parts.push(STAT_FORMAT_LABELS[stat.format]);
   if (stat.roll !== "") parts.push(`rolls ${stat.roll}`);
-  if (stat.initialRoll !== "") parts.push(`starts at ${stat.initialRoll}`);
+  if (startsAt !== "") parts.push(`starts at ${startsAt}`);
   if (stat.static) parts.push("static");
   if (!stat.visible) parts.push("hidden");
   return parts.join(" · ");
 }
 
-function PreviewCard({ group, onAdd }: { group: StatGroupDefinition; onAdd: () => void }) {
+function PreviewCard({
+  definition,
+  group,
+  onAdd,
+}: {
+  definition: StatBlockDefinition;
+  group: StatGroupDefinition;
+  onAdd: () => void;
+}) {
   const title = group.label || group.name;
   const key = group.stats.find((stat) => stat.name === group.keyedBy);
   return (
@@ -98,7 +115,7 @@ function PreviewCard({ group, onAdd }: { group: StatGroupDefinition; onAdd: () =
                   {statLabel(stat)}
                 </Text>
                 <Text as="span" color="fg.muted">
-                  {statLine(stat)}
+                  {statLine(stat, initializedAs(definition, group.name, stat))}
                 </Text>
               </HStack>
               {stat.description !== "" && (

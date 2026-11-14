@@ -900,6 +900,102 @@ describe("run table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       .where(eq(tables.elements.idElement, abbey));
   });
 
+  it("rolls each new link's Initialized as afresh, hit points from the element's own hit dice", async () => {
+    const target = await sceneIn("ACTIVE", "Fixture scene for rolled stat blocks");
+    const base = {
+      label: "",
+      description: "",
+      rack: [],
+      computedAs: "",
+      visible: true,
+      format: "number" as const,
+      sticky: false,
+      static: false,
+      roll: "",
+      global: false,
+      upDown: false,
+      leftRight: false,
+      initialRoll: "",
+      initialFrom: "",
+    };
+    const definition = {
+      groups: [
+        {
+          name: "life",
+          label: "",
+          keyedBy: "",
+          rollAll: false,
+          canHaveMultiples: false,
+          stats: [
+            { ...base, name: "hd", type: "dice" as const, format: "" as const },
+            { ...base, name: "hp", type: "pool" as const, initialFrom: "life.hd" },
+            { ...base, name: "luck", type: "display" as const, initialRoll: "1d1+2" },
+            { ...base, name: "str", type: "display" as const },
+          ],
+        },
+      ],
+    };
+    const [system] = await db
+      .insert(tables.systems)
+      .values({ systemName: "Fixture run table rolls", statBlockDefinition: definition })
+      .returning({ idSystem: tables.systems.idSystem });
+    const key = String(system.idSystem);
+    const prepared = {
+      [key]: {
+        life: {
+          hd: { value: "1d1+40" },
+          hp: { value: 7, min: 0, max: 7 },
+          luck: { value: 0 },
+          str: { value: 12 },
+        },
+      },
+    };
+    await db
+      .update(tables.stories)
+      .set({ idSystem: system.idSystem })
+      .where(eq(tables.stories.idStory, mine));
+    await db
+      .update(tables.elements)
+      .set({ statBlocks: prepared })
+      .where(eq(tables.elements.idElement, abbey));
+    try {
+      const linked = await actions.sa_linkSceneElement(mine, target, abbey);
+      if (!linked.ok) throw new Error("not linked");
+      const [link] = await db
+        .select({ statBlocks: tables.sceneElements.statBlocks })
+        .from(tables.sceneElements)
+        .where(eq(tables.sceneElements.idSceneElement, linked.item.idSceneElement!));
+      // Hit points rolled from the element's dice, luck from the
+      // template's; the dice themselves and a stat with no roll as they are.
+      expect(link.statBlocks).toEqual({
+        [key]: {
+          life: {
+            hd: { value: "1d1+40" },
+            hp: { value: 41, min: 0, max: 41 },
+            luck: { value: 3 },
+            str: { value: 12 },
+          },
+        },
+      });
+      // The element keeps the values it was prepared with.
+      const [element] = await db
+        .select({ statBlocks: tables.elements.statBlocks })
+        .from(tables.elements)
+        .where(eq(tables.elements.idElement, abbey));
+      expect(element.statBlocks).toEqual(prepared);
+    } finally {
+      await db
+        .update(tables.elements)
+        .set({ statBlocks: {} })
+        .where(eq(tables.elements.idElement, abbey));
+      await db
+        .update(tables.stories)
+        .set({ idSystem: null })
+        .where(eq(tables.stories.idStory, mine));
+      await db.delete(tables.systems).where(eq(tables.systems.idSystem, system.idSystem));
+    }
+  });
+
   it("links a library element as invisible with the Add as invisible switch", async () => {
     const target = await sceneIn("ACTIVE", "Fixture scene for hidden links");
 

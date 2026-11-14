@@ -145,6 +145,16 @@ export type StatDefinition = {
    * held to a number may have one (canRoll).
    */
   initialRoll: string;
+  /**
+   * The Dice stat whose dice are rolled for the stat's starting value, and
+   * on a pool or a stack its max, as "group.stat" ("defense.hit_dice"); ""
+   * for none. For dice that differ from element to element, where
+   * initialRoll is the same for all, so the two are never both set. A stat
+   * in a plain group rolls a Dice stat in a plain group, one in a repeating
+   * group a Dice stat of its own row (initialSource). Only a stat that may
+   * have an initialRoll may have one.
+   */
+  initialFrom: string;
 };
 
 /** The rolls the template editor offers before a custom one. */
@@ -288,6 +298,42 @@ export function statLabel(stat: Pick<StatDefinition, "name" | "label">): string 
   return stat.label || stat.name;
 }
 
+/**
+ * The Dice stat a stat is initialized from (initialFrom), with its group;
+ * null for a stat initialized from none, or from a stat the definition no
+ * longer has as a Dice stat it can read: one in a plain group for a stat in
+ * a plain group, and one of its own group, the same row, for a stat in a
+ * group that repeats.
+ */
+export function initialSource(
+  definition: StatBlockDefinition,
+  groupName: string,
+  stat: Pick<StatDefinition, "initialFrom">,
+): { group: StatGroupDefinition; stat: StatDefinition } | null {
+  if (stat.initialFrom === "") return null;
+  const [sourceGroupName, sourceName] = stat.initialFrom.split(".");
+  const group = definition.groups.find((candidate) => candidate.name === groupName);
+  const sourceGroup = definition.groups.find((candidate) => candidate.name === sourceGroupName);
+  const source = sourceGroup?.stats.find((candidate) => candidate.name === sourceName);
+  if (!group || !sourceGroup || !source || source.type !== "dice") return null;
+  const readable = isRepeating(group) ? sourceGroup.name === group.name : !isRepeating(sourceGroup);
+  return readable ? { group: sourceGroup, stat: source } : null;
+}
+
+/**
+ * What a stat starts at, in words: its Initialized as roll ("8d8+3"), "a
+ * roll of Hit Dice" for one initialized from a Dice stat, or "" for
+ * neither. The template's summaries say it after "starts at".
+ */
+export function initializedAs(
+  definition: StatBlockDefinition,
+  groupName: string,
+  stat: Pick<StatDefinition, "initialRoll" | "initialFrom">,
+): string {
+  const source = initialSource(definition, groupName, stat);
+  return source ? `a roll of ${statLabel(source.stat)}` : stat.initialRoll;
+}
+
 /** The key a system's block is stored under. */
 export function systemKey(idSystem: number): string {
   return String(idSystem);
@@ -370,11 +416,18 @@ export function fitStatValue(stat: StatDefinition, raw: unknown): StatValue | nu
 /**
  * What a stat's label says on hover, on the prep form and at the table: its
  * description, with what it is initialized as after a colon ("Hit Points:
- * 8d8+3"), the roll alone without a description, or "" for neither.
+ * 8d8+3", or "Hit Points: a roll of Hit Dice" for one initialized from a
+ * Dice stat), what it is initialized as alone without a description, or ""
+ * for neither.
  */
-export function statTooltip(stat: Pick<StatDefinition, "description" | "initialRoll">): string {
-  if (stat.initialRoll === "") return stat.description;
-  return stat.description === "" ? stat.initialRoll : `${stat.description}: ${stat.initialRoll}`;
+export function statTooltip(
+  stat: Pick<StatDefinition, "description" | "initialRoll"> & { initialFromLabel?: string },
+): string {
+  const initialized = stat.initialFromLabel
+    ? `a roll of ${stat.initialFromLabel}`
+    : stat.initialRoll;
+  if (initialized === "") return stat.description;
+  return stat.description === "" ? initialized : `${stat.description}: ${initialized}`;
 }
 
 /** One stat as the block shows it, with what the controls need beside the value. */
@@ -385,6 +438,8 @@ export type EvaluatedStat = {
   description: string;
   /** As the definition says; "" for none. */
   initialRoll: string;
+  /** The label of the Dice stat it is initialized from (initialSource); "" for none. */
+  initialFromLabel: string;
   type: StatType;
   /** As the definition says; the table leaves a hidden stat out. */
   visible: boolean;
@@ -467,6 +522,10 @@ export function evaluateStatBlock(
 
   type Row = { index: number; stored: StatRow };
   const groupOf = (name: string) => definition.groups.find((group) => group.name === name);
+  const sourceLabel = (groupName: string, stat: StatDefinition): string => {
+    const source = initialSource(definition, groupName, stat);
+    return source ? statLabel(source.stat) : "";
+  };
   // A plain group's record; nothing when an array was left there by a
   // definition that used to repeat the group.
   const plainStored = (groupName: string): StatRow | undefined => {
@@ -485,6 +544,7 @@ export function evaluateStatBlock(
       label: statLabel(stat),
       description: stat.description,
       initialRoll: stat.initialRoll,
+      initialFromLabel: sourceLabel(groupName, stat),
       type: stat.type,
       visible: stat.visible,
       format: stat.format,
@@ -637,10 +697,22 @@ export function tidyStatBlock(definition: StatBlockDefinition, block: StatBlock)
  */
 export type InitialRoller = (notation: string) => number | null;
 
-/** A stat's starting number: its Initialized as rolled, when it has one and a roller is given; 0 otherwise. */
-function startingNumber(stat: StatDefinition, roll: InitialRoller | undefined): number {
-  if (!roll || stat.initialRoll === "" || !canRoll(stat)) return 0;
-  return roll(stat.initialRoll) ?? 0;
+/**
+ * A stat's starting number: its Initialized as rolled, or the dice its
+ * source holds (`sourceDice`, for a stat initialized from a Dice stat)
+ * rolled, when there is something to roll and a roller is given; 0
+ * otherwise, which is also how a stat whose source is still blank starts,
+ * empty, for the form to roll once the dice are typed.
+ */
+function startingNumber(
+  stat: StatDefinition,
+  roll: InitialRoller | undefined,
+  sourceDice?: string,
+): number {
+  if (!roll || !canRoll(stat)) return 0;
+  const notation = stat.initialFrom !== "" ? (sourceDice ?? "") : stat.initialRoll;
+  if (notation === "") return 0;
+  return roll(notation) ?? 0;
 }
 
 /**
@@ -649,18 +721,26 @@ function startingNumber(stat: StatDefinition, roll: InitialRoller | undefined): 
  * at its roll with the roll as its max, or at 0; a rack on its first entry;
  * a display at its roll, or 0. Nothing for a computed stat, which stores
  * nothing. A repeating group starts with no rows; the storyteller adds them
- * (emptyStatRowFields). Without a roller every roll reads as 0. The
- * definition is taken for the callers' sake and not read.
+ * (emptyStatRowFields). Without a roller every roll reads as 0. A stat
+ * initialized from a Dice stat rolls the dice that stat holds in `block`,
+ * the holder's blocks as they are, so a Hit Dice already filled in another
+ * group is rolled for the Hit Points added after it; a source in this same
+ * group is blank as the group is added, so its stats start empty.
  */
 export function emptyStatGroup(
-  _definition: StatBlockDefinition,
+  definition: StatBlockDefinition,
   group: StatGroupDefinition,
   roll?: InitialRoller,
+  block?: StatBlock,
 ): StatRow | StatRow[] {
   if (isRepeating(group)) return [];
   const values: StatRow = {};
   for (const stat of group.stats) {
-    const start = startingNumber(stat, roll);
+    const source = initialSource(definition, group.name, stat);
+    const held = source && source.group.name !== group.name ? block?.[source.group.name] : null;
+    const sourceDice =
+      held && !Array.isArray(held) ? String(held[source!.stat.name]?.value ?? "") : undefined;
+    const start = startingNumber(stat, roll, sourceDice);
     switch (stat.type) {
       case "display":
         values[stat.name] = { value: start };
@@ -691,6 +771,83 @@ export function emptyStatBlock(definition: StatBlockDefinition, roll?: InitialRo
     block[group.name] = emptyStatGroup(definition, group, roll);
   }
   return block;
+}
+
+/**
+ * Where a stat starts once its Initialized as is rolled to `total`: a pool
+ * full at it with it as its max, keeping the floor it had; a stack at it
+ * with it as its max, or at 0 with none; a display at it. As emptyStatGroup
+ * starts them.
+ */
+function startedAt(stat: StatDefinition, total: number, current: StatValue | undefined): StatValue {
+  switch (stat.type) {
+    case "pool":
+      return { value: total, min: current?.min ?? 0, max: total };
+    case "stack":
+      return total === 0 ? { value: 0 } : { value: total, max: total };
+    default:
+      return { value: total };
+  }
+}
+
+/**
+ * One system's block with every stat that has an Initialized as rolled
+ * afresh, as an element's blocks are when the element is added to a scene,
+ * so each scene element plays its own roll rather than the one made for the
+ * element, every copy of a goblin among them. A stat initialized from a
+ * Dice stat rolls the dice the block holds there (initialSource), its own
+ * row's in a group that repeats; one with dice of its own rolls those, and
+ * is rolled into the group even where the block stored nothing for it. A
+ * stat with nothing it can roll (its Dice stat blank or unreadable, or a
+ * roll the roller cannot make) keeps the value it has, as does everything
+ * the definition does not roll, groups it does not know included.
+ */
+export function rollStartingStats(
+  definition: StatBlockDefinition,
+  block: StatBlock,
+  roll: InitialRoller,
+): StatBlock {
+  const rolled: StatBlock = { ...block };
+  for (const group of definition.groups) {
+    const held = block[group.name];
+    if (held === undefined) continue;
+    const rollRow = (row: StatRow): StatRow => {
+      const next: StatRow = { ...row };
+      for (const stat of group.stats) {
+        if (!canRoll(stat)) continue;
+        let notation = stat.initialRoll;
+        if (stat.initialFrom !== "") {
+          const source = initialSource(definition, group.name, stat);
+          if (!source) continue;
+          // Its own group's Dice stat is in this row; another group's is
+          // that plain group's one record.
+          const holder = source.group.name === group.name ? row : block[source.group.name];
+          const dice = holder && !Array.isArray(holder) ? holder[source.stat.name]?.value : null;
+          notation = typeof dice === "string" ? dice : "";
+        }
+        if (notation === "") continue;
+        const total = roll(notation);
+        if (total !== null) next[stat.name] = startedAt(stat, total, row[stat.name]);
+      }
+      return next;
+    };
+    rolled[group.name] = Array.isArray(held) ? held.map(rollRow) : rollRow(held);
+  }
+  return rolled;
+}
+
+/** Every system's block rolled as rollStartingStats rolls one; a block of a system not given is kept as it is. */
+export function rollStartingBlocks(
+  systems: StatBlockSystem[],
+  blocks: StatBlocks,
+  roll: InitialRoller,
+): StatBlocks {
+  return Object.fromEntries(
+    Object.entries(blocks).map(([key, block]) => {
+      const system = systems.find((candidate) => systemKey(candidate.idSystem) === key);
+      return [key, system ? rollStartingStats(system.definition, block, roll) : block];
+    }),
+  );
 }
 
 /**
@@ -785,8 +942,10 @@ function statFields(stored: StatValue | null): StatFieldValues {
  * but a rack on its first entry, since a select with nothing chosen would
  * show its first option while posting nothing, and a stat with an
  * Initialized as at its roll, a pool's or stack's max with it, when a
- * roller is given. In a group that can have multiples, the row's multiple
- * starts at 1.
+ * roller is given. A stat initialized from a Dice stat reads that stat in
+ * its own row, still blank here, so it starts empty for the form to roll
+ * once the dice are typed. In a group that can have multiples, the row's
+ * multiple starts at 1.
  */
 export function emptyStatRowFields(
   group: StatGroupDefinition,

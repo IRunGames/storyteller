@@ -41,6 +41,7 @@ const stat = (
   upDown: true,
   leftRight: false,
   initialRoll: "",
+  initialFrom: "",
   ...over,
 });
 
@@ -77,6 +78,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         }),
         stat({ name: "secret", label: "Secret", type: "display", visible: false }),
         stat({ name: "damage", label: "Damage", type: "dice" }),

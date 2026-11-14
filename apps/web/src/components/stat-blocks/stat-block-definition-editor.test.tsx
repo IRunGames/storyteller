@@ -55,6 +55,7 @@ const system: Fixture = {
             upDown: false,
             leftRight: false,
             initialRoll: "",
+            initialFrom: "",
           },
           {
             name: "sdc",
@@ -72,6 +73,7 @@ const system: Fixture = {
             upDown: true,
             leftRight: false,
             initialRoll: "",
+            initialFrom: "",
           },
         ],
       },
@@ -107,6 +109,7 @@ const keyable: Fixture = {
             upDown: false,
             leftRight: false,
             initialRoll: "",
+            initialFrom: "",
           },
           {
             name: "sdc",
@@ -124,6 +127,7 @@ const keyable: Fixture = {
             upDown: true,
             leftRight: false,
             initialRoll: "",
+            initialFrom: "",
           },
           {
             name: "die",
@@ -141,6 +145,7 @@ const keyable: Fixture = {
             upDown: true,
             leftRight: true,
             initialRoll: "",
+            initialFrom: "",
           },
           {
             name: "shown",
@@ -158,6 +163,7 @@ const keyable: Fixture = {
             upDown: true,
             leftRight: false,
             initialRoll: "",
+            initialFrom: "",
           },
         ],
       },
@@ -545,7 +551,7 @@ describe("StatBlockDefinitionEditor", () => {
     await user.hover(box);
     expect(
       await screen.findByText(
-        "Roll this once when the block is added to an element, for its starting value and max",
+        "Roll dice, or an element's own Dice stat, for its starting value and max",
       ),
     ).toBeInTheDocument();
     await user.click(box);
@@ -574,6 +580,32 @@ describe("StatBlockDefinitionEditor", () => {
     await user.click(screen.getByRole("button", { name: "Save stat block" }));
     await waitFor(() => expect(save.mock.callCount()).toBe(2));
     expect(save.mock.calls[1].arguments[0].groups[0].stats[1].initialRoll).toBe("");
+  });
+
+  it("initializes a stat from a Dice stat in place of dice typed here, and saves which", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(editor(system));
+    await openGroup(user, "defense");
+
+    // AR made a Dice stat is offered to SDC, a pool in the same plain group.
+    await user.selectOptions(screen.getAllByRole("combobox", { name: "Type" })[0], "dice");
+    await user.click(screen.getByRole("checkbox", { name: "Initialized as" }));
+    const from = screen.getByRole("combobox", { name: "SDC initialized from" });
+    expect(from).toHaveValue("");
+    await user.type(screen.getByRole("textbox", { name: "SDC initialized as" }), "2d6");
+    await user.selectOptions(from, "Roll AR");
+    // The Dice stat stands in for the dice typed, which are let go.
+    expect(screen.queryByRole("textbox", { name: "SDC initialized as" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    await waitFor(() => expect(save.mock.callCount()).toBe(1));
+    const sdc = save.mock.calls[0].arguments[0].groups[0].stats[1];
+    expect(sdc).toMatchObject({ initialFrom: "defense.ar", initialRoll: "" });
+
+    // Unticked, it rolls nothing again.
+    await user.click(screen.getByRole("checkbox", { name: "Initialized as" }));
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    await waitFor(() => expect(save.mock.callCount()).toBe(2));
+    expect(save.mock.calls[1].arguments[0].groups[0].stats[1].initialFrom).toBe("");
   });
 
   it("offers Up/down only on a stat held to a number, saying what it does, and saves it", async () => {
@@ -754,6 +786,7 @@ describe("StatBlockDefinitionEditor", () => {
       upDown: false,
       leftRight: false,
       initialRoll: "",
+      initialFrom: "",
     });
     expect(await screen.findByText("Stat block saved.")).toBeInTheDocument();
     // The save resets the form; the group that was open stays open.

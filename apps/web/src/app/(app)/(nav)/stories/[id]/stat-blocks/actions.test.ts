@@ -49,6 +49,7 @@ const stat = {
   upDown: false,
   leftRight: false,
   initialRoll: "",
+  initialFrom: "",
 };
 
 const definition: StatBlockDefinition = {

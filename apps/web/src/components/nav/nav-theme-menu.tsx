@@ -6,12 +6,12 @@ import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
 import { THEMES, type Theme } from "@/lib/themes";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
-import { BerryIcon, FlameIcon, PumpkinIcon, SprigIcon, WaveIcon } from "./icons";
+import { BerryIcon, FlameIcon, PumpkinIcon, SnowmanIcon, SprigIcon, WaveIcon } from "./icons";
 
 // The button shows the icon of the theme in force, and each menu item shows
-// its own beside its name. The pumpkin, berry, sprig, wave and flame are the
-// Halloween, Blackberry, Mint, Wave and Ember themes' own marks (icons.tsx),
-// which is why they are not Lucide icons.
+// its own beside its name. The pumpkin, berry, sprig, wave, flame and
+// snowman are the Halloween, Blackberry, Mint, Wave, Ember and White Out
+// themes' own marks (icons.tsx), which is why they are not Lucide icons.
 const ICONS: Record<Theme, ReactNode> = {
   light: <Sun />,
   dark: <Moon />,
@@ -20,6 +20,7 @@ const ICONS: Record<Theme, ReactNode> = {
   mint: <SprigIcon />,
   wave: <WaveIcon />,
   ember: <FlameIcon />,
+  whiteout: <SnowmanIcon />,
 };
 
 // A selector rather than a toggle so a new theme is one more entry in THEMES.

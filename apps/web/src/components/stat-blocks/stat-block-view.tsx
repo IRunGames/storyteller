@@ -812,7 +812,7 @@ function RepeatingRow({
 function StatLabel({
   stat,
 }: {
-  stat: Pick<EvaluatedStat, "label" | "description" | "initialRoll">;
+  stat: Pick<EvaluatedStat, "label" | "description" | "initialRoll" | "initialFromLabel">;
 }) {
   const tooltip = statTooltip(stat);
   const label = (

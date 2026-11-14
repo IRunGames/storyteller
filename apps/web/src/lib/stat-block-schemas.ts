@@ -88,6 +88,9 @@ export const statDefinitionSchema = z.object({
     .string()
     .trim()
     .max(MAX_ROLL_NOTATION, `Keep a roll under ${MAX_ROLL_NOTATION} characters.`),
+  // "group.stat", two names; checkDefinition says whether it is a Dice stat
+  // the stat can read.
+  initialFrom: z.string().trim().max(81, "Keep the Dice stat's name under 81 characters."),
 });
 
 export const statGroupDefinitionSchema = z.object({
@@ -198,6 +201,28 @@ function checkDefinition(definition: StatBlockDefinition): Issue[] {
             message: "That is not a roll I can read. Try 2d6+1.",
           });
         }
+      }
+
+      if (stat.initialFrom !== "") {
+        const [sourceGroupName = "", sourceName = ""] = stat.initialFrom.split(".");
+        const sourceGroup = definition.groups.find((other) => other.name === sourceGroupName);
+        const source = findStat(definition, sourceGroupName, sourceName);
+        const message = !canRoll(stat)
+          ? "Only a pool, a stack or a display held to a number is initialized by a roll."
+          : stat.initialRoll !== ""
+            ? "Initialize it from dice or from a Dice stat, not both."
+            : !source || !sourceGroup
+              ? `There is no stat ${stat.initialFrom}.`
+              : source.type !== "dice"
+                ? `${statLabel(source)} is not a Dice stat.`
+                : // A row reads its own row's dice; a plain group has no row
+                  // to read a repeating group's from.
+                  isRepeating(group) && sourceGroup.name !== group.name
+                  ? "A stat in a group that repeats rolls a Dice stat of its own row."
+                  : !isRepeating(group) && isRepeating(sourceGroup)
+                    ? `${statLabel(source)} is in a group that repeats, so there is one per row; roll a Dice stat in a plain group.`
+                    : null;
+        if (message) issues.push({ path: at("initialFrom"), message });
       }
 
       if (stat.global && !hasDie(stat)) {
@@ -355,13 +380,13 @@ export function readStatBlockDefinition(raw: unknown): StatBlockDefinition {
 /**
  * A stored definition with the fields later versions added: keyedBy,
  * rollAll and canHaveMultiples on every group, and description, visible,
- * format, sticky, static, roll, global, upDown, leftRight and initialRoll
- * on every stat. Columns written before groups could repeat have no keyedBy
- * and read as plain groups that do not roll all and have no multiples;
- * those written before a stat had the flags read as shown, in the format
- * its type starts with, not sticky, not static, with no roll, not global,
- * without the up/down changer, with the left/right buttons on a rack alone,
- * and starting at 0. Each reads that way rather than failing whole.
+ * format, sticky, static, roll, global, upDown, leftRight, initialRoll and
+ * initialFrom on every stat. Columns written before groups could repeat
+ * have no keyedBy and read as plain groups that do not roll all and have no
+ * multiples; those written before a stat had the flags read as shown, in
+ * the format its type starts with, not sticky, not static, with no roll,
+ * not global, without the up/down changer, with the left/right buttons on a
+ * rack alone, and starting at 0, rolled from no Dice stat. Each reads that way rather than failing whole.
  * Anything that is not the expected shape is handed on as it is for the
  * schema to refuse.
  */
@@ -390,6 +415,7 @@ function withDefaults(raw: unknown): unknown {
       // so one stored without the flag keeps them.
       leftRight: stat.type === "rack",
       initialRoll: "",
+      initialFrom: "",
     });
     const stats = Array.isArray(group.stats)
       ? group.stats.map((stat) => (isRecord(stat) ? { ...flags(stat), ...stat } : stat))

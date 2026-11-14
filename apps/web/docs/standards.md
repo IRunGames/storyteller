@@ -55,11 +55,15 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
 - **Colour comes from semantic tokens** in [`theme.ts`](../src/theme.ts).
   Only the header reads `nav.*`; everything else keeps Chakra's defaults
   (`fg.muted`, `whiteAlpha.*`). Tokens carry a `base` and `_dark` value plus
-  `_halloween` and `_blackberry` where the theme has its own tint, and
-  `next-themes` switches them by setting a class on `<html>`. The two extra
-  themes are dark themes: the `dark` condition matches their classes too, so
-  a token with no `_halloween` value falls back to its `_dark` one. The list
-  of themes is [`themes.ts`](../src/lib/themes.ts); the provider hands it to
+  one per tinted theme (`_halloween`, `_blackberry`, `_mint`, `_wave`,
+  `_ember`, `_whiteout`), and `next-themes` switches them by setting a class
+  on `<html>`. Every tinted theme but White Out is a dark theme: the `dark`
+  condition matches their classes too, so a token with no `_halloween` value
+  falls back to its `_dark` one. White Out is light, so a token with no
+  `_whiteout` value falls back to its `base` one. The page's `color-scheme`
+  follows the class through `globalCss` in `theme.ts`, not `next-themes`,
+  which would give White Out its default theme's dark scheme. The list of
+  themes is [`themes.ts`](../src/lib/themes.ts); the provider hands it to
   `next-themes` so the old class is removed on a switch.
 - **Anything that differs per theme is a CSS rule on the theme class**
   (`css={{ ".halloween &": { display: "none" } }}`), not a branch on

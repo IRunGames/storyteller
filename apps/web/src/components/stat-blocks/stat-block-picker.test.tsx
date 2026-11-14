@@ -23,6 +23,7 @@ const stat = (
   upDown: true,
   leftRight: false,
   initialRoll: "",
+  initialFrom: "",
   ...over,
 });
 

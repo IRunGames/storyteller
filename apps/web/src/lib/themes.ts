@@ -5,7 +5,9 @@
 // at once means two sets of token overrides fighting.
 //
 // Adding a theme is one entry here, a class in the conditions block of
-// theme.ts, and an icon in nav-theme-menu.tsx.
+// theme.ts, and an icon in nav-theme-menu.tsx. A dark theme's class also
+// joins the `dark` condition there; a light one's joins the light
+// color-scheme rule in its globalCss instead.
 export const THEMES = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
@@ -14,6 +16,7 @@ export const THEMES = [
   { value: "mint", label: "Mint" },
   { value: "wave", label: "Wave" },
   { value: "ember", label: "Ember" },
+  { value: "whiteout", label: "White Out" },
 ] as const;
 
 export type Theme = (typeof THEMES)[number]["value"];

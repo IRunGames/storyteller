@@ -287,6 +287,7 @@ const statDefinition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
       ],
     },

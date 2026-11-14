@@ -112,6 +112,7 @@ const EMPTY_STAT = {
   upDown: false,
   leftRight: false,
   initialRoll: "",
+  initialFrom: "",
 };
 
 /**
@@ -569,8 +570,9 @@ function KeyedBySelect({
  * its type uses, a Format for a display, a pool or a stack, a die for a pool
  * or a stack's roll, the Visible, With next (sticky) and Static boxes, Global
  * on a stat with a die, Up/down on one held to a number, Left/right on a
- * rack, Initialized as with its dice box on a pool, a stack or a display
- * held to a number, and Clone and the trashcan at the end. A child
+ * rack, Initialized as with its dice box or the Dice stat it rolls on a
+ * pool, a stack or a display held to a number, and Clone and the trashcan
+ * at the end. A child
  * component rather than a loop in the
  * editor, since a field array must be hooked per group: useFieldArray takes
  * one name, and hooks cannot run in a loop.
@@ -690,6 +692,7 @@ function StatRows({
                         if (!canRoll({ type: next, format: nextFormat })) {
                           setValue(`groups.${g}.stats.${s}.roll`, "");
                           setValue(`groups.${g}.stats.${s}.initialRoll`, "");
+                          setValue(`groups.${g}.stats.${s}.initialFrom`, "");
                         }
                         if (!hasDie({ type: next, format: nextFormat })) {
                           setValue(`groups.${g}.stats.${s}.global`, false);
@@ -749,6 +752,7 @@ function StatRows({
                           if (!canRoll({ type, format: next })) {
                             setValue(`groups.${g}.stats.${s}.roll`, "");
                             setValue(`groups.${g}.stats.${s}.initialRoll`, "");
+                            setValue(`groups.${g}.stats.${s}.initialFrom`, "");
                             setValue(`groups.${g}.stats.${s}.global`, false);
                           }
                           if (!isNumberFormat(next)) {
@@ -823,10 +827,12 @@ function StatRows({
                   {canRoll({ type, format }) && (
                     <InitialRollField
                       control={control}
+                      setValue={setValue}
                       g={g}
                       s={s}
                       label={statLabel(types?.[s] ?? { name: "", label: "" })}
                       error={at?.initialRoll?.message}
+                      fromError={at?.initialFrom?.message}
                     />
                   )}
                 </HStack>
@@ -853,34 +859,66 @@ function StatRows({
 }
 
 /**
- * Initialized as: a box that, ticked, opens a dice box (DiceInput) holding
- * the roll made once when the stat's block is added to an element, for its
- * starting value and max; unticked, the roll is cleared and the stat starts
- * at 0. Whether it is ticked is held here, starting from whether a roll is
- * set, so a box cleared to be retyped stays open; a blank left in it saves
- * as no roll. Controller for the reason FlagCheckbox gives.
+ * Initialized as: a box that, ticked, opens a choice of what is rolled for
+ * the stat's starting value and max: dice typed here, in a dice box
+ * (DiceInput), rolled once when the stat's block is added to an element and
+ * the same for every element (initialRoll), or a Dice stat whose dice each
+ * element holds its own of (initialFrom), rolled on the element's form once
+ * they are filled in. The Dice stats offered are those the stat can read
+ * (initialSource): any in a plain group for a stat in a plain group, its own
+ * group's for a stat in a group that repeats. Unticked, both are cleared
+ * and the stat starts at 0. Whether it is ticked is held here, starting
+ * from whether either is set, so a box cleared to be retyped stays open; a
+ * blank left in it saves as no roll. Controller for the reason FlagCheckbox
+ * gives.
  */
 function InitialRollField({
   control,
+  setValue,
   g,
   s,
   label,
   error,
+  fromError,
 }: {
   control: EditorControl;
+  setValue: UseFormSetValue<FormInput>;
   g: number;
   s: number;
   label: string;
   error?: string;
+  fromError?: string;
 }) {
   const value = useWatch({ control, name: `groups.${g}.stats.${s}.initialRoll` });
-  const [ticked, setTicked] = useState(value !== "");
+  const from = useWatch({ control, name: `groups.${g}.stats.${s}.initialFrom` });
+  const groups = useWatch({ control, name: "groups" });
+  const [ticked, setTicked] = useState(value !== "" || from !== "");
+
+  const own = groups?.[g];
+  const sources = (groups ?? [])
+    .filter((group) =>
+      own && own.keyedBy.trim() !== "" ? group === own : group.keyedBy.trim() === "",
+    )
+    .flatMap((group) =>
+      group.stats
+        .filter((stat) => stat.type === "dice" && group.name.trim() && stat.name.trim())
+        .map((stat) => ({
+          value: `${group.name.trim()}.${stat.name.trim()}`,
+          label: `Roll ${statLabel(stat)}`,
+        })),
+    );
+  // A Dice stat renamed or taken away since is still shown, so the select
+  // says what is saved; the schema says on save that it is gone.
+  if (from !== "" && !sources.some((source) => source.value === from)) {
+    sources.push({ value: from, label: `Roll ${from}` });
+  }
+
   return (
     <Controller
       control={control}
       name={`groups.${g}.stats.${s}.initialRoll`}
       render={({ field }) => (
-        <HStack gap="2" align="flex-start">
+        <HStack gap="2" align="flex-start" wrap="wrap">
           <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
             <Tooltip.Trigger asChild>
               <Checkbox.Root
@@ -889,7 +927,10 @@ function InitialRollField({
                 onCheckedChange={(details) => {
                   const next = details.checked === true;
                   setTicked(next);
-                  if (!next) field.onChange("");
+                  if (!next) {
+                    field.onChange("");
+                    setValue(`groups.${g}.stats.${s}.initialFrom`, "");
+                  }
                 }}
                 size="sm"
               >
@@ -901,13 +942,37 @@ function InitialRollField({
             <Portal>
               <Tooltip.Positioner>
                 <Tooltip.Content>
-                  Roll this once when the block is added to an element, for its starting value and
-                  max
+                  Roll dice, or an element&apos;s own Dice stat, for its starting value and max
                 </Tooltip.Content>
               </Tooltip.Positioner>
             </Portal>
           </Tooltip.Root>
           {ticked && (
+            <Field.Root invalid={!!fromError} w="40" mt="-1">
+              <NativeSelect.Root size="sm">
+                <NativeSelect.Field
+                  aria-label={`${label} initialized from`}
+                  value={from}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setValue(`groups.${g}.stats.${s}.initialFrom`, next, { shouldDirty: true });
+                    // Dice typed here and a Dice stat are never both kept.
+                    if (next !== "") field.onChange("");
+                  }}
+                >
+                  <option value="">Dice</option>
+                  {sources.map((source) => (
+                    <option key={source.value} value={source.value}>
+                      {source.label}
+                    </option>
+                  ))}
+                </NativeSelect.Field>
+                <NativeSelect.Indicator />
+              </NativeSelect.Root>
+              <Field.ErrorText>{fromError}</Field.ErrorText>
+            </Field.Root>
+          )}
+          {ticked && from === "" && (
             <Field.Root invalid={!!error} w="56" mt="-1">
               <DiceInput
                 label={`${label} initialized as`}

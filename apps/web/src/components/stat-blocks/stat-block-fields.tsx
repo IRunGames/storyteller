@@ -28,7 +28,7 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { Plus, Star, Trash2, X } from "lucide-react";
+import { Dices, Plus, Star, Trash2, X } from "lucide-react";
 import type { StatBlockSystems } from "@/components/prep/actions";
 import { DeleteButton } from "@/components/confirm/delete-button";
 import { PrepIconButton } from "@/components/prep/prep-icon-button";
@@ -40,6 +40,7 @@ import {
   type EvaluatedGroup,
   type EvaluatedStat,
   evaluateStatBlock,
+  initialSource,
   isNumberFormat,
   isRepeating,
   MULTIPLE,
@@ -50,11 +51,13 @@ import {
   statLabel,
   statLines,
   statTooltip,
+  type StatFieldValues,
   type StatRowFieldValues,
   systemKey,
   toStatBlockFields,
 } from "@/lib/stat-blocks";
 import { rollTotal } from "@/lib/dice";
+import { isRollNotation } from "@/lib/roll";
 import { NumberOnlyInput } from "./number-only-input";
 import { StatBlockPicker } from "./stat-block-picker";
 
@@ -67,6 +70,24 @@ type Props = {
 };
 
 type FormControl = Control<ElementFormInput, unknown, ElementValues>;
+
+/** Where a stat's fields are: its group, and its row when the group repeats. */
+type StatAt = { group: string; row: number | null };
+
+/**
+ * Rolling a Dice stat's dice into the stats initialized from it
+ * (initialFrom), which the template cannot do once for every element since
+ * each element holds its own dice. Made by StatBlockFields over the fields
+ * as typed and handed down to each stat's fields.
+ */
+type InitialRolls = {
+  /** The Dice stat a stat rolls, its label and the dice typed in it; null for a stat that rolls none. */
+  source: (at: StatAt, stat: StatDefinition) => { label: string; dice: string } | null;
+  /** Rolls a stat's Dice stat into its value, and a pool's or stack's max; only into an empty stat unless forced. */
+  roll: (at: StatAt, stat: StatDefinition, force: boolean) => void;
+  /** A Dice stat's box was left: rolls its dice into every empty stat initialized from it. */
+  left: (at: StatAt, dice: StatDefinition) => void;
+};
 
 /**
  * The Stat blocks section of the element form, against the story's own
@@ -93,9 +114,11 @@ export function StatBlockFields({ systems, control, register, setValue, errors }
   function add(groupName: string) {
     const group = definition.groups.find((candidate) => candidate.name === groupName);
     if (!group) return;
-    // Each stat's Initialized as is rolled here, once, as the block is added.
+    // Each stat's Initialized as is rolled here, once, as the block is added,
+    // and a Dice stat already filled in another block is rolled for the
+    // stats initialized from it.
     const starting = toStatBlockFields(definition, {
-      [group.name]: emptyStatGroup(definition, group, rollTotal),
+      [group.name]: emptyStatGroup(definition, group, rollTotal, statBlockFromFields(fields)),
     });
     setValue(`statBlocks.${key}.${group.name}`, starting[group.name], { shouldDirty: true });
   }
@@ -109,6 +132,60 @@ export function StatBlockFields({ systems, control, register, setValue, errors }
     const { [groupName]: _gone, ...rest } = fields;
     setValue(`statBlocks.${key}`, rest, { shouldDirty: true });
   }
+
+  // A stat's fields as typed, by where the stat is.
+  const typedAt = (at: StatAt, stat: string): StatFieldValues | undefined => {
+    const held = fields[at.group];
+    if (at.row === null) return Array.isArray(held) ? undefined : held?.[stat];
+    return Array.isArray(held) ? held[at.row]?.[stat] : undefined;
+  };
+  const pathAt = (at: StatAt, stat: string): StatPath =>
+    at.row === null
+      ? `statBlocks.${key}.${at.group}.${stat}`
+      : `statBlocks.${key}.${at.group}.${at.row}.${stat}`;
+  // Empty is how a stat with nothing rolled starts: blank, or 0 to 0.
+  const empty = (text: string | undefined) => (text ?? "").trim() === "" || Number(text) === 0;
+
+  // A stat in a plain group reads a plain group's Dice stat, one in a
+  // repeating group its own row's (initialSource), so a row is only ever
+  // read at the row the stat is on.
+  const rolls: InitialRolls = {
+    source(at, stat) {
+      const source = initialSource(definition, at.group, stat);
+      if (!source) return null;
+      const sourceAt = { group: source.group.name, row: isRepeating(source.group) ? at.row : null };
+      return {
+        label: statLabel(source.stat),
+        dice: typedAt(sourceAt, source.stat.name)?.value.trim() ?? "",
+      };
+    },
+    roll(at, stat, force) {
+      const source = rolls.source(at, stat);
+      if (!source || !isRollNotation(source.dice)) return;
+      const typed = typedAt(at, stat.name);
+      if (!force && !(empty(typed?.value) && empty(typed?.max))) return;
+      const total = rollTotal(source.dice);
+      if (total === null) return;
+      const path = pathAt(at, stat.name);
+      setValue(`${path}.value`, String(total), { shouldDirty: true });
+      if (stat.type === "pool" || stat.type === "stack") {
+        setValue(`${path}.max`, String(total), { shouldDirty: true });
+      }
+    },
+    left(at, dice) {
+      const id = `${at.group}.${dice.name}`;
+      for (const group of carried) {
+        for (const stat of group.stats) {
+          if (stat.initialFrom !== id) continue;
+          if (!isRepeating(group)) {
+            if (at.row === null) rolls.roll({ group: group.name, row: null }, stat, false);
+          } else if (group.name === at.group && at.row !== null) {
+            rolls.roll(at, stat, false);
+          }
+        }
+      }
+    },
+  };
 
   // Worked out from the fields as typed: the computed values.
   const evaluated = evaluateStatBlock(definition, statBlockFromFields(fields));
@@ -128,6 +205,7 @@ export function StatBlockFields({ systems, control, register, setValue, errors }
           control={control}
           register={register}
           errors={errorsAt?.[group.name]}
+          rolls={rolls}
           onRemove={() => remove(group.name)}
         />
       ))}
@@ -158,6 +236,7 @@ function BlockCard({
   control,
   register,
   errors,
+  rolls,
   onRemove,
 }: {
   systemKey: string;
@@ -166,6 +245,7 @@ function BlockCard({
   control: FormControl;
   register: UseFormRegister<ElementFormInput>;
   errors: GroupErrors | undefined;
+  rolls: InitialRolls;
   onRemove: () => void;
 }) {
   const title = group.label || group.name;
@@ -203,6 +283,7 @@ function BlockCard({
             control={control}
             register={register}
             errors={errors}
+            rolls={rolls}
           />
         ) : (
           <Stack gap="3">
@@ -216,6 +297,8 @@ function BlockCard({
                       path={`statBlocks.${key}.${group.name}.${stat.name}`}
                       register={register}
                       errors={errors?.[stat.name]}
+                      at={{ group: group.name, row: null }}
+                      rolls={rolls}
                     />
                   </Box>
                 ))}
@@ -246,6 +329,7 @@ function RepeatingGroupFields({
   control,
   register,
   errors,
+  rolls,
 }: {
   systemKey: string;
   definition: StatGroupDefinition;
@@ -253,6 +337,7 @@ function RepeatingGroupFields({
   control: FormControl;
   register: UseFormRegister<ElementFormInput>;
   errors: GroupErrors | undefined;
+  rolls: InitialRolls;
 }) {
   // The path's type is a record of records or arrays, so react-hook-form
   // cannot see an array path here; the definition says this group is one,
@@ -280,7 +365,14 @@ function RepeatingGroupFields({
               {ordered.map((stat, index) => (
                 <Fragment key={stat.name}>
                   <Table.ColumnHeader>
-                    <StatName stat={stat} />
+                    {/* The evaluation names the Dice stat it rolls, for its tooltip. */}
+                    <StatName
+                      stat={{
+                        ...stat,
+                        initialFromLabel: group.rows[0]?.stats.find((s) => s.name === stat.name)
+                          ?.initialFromLabel,
+                      }}
+                    />
                   </Table.ColumnHeader>
                   {index === 0 && definition.canHaveMultiples && (
                     <Table.ColumnHeader>Multiple</Table.ColumnHeader>
@@ -309,6 +401,8 @@ function RepeatingGroupFields({
                               path={`statBlocks.${key}.${group.name}.${i}.${stat.name}`}
                               register={register}
                               errors={errors?.[i]?.[stat.name]}
+                              at={{ group: group.name, row: i }}
+                              rolls={rolls}
                               inline
                             />
                           )}
@@ -396,7 +490,9 @@ function RepeatingGroupFields({
 function StatName({
   stat,
 }: {
-  stat: Pick<StatDefinition, "name" | "label" | "description" | "initialRoll">;
+  stat: Pick<StatDefinition, "name" | "label" | "description" | "initialRoll"> & {
+    initialFromLabel?: string;
+  };
 }) {
   const tooltip = statTooltip(stat);
   if (tooltip === "") return <>{statLabel(stat)}</>;
@@ -423,7 +519,10 @@ type StatPath =
  * One stat's field or fields, by its type. Inline, in a table cell, the
  * stat's name is the column's header, so the inputs carry it as their
  * accessible name and draw none of their own. A stat held to a number
- * (isNumberFormat) gets a number-only box.
+ * (isNumberFormat) gets a number-only box. A stat initialized from a Dice
+ * stat has a die after its boxes that rolls the dice typed there into it
+ * again, whatever it holds; leaving a Dice stat's box rolls its dice into
+ * the empty stats initialized from it (InitialRolls).
  */
 function StatField({
   stat,
@@ -431,6 +530,8 @@ function StatField({
   path,
   register,
   errors,
+  at,
+  rolls,
   inline = false,
 }: {
   stat: EvaluatedStat;
@@ -438,12 +539,25 @@ function StatField({
   path: StatPath;
   register: UseFormRegister<ElementFormInput>;
   errors: PartErrors | undefined;
+  at: StatAt;
+  rolls: InitialRolls;
   inline?: boolean;
 }) {
   const shown = (value: EvaluatedStat["value"]) => (value === null ? "—" : String(value));
   const Box_ = isNumberFormat(definition.format) ? NumberOnlyInput : Input;
   // What the boxes are called to a screen reader, the same as the title.
   const name = statLabel(definition);
+  const title = <StatName stat={{ ...definition, initialFromLabel: stat.initialFromLabel }} />;
+  const source = rolls.source(at, definition);
+  const rollSource = source && (
+    <PrepIconButton
+      label={`Roll ${source.label} for ${name}`}
+      disabled={!isRollNotation(source.dice)}
+      onClick={() => rolls.roll(at, definition, true)}
+    >
+      <Dices />
+    </PrepIconButton>
+  );
 
   switch (stat.type) {
     case "computed":
@@ -453,28 +567,23 @@ function StatField({
     case "display":
       return (
         <Field.Root invalid={!!errors?.value}>
-          {!inline && (
-            <Field.Label>
-              <StatName stat={definition} />
-            </Field.Label>
-          )}
-          <Box_
-            size="sm"
-            autoComplete="off"
-            aria-label={inline ? name : undefined}
-            {...register(`${path}.value`)}
-          />
+          {!inline && <Field.Label>{title}</Field.Label>}
+          <HStack gap="1">
+            <Box_
+              size="sm"
+              autoComplete="off"
+              aria-label={inline ? name : undefined}
+              {...register(`${path}.value`)}
+            />
+            {rollSource}
+          </HStack>
           <Field.ErrorText>{errors?.value?.message}</Field.ErrorText>
         </Field.Root>
       );
     case "rack":
       return (
         <Field.Root invalid={!!errors?.value}>
-          {!inline && (
-            <Field.Label>
-              <StatName stat={definition} />
-            </Field.Label>
-          )}
+          {!inline && <Field.Label>{title}</Field.Label>}
           <NativeSelect.Root size="sm">
             <NativeSelect.Field
               aria-label={inline ? name : undefined}
@@ -491,24 +600,28 @@ function StatField({
           <Field.ErrorText>{errors?.value?.message}</Field.ErrorText>
         </Field.Root>
       );
-    case "dice":
+    case "dice": {
+      const diceField = register(`${path}.value`);
       return (
         <Field.Root invalid={!!errors?.value}>
-          {!inline && (
-            <Field.Label>
-              <StatName stat={definition} />
-            </Field.Label>
-          )}
+          {!inline && <Field.Label>{title}</Field.Label>}
           <Input
             size="sm"
             autoComplete="off"
             placeholder="2d6"
             aria-label={inline ? name : undefined}
-            {...register(`${path}.value`)}
+            {...diceField}
+            // Rolled on leaving the box rather than as it is typed, or "2d8"
+            // would be rolled on the way to "2d8+2".
+            onBlur={(event) => {
+              void diceField.onBlur(event);
+              rolls.left(at, definition);
+            }}
           />
           <Field.ErrorText>{errors?.value?.message}</Field.ErrorText>
         </Field.Root>
       );
+    }
     case "pool":
     case "stack": {
       const isPool = stat.type === "pool";
@@ -516,7 +629,7 @@ function StatField({
         <Box>
           {!inline && (
             <Text as="label" fontSize="sm" fontWeight="medium" display="block" mb="1">
-              <StatName stat={definition} />
+              {title}
             </Text>
           )}
           <HStack gap="2" align="flex-start">
@@ -552,6 +665,7 @@ function StatField({
               />
               <Field.ErrorText>{errors?.max?.message}</Field.ErrorText>
             </Field.Root>
+            {rollSource}
           </HStack>
         </Box>
       );

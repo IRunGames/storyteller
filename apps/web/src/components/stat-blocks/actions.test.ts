@@ -61,6 +61,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
         {
           name: "mod",
@@ -78,6 +79,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
       ],
     },
@@ -104,6 +106,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
         {
           name: "mana",
@@ -121,6 +124,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
         {
           name: "rage",
@@ -138,6 +142,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
         {
           name: "die",
@@ -155,6 +160,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: true,
           initialRoll: "",
+          initialFrom: "",
         },
       ],
     },
@@ -182,6 +188,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
         {
           name: "strike",
@@ -199,6 +206,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
         {
           name: "uses",
@@ -216,6 +224,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
       ],
     },
@@ -864,6 +873,54 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect(combat.mana.value).toBeLessThanOrEqual(8);
       expect(combat.mana.max).toBe(combat.mana.value);
       expect(combat.hp).toEqual({ value: 0, min: 0, max: 0 });
+    } finally {
+      await db
+        .update(tables.systems)
+        .set({ statBlockDefinition: definition })
+        .where(eq(tables.systems.idSystem, idSystem));
+      await db
+        .update(tables.sceneElements)
+        .set({ statBlocks: {} })
+        .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
+    }
+  });
+
+  it("rolls the dice a Dice stat already holds into the stats initialized from it as their block is made", async () => {
+    const holder = { idStory: myStory, idSceneElement };
+    // The fixture's stats given Hit Dice, and its mana rolled from them.
+    const fromDice: StatBlockDefinition = {
+      groups: definition.groups.map((group) =>
+        group.name === "stats"
+          ? {
+              ...group,
+              stats: [
+                ...group.stats,
+                { ...group.stats[0], name: "hit_dice", label: "Hit Dice", type: "dice" as const },
+              ],
+            }
+          : group.name === "combat"
+            ? {
+                ...group,
+                stats: group.stats.map((stat) =>
+                  stat.name === "mana" ? { ...stat, initialFrom: "stats.hit_dice" } : stat,
+                ),
+              }
+            : group,
+      ),
+    };
+    await db
+      .update(tables.systems)
+      .set({ statBlockDefinition: fromDice })
+      .where(eq(tables.systems.idSystem, idSystem));
+    await db
+      .update(tables.sceneElements)
+      .set({ statBlocks: { [idSystem]: { stats: { hit_dice: { value: "1d1+6" } } } } })
+      .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
+    try {
+      const result = await actions.sa_addStatBlock(holder, idSystem, "combat");
+      expect(result.ok).toBe(true);
+      const combat = ((await storedOnLink()) as StatBlocks)[idSystem].combat as StatRow;
+      expect(combat.mana).toEqual({ value: 7, min: 0, max: 7 });
     } finally {
       await db
         .update(tables.systems)

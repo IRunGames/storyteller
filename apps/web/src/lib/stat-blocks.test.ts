@@ -7,6 +7,10 @@ import {
   multipleOf,
   carriedGroups,
   emptyStatGroup,
+  initialSource,
+  initializedAs,
+  rollStartingBlocks,
+  rollStartingStats,
   formatStatValue,
   isSignedFormat,
   numberOnly,
@@ -42,6 +46,7 @@ const stat = (
   upDown: true,
   leftRight: false,
   initialRoll: "",
+  initialFrom: "",
   ...over,
 });
 
@@ -72,6 +77,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         }),
       ],
     },
@@ -105,6 +111,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         }),
       ],
     },
@@ -133,6 +140,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         }),
         stat({ name: "uses", type: "pool" }),
       ],
@@ -473,6 +481,153 @@ describe("Initialized as", () => {
   });
 });
 
+describe("Initialized from a Dice stat", () => {
+  const plain = (name: string, stats: StatDefinition[]) => ({
+    name,
+    label: "",
+    keyedBy: "",
+    rollAll: false,
+    canHaveMultiples: false,
+    stats,
+  });
+  const fromDice: StatBlockDefinition = {
+    groups: [
+      plain("stats", [stat({ name: "hit_dice", label: "Hit Dice", type: "dice" })]),
+      plain("defense", [
+        stat({ name: "hp", type: "pool", initialFrom: "stats.hit_dice" }),
+        stat({ name: "own_dice", type: "dice" }),
+        stat({ name: "sdc", type: "pool", initialFrom: "defense.own_dice" }),
+      ]),
+    ],
+  };
+  const rolls: string[] = [];
+  const nine = (notation: string) => {
+    rolls.push(notation);
+    return 9;
+  };
+
+  it("names the Dice stat a stat rolls, and says so where the template is summed up", () => {
+    expect(initialSource(fromDice, "defense", fromDice.groups[1].stats[0])?.stat.name).toBe(
+      "hit_dice",
+    );
+    expect(initializedAs(fromDice, "defense", fromDice.groups[1].stats[0])).toBe(
+      "a roll of Hit Dice",
+    );
+    expect(initialSource(fromDice, "defense", stat({ name: "x", type: "pool" }))).toBeNull();
+    // A Dice stat that is no longer there is no source.
+    expect(
+      initialSource(fromDice, "defense", stat({ name: "x", type: "pool", initialFrom: "stats.x" })),
+    ).toBeNull();
+    const [, defense] = evaluateStatBlock(fromDice, undefined);
+    expect(defense.stats[0].initialFromLabel).toBe("Hit Dice");
+    expect(statTooltip({ ...defense.stats[0], description: "Hit Points" })).toBe(
+      "Hit Points: a roll of Hit Dice",
+    );
+  });
+
+  it("rolls the dice another block already holds as the block is added, and leaves a blank one empty", () => {
+    rolls.length = 0;
+    expect(
+      emptyStatGroup(fromDice, fromDice.groups[1], nine, { stats: { hit_dice: { value: "3d8" } } }),
+    ).toMatchObject({ hp: { value: 9, min: 0, max: 9 }, sdc: { value: 0, min: 0, max: 0 } });
+    expect(rolls).toEqual(["3d8"]);
+    // Nothing filled in yet, or no block: empty, for the form to roll later.
+    expect(
+      emptyStatGroup(fromDice, fromDice.groups[1], nine, { stats: { hit_dice: {} } }),
+    ).toMatchObject({ hp: { value: 0, min: 0, max: 0 } });
+    expect(emptyStatGroup(fromDice, fromDice.groups[1], nine)).toMatchObject({
+      hp: { value: 0, min: 0, max: 0 },
+    });
+    expect(rolls).toEqual(["3d8"]);
+  });
+});
+
+describe("rollStartingStats", () => {
+  const plain = (name: string, keyedBy: string, stats: StatDefinition[]) => ({
+    name,
+    label: "",
+    keyedBy,
+    rollAll: false,
+    canHaveMultiples: false,
+    stats,
+  });
+  const creature: StatBlockDefinition = {
+    groups: [
+      plain("life", "", [
+        stat({ name: "hd", type: "dice" }),
+        stat({ name: "hp", type: "pool", initialFrom: "life.hd" }),
+        stat({ name: "rage", type: "stack", initialRoll: "1d4" }),
+      ]),
+      plain("attack", "weapon", [
+        stat({ name: "weapon", type: "display" }),
+        stat({ name: "charges", type: "dice" }),
+        stat({ name: "uses", type: "pool", initialFrom: "attack.charges" }),
+      ]),
+    ],
+  };
+  // The roll is the dice's own text read back as a number of its length, so
+  // each stat is seen to roll its own notation.
+  const lengthOf = (notation: string) => notation.length;
+
+  it("rolls each stat's Initialized as, a Dice stat's in its own row, and keeps the rest", () => {
+    const block: StatBlock = {
+      life: {
+        hd: { value: "3d8+2" },
+        hp: { value: 9, min: -5, max: 9 },
+        rage: { value: 1, max: 1 },
+      },
+      attack: [
+        {
+          weapon: { value: "Wand" },
+          charges: { value: "2d6" },
+          uses: { value: 1, min: 0, max: 1 },
+        },
+        { weapon: { value: "Fist" }, uses: { value: 0, min: 0, max: 0 } },
+      ],
+      stale: { gone: { value: 1 } },
+    };
+    expect(rollStartingStats(creature, block, lengthOf)).toEqual({
+      life: {
+        hd: { value: "3d8+2" },
+        // The pool keeps its floor.
+        hp: { value: 5, min: -5, max: 5 },
+        rage: { value: 3, max: 3 },
+      },
+      attack: [
+        {
+          weapon: { value: "Wand" },
+          charges: { value: "2d6" },
+          uses: { value: 3, min: 0, max: 3 },
+        },
+        // No dice in this row: kept as it was.
+        { weapon: { value: "Fist" }, uses: { value: 0, min: 0, max: 0 } },
+      ],
+      stale: { gone: { value: 1 } },
+    });
+    // A roll the roller cannot make keeps the value too.
+    expect(rollStartingStats(creature, block, () => null)).toEqual(block);
+  });
+
+  it("rolls every system's block it is given a template for, and leaves the others", () => {
+    const blocks = {
+      "-1": { life: { hd: { value: "1d6" }, hp: { value: 2, min: 0, max: 2 } } },
+      "-2": { life: { hd: { value: "1d6" }, hp: { value: 2, min: 0, max: 2 } } },
+    };
+    const rolled = rollStartingBlocks(
+      [{ idSystem: -1, label: "Mine", definition: creature }],
+      blocks,
+      () => 6,
+    );
+    // Rage, never stored on the element, takes its starting roll as well.
+    expect(rolled["-1"].life).toEqual({
+      hd: { value: "1d6" },
+      hp: { value: 6, min: 0, max: 6 },
+      rage: { value: 6, max: 6 },
+    });
+    expect(rolled["-2"]).toEqual(blocks["-2"]);
+  });
+});
+
 describe("statTooltip", () => {
   it("says the description with the roll after a colon, either alone, or nothing", () => {
     expect(statTooltip({ description: "Hit Points", initialRoll: "8d8+3" })).toBe(
@@ -601,6 +756,7 @@ describe("toStatBlockFields and statBlockFromFields", () => {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         }),
       ],
     };

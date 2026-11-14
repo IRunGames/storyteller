@@ -52,6 +52,7 @@ const systems: StatBlockSystems = {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               },
               {
                 name: "sdc",
@@ -69,6 +70,7 @@ const systems: StatBlockSystems = {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               },
               {
                 name: "current_ar",
@@ -87,6 +89,7 @@ const systems: StatBlockSystems = {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               },
               {
                 name: "rage",
@@ -104,6 +107,7 @@ const systems: StatBlockSystems = {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               },
             ],
           },
@@ -132,6 +136,7 @@ const systems: StatBlockSystems = {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               },
               {
                 name: "strike",
@@ -149,6 +154,7 @@ const systems: StatBlockSystems = {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               },
               {
                 name: "total",
@@ -166,6 +172,7 @@ const systems: StatBlockSystems = {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               },
             ],
           },
@@ -200,6 +207,7 @@ const systems: StatBlockSystems = {
                 upDown: true,
                 leftRight: true,
                 initialRoll: "",
+                initialFrom: "",
               },
             ],
           },
@@ -408,6 +416,120 @@ describe("ElementForm stat blocks", () => {
     expect(max).toHaveValue(String(total));
     // A stat without one starts at 0 as before.
     expect(screen.getByRole("textbox", { name: "AR" })).toHaveValue("0");
+  });
+
+  it("rolls a pool from its Dice stat once the dice are typed and the box left, and again from its die", async () => {
+    const user = userEvent.setup();
+    const base = systems.systems[0].definition.groups[0].stats[0];
+    const living: StatBlockSystems = {
+      storySystem: -90,
+      systems: [
+        {
+          idSystem: -90,
+          label: "Palladium",
+          definition: {
+            groups: [
+              {
+                name: "life",
+                label: "Life",
+                keyedBy: "",
+                rollAll: false,
+                canHaveMultiples: false,
+                stats: [
+                  { ...base, name: "hit_dice", label: "Hit Dice", type: "dice" },
+                  {
+                    ...base,
+                    name: "hp",
+                    label: "HP",
+                    type: "pool",
+                    format: "number",
+                    initialFrom: "life.hit_dice",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+    renderWithProviders(<ElementForm idStory={-15} kind="PERSON" statBlockSystems={living} />);
+    await user.click(screen.getByRole("button", { name: "Add Life" }));
+    const card = await screen.findByTestId("stat-block--90-life");
+    const value = within(card).getByRole("textbox", { name: "HP value" });
+    const max = within(card).getByRole("textbox", { name: "HP max" });
+    const die = within(card).getByRole("button", { name: "Roll Hit Dice for HP" });
+    // Nothing to roll yet: the pool starts empty and its die is off.
+    expect(value).toHaveValue("0");
+    expect(die).toBeDisabled();
+
+    // Typing alone rolls nothing, so 2d8 is not rolled on the way to 2d8+2.
+    const dice = within(card).getByRole("textbox", { name: "Hit Dice" });
+    await user.type(dice, "2d8");
+    expect(value).toHaveValue("0");
+    await user.type(dice, "+2");
+    await user.tab();
+    const total = Number((value as HTMLInputElement).value);
+    expect(total).toBeGreaterThanOrEqual(4);
+    expect(total).toBeLessThanOrEqual(18);
+    expect(max).toHaveValue(String(total));
+
+    // Once it holds a value, new dice leave it alone; the die rolls them in.
+    await user.clear(dice);
+    await user.type(dice, "1d1+40");
+    await user.tab();
+    expect(value).toHaveValue(String(total));
+    expect(die).toBeEnabled();
+    await user.click(die);
+    expect(value).toHaveValue("41");
+    expect(max).toHaveValue("41");
+  });
+
+  it("rolls a row's own Dice stat into that row alone", async () => {
+    const user = userEvent.setup();
+    const base = systems.systems[0].definition.groups[0].stats[0];
+    const armed: StatBlockSystems = {
+      storySystem: -90,
+      systems: [
+        {
+          idSystem: -90,
+          label: "Palladium",
+          definition: {
+            groups: [
+              {
+                name: "attack",
+                label: "Attack",
+                keyedBy: "weapon",
+                rollAll: false,
+                canHaveMultiples: false,
+                stats: [
+                  { ...base, name: "weapon", label: "Weapon", type: "display" },
+                  { ...base, name: "charges", label: "Charges", type: "dice" },
+                  {
+                    ...base,
+                    name: "uses",
+                    label: "Uses",
+                    type: "pool",
+                    format: "number",
+                    initialFrom: "attack.charges",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+    renderWithProviders(<ElementForm idStory={-15} kind="PERSON" statBlockSystems={armed} />);
+    await user.click(screen.getByRole("button", { name: "Add Attack" }));
+    await user.click(await screen.findByRole("button", { name: "Add Attack row" }));
+    await user.click(screen.getByRole("button", { name: "Add Attack row" }));
+    const charges = screen.getAllByRole("textbox", { name: "Charges" });
+    await user.type(charges[1], "1d1+5");
+    await user.tab();
+    const uses = screen.getAllByRole("textbox", { name: "Uses value" });
+    expect(uses[1]).toHaveValue("6");
+    expect(screen.getAllByRole("textbox", { name: "Uses max" })[1]).toHaveValue("6");
+    expect(uses[0]).toHaveValue("");
   });
 
   it("gives each row of a group that can have multiples a Multiple box, 1 to start, posted with the row", async () => {

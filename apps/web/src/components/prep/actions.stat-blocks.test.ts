@@ -61,6 +61,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
       ],
     },
@@ -87,6 +88,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
         {
           name: "rage",
@@ -104,6 +106,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         },
       ],
     },

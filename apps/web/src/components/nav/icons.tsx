@@ -153,3 +153,40 @@ export function FlameIcon() {
     </svg>
   );
 }
+
+// The White Out theme's mark: a snowman in a top hat, with stick arms. The
+// eyes and buttons are cut out of the head and body with the even-odd rule,
+// as the pumpkin's face is, so the header background shows through. Head and
+// body are separate paths because, under the even-odd rule, the place where
+// one path's circles overlap would be cut out too. No stroke on the fills,
+// for the same reason as the pumpkin body; the arms are strokes, as the
+// stems are.
+export function SnowmanIcon() {
+  return (
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      data-icon="snowman"
+    >
+      <path d="M7.4 16.2 L3.4 13 M16.6 16.2 L20.6 13" fill="none" strokeWidth="1.6" />
+      <g stroke="none">
+        <path d="M9.6 2.2 H14.4 V6.6 H9.6 Z M7.8 6.4 H16.2 V7.8 H7.8 Z" />
+        <path
+          fillRule="evenodd"
+          d="M8.4 10.6 A3.6 3.6 0 1 0 15.6 10.6 A3.6 3.6 0 1 0 8.4 10.6 Z M9.85 10.2 A0.75 0.75 0 1 0 11.35 10.2 A0.75 0.75 0 1 0 9.85 10.2 Z M12.65 10.2 A0.75 0.75 0 1 0 14.15 10.2 A0.75 0.75 0 1 0 12.65 10.2 Z"
+        />
+        <path
+          fillRule="evenodd"
+          d="M7.2 18.2 A4.8 4.8 0 1 0 16.8 18.2 A4.8 4.8 0 1 0 7.2 18.2 Z M11.2 16.6 A0.8 0.8 0 1 0 12.8 16.6 A0.8 0.8 0 1 0 11.2 16.6 Z M11.2 19.8 A0.8 0.8 0 1 0 12.8 19.8 A0.8 0.8 0 1 0 11.2 19.8 Z"
+        />
+      </g>
+    </svg>
+  );
+}

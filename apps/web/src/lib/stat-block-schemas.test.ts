@@ -35,6 +35,7 @@ const stat = (
   upDown: true,
   leftRight: false,
   initialRoll: "",
+  initialFrom: "",
   ...over,
 });
 
@@ -62,6 +63,7 @@ const definition: StatBlockDefinition = {
           upDown: true,
           leftRight: false,
           initialRoll: "",
+          initialFrom: "",
         }),
       ],
     },
@@ -198,6 +200,7 @@ describe("statBlockDefinitionSchema", () => {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               }),
               stat({ name: "e", type: "rack", rack: ["d4"] }),
               stat({
@@ -214,6 +217,7 @@ describe("statBlockDefinitionSchema", () => {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               }),
             ],
           },
@@ -261,6 +265,64 @@ describe("statBlockDefinitionSchema", () => {
       "That is not a roll I can read. Try 2d6+1.",
     );
     expect(errors["groups.0.stats.4.initialRoll"]).toBeUndefined();
+  });
+
+  it("lets a stat be initialized from a Dice stat it can read, and not from dice as well", () => {
+    const group = (name: string, keyedBy: string, stats: StatDefinition[]) => ({
+      name,
+      label: "",
+      keyedBy,
+      rollAll: false,
+      canHaveMultiples: false,
+      stats,
+    });
+    const errors = errorsOf(
+      statBlockDefinitionSchema.safeParse({
+        groups: [
+          group("stats", "", [
+            stat({ name: "hit_dice", label: "Hit Dice", type: "dice" }),
+            stat({ name: "level", type: "display" }),
+          ]),
+          group("defense", "", [
+            stat({ name: "hp", type: "pool", format: "number", initialFrom: "stats.hit_dice" }),
+            stat({ name: "bad", type: "rack", rack: ["d4"], initialFrom: "stats.hit_dice" }),
+            stat({
+              name: "both",
+              type: "pool",
+              format: "number",
+              initialRoll: "2d6",
+              initialFrom: "stats.hit_dice",
+            }),
+            stat({ name: "gone", type: "pool", format: "number", initialFrom: "stats.nope" }),
+            stat({ name: "word", type: "pool", format: "number", initialFrom: "stats.level" }),
+            stat({ name: "row", type: "pool", format: "number", initialFrom: "attack.damage" }),
+          ]),
+          group("attack", "weapon", [
+            stat({ name: "weapon", type: "display" }),
+            stat({ name: "damage", label: "Damage", type: "dice" }),
+            stat({ name: "uses", type: "pool", format: "number", initialFrom: "attack.damage" }),
+            stat({ name: "plain", type: "pool", format: "number", initialFrom: "stats.hit_dice" }),
+          ]),
+        ],
+      }),
+    );
+    expect(errors["groups.1.stats.0.initialFrom"]).toBeUndefined();
+    expect(errors["groups.1.stats.1.initialFrom"]).toBe(
+      "Only a pool, a stack or a display held to a number is initialized by a roll.",
+    );
+    expect(errors["groups.1.stats.2.initialFrom"]).toBe(
+      "Initialize it from dice or from a Dice stat, not both.",
+    );
+    expect(errors["groups.1.stats.3.initialFrom"]).toBe("There is no stat stats.nope.");
+    expect(errors["groups.1.stats.4.initialFrom"]).toBe("level is not a Dice stat.");
+    expect(errors["groups.1.stats.5.initialFrom"]).toBe(
+      "Damage is in a group that repeats, so there is one per row; roll a Dice stat in a plain group.",
+    );
+    // A row rolls its own row's dice, and nothing outside its group.
+    expect(errors["groups.2.stats.2.initialFrom"]).toBeUndefined();
+    expect(errors["groups.2.stats.3.initialFrom"]).toBe(
+      "A stat in a group that repeats rolls a Dice stat of its own row.",
+    );
   });
 
   it("lets only a group that repeats roll all or have multiples", () => {
@@ -343,6 +405,7 @@ describe("statBlockDefinitionSchema", () => {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               }),
               stat({
                 name: "d",
@@ -358,6 +421,7 @@ describe("statBlockDefinitionSchema", () => {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               }),
               stat({ name: "e", type: "pool" }),
               stat({
@@ -374,6 +438,7 @@ describe("statBlockDefinitionSchema", () => {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               }),
             ],
           },
@@ -412,6 +477,7 @@ describe("statBlockDefinitionSchema", () => {
                 upDown: true,
                 leftRight: false,
                 initialRoll: "",
+                initialFrom: "",
               }),
               stat({ name: "b", type: "computed", computedAs: "g.c.value" }),
               stat({ name: "c", type: "computed", computedAs: "g.a.value" }),
@@ -464,6 +530,7 @@ describe("statBlockDefinitionSchema", () => {
         upDown: true,
         leftRight: false,
         initialRoll: "",
+        initialFrom: "",
       }),
     );
     expect(errorsOf(statBlockDefinitionSchema.safeParse(outside))).toEqual({
@@ -490,6 +557,7 @@ describe("statBlockDefinitionSchema", () => {
         upDown: true,
         leftRight: false,
         initialRoll: "",
+        initialFrom: "",
       }),
     );
     expect(statBlockDefinitionSchema.safeParse(inside).success).toBe(true);
@@ -556,6 +624,7 @@ describe("statBlockDefinitionSchema", () => {
               upDown: false,
               leftRight: false,
               initialRoll: "",
+              initialFrom: "",
             },
             {
               ...hp,
@@ -569,6 +638,7 @@ describe("statBlockDefinitionSchema", () => {
               upDown: false,
               leftRight: false,
               initialRoll: "",
+              initialFrom: "",
             },
             {
               ...die,
@@ -582,6 +652,7 @@ describe("statBlockDefinitionSchema", () => {
               upDown: false,
               leftRight: true,
               initialRoll: "",
+              initialFrom: "",
             },
           ],
         },
