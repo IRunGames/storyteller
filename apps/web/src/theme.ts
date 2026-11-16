@@ -6,13 +6,13 @@ import { createSystem, defaultConfig, defineConfig } from "@chakra-ui/react";
 // sets the --font-figtree variable this falls back through.
 //
 // next-themes puts the chosen theme's name on <html> as a class, and every
-// token below switches on that class. Halloween, Blackberry, Mint, Wave and
-// Ember are dark themes with their own tint, so rather than restate Chakra's few
-// hundred dark values for each, the `dark` condition is widened to match
-// their classes too: every Chakra default (menus, popovers, text, borders)
-// starts from dark under them, and the `_halloween` / `_blackberry` /
-// `_mint` / `_wave` / `_ember` values below override only the tokens that
-// carry the theme's colour.
+// token below switches on that class. Halloween, Blackberry, Mint, Wave,
+// Ember and Yule are dark themes with their own tint, so rather than restate
+// Chakra's few hundred dark values for each, the `dark` condition is widened
+// to match their classes too: every Chakra default (menus, popovers, text,
+// borders) starts from dark under them, and the `_halloween` /
+// `_blackberry` / `_mint` / `_wave` / `_ember` / `_yule` values below
+// override only the tokens that carry the theme's colour.
 // Chakra emits the per-theme rules after the dark rule, so the override wins
 // at equal specificity. White Out is the one light theme with a tint of its
 // own, so it stays out of `dark`: it starts from Chakra's light defaults and
@@ -29,13 +29,14 @@ const config = defineConfig({
     "html.light, html.whiteout": { colorScheme: "light" },
   },
   conditions: {
-    dark: ".dark &, .halloween &, .blackberry &, .mint &, .wave &, .ember &, .dark .chakra-theme:not(.light) &",
+    dark: ".dark &, .halloween &, .blackberry &, .mint &, .wave &, .ember &, .yule &, .dark .chakra-theme:not(.light) &",
     halloween: ".halloween &",
     blackberry: ".blackberry &",
     mint: ".mint &",
     wave: ".wave &",
     ember: ".ember &",
     whiteout: ".whiteout &",
+    yule: ".yule &",
   },
   theme: {
     tokens: {
@@ -61,10 +62,15 @@ const config = defineConfig({
         // are black and brown. White Out is snow: cool whites faintly tinted
         // green, deep pine text and an evergreen accent, its second
         // highlight holly red, the hue across the wheel from the green and
-        // dark enough to read on white. The surfaces and secondary
-        // text carry the hue, not just the accent, or the themes read as
-        // plain dark with one coloured logo. The gray.* palette is what ghost
-        // buttons, menu items and skeletons use, so it is tinted too.
+        // dark enough to read on white. Yule is a winter night: pine-black
+        // surfaces, candlelit cream text, sage secondary text and an
+        // emerald accent, as deep a green as still reads against them, its
+        // second highlight a brighter holly red. Mint is green too, but
+        // blue-green and pale where Yule is pine and deep. The surfaces and
+        // secondary text carry the hue, not just the accent, or the themes
+        // read as plain dark with one coloured logo. The gray.* palette is
+        // what ghost buttons, menu items and skeletons use, so it is tinted
+        // too.
         bg: {
           DEFAULT: {
             value: {
@@ -74,6 +80,7 @@ const config = defineConfig({
               _wave: "#030b1a",
               _ember: "#120404",
               _whiteout: "#fafcfc",
+              _yule: "#050b07",
             },
           },
           subtle: {
@@ -84,6 +91,7 @@ const config = defineConfig({
               _wave: "#071a33",
               _ember: "#220807",
               _whiteout: "#eef4f2",
+              _yule: "#0b1a10",
             },
           },
           muted: {
@@ -94,6 +102,7 @@ const config = defineConfig({
               _wave: "#0c2a4d",
               _ember: "#3a0f0b",
               _whiteout: "#e0ebe7",
+              _yule: "#112a1a",
             },
           },
           emphasized: {
@@ -104,6 +113,7 @@ const config = defineConfig({
               _wave: "#133c6b",
               _ember: "#5c1a10",
               _whiteout: "#cbded6",
+              _yule: "#183d26",
             },
           },
           panel: {
@@ -114,6 +124,7 @@ const config = defineConfig({
               _wave: "#071a33",
               _ember: "#220807",
               _whiteout: "#ffffff",
+              _yule: "#0b1a10",
             },
           },
         },
@@ -126,6 +137,7 @@ const config = defineConfig({
               _wave: "#eef6ff",
               _ember: "#fff1ea",
               _whiteout: "#0e2a1f",
+              _yule: "#f6f0df",
             },
           },
           muted: {
@@ -136,6 +148,7 @@ const config = defineConfig({
               _wave: "#93c5fd",
               _ember: "#fdac8a",
               _whiteout: "#2f5b4a",
+              _yule: "#a9d4b2",
             },
           },
           subtle: {
@@ -146,6 +159,7 @@ const config = defineConfig({
               _wave: "#3b82f6",
               _ember: "#e2492b",
               _whiteout: "#5e8676",
+              _yule: "#4c9a64",
             },
           },
         },
@@ -158,6 +172,7 @@ const config = defineConfig({
               _wave: "#133c6b",
               _ember: "#5c1a10",
               _whiteout: "#d2e3db",
+              _yule: "#183d26",
             },
           },
           muted: {
@@ -168,6 +183,7 @@ const config = defineConfig({
               _wave: "#0c2a4d",
               _ember: "#3a0f0b",
               _whiteout: "#e0ebe7",
+              _yule: "#112a1a",
             },
           },
           subtle: {
@@ -178,6 +194,7 @@ const config = defineConfig({
               _wave: "#071a33",
               _ember: "#220807",
               _whiteout: "#eef4f2",
+              _yule: "#0b1a10",
             },
           },
           emphasized: {
@@ -188,6 +205,7 @@ const config = defineConfig({
               _wave: "#1d4ed8",
               _ember: "#b42318",
               _whiteout: "#9fc2b3",
+              _yule: "#1f6b3e",
             },
           },
         },
@@ -200,6 +218,7 @@ const config = defineConfig({
               _wave: "#030b1a",
               _ember: "#120404",
               _whiteout: "#ffffff",
+              _yule: "#050b07",
             },
           },
           fg: {
@@ -210,6 +229,7 @@ const config = defineConfig({
               _wave: "#dbeafe",
               _ember: "#fed7c4",
               _whiteout: "#123829",
+              _yule: "#cfe8d4",
             },
           },
           subtle: {
@@ -220,6 +240,7 @@ const config = defineConfig({
               _wave: "#0c2a4d",
               _ember: "#3a0f0b",
               _whiteout: "#e7f1ec",
+              _yule: "#112a1a",
             },
           },
           muted: {
@@ -230,6 +251,7 @@ const config = defineConfig({
               _wave: "#133c6b",
               _ember: "#5c1a10",
               _whiteout: "#d5e6de",
+              _yule: "#183d26",
             },
           },
           emphasized: {
@@ -240,6 +262,7 @@ const config = defineConfig({
               _wave: "#1d4ed8",
               _ember: "#b42318",
               _whiteout: "#b3d0c3",
+              _yule: "#1f6b3e",
             },
           },
           solid: {
@@ -250,6 +273,7 @@ const config = defineConfig({
               _wave: "#38bdf8",
               _ember: "#ff6a3d",
               _whiteout: "#1b6545",
+              _yule: "#2e9e58",
             },
           },
           focusRing: {
@@ -260,6 +284,7 @@ const config = defineConfig({
               _wave: "#38bdf8",
               _ember: "#ff6a3d",
               _whiteout: "#1b6545",
+              _yule: "#2e9e58",
             },
           },
           border: {
@@ -270,6 +295,7 @@ const config = defineConfig({
               _wave: "#133c6b",
               _ember: "#5c1a10",
               _whiteout: "#d2e3db",
+              _yule: "#183d26",
             },
           },
         },
@@ -289,6 +315,7 @@ const config = defineConfig({
               _wave: "#38bdf8",
               _ember: "#ff6a3d",
               _whiteout: "#1b6545",
+              _yule: "#2e9e58",
             },
           },
           // The theme's own background, which is what the highlight was
@@ -304,6 +331,7 @@ const config = defineConfig({
               _wave: "#051428",
               _ember: "#1a0605",
               _whiteout: "#ffffff",
+              _yule: "#08140c",
             },
           },
         },
@@ -326,6 +354,7 @@ const config = defineConfig({
               _wave: "#fbbf24",
               _ember: "#fde68a",
               _whiteout: "#b42332",
+              _yule: "#f0606a",
             },
           },
           hidden: {
@@ -338,6 +367,7 @@ const config = defineConfig({
               _wave: "#38bdf8",
               _ember: "#ff6a3d",
               _whiteout: "#1b6545",
+              _yule: "#2e9e58",
             },
           },
           // The glow round a pill's thumbnail while the players have its
@@ -354,6 +384,7 @@ const config = defineConfig({
               _wave: "#fbbf24",
               _ember: "#fde68a",
               _whiteout: "#b42332",
+              _yule: "#f0606a",
             },
           },
         },
@@ -376,6 +407,7 @@ const config = defineConfig({
               _wave: "#38bdf8",
               _ember: "#ff6a3d",
               _whiteout: "#1b6545",
+              _yule: "#2e9e58",
             },
           },
           contrast: {
@@ -388,6 +420,7 @@ const config = defineConfig({
               _wave: "#051428",
               _ember: "#1a0605",
               _whiteout: "#ffffff",
+              _yule: "#08140c",
             },
           },
         },
@@ -402,6 +435,7 @@ const config = defineConfig({
               _wave: "#051428",
               _ember: "#1a0605",
               _whiteout: "#ffffff",
+              _yule: "#08140c",
             },
           },
           border: {
@@ -414,6 +448,7 @@ const config = defineConfig({
               _wave: "#133c6b",
               _ember: "#5c1a10",
               _whiteout: "#d2e3db",
+              _yule: "#183d26",
             },
           },
           fg: {
@@ -426,6 +461,7 @@ const config = defineConfig({
               _wave: "#eef6ff",
               _ember: "#fff1ea",
               _whiteout: "#0e2a1f",
+              _yule: "#f6f0df",
             },
           },
           fgMuted: {
@@ -438,6 +474,7 @@ const config = defineConfig({
               _wave: "#93c5fd",
               _ember: "#fdac8a",
               _whiteout: "#2f5b4a",
+              _yule: "#a9d4b2",
             },
           },
           icon: {
@@ -450,6 +487,7 @@ const config = defineConfig({
               _wave: "#38bdf8",
               _ember: "#ff6a3d",
               _whiteout: "#1b6545",
+              _yule: "#2e9e58",
             },
           },
           accent: {
@@ -462,6 +500,7 @@ const config = defineConfig({
               _wave: "#38bdf8",
               _ember: "#ff6a3d",
               _whiteout: "#1b6545",
+              _yule: "#2e9e58",
             },
           },
           accentTint: {
@@ -474,6 +513,7 @@ const config = defineConfig({
               _wave: "#133c6b",
               _ember: "#5c1a10",
               _whiteout: "#e3f0e9",
+              _yule: "#0f2817",
             },
           },
           avatarBg: {
@@ -486,6 +526,7 @@ const config = defineConfig({
               _wave: "#1d4ed8",
               _ember: "#b42318",
               _whiteout: "#cfe1d9",
+              _yule: "#1f6b3e",
             },
           },
           avatarFg: {
@@ -498,6 +539,7 @@ const config = defineConfig({
               _wave: "#eef6ff",
               _ember: "#fff1ea",
               _whiteout: "#0e2a1f",
+              _yule: "#f6f0df",
             },
           },
         },

@@ -17,6 +17,7 @@ export const THEMES = [
   { value: "wave", label: "Wave" },
   { value: "ember", label: "Ember" },
   { value: "whiteout", label: "White Out" },
+  { value: "yule", label: "Yule" },
 ] as const;
 
 export type Theme = (typeof THEMES)[number]["value"];

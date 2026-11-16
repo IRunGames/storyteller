@@ -303,6 +303,7 @@ describe("AppHeader", () => {
       "Wave",
       "Ember",
       "White Out",
+      "Yule",
     ]);
 
     await u.click(light);
@@ -327,6 +328,7 @@ describe("AppHeader", () => {
     expect(icon("Wave")).toHaveAttribute("data-icon", "wave");
     expect(icon("Ember")).toHaveAttribute("data-icon", "flame");
     expect(icon("White Out")).toHaveAttribute("data-icon", "snowman");
+    expect(icon("Yule")).toHaveAttribute("data-icon", "wreath");
   });
 
   it("puts the chosen theme's class on <html> and takes the old one off", async () => {
@@ -363,6 +365,11 @@ describe("AppHeader", () => {
     await u.click(await screen.findByRole("menuitemradio", { name: "White Out" }));
     await waitFor(() => expect(document.documentElement).toHaveClass("whiteout"));
     expect(document.documentElement).not.toHaveClass("ember");
+
+    await u.click(await screen.findByRole("button", { name: "Choose theme" }));
+    await u.click(await screen.findByRole("menuitemradio", { name: "Yule" }));
+    await waitFor(() => expect(document.documentElement).toHaveClass("yule"));
+    expect(document.documentElement).not.toHaveClass("whiteout");
   });
 
   it("records the chosen theme as the user's theme preference", async () => {

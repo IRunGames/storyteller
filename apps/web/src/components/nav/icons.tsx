@@ -190,3 +190,37 @@ export function SnowmanIcon() {
     </svg>
   );
 }
+
+// The Yule theme's mark: a wreath of leaves tied with a bow. The ring is
+// one scalloped path, open at the bottom where the bow sits, and its berries
+// are cut out of it with the even-odd rule, as the pumpkin's face is, so the
+// header background shows through. It is one outline rather than a ring of
+// overlapping circles because, under the even-odd rule, the overlaps would be
+// cut out too. No stroke on the fills, for the same reason as the pumpkin
+// body; the bow's tails are strokes, as the stems are.
+export function WreathIcon() {
+  return (
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      data-icon="wreath"
+    >
+      <path d="M11.2 18.4 L9.6 22 M12.8 18.4 L14.4 22" fill="none" strokeWidth="1.6" />
+      <g stroke="none">
+        <path
+          fillRule="evenodd"
+          d="M6.73 16.68 A2.46 2.46 0 0 1 4.24 13.05 A2.46 2.46 0 0 1 3.99 8.66 A2.46 2.46 0 0 1 6.04 4.77 A2.46 2.46 0 0 1 9.8 2.5 A2.46 2.46 0 0 1 14.2 2.5 A2.46 2.46 0 0 1 17.96 4.77 A2.46 2.46 0 0 1 20.01 8.66 A2.46 2.46 0 0 1 19.76 13.05 A2.46 2.46 0 0 1 17.27 16.68 L15.47 14.54 A1.68 1.68 0 0 1 17.11 12.15 A1.68 1.68 0 0 1 17.28 9.26 A1.68 1.68 0 0 1 15.93 6.69 A1.68 1.68 0 0 1 13.45 5.2 A1.68 1.68 0 0 1 10.55 5.2 A1.68 1.68 0 0 1 8.07 6.69 A1.68 1.68 0 0 1 6.72 9.26 A1.68 1.68 0 0 1 6.89 12.15 A1.68 1.68 0 0 1 8.53 14.54 Z M4.38 10.99 A0.85 0.85 0 1 0 6.08 10.99 A0.85 0.85 0 1 0 4.38 10.99 Z M7.25 4.83 A0.85 0.85 0 1 0 8.95 4.83 A0.85 0.85 0 1 0 7.25 4.83 Z M14.02 4.24 A0.85 0.85 0 1 0 15.72 4.24 A0.85 0.85 0 1 0 14.02 4.24 Z M17.92 9.81 A0.85 0.85 0 1 0 19.62 9.81 A0.85 0.85 0 1 0 17.92 9.81 Z"
+        />
+        <path d="M11 16.8 C9.4 15 6.8 14.8 6.8 17.4 C6.8 20 9.4 19.8 11 18 Z M13 16.8 C14.6 15 17.2 14.8 17.2 17.4 C17.2 20 14.6 19.8 13 18 Z" />
+        <circle cx="12" cy="17.4" r="1.4" />
+      </g>
+    </svg>
+  );
+}
