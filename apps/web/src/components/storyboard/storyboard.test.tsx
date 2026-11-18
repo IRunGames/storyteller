@@ -218,6 +218,7 @@ describe("Storyboard", () => {
     // The pills reach for the players' table's actions and the element
     // history's; neither is called from a read-only board, so each is
     // mocked empty and a stray call fails loudly.
+    mock.module("@/components/live/actions", { namedExports: { sa_setLiveSceneText: mock.fn() } });
     mock.module("@/components/play/actions", {
       namedExports: {
         sa_setPlaySceneText: mock.fn(),
@@ -290,21 +291,21 @@ describe("Storyboard", () => {
     await user.click(screen.getByRole("button", { name: "Psychoneira" }));
     let items = await screen.findAllByRole("menuitem");
     expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
+      // The board itself, so no link.
+      ["Storyboard", null],
       ["Overview", "/stories/7"],
       ["Edit", "/stories/7/edit"],
       ["Library", "/stories/7/library"],
       ["Build scenes", "/stories/7/scenes"],
       ["Play", null],
-      // The board itself, so no link.
-      ["Storyboard", null],
     ]);
-    expect(items[5]).toHaveAttribute("aria-current", "page");
+    expect(items[0]).toHaveAttribute("aria-current", "page");
     cleanup();
 
     render();
     await user.click(screen.getByRole("button", { name: "Psychoneira" }));
     items = await screen.findAllByRole("menuitem");
-    expect(items.map((item) => item.textContent)).toEqual(["Overview", "Storyboard"]);
+    expect(items.map((item) => item.textContent)).toEqual(["Storyboard", "Overview"]);
   });
 
   it("lays the sittings side by side, each a band over its scenes in play order, on the story's cover", () => {

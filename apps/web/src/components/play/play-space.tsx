@@ -7,7 +7,6 @@ import {
   Flex,
   Heading,
   HStack,
-  List,
   Stack,
   Text,
   type HeadingProps,
@@ -17,84 +16,83 @@ import { toPlayItem, type PlayScene } from "@/lib/play-scene";
 import { isStackWide, playStacks, stackKey } from "@/lib/run";
 import { type SceneText } from "@/lib/scenes";
 import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS } from "@/lib/status";
-import { sa_setPlaySceneText } from "@/components/play/actions";
+import { useUser } from "@/components/auth/user-provider";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
-import { AttachmentPreviewDialog } from "@/components/uploads/attachment-preview";
+import { CoverBackdrop } from "@/components/covers/cover-backdrop";
+import { HALO } from "@/components/table-shell/halo";
+import { PlayStackFrame } from "@/components/table-shell/play-stack-frame";
+import { PulsedPicture } from "@/components/table-shell/pulsed-picture";
+import { STATUS_NOTES } from "@/components/table-shell/status-notes";
 import { BackgroundToggle } from "./background-toggle";
 import { PlayPill } from "./play-pill";
 import { SceneStateOverlay } from "./scene-state-overlay";
 import { SceneTextPopover } from "./scene-text-popover";
 import type { ChannelStatus } from "./use-story-channel";
-import { CoverBackdrop } from "@/components/covers/cover-backdrop";
 
-type Props = {
-  idStory: number;
-  scene: PlayScene;
-  /**
-   * Behind the space when there is no scene or the scene has no cover: the
-   * players' table passes the story's cover, so the space is never bare
-   * while the story has a picture. Left out, a scene without a cover shows
-   * none.
-   */
-  fallbackCoverUrl?: string | null;
-  /** Where the live connection stands; the space says so only when it is not connected. */
-  status: ChannelStatus;
-  /** The scene's description and notes have been saved from the title's panel. */
-  onTextChange: (text: SceneText) => void;
-  /** The players' notes on an element have been saved from its pill's info popover. */
-  onNotesChange: (idElement: number, notes: string | null) => void;
-  /** A pill has changed its link's status, or put it back after a refusal. */
-  onStatusChange: (idSceneElement: number, status: string) => void;
-  /** The element whose picture the storyteller has put up full size, or null for none. */
-  previewIdSceneElement: number | null;
-  /** The player closed that picture for themselves. */
-  onPreviewClose: () => void;
-  /**
-   * A look at the scene rather than a seat at the table (/preview/scene):
-   * the scene is shown whether or not a session is on it, its text and the
-   * pills' info open to read, and nothing writes.
-   */
-  readOnly?: boolean;
-  /** Each pill's info popover ends with the element's History (a scene's preview). */
-  withHistory?: boolean;
-  /** The eye in the upper right that puts everything away to show the cover (BackgroundToggle). */
-  withBackgroundToggle?: boolean;
-  /**
-   * False leaves out the overlay that says a pending or complete scene is
-   * not being played (SceneStateOverlay): the storyboard's cards show
-   * finished scenes by definition and say the status beside the space, so
-   * the word across every one would hide the pills for nothing.
-   */
-  withStateOverlay?: boolean;
-  /**
-   * False leaves out the title row: the scene's title, the info button
-   * with its text, and the connection's note. The storyboard's card says
-   * the title and the text on its face already, so under it the space is
-   * the stacks alone. The region keeps its name for a screen reader.
-   */
-  withTitle?: boolean;
-  /** Drawn either side of the scene's title: the preview's chevrons to the scenes before and after. */
-  titleStart?: ReactNode;
-  titleEnd?: ReactNode;
-  /**
-   * Draws the scene's title in place of the plain heading: the preview
-   * makes it a dropdown of the story's scenes. Given the title and the
-   * styling the heading carries, so it reads the same.
-   */
-  renderTitle?: (title: string, headingProps: HeadingProps) => ReactNode;
-  /**
-   * Drawn over the space while it is on no scene, in place of saying so: the
-   * players' table passes the story's box (StoryPlayingBox), as the
-   * storyteller's table shows it.
-   */
-  noSceneBox?: ReactNode;
-};
+/**
+ * The three places a play space is drawn, which decide what it does.
+ *
+ * `table` is a seat at the players' table (PlayTable): live, following the
+ * storyteller over the story's topic, its text and the pills' notes and
+ * statuses written from here, with the story's box over the space while
+ * the table is on no scene and, for anyone but a guest, the eye in the
+ * upper right that puts everything away to show the cover (BackgroundToggle).
+ *
+ * `preview` is a look at the scene rather than a seat (/preview/scene): the
+ * scene is shown whether or not a session is on it, its text and the pills'
+ * info open to read, each pill's info ending with the element's History,
+ * and nothing writes. The preview draws the scene's title itself, as a
+ * dropdown of the story's scenes, with its chevrons either side.
+ *
+ * `card` is the storyboard's scene card grown open (SceneElementsPanel):
+ * read only as the preview is, but without the title row, since the card's
+ * face says the title and holds the text, and without the overlay that
+ * says a pending or complete scene is not being played, since the card's
+ * status badge says that and the word across every one would hide the
+ * pills for nothing. The region keeps its name for a screen reader.
+ */
+type Variant =
+  | {
+      variant: "table";
+      /**
+       * Behind the space when there is no scene or the scene has no cover:
+       * the story's cover, so the space is never bare while the story has a
+       * picture.
+       */
+      fallbackCoverUrl: string | null;
+      /** Where the live connection stands; the space says so only when it is not connected. */
+      status: ChannelStatus;
+      /** The scene's description and notes have been saved from the title's panel. */
+      onTextChange: (text: SceneText) => void;
+      /** The players' notes on an element have been saved from its pill's info popover. */
+      onNotesChange: (idElement: number, notes: string | null) => void;
+      /** A pill has changed its link's status, or put it back after a refusal. */
+      onStatusChange: (idSceneElement: number, status: string) => void;
+      /** The link whose picture the storyteller has put up full size, or null for none. */
+      previewIdSceneElement: number | null;
+      /** The player closed that picture for themselves. */
+      onPreviewClose: () => void;
+      /**
+       * Drawn over the space while it is on no scene, in place of saying so:
+       * the story's box (StoryPlayingBox), as the storyteller's table shows it.
+       */
+      noSceneBox: ReactNode;
+    }
+  | {
+      variant: "preview";
+      /** Drawn either side of the scene's title: the preview's chevrons to the scenes before and after. */
+      titleStart?: ReactNode;
+      titleEnd?: ReactNode;
+      /**
+       * Draws the scene's title in place of the plain heading: the preview
+       * makes it a dropdown of the story's scenes. Given the title and the
+       * styling the heading carries, so it reads the same.
+       */
+      renderTitle?: (title: string, headingProps: HeadingProps) => ReactNode;
+    }
+  | { variant: "card" };
 
-// The same halo the storyteller's stack headings carry, so a tag reads over
-// the scene's cover; see run-play-stack.tsx for why it is a halo and not a box.
-const HALO_COLOUR = "var(--chakra-colors-bg)";
-const HALO = [1, 1, 2, 4, 8, 12].map((px) => `0 0 ${px}px ${HALO_COLOUR}`).join(", ");
-const HALO_FILTER = [1, 2, 4, 6].map((px) => `drop-shadow(0 0 ${px}px ${HALO_COLOUR})`).join(" ");
+type Props = { idStory: number; scene: PlayScene } & Variant;
 
 /**
  * How wide each stack is drawn here: as the storyteller has it
@@ -139,58 +137,40 @@ const TITLE_PROPS: HeadingProps = {
   truncate: true,
 };
 
-// What the space says of each state the connection can be in short of
-// connected; connected says nothing, since live is the usual state.
-const STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
-  connecting: "Connecting…",
-  reconnecting: "Reconnecting…",
-  offline: "Offline: changes will show when the connection is back.",
-  unavailable: "Live updates are off; reload to see changes.",
-};
-
 /**
  * The players' play space: the scene being played, its cover behind, and
  * its elements in the storyteller's stacks (playStacks), as read-only pills.
  * The info button beside the title opens the scene's description and notes
- * for the players to write up (SceneTextPopover). With no session, or a session
- * on no scene yet, it says which.
+ * for the players to write up (SceneTextPopover). With no session, or a
+ * session on no scene yet, it says which. What else it does is the
+ * variant's (Variant).
  *
  * A picture the storyteller has put up from a pill's tack (the preview.open
- * pulse, held by the table as previewIdSceneElement) is open full size over the
- * space, in the same preview a thumbnail opens, until the storyteller takes
- * it down or the player closes it for themselves. An element the table
- * does not hold, or one without a picture, shows nothing.
+ * pulse, held by the table as previewIdSceneElement) is open full size over
+ * the space, in the same preview a thumbnail opens (PulsedPicture), until
+ * the storyteller takes it down or the player closes it for themselves.
  *
- * Given withBackgroundToggle, an eye in the upper right puts away the
- * title, the stacks, the scene's overlay, the no-scene box and the cover's
- * dimming, leaving the cover alone until it is pressed again. The picture
- * the storyteller puts up stays: it is theirs to take down, not part of
- * the space.
+ * At the players' table, the eye in the upper right puts away the title,
+ * the stacks, the scene's overlay, the no-scene box and the cover's dimming,
+ * leaving the cover alone until it is pressed again. The picture the
+ * storyteller puts up stays: it is theirs to take down, not part of the
+ * space.
  */
-export function PlaySpace({
-  idStory,
-  scene,
-  fallbackCoverUrl = null,
-  status,
-  onTextChange,
-  onNotesChange,
-  onStatusChange,
-  previewIdSceneElement,
-  onPreviewClose,
-  readOnly = false,
-  withHistory = false,
-  withBackgroundToggle = false,
-  withStateOverlay = true,
-  withTitle = true,
-  titleStart,
-  titleEnd,
-  renderTitle,
-  noSceneBox,
-}: Props) {
+export function PlaySpace(props: Props) {
+  const { idStory, scene } = props;
+  const user = useUser();
+  const atTable = props.variant === "table";
+  const readOnly = !atTable;
+  const withHistory = props.variant === "preview";
+  const withTitle = props.variant !== "card";
+  const withStateOverlay = props.variant !== "card";
+  // Not for a guest: the eye's choice would be theirs alone, and the display
+  // table is where a guest looks.
+  const withBackgroundToggle = atTable && !user.isAnonymous;
   const [showBackground, setShowBackground] = useState(false);
   const detailsHidden = withBackgroundToggle && showBackground;
   const widths = useStackWidths(scene.scene?.idStoryScene ?? null, scene.wideTags);
-  const note = STATUS_NOTES[status];
+  const note = atTable ? STATUS_NOTES[props.status] : undefined;
   const items = scene.items.map(toPlayItem);
   // A pending or complete scene is there to read, not to play in: the pills'
   // info and the scene's text open as they do on a preview, and nothing
@@ -198,12 +178,11 @@ export function PlaySpace({
   const held =
     scene.scene?.status === SCENE_PENDING_STATUS || scene.scene?.status === SCENE_LOCKED_STATUS;
   const lookOnly = readOnly || held;
-  const coverUrl = scene.coverUrl ?? fallbackCoverUrl;
-  const shown =
-    previewIdSceneElement === null
-      ? null
-      : (items.find((item) => item.idSceneElement === previewIdSceneElement && item.imageUrl) ??
-        null);
+  const coverUrl = scene.coverUrl ?? (atTable ? props.fallbackCoverUrl : null);
+  const noSceneBox = atTable ? props.noSceneBox : undefined;
+  const onTextChange = atTable ? props.onTextChange : () => {};
+  const onNotesChange = atTable ? props.onNotesChange : () => {};
+  const onStatusChange = atTable ? props.onStatusChange : () => {};
 
   return (
     <Box as="section" aria-labelledby="play-space-heading" position="relative" flex="1" minH="0">
@@ -266,23 +245,23 @@ export function PlaySpace({
                   Play space
                 </Heading>
                 <HStack flex="1" minW="0" justify="center" gap="1">
-                  {titleStart}
-                  {renderTitle ? (
-                    renderTitle(scene.scene.title, TITLE_PROPS)
+                  {props.variant === "preview" && props.titleStart}
+                  {props.variant === "preview" && props.renderTitle ? (
+                    props.renderTitle(scene.scene.title, TITLE_PROPS)
                   ) : (
                     <Heading {...TITLE_PROPS}>{scene.scene.title}</Heading>
                   )}
                   <SceneTextPopover
+                    idStory={idStory}
+                    idStoryScene={scene.scene.idStoryScene}
                     title={scene.scene.title}
                     text={scene.scene.text}
-                    save={(values) =>
-                      sa_setPlaySceneText(idStory, scene.scene!.idStoryScene, values)
-                    }
+                    saver="play"
                     onSaved={onTextChange}
                     readOnly={lookOnly}
                     icon="info"
                   />
-                  {titleEnd}
+                  {props.variant === "preview" && props.titleEnd}
                 </HStack>
               </>
             )}
@@ -302,7 +281,7 @@ export function PlaySpace({
           )
         ) : (
           <Flex gap="3" wrap="wrap" align="flex-start" justify="space-between">
-            {/* Each stack as the storyteller's table draws it (RunPlayStack):
+            {/* Each stack as the storyteller's table draws it (PlayStackFrame):
                 the heading with its halo, the expand button that widens the
                 stack to the whole space with its pills in columns, and the
                 pills. Wide as the storyteller set it, or as the player has
@@ -310,88 +289,48 @@ export function PlaySpace({
             {playStacks(scene.tags, items).map((stack) => {
               const wide = widths.isWide(stack.tag);
               return (
-                <Stack
+                <PlayStackFrame
                   key={stack.title}
-                  as="section"
-                  aria-label={stack.title}
-                  gap="2"
-                  w={wide ? "full" : { base: "full", md: "22rem" }}
-                  flexShrink="0"
-                  data-wide={wide ? "true" : undefined}
-                >
-                  <HStack
-                    justify="space-between"
-                    gap="2"
-                    css={{ "& svg": { filter: HALO_FILTER } }}
-                  >
-                    <Heading
-                      size="xs"
-                      truncate
-                      textShadow={HALO}
-                      textTransform="uppercase"
-                      letterSpacing="wider"
-                      px="2"
-                      py="1"
-                    >
-                      {stack.title}
-                    </Heading>
+                  title={stack.title}
+                  size="table"
+                  wide={wide}
+                  controls={
                     <IconButtonWithTooltip
                       label={wide ? `Shrink ${stack.title}` : `Expand ${stack.title}`}
                       onClick={() => widths.toggle(stack.tag)}
                     >
                       {wide ? <Minimize2 /> : <Maximize2 />}
                     </IconButtonWithTooltip>
-                  </HStack>
-                  {stack.items.length === 0 ? (
+                  }
+                  empty={
                     <Text fontSize="sm" color="fg.muted" textShadow={HALO}>
                       Nothing here yet.
                     </Text>
-                  ) : (
-                    <List.Root
-                      listStyleType="none"
-                      gap="2"
-                      display={wide ? "grid" : undefined}
-                      gridTemplateColumns={
-                        wide ? "repeat(auto-fill, minmax(40rem, 1fr))" : undefined
-                      }
-                    >
-                      {stack.items.map((item) => (
-                        <List.Item key={item.key}>
-                          <PlayPill
-                            idStory={idStory}
-                            idStoryScene={scene.scene!.idStoryScene}
-                            item={item}
-                            onNotesChange={onNotesChange}
-                            onStatusChange={onStatusChange}
-                            readOnly={lookOnly}
-                            withHistory={withHistory}
-                          />
-                        </List.Item>
-                      ))}
-                    </List.Root>
+                  }
+                  items={stack.items}
+                  renderItem={(item) => (
+                    <PlayPill
+                      idStory={idStory}
+                      idStoryScene={scene.scene!.idStoryScene}
+                      item={item}
+                      onNotesChange={onNotesChange}
+                      onStatusChange={onStatusChange}
+                      readOnly={lookOnly}
+                      withHistory={withHistory}
+                    />
                   )}
-                </Stack>
+                />
               );
             })}
           </Flex>
         )}
       </Stack>
       {withStateOverlay && !detailsHidden && <SceneStateOverlay status={scene.scene?.status} />}
-      {/* Keyed by the item, so a change of picture is a fresh dialog rather
-          than one whose image swaps under it. No tags: the picture's tags are
-          the attachment's, not the element's, as the pill's preview says. */}
-      {shown && shown.imageUrl && (
-        <AttachmentPreviewDialog
-          key={shown.key}
-          open
-          onOpenChange={(open) => {
-            if (!open) onPreviewClose();
-          }}
-          url={shown.imageUrl}
-          label={shown.label}
-          tags={[]}
-          isCover={false}
-          showTags={false}
+      {atTable && (
+        <PulsedPicture
+          items={items}
+          idSceneElement={props.previewIdSceneElement}
+          onClose={props.onPreviewClose}
         />
       )}
       {scene.scene === null && !detailsHidden && noSceneBox}

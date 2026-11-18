@@ -280,6 +280,23 @@ describeWithDb("stories actions", { email: TEST_USER_EMAIL }, (suite) => {
       expect(ids(await page({ search: "stories search system" }))).toEqual([storyB]);
       expect(ids(await page({ search: "9th" }))).toContain(storyB);
       expect(ids(await page({ search: "System 9th Revised" }))).toEqual([storyB]);
+      // Sorted by system: the labels in order, case set aside, and the
+      // stories with no system after them all.
+      const bySystem = await page({ sortBy: "system", sortDesc: false });
+      const labels = bySystem.map((row) =>
+        row.systemName
+          ? [row.systemName, row.systemVersion, row.variant].filter(Boolean).join(" ").toLowerCase()
+          : null,
+      );
+      const named = labels.filter((label): label is string => label !== null);
+      expect(named).toEqual([...named].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+      expect(labels.slice(named.length).every((label) => label === null)).toBe(true);
+      expect(named).toContain("fixture stories search system 9th revised");
+      // Sorted by when last played, newest first.
+      const stamps = (await page({ sortBy: "lastPlayed", sortDesc: true })).map((row) =>
+        row.lastPlayed.getTime(),
+      );
+      expect(stamps).toEqual([...stamps].sort((a, b) => b - a));
     } finally {
       await db
         .update(tables.stories)
@@ -960,6 +977,119 @@ describeWithDb("stories actions", { email: TEST_USER_EMAIL }, (suite) => {
     // The favorites list builds its joins separately, so it is checked too.
     const favorites = await actions.sa_listFavoriteStories(0);
     expect(favorites.find((s) => s.idStory === storyB)?.storytellerName).toBe("Other");
+  });
+
+  it("retires a story and brings it back from the list's pill, for its storyteller and an administrator", async () => {
+    const activeOf = async (id: number) =>
+      (
+        await db
+          .select({ isActive: tables.stories.isActive })
+          .from(tables.stories)
+          .where(eq(tables.stories.idStory, id))
+      )[0].isActive;
+
+    // The storyteller's own story goes both ways (D is the test user's,
+    // retired); another's is not found.
+    expect(await actions.sa_setStoryActive(storyD, true)).toEqual({ ok: true, isActive: true });
+    expect(await activeOf(storyD)).toBe(true);
+    expect(await actions.sa_setStoryActive(storyD, false)).toEqual({ ok: true, isActive: false });
+    expect(await activeOf(storyD)).toBe(false);
+    expect(await actions.sa_setStoryActive(storyB, false)).toEqual({
+      ok: false,
+      error: STORY_NOT_FOUND,
+    });
+    expect(await activeOf(storyB)).toBe(true);
+    // Anything but a boolean is refused the same way.
+    expect(await actions.sa_setStoryActive(storyD, "no")).toEqual({
+      ok: false,
+      error: STORY_NOT_FOUND,
+    });
+
+    // An administrator may move any story. The test user is made one for
+    // the moment and put back after.
+    const [{ idUserType }] = await db
+      .select({ idUserType: tables.user.idUserType })
+      .from(tables.user)
+      .where(eq(tables.user.id, testUser));
+    await db.update(tables.user).set({ idUserType: -100 }).where(eq(tables.user.id, testUser));
+    try {
+      expect(await actions.sa_setStoryActive(storyB, false)).toEqual({
+        ok: true,
+        isActive: false,
+      });
+      expect(await actions.sa_setStoryActive(storyB, true)).toEqual({ ok: true, isActive: true });
+    } finally {
+      await db.update(tables.user).set({ idUserType }).where(eq(tables.user.id, testUser));
+    }
+  });
+
+  it("holds an account to its active stories: no new one, and none brought back, at the limit", async () => {
+    // The test user is an unpaid player (makeTestUser), so three; they own
+    // D (retired) and E (archived) and nothing active.
+    expect(await actions.sa_getStoryAllowance()).toEqual({ active: 0, limit: 3 });
+    const full = await db
+      .insert(tables.stories)
+      .values(
+        [1, 2, 3].map((n) => ({
+          title: `Fixture active story ${n} of 3`,
+          idCreatedByUser: testUser,
+          isActive: true,
+        })),
+      )
+      .returning({ idStory: tables.stories.idStory });
+    const message =
+      "You already have 3 active stories, the most at a time. Make one inactive to start or bring back another.";
+    try {
+      expect(await actions.sa_getStoryAllowance()).toEqual({ active: 3, limit: 3 });
+      expect(
+        await actions.sa_createStory({
+          title: "Fixture story one too many",
+          idSystem: null,
+          summary: "",
+          isLookingForPlayers: false,
+          isActive: true,
+          isArchived: false,
+          isPublic: false,
+        }),
+      ).toEqual({ ok: false, errors: { root: message } });
+      expect(
+        await db
+          .select({ id: tables.stories.idStory })
+          .from(tables.stories)
+          .where(eq(tables.stories.title, "Fixture story one too many")),
+      ).toEqual([]);
+
+      // Bringing a retired story back counts the same, from the pill and
+      // from Edit story; retiring one is always allowed.
+      expect(await actions.sa_setStoryActive(storyD, true)).toEqual({ ok: false, error: message });
+      const values = await actions.sa_getStoryForEdit(storyD);
+      expect(await actions.sa_updateStory(storyD, { ...values!, isActive: true })).toEqual({
+        ok: false,
+        errors: { root: message },
+      });
+      expect(
+        (
+          await db
+            .select({ isActive: tables.stories.isActive })
+            .from(tables.stories)
+            .where(eq(tables.stories.idStory, storyD))
+        )[0].isActive,
+      ).toBe(false);
+      expect(await actions.sa_setStoryActive(full[0].idStory, false)).toEqual({
+        ok: true,
+        isActive: false,
+      });
+      // One below the limit again, so D may come back.
+      expect(await actions.sa_setStoryActive(storyD, true)).toEqual({ ok: true, isActive: true });
+      await actions.sa_setStoryActive(storyD, false);
+    } finally {
+      await db.delete(tables.stories).where(
+        inArray(
+          tables.stories.idStory,
+          full.map((row) => row.idStory),
+        ),
+      );
+    }
   });
 
   it("adds and removes a favorite for the caller only, idempotently", async () => {

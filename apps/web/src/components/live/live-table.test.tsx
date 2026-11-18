@@ -174,6 +174,7 @@ describe("LiveTable", () => {
         sa_setStackWide: mock.fn(),
       },
     });
+    mock.module("@/components/play/actions", { namedExports: { sa_setPlaySceneText: mock.fn() } });
     mock.module("@/components/live/actions", {
       namedExports: {
         sa_createLiveScene,

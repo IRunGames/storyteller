@@ -13,6 +13,11 @@ export const USER_TYPES = {
   administrator: -100,
 } as const;
 
+/** Whether the type is an administrator's: the rank requireAdmin lets through. */
+export function isAdministrator(idUserType: number): boolean {
+  return idUserType <= USER_TYPES.administrator;
+}
+
 /**
  * The one-word states v_users gives an account (db/views/v_users.sql): the
  * four statuses of the Users Status Workflow (db/seeds/seed_s_statuses.sql)

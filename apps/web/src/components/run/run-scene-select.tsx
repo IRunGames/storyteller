@@ -18,12 +18,7 @@ import { WithTooltip } from "@/components/buttons/with-tooltip";
 import { scenePreviewPath } from "@/lib/scenes";
 import type { RunPlaySpace, RunScene } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
-import {
-  sa_listRunScenes,
-  sa_loadRunScene,
-  type CreateRunSceneResult,
-} from "@/components/run/actions";
-import type { RunSceneValues } from "@/lib/scene-schemas";
+import { sa_listRunScenes, sa_loadRunScene } from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
 import { RunNewSceneDialog } from "./run-new-scene-dialog";
 
@@ -41,14 +36,6 @@ type Props = {
   statusOptions: StatusOption[];
   /** The play space for the scene the table has just moved to. */
   onLoaded: (space: RunPlaySpace) => void;
-  /**
-   * What choosing a listed scene does, when it is not putting the table on
-   * it: the live-edit page goes to that scene's own page, leaving the
-   * session alone. Given, the scenes can be chosen with or without a session.
-   */
-  onChoose?: (scene: RunScene) => void;
-  /** What Create new scene writes with, when not sa_createRunScene; see RunNewSceneDialog. */
-  create?: (idStory: number, values: RunSceneValues) => Promise<CreateRunSceneResult>;
 };
 
 /**
@@ -66,11 +53,8 @@ type Props = {
  * reopen it; the scene's status chip beside this selector does, if the
  * storyteller moves it back. With no session being played, the scenes are
  * listed but cannot be chosen; Create new scene still makes one, pending
- * and in no sitting, and the play space shows it to be prepared.
- *
- * The live-edit page uses the same selector with its own onChoose and
- * create, so choosing or making a scene there opens it to edit and leaves
- * the session where it was.
+ * and in no sitting, and the play space shows it to be prepared. The
+ * live-edit page has a selector of its own (LiveSceneSelect).
  *
  * At the end of each scene's row, an external-link icon, as a player pill's
  * link carries, opens the scene's preview (/preview/scene/[id]) in a new
@@ -79,23 +63,15 @@ type Props = {
  * table. It stands beside the item rather than inside it, so pressing it
  * is not choosing the scene.
  */
-export function RunSceneSelect({
-  idStory,
-  scene,
-  hasSession,
-  statusOptions,
-  onLoaded,
-  onChoose,
-  create,
-}: Props) {
+export function RunSceneSelect({ idStory, scene, hasSession, statusOptions, onLoaded }: Props) {
   const [scenes, setScenes] = useState<RunScene[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [isLoading, setLoading] = useState(false);
   const triggerId = useId();
   const current = scene?.title ?? "None";
-  // Whether a listed scene can be chosen: the run page needs a session to
-  // put it on; a page with its own onChoose does not.
-  const canChoose = hasSession || onChoose !== undefined;
+  // Whether a listed scene can be chosen: there has to be a session to put
+  // it on.
+  const canChoose = hasSession;
 
   const statusLabel = (status: string) =>
     statusOptions.find((option) => option.key === status)?.label ?? status;
@@ -144,8 +120,7 @@ export function RunSceneSelect({
             }
             const chosen = scenes?.find((row) => String(row.idStoryScene) === details.value);
             if (!chosen) return;
-            if (onChoose) onChoose(chosen);
-            else void load(chosen);
+            void load(chosen);
           }}
         >
           <WithTooltip tooltip={current} menuTrigger={triggerId}>
@@ -257,7 +232,6 @@ export function RunSceneSelect({
         open={creating}
         onClose={() => setCreating(false)}
         onCreated={onLoaded}
-        create={create}
       />
     </>
   );

@@ -231,6 +231,8 @@ describe("PlayTable", () => {
     mock.module("@/components/sessions/actions", {
       namedExports: { sa_getSessionNotes, sa_setSessionNotes },
     });
+    mock.module("@/components/run/actions", { namedExports: { sa_setSceneText: mock.fn() } });
+    mock.module("@/components/live/actions", { namedExports: { sa_setLiveSceneText: mock.fn() } });
     mock.module("@/components/play/actions", {
       namedExports: {
         sa_getStoryChannel,

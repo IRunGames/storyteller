@@ -25,6 +25,7 @@ import {
   sa_setSceneElementStatus,
 } from "@/components/scene-elements/actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useSceneItemsContext } from "@/components/table-shell/scene-items-context";
 import { CHANGE_FAILED } from "@/lib/messages";
 import { OverflowTooltip } from "@/components/popovers/overflow-tooltip";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
@@ -48,12 +49,6 @@ type Props = {
   otherStacks: string[];
   /** Every stack of the scene, in order, which the panel's stacks dialog offers. */
   sceneStacks: string[];
-  /** The element has been taken out of the scene from its panel's −. */
-  onRemove: (key: string) => void;
-  /** The item's scene_elements status has changed, or is being changed. */
-  onStatusChange: (key: string, status: string) => void;
-  /** The item has been edited from its panel, or its info toggle pressed. */
-  onItemChange: (item: PlayItem) => void;
   /**
    * Whether this is the picture the storyteller last put up on the players'
    * table, which the thumbnail's glow and tack show. The table's state, not
@@ -91,7 +86,8 @@ type Props = {
  * border and a glow, tapped (TAPPED) a shade dimmer, switched off (DISABLED)
  * in grey italics; the menu's icon says which either way. It has no ✕:
  * taking an element out of the scene is the panel's − beside In this scene.
- * Anything the page alone holds is just its name.
+ * Anything the page alone holds is just its name. Every change to the item
+ * goes to the table's play space (useSceneItemsContext), which owns it.
  */
 export function RunPlayPill({
   idStory,
@@ -100,13 +96,11 @@ export function RunPlayPill({
   stackTag,
   otherStacks,
   sceneStacks,
-  onRemove,
-  onStatusChange,
-  onItemChange,
   pictureUp = false,
   onPictureUpChange,
   locked = false,
 }: Props) {
+  const { replace, setStatus } = useSceneItemsContext();
   const status = item.sceneStatus;
   const linked = status !== undefined && idStoryScene !== null;
   // What may be pressed to change the link: linked, and the scene not complete.
@@ -136,7 +130,7 @@ export function RunPlayPill({
 
   // Every change to the link is shown at once and goes back if the action
   // refuses (useOptimisticAction); the table owns the item, so each tells
-  // the table what to show rather than keeping a copy here.
+  // the play space what to show rather than keeping a copy here.
   const [, chooseImage] = useOptimisticAction(
     pictureUp,
     (next) =>
@@ -159,7 +153,7 @@ export function RunPlayPill({
       const result = await sa_setSceneElementStatus(idStory, ...linkIds(), next);
       return result.ok ? { ok: true, value: result.status } : result;
     },
-    { onShow: (next) => onStatusChange(item.key, next), failed: CHANGE_FAILED },
+    { onShow: (next) => setStatus(item.key, next), failed: CHANGE_FAILED },
   );
   function pickStatus(next: SceneElementStatus) {
     if (!link || next === link.status) return;
@@ -169,7 +163,7 @@ export function RunPlayPill({
   const [, chooseInfo] = useOptimisticAction(
     showInfo,
     (next) => sa_setSceneElementShowInfo(idStory, ...linkIds(), next),
-    { onShow: (next) => onItemChange({ ...item, showInfo: next }), failed: CHANGE_FAILED },
+    { onShow: (next) => replace({ ...item, showInfo: next }), failed: CHANGE_FAILED },
   );
   function toggleInfo() {
     if (!link) return;
@@ -180,7 +174,7 @@ export function RunPlayPill({
   const [, chooseShowing] = useOptimisticAction<ElementShowing>(
     item.showing ?? DEFAULT_ELEMENT_SHOWING,
     (next) => sa_setSceneElementShowing(idStory, ...linkIds(), next),
-    { onShow: (next) => onItemChange(withShowing(item, next)), failed: CHANGE_FAILED },
+    { onShow: (next) => replace(withShowing(item, next)), failed: CHANGE_FAILED },
   );
   function pickShowing(next: string) {
     if (!link || !isElementShowing(next) || next === item.showing) return;
@@ -251,7 +245,7 @@ export function RunPlayPill({
                 idStoryScene={idStoryScene}
                 idElement={elementIdOf(item)}
                 label={item.label}
-                onPicked={(imageUrl) => onItemChange({ ...item, imageUrl })}
+                onPicked={(imageUrl) => replace({ ...item, imageUrl })}
               />
             </Box>
           )
@@ -413,11 +407,6 @@ export function RunPlayPill({
                 {text}
               </Heading>
             )}
-            onSceneStatusChange={(next) => onStatusChange(item.key, next)}
-            onShowInfoChange={(next) => onItemChange({ ...item, showInfo: next })}
-            onItemChange={onItemChange}
-            onImageChange={(imageUrl) => onItemChange({ ...item, imageUrl })}
-            onRemovedFromScene={() => onRemove(item.key)}
             stackTag={stackTag}
             otherStacks={otherStacks}
             sceneStacks={sceneStacks}

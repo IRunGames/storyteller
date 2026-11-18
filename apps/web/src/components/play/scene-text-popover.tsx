@@ -3,20 +3,22 @@
 import { useId, useRef, useState } from "react";
 import { chakra, Heading, Popover, Portal, Stack, Text } from "@chakra-ui/react";
 import { ChevronDown, Info, Pencil } from "lucide-react";
-import type { SceneTextValues } from "@/lib/scene-schemas";
-import type { SceneText, SetSceneTextResult } from "@/lib/scenes";
+import type { SceneText } from "@/lib/scenes";
 import { toaster } from "@/components/ui/toaster";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { WithTooltip } from "@/components/buttons/with-tooltip";
 import type { ScenePicturesProps } from "./scene-pictures";
-import { SceneTextForm } from "./scene-text-form";
+import { SceneTextForm, type SceneTextSaver } from "./scene-text-form";
 
 type Props = {
+  idStory: number;
+  /** The scene whose words the panel holds. */
+  idStoryScene: number;
   /** The scene's title, which heads the panel and names the chevron. */
   title: string;
   text: SceneText;
-  /** Saves the panel; see SceneTextForm. */
-  save: (values: SceneTextValues & { title?: string }) => Promise<SetSceneTextResult>;
+  /** Which action saves the panel; see SceneTextForm. */
+  saver: SceneTextSaver;
   /** The text as stored, for the table to keep, and the title when the panel renames the scene. */
   onSaved: (text: SceneText, title?: string) => void;
   /** The live-edit page: the panel renames the scene too (SceneTextForm's Title). */
@@ -60,9 +62,11 @@ type Props = {
  * the description and the notes as they are, a dash for one not written.
  */
 export function SceneTextPopover({
+  idStory,
+  idStoryScene,
   title,
   text,
-  save,
+  saver,
   onSaved,
   readOnly = false,
   icon = "chevron",
@@ -170,8 +174,10 @@ export function SceneTextPopover({
               )}
               {open && !readOnly && (
                 <SceneTextForm
+                  idStory={idStory}
+                  idStoryScene={idStoryScene}
                   text={text}
-                  save={save}
+                  saver={saver}
                   title={editTitle ? title : undefined}
                   notesHint={notesHint}
                   pictures={pictures}

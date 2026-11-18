@@ -6,19 +6,42 @@ import { Button, Field, HStack, Input, Stack, Textarea } from "@chakra-ui/react"
 import { liveSceneTextSchema, sceneTextSchema, type SceneTextValues } from "@/lib/scene-schemas";
 import type { SceneText, SetSceneTextResult } from "@/lib/scenes";
 import { applyActionErrors } from "@/lib/forms";
+import { sa_setLiveSceneText } from "@/components/live/actions";
+import { sa_setPlaySceneText } from "@/components/play/actions";
+import { sa_setSceneText } from "@/components/run/actions";
 import { FormError } from "@/components/forms/form-error";
 import { ScenePictures, type ScenePicturesProps } from "./scene-pictures";
 
+/**
+ * Which action saves the scene's words, each with its own rule about which
+ * scenes it may write: the storyteller's sa_setSceneText from the run table
+ * and the storyboard, which takes a complete scene; the live-edit page's
+ * sa_setLiveSceneText, which refuses one; a player's sa_setPlaySceneText,
+ * which writes only the scene being played.
+ */
+export type SceneTextSaver = "run" | "live" | "play";
+
+const SAVERS: Record<
+  SceneTextSaver,
+  (idStory: number, idStoryScene: number, input: unknown) => Promise<SetSceneTextResult>
+> = {
+  run: sa_setSceneText,
+  live: sa_setLiveSceneText,
+  play: sa_setPlaySceneText,
+};
+
 type Props = {
+  idStory: number;
+  /** The scene whose words these are. */
+  idStoryScene: number;
   /** What the fields start with: the scene's text as the table holds it. */
   text: SceneText;
   /**
-   * Saves the values: the storyteller's sa_setSceneText or a player's
-   * sa_setPlaySceneText, bound to the scene, as RunElementForm takes its
-   * save. The same schema runs again in the action. The title is among the
-   * values only when the form has a Title field.
+   * Which action saves the values (SceneTextSaver). The same schema runs
+   * again in the action. The title is among the values only when the form
+   * has a Title field.
    */
-  save: (values: SceneTextValues & { title?: string }) => Promise<SetSceneTextResult>;
+  saver: SceneTextSaver;
   /** The text as stored, and the title as stored when the form renames the scene. */
   onSaved: (text: SceneText, title?: string) => void;
   onCancel: () => void;
@@ -51,8 +74,10 @@ const FIELDS = ["title", "description", "notes"] as const;
  * the storyteller's panels, saved as they are added rather than on Save.
  */
 export function SceneTextForm({
+  idStory,
+  idStoryScene,
   text,
-  save,
+  saver,
   onSaved,
   onCancel,
   title,
@@ -79,7 +104,7 @@ export function SceneTextForm({
   async function onSubmit(values: SceneTextValues & { title?: string }) {
     let result: SetSceneTextResult;
     try {
-      result = await save(values);
+      result = await SAVERS[saver](idStory, idStoryScene, values);
     } catch {
       setError("root", { message: "Could not save the scene. Please try again." });
       return;

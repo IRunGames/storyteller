@@ -18,7 +18,6 @@ import { Layers, Maximize2, Minimize2 } from "lucide-react";
 import { formatSceneLength } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import type { StoryboardScene } from "@/lib/storyboard";
-import { sa_setSceneText } from "@/components/run/actions";
 import { SceneTextPopover } from "@/components/play/scene-text-popover";
 import { SceneElementsPanel } from "./scene-elements-panel";
 import { CoverBackdrop } from "@/components/covers/cover-backdrop";
@@ -68,8 +67,9 @@ const FACE_HEIGHT = { base: "80vw", md: "24rem" } as const;
  *
  * For the storyteller a pencil before the expand button opens the table's
  * scene panel (SceneTextPopover) over the card with the title, description,
- * notes and pictures, for a scene in any status, through the run page's save, which
- * takes a complete scene where the live-edit page's refuses it: notes are
+ * notes and pictures, for a scene in any status, through the run page's
+ * action (saver "run"), which takes a complete scene where the live-edit
+ * page's refuses it: notes are
  * often written once a scene is done, and the board is where a finished
  * scene's name is read in the run of the story and found wanting. The face
  * then shows the words as saved, kept here rather than in the board's
@@ -171,9 +171,11 @@ export function SceneCard({ idStory, scene, statusOptions, canEdit }: Props) {
         >
           {canEdit && (
             <SceneTextPopover
+              idStory={idStory}
+              idStoryScene={scene.idStoryScene}
               title={words.title}
               text={{ description: words.description, notes: words.notes }}
-              save={(values) => sa_setSceneText(idStory, scene.idStoryScene, values)}
+              saver="run"
               onSaved={(text, savedTitle) =>
                 setWords({ ...text, title: savedTitle ?? words.title })
               }

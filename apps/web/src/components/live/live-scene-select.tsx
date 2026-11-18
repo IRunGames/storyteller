@@ -18,7 +18,6 @@ import type { SceneSessionOption } from "@/lib/scenes";
 import { SEARCH_DELAY_MS } from "@/lib/search";
 import type { StatusOption } from "@/lib/status";
 import { useDebouncedSearch } from "@/hooks/use-debounced-search";
-import { sa_createLiveScene } from "@/components/live/actions";
 import { sa_searchLiveScenes } from "@/components/live/actions";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { WithTooltip } from "@/components/buttons/with-tooltip";
@@ -43,8 +42,8 @@ type Props = {
  * The scene selector in the live-edit page's header. The statuses as pills
  * on top, as the library's columns have them over their search boxes, all on
  * to start with; under them a Sessions filter, a box to type a scene's name
- * into, a + beside it that makes a new one (RunNewSceneDialog with
- * sa_createLiveScene) and goes to it, and a Duplicate after the + that
+ * into, a + beside it that makes a new one (RunNewSceneDialog, forEditing,
+ * so sa_createLiveScene writes it) and goes to it, and a Duplicate after the + that
  * makes a copy of the scene the page is on, asking first
  * (DuplicateSceneButton), and goes to that.
  *
@@ -228,7 +227,7 @@ export function LiveSceneSelect({ idStory, scene, sessions, statusOptions, onCho
         idStory={idStory}
         open={creating}
         onClose={() => setCreating(false)}
-        create={sa_createLiveScene}
+        forEditing
         onCreated={(space) => {
           if (space.scene) onChoose(space.scene.idStoryScene);
         }}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import NextLink from "next/link";
 import {
   Badge,
@@ -11,7 +11,6 @@ import {
   Heading,
   HStack,
   IconButton,
-  List,
   Portal,
   Stack,
   Text,
@@ -22,12 +21,14 @@ import { useUser } from "@/components/auth/user-provider";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { PlayChatOverlay } from "@/components/play/play-chat-overlay";
 import { SceneStateOverlay } from "@/components/play/scene-state-overlay";
-import { usePlayScene, type ScenePulseEvent } from "@/components/play/use-play-scene";
+import { usePlayScene } from "@/components/play/use-play-scene";
 import { useStoryChat } from "@/components/play/use-story-chat";
-import type { ChannelStatus } from "@/components/play/use-story-channel";
-import { AttachmentPreviewDialog } from "@/components/uploads/attachment-preview";
+import { HALO } from "@/components/table-shell/halo";
+import { PlayStackFrame } from "@/components/table-shell/play-stack-frame";
+import { PulsedPicture, usePulsedPicture } from "@/components/table-shell/pulsed-picture";
+import { STATUS_NOTES } from "@/components/table-shell/status-notes";
 import { toPlayItem, type PlayScene } from "@/lib/play-scene";
-import { elementIdOf, isStackWide, playStacks } from "@/lib/run";
+import { isStackWide, playStacks } from "@/lib/run";
 import { withRedirect } from "@/lib/safe-redirect";
 import { LogoMark } from "@/components/nav/brand-mark";
 import { BackgroundToggle } from "@/components/play/background-toggle";
@@ -66,18 +67,6 @@ async function leaveIfSignedOut() {
 // room stays without it from one visit to the next.
 const SHOW_CHAT_BOX = "table.showChatBox";
 
-// The halo PlaySpace sets its words in, so they read over any cover.
-const HALO_COLOUR = "var(--chakra-colors-bg)";
-const HALO = [1, 1, 2, 4, 8, 12].map((px) => `0 0 ${px}px ${HALO_COLOUR}`).join(", ");
-
-// What the table says of a connection short of connected, as PlaySpace does.
-const STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
-  connecting: "Connecting…",
-  reconnecting: "Reconnecting…",
-  offline: "Offline: changes will show when the connection is back.",
-  unavailable: "Live updates are off; reload to see changes.",
-};
-
 /**
  * The display table: the scene being played, put up to be read at a
  * distance, on a screen the table shares or by a guest who came in by the
@@ -94,9 +83,10 @@ const STATUS_NOTES: Partial<Record<ChannelStatus, string>> = {
  * page (useGuestDeparture), and is sent out when the storyteller ends the
  * session.
  *
- * The elements are in the storyteller's stacks as on the players' table, as
- * large pills with no pictures (PassivePill). A picture the storyteller puts
- * up (preview.open) opens full size over everything until they take it down.
+ * The elements are in the storyteller's stacks as on the players' table
+ * (PlayStackFrame, at the display size), as large pills with no pictures
+ * (PassivePill). A picture the storyteller puts up (preview.open) opens
+ * full size over everything until they take it down (usePulsedPicture).
  * Someone with an account can also open an element's picture from its icon,
  * in the same preview, and open its info from the button beside the icon;
  * the preview is theirs alone, and the storyteller putting up
@@ -124,17 +114,12 @@ export function PassiveTable({
   const user = useUser();
   const preferences = useUserPreferences();
   const showChatBox = !user.isAnonymous && preferences.get<boolean>(SHOW_CHAT_BOX, true);
-  const [previewIdElement, setPreviewIdElement] = useState<number | null>(null);
+  const picture = usePulsedPicture();
   // The eye's choice, this page's alone: a reload brings the details back.
   const [showBackground, setShowBackground] = useState(false);
   const detailsHidden = !user.isAnonymous && showBackground;
-  // An action this build does not know is left alone, as on the players' table.
-  const onPulse = useCallback((event: ScenePulseEvent) => {
-    if (event.custom.action === "preview.open") setPreviewIdElement(event.idElement);
-    else if (event.custom.action === "preview.close") setPreviewIdElement(null);
-  }, []);
   const chat = useStoryChat(idStory, true);
-  const { scene, channel, setElementNotes } = usePlayScene(idStory, initialScene, onPulse, {
+  const { scene, channel, setElementNotes } = usePlayScene(idStory, initialScene, picture.onPulse, {
     onChat: chat.receive,
     onConnect: () => void chat.refresh(),
     onReloadFailed: user.isAnonymous ? leaveIfSignedOut : undefined,
@@ -145,10 +130,6 @@ export function PassiveTable({
   const items = scene.items.map(toPlayItem);
   const coverUrl = scene.coverUrl ?? storyCoverUrl;
   const note = STATUS_NOTES[channel.status];
-  const shown =
-    previewIdElement === null
-      ? null
-      : (items.find((item) => elementIdOf(item) === previewIdElement && item.imageUrl) ?? null);
 
   return (
     <Box position="relative" h="100vh" overflow="hidden" bg="bg">
@@ -253,57 +234,27 @@ export function PassiveTable({
               {/* A stack the storyteller has widened takes the whole width
                   here too, its pills in columns as on their table, so the
                   room sees what they see. */}
-              {playStacks(scene.tags, items).map((stack) => {
-                const wide = isStackWide(scene.wideTags, stack.tag);
-                return (
-                  <Stack
-                    key={stack.title}
-                    as="section"
-                    aria-label={stack.title}
-                    gap="3"
-                    w={wide ? "full" : { base: "full", md: "30rem" }}
-                    flexShrink="0"
-                    data-wide={wide ? "true" : undefined}
-                  >
-                    <Heading
-                      as="h2"
-                      textStyle="xl"
-                      truncate
-                      textShadow={HALO}
-                      textTransform="uppercase"
-                      letterSpacing="wider"
-                      px="2"
-                    >
-                      {stack.title}
-                    </Heading>
-                    {stack.items.length > 0 && (
-                      <List.Root
-                        listStyleType="none"
-                        gap="3"
-                        display={wide ? "grid" : undefined}
-                        gridTemplateColumns={
-                          wide ? "repeat(auto-fill, minmax(40rem, 1fr))" : undefined
-                        }
-                      >
-                        {stack.items.map((item) => (
-                          <List.Item key={item.key}>
-                            <PassivePill
-                              idStory={idStory}
-                              item={item}
-                              onPreview={
-                                user.isAnonymous
-                                  ? undefined
-                                  : () => setPreviewIdElement(elementIdOf(item))
-                              }
-                              onNotesChange={user.isAnonymous ? undefined : setElementNotes}
-                            />
-                          </List.Item>
-                        ))}
-                      </List.Root>
-                    )}
-                  </Stack>
-                );
-              })}
+              {playStacks(scene.tags, items).map((stack) => (
+                <PlayStackFrame
+                  key={stack.title}
+                  title={stack.title}
+                  size="display"
+                  wide={isStackWide(scene.wideTags, stack.tag)}
+                  items={stack.items}
+                  renderItem={(item) => (
+                    <PassivePill
+                      idStory={idStory}
+                      item={item}
+                      onPreview={
+                        user.isAnonymous
+                          ? undefined
+                          : () => picture.open(item.idSceneElement ?? null)
+                      }
+                      onNotesChange={user.isAnonymous ? undefined : setElementNotes}
+                    />
+                  )}
+                />
+              ))}
             </Flex>
           )}
         </Box>
@@ -317,22 +268,11 @@ export function PassiveTable({
 
       {!detailsHidden && <SceneStateOverlay status={scene.scene?.status} />}
 
-      {/* As on the players' table: keyed by the item, so a new picture is a
-          fresh dialog rather than one whose image swaps under it. */}
-      {shown && shown.imageUrl && (
-        <AttachmentPreviewDialog
-          key={shown.key}
-          open
-          onOpenChange={(open) => {
-            if (!open) setPreviewIdElement(null);
-          }}
-          url={shown.imageUrl}
-          label={shown.label}
-          tags={[]}
-          isCover={false}
-          showTags={false}
-        />
-      )}
+      <PulsedPicture
+        items={items}
+        idSceneElement={picture.idSceneElement}
+        onClose={picture.close}
+      />
 
       {/* Taken out while the background shows, lines and box both; back,
           it shows only lines said after it returns (PlayChatOverlay). */}

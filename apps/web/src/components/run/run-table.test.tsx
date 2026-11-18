@@ -269,7 +269,6 @@ function renderTable(
   initialSpace: RunPlaySpace = EMPTY_PLAY_SPACE,
   who: CurrentUser = user,
   storyCoverUrl: string | null = null,
-  isOwner = true,
 ) {
   return renderWithProviders(
     <UserProvider user={who}>
@@ -278,7 +277,6 @@ function renderTable(
           idStory={-4}
           title="Psychoneira"
           storyCoverUrl={storyCoverUrl}
-          isOwner={isOwner}
           sessions={storySessions}
           session={session}
           initialSpace={initialSpace}
@@ -343,6 +341,9 @@ describe("RunTable", () => {
         sa_removeLinkPlayer: mock.fn(),
       },
     });
+    // RunSceneSelect's New scene dialog can also write the live-edit page's
+    // kind of scene; this table never asks it to.
+    mock.module("@/components/live/actions", { namedExports: { sa_createLiveScene: mock.fn() } });
     mock.module("@/components/run/actions", {
       namedExports: {
         sa_listRunScenes: async () => [],
@@ -671,18 +672,6 @@ describe("RunTable", () => {
       within(sessions).getByRole("button", { name: "Delete 2. The Drowned Gate" }),
     ).toBeInTheDocument();
     expect(within(sessions).getAllByRole("button", { name: /^Edit / }).length).toBeGreaterThan(0);
-  });
-
-  it("leaves the pencils and trashcans off the sessions list for anyone but the owner", async () => {
-    const u = userEvent.setup();
-    renderTable({}, kildealg, EMPTY_PLAY_SPACE, user, null, false);
-    const sessions = within(screen.getByTestId("story-playing-box")).getByRole("region", {
-      name: "Sessions",
-    });
-    await u.click(within(sessions).getByRole("button", { name: "Show sessions" }));
-    expect(within(sessions).getByText("3. Kildealg")).toBeVisible();
-    expect(within(sessions).queryByRole("button", { name: /^Delete / })).not.toBeInTheDocument();
-    expect(within(sessions).queryByRole("button", { name: /^Edit / })).not.toBeInTheDocument();
   });
 
   it("shows no story box once the table is on a scene", () => {

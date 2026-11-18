@@ -5,36 +5,44 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button, Field, HStack, Input, Stack, Text, Textarea } from "@chakra-ui/react";
 import { runElementSchema, type RunElementValues } from "@/lib/element-schemas";
+import type { ElementDetail, PlayItem } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { applyActionErrors } from "@/lib/forms";
+import { sa_updateStoryElement } from "@/components/elements/actions";
+import { sa_createSceneElement, sa_updateSceneElement } from "@/components/scene-elements/actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { StatusChoicePill } from "@/components/status/status-choice-pill";
 import { ElementKindSelect } from "@/components/prep/element-kind-select";
 import { FormError } from "@/components/forms/form-error";
 
-/** What a save hands back: its own success, or errors keyed by field. */
-type SaveResult<Saved> = Saved | { ok: false; errors: Record<string, string> };
+/**
+ * What the form writes, and with which action: a new element from a stack's
+ * or a tab's +, written into the story and linked to the scene under the
+ * stack's tag (sa_createSceneElement); an element in the scene, saved with
+ * its link (sa_updateSceneElement); or an element alone, apart from any
+ * scene, from the library or in a complete scene (sa_updateStoryElement).
+ */
+export type ElementFormTarget =
+  | {
+      kind: "create";
+      idStoryScene: number;
+      tag: string | null;
+      /** The pictures the popover chose before the element exists: the element's own, and the link's for this scene. */
+      idAttachment: number | null;
+      idSceneAttachment: number | null;
+      /** The library's Add showing info switch: whether the players see the new element's description. */
+      showInfo: boolean;
+    }
+  | { kind: "scene"; idStoryScene: number; idSceneElement: number }
+  | { kind: "story"; idElement: number };
 
-type Props<Saved extends { ok: true }> = {
+type Props = {
+  idStory: number;
   /**
    * What the fields start with. A status left empty takes the workflow's
    * first, as a new row would.
    */
   initial: RunElementValues;
-  /**
-   * Saves the values: sa_createSceneElement or sa_updateSceneElement, bound,
-   * or for the library sa_updateStoryElement.
-   */
-  save: (values: RunElementValues) => Promise<SaveResult<Saved>>;
-  /** What the save handed back: the pill as it now is, or the element. */
-  onSaved: (saved: Saved) => void;
-  /**
-   * False for an element the form edits apart from any scene, from the
-   * library: the In this scene pill is left out. The field still holds the
-   * workflow's first status, so the schema is satisfied, and the action
-   * that saves it does not read it.
-   */
-  inScene?: boolean;
   onCancel: () => void;
   submitLabel: string;
   /**
@@ -44,7 +52,44 @@ type Props<Saved extends { ok: true }> = {
    */
   elementPicture?: ReactNode;
   scenePicture?: ReactNode;
-};
+} & (
+  | {
+      target: Extract<ElementFormTarget, { kind: "create" | "scene" }>;
+      /** What the save handed back: the pill as it now is. */
+      onSaved: (saved: { item: PlayItem }) => void;
+    }
+  | {
+      /**
+       * An element the form edits apart from any scene: the In this scene
+       * pill is left out. The field still holds the workflow's first status,
+       * so the schema is satisfied, and the action that saves it does not
+       * read it.
+       */
+      target: Extract<ElementFormTarget, { kind: "story" }>;
+      /** What the save handed back: the element as the story now holds it. */
+      onSaved: (saved: { element: ElementDetail }) => void;
+    }
+);
+
+/** The action for a target, with the form's values. */
+function save(idStory: number, target: ElementFormTarget, values: RunElementValues) {
+  switch (target.kind) {
+    case "create":
+      return sa_createSceneElement(idStory, target.idStoryScene, target.tag, {
+        ...values,
+        idAttachment: target.idAttachment,
+        idSceneAttachment: target.idSceneAttachment,
+        // Ephemera start with their info hidden whatever the switch says: a
+        // handout is the storyteller's to give out, so its description is
+        // not the players' at once. The pill's info toggle still shows it.
+        showInfo: values.kind === "EPHEMERA" ? false : target.showInfo,
+      });
+    case "scene":
+      return sa_updateSceneElement(idStory, target.idStoryScene, target.idSceneElement, values);
+    case "story":
+      return sa_updateStoryElement(idStory, target.idElement, values);
+  }
+}
 
 const FIELDS = [
   "kind",
@@ -73,16 +118,17 @@ const FIELDS = [
  * Both workflows are read as the form opens, so the pill and the dropdown
  * offer exactly what the database will accept.
  */
-export function RunElementForm<Saved extends { ok: true }>({
+export function RunElementForm({
+  idStory,
   initial,
-  save,
+  target,
   onSaved,
   onCancel,
   submitLabel,
   elementPicture,
   scenePicture,
-  inScene = true,
-}: Props<Saved>) {
+}: Props) {
+  const inScene = target.kind !== "story";
   const [options, setOptions] = useState<{
     element: StatusOption[];
     scene: StatusOption[];
@@ -122,15 +168,17 @@ export function RunElementForm<Saved extends { ok: true }>({
   }, [getValues, setValue]);
 
   async function onSubmit(values: RunElementValues) {
-    let result: SaveResult<Saved>;
+    let result: Awaited<ReturnType<typeof save>>;
     try {
-      result = await save(values);
+      result = await save(idStory, target, values);
     } catch {
       setError("root", { message: "Could not save the element. Please try again." });
       return;
     }
     if (result.ok) {
-      onSaved(result);
+      // Each target's action answers the shape its onSaved takes, which the
+      // union of props says but one call cannot carry.
+      (onSaved as (saved: Extract<typeof result, { ok: true }>) => void)(result);
       return;
     }
     applyActionErrors({ setError }, result.errors, FIELDS);

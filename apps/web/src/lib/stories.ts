@@ -273,14 +273,6 @@ export const SECTION_EMPTY_TEXT: Record<SectionKey, string> = {
 };
 
 /**
- * Which blocks each page shows, in order. The Stories page is the caller's
- * own shelf; the stories other storytellers have opened to players are a
- * page of their own, Find a Story, under Stories in the menu.
- */
-export const STORIES_SECTIONS = ["favorites", "mine"] as const;
-export const FIND_SECTIONS = ["open"] as const;
-
-/**
  * The sitting a scene was played in as a row of v_story_scenes carries it,
  * headed as the Timeline heads it (sessionHeading), or null for a scene in
  * no sitting, and for the row of a session the view could not number, which

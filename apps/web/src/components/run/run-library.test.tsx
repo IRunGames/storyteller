@@ -5,6 +5,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
+import { resetSceneItemsStub, sceneItemsStub } from "@/test/scene-items";
+import { SceneItemsProvider } from "@/components/table-shell/scene-items-context";
 import type { Attachment } from "@/lib/attachments";
 import type { ElementKind, ElementSort, StoryElement } from "@/lib/elements";
 import type { AttachmentSort, ElementDetail, PlayItem, RunLibrarySource } from "@/lib/run";
@@ -134,9 +136,8 @@ const sa_getElementDetail = mock.fn(
 const sa_unlinkSceneElement = mock.fn(async (_story: number, _scene: number, _link: number) => ({
   ok: true as const,
 }));
-const onRemovedFromScene = mock.fn((_idSceneElement: number) => {});
-const onImageChange = mock.fn((_idElement: number, _imageUrl: string | null) => {});
-const onElementEdited = mock.fn((_element: ElementDetail) => {});
+// The table's play space, which the info popover's changes go to.
+const sceneItems = sceneItemsStub();
 const sa_updateStoryElement = mock.fn(
   async (_story: number, _element: number, values: Record<string, string>) => ({
     ok: true as const,
@@ -231,10 +232,8 @@ describe("RunLibrary", () => {
     sa_unlinkSceneElement.mock.resetCalls();
     sa_setElementImage.mock.resetCalls();
     sa_updateStoryElement.mock.resetCalls();
-    onElementEdited.mock.resetCalls();
-    onImageChange.mock.resetCalls();
+    resetSceneItemsStub(sceneItems);
     sa_listSceneLibraryElements.mock.resetCalls();
-    onRemovedFromScene.mock.resetCalls();
     sa_createAttachment.mock.resetCalls();
     sa_setAttachmentCover.mock.resetCalls();
     sa_setAttachmentTags.mock.resetCalls();
@@ -265,24 +264,20 @@ describe("RunLibrary", () => {
   ) => (
     <UserProvider user={user}>
       <UserPreferencesProvider preferences={{}}>
-        <Harness
-          idStory={-4}
-          idStoryScene={idStoryScene}
-          attachmentSort={attachmentSort}
-          elementSort={elementSort}
-          sceneOnly={sceneOnly}
-          onAdd={onAdd}
-          onRemovedFromScene={onRemovedFromScene}
-          onImageChange={onImageChange}
-          onElementEdited={onElementEdited}
-          onItemChange={() => {}}
-          onSceneStatusChange={() => {}}
-          onSceneCoverChange={onSceneCoverChange}
-          onCreated={() => {}}
-          stackTag={null}
-          sceneStacks={["elements", "scene"]}
-          locked={locked}
-        />
+        <SceneItemsProvider value={sceneItems}>
+          <Harness
+            idStory={-4}
+            idStoryScene={idStoryScene}
+            attachmentSort={attachmentSort}
+            elementSort={elementSort}
+            sceneOnly={sceneOnly}
+            onAdd={onAdd}
+            onSceneCoverChange={onSceneCoverChange}
+            stackTag={null}
+            sceneStacks={["elements", "scene"]}
+            locked={locked}
+          />
+        </SceneItemsProvider>
       </UserPreferencesProvider>
       <Toaster />
     </UserProvider>
@@ -760,7 +755,9 @@ describe("RunLibrary", () => {
     expect(values).toMatchObject({ name: "Dafydd the Shell", status: "ACTIVE" });
     // Back on the detail, as saved; the play space and the list hear of it.
     expect(await within(dialog).findByText("Dafydd the Shell", { selector: "dd" })).toBeTruthy();
-    expect(onElementEdited.mock.calls[0].arguments[0]).toMatchObject({ name: "Dafydd the Shell" });
+    expect(sceneItems.editElement.mock.calls[0].arguments[0]).toMatchObject({
+      name: "Dafydd the Shell",
+    });
     await waitFor(() =>
       expect(sa_listStoryElements.mock.callCount()).toBeGreaterThan(listedBefore),
     );
@@ -780,7 +777,7 @@ describe("RunLibrary", () => {
     expect(sa_setElementImage.mock.calls[0].arguments).toEqual([-4, 5, 1]);
     // The play space hears of it, and the popover shows it with its −.
     await waitFor(() =>
-      expect(onImageChange.mock.calls[0]?.arguments).toEqual([5, "https://x.test/1.png"]),
+      expect(sceneItems.setImage.mock.calls[0]?.arguments).toEqual([5, "https://x.test/1.png"]),
     );
     expect(within(dialog).getByRole("button", { name: "Remove picture" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Add picture" })).toBeNull();
@@ -801,7 +798,7 @@ describe("RunLibrary", () => {
     expect(await screen.findByText("Removed from the scene")).toBeInTheDocument();
     // The link goes by its own id, the one the detail read.
     expect(sa_unlinkSceneElement.mock.calls[0].arguments).toEqual([-4, 15, 9]);
-    expect(onRemovedFromScene.mock.calls[0].arguments).toEqual([9]);
+    expect(sceneItems.removeLink.mock.calls[0].arguments).toEqual([9]);
     // Out of the scene now, so the button goes; the element is still shown.
     expect(within(dialog).queryByRole("button", { name: "Remove from scene" })).toBeNull();
     expect(within(dialog).getByText("Shell seller")).toBeInTheDocument();

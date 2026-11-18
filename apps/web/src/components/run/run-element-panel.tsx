@@ -12,18 +12,15 @@ import {
   type SceneLink,
 } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
-import { sa_getElementDetail, sa_updateStoryElement } from "@/components/elements/actions";
-import {
-  sa_moveSceneElement,
-  sa_unlinkSceneElement,
-  sa_updateSceneElement,
-} from "@/components/scene-elements/actions";
+import { sa_getElementDetail } from "@/components/elements/actions";
+import { sa_moveSceneElement, sa_unlinkSceneElement } from "@/components/scene-elements/actions";
 import { toaster } from "@/components/ui/toaster";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { DeleteButton } from "@/components/confirm/delete-button";
 import { ElementHistory } from "@/components/elements/element-history";
 import { sa_getStatBlocks, type ElementStatBlock } from "@/components/stat-blocks/actions";
 import { ElementStatBlocks } from "@/components/stat-blocks/stat-block-view";
+import { useSceneItemsContext } from "@/components/table-shell/scene-items-context";
 import { ElementStatBlocksFold } from "./element-stat-blocks-fold";
 import { RunElementForm } from "./run-element-form";
 import { ElementDetailRows } from "./run-element-detail";
@@ -61,25 +58,14 @@ type Props = {
    * element in the story may still be edited from there.
    */
   canEdit?: boolean;
-  /** The element's status in the scene has been moved from here. */
-  onSceneStatusChange: (status: string) => void;
-  /** The In this scene info toggle has been pressed from here, or put back. */
-  onShowInfoChange?: (showInfo: boolean) => void;
   /**
-   * The element has been edited in the scene, moved, or filed under other
-   * stacks from here, as its pill now is.
+   * The element has been edited from here, in the scene or in the story, or
+   * moved or filed under other stacks: the play space already shows it, and
+   * a holder that lists elements, the library, lists afresh.
    */
-  onItemChange: (item: PlayItem) => void;
-  /** The element has been edited from here, as the story now holds it. */
-  onEdited?: (element: ElementDetail) => void;
-  /**
-   * The picture the pill shows has been changed from here: its address, or
-   * null for none. The link's own picture for this scene when it has one,
-   * else the element's.
-   */
-  onImageChange: (imageUrl: string | null) => void;
-  /** The link has been taken out of the scene from here, by id. */
-  onRemovedFromScene: (idSceneElement: number) => void;
+  onChanged?: () => void;
+  /** The link has been taken out of the scene from here, by id; the play space already knows. */
+  onRemovedFromScene?: (idSceneElement: number) => void;
   /**
    * From a pill: the tag of the stack it is in, which Move to takes it out
    * of (null for Default), and the scene's other stacks, which Move to
@@ -122,8 +108,10 @@ type Loaded = ElementPanelDetail & {
  * in (ElementHistory), closed until its chevron is pressed.
  *
  * The pill shows the link's picture for this scene when it has one, else
- * the element's, so a change to either here is reported as whichever the
- * pill should now show (onImageChange).
+ * the element's, so a change to either here gives the play space whichever
+ * the pill should now show (setImage). Every change made here goes to the
+ * table's play space the same way (useSceneItemsContext), so the pill keeps
+ * up without the panel's holder relaying it.
  *
  * The pencil swaps the detail for RunElementForm, filled in. A SCENE
  * element is edited with its scene status (sa_updateSceneElement), which
@@ -140,16 +128,13 @@ export function RunElementPanel({
   heading,
   locked = false,
   canEdit = true,
-  onSceneStatusChange,
-  onShowInfoChange,
-  onItemChange,
-  onEdited,
-  onImageChange,
+  onChanged,
   onRemovedFromScene,
   stackTag = null,
   otherStacks = [],
   sceneStacks,
 }: Props) {
+  const sceneItems = useSceneItemsContext();
   // undefined while loading, null when there is nothing to show.
   const [loaded, setLoaded] = useState<Loaded | null | undefined>(undefined);
   // The link's own picture for this scene, as the scene card last read or
@@ -208,8 +193,12 @@ export function RunElementPanel({
     setMoving(true);
     try {
       const result = await sa_moveSceneElement(idStory, idStoryScene, link, stackTag, tag);
-      if (result.ok) onItemChange(result.item);
-      else toaster.create({ title: result.error, type: "error" });
+      if (result.ok) {
+        sceneItems.replace(result.item);
+        onChanged?.();
+      } else {
+        toaster.create({ title: result.error, type: "error" });
+      }
     } catch {
       toaster.create({ title: "The element could not be moved. Try again.", type: "error" });
     } finally {
@@ -228,7 +217,8 @@ export function RunElementPanel({
     const result = await sa_unlinkSceneElement(idStory, idStoryScene, link);
     if (result.ok) {
       setLoaded((current) => (current ? { ...current, link: null } : current));
-      onRemovedFromScene(link);
+      sceneItems.removeLink(link);
+      onRemovedFromScene?.(link);
     }
     return result;
   }
@@ -278,7 +268,8 @@ export function RunElementPanel({
           // the story's.
           link={inScene && !locked ? loaded.link : null}
           onSavedInScene={(item) => {
-            onItemChange(item);
+            sceneItems.replace(item);
+            onChanged?.();
             setEditing(false);
             setLoaded(undefined);
             setLoads((count) => count + 1);
@@ -286,7 +277,8 @@ export function RunElementPanel({
           onSavedInStory={(element) => {
             patchElement(element);
             setEditing(false);
-            onEdited?.(element);
+            sceneItems.editElement(element);
+            onChanged?.();
           }}
           onCancel={() => setEditing(false)}
         />
@@ -312,20 +304,21 @@ export function RunElementPanel({
               elementHasStats={loaded.elementBlocks.some((block) => block.carried.length > 0)}
               onStatusChange={(status) => {
                 patchLink({ status });
-                onSceneStatusChange(status);
+                sceneItems.patchLink(loaded.link!.idSceneElement, { sceneStatus: status });
               }}
               onShowInfoChange={(showInfo) => {
                 patchLink({ showInfo });
-                onShowInfoChange?.(showInfo);
+                sceneItems.patchLink(loaded.link!.idSceneElement, { showInfo });
               }}
               onTagsChange={(item) => {
                 patchLink({ tags: item.sceneTags ?? [] });
-                onItemChange(item);
+                sceneItems.replace(item);
+                onChanged?.();
               }}
               onImageLoaded={setSceneImageUrl}
               onImageChange={(url) => {
                 setSceneImageUrl(url);
-                onImageChange(url ?? loaded.element.imageUrl);
+                sceneItems.setImage(idElement, url ?? loaded.element.imageUrl);
               }}
             />
           )}
@@ -335,14 +328,15 @@ export function RunElementPanel({
             onStatusChange={(status) => patchElement({ status })}
             onTagsChange={(tags) => {
               patchElement({ tags });
-              onEdited?.({ ...loaded.element, tags });
+              sceneItems.editElement({ ...loaded.element, tags });
+              onChanged?.();
             }}
             idStory={idStory}
             idStoryScene={idStoryScene}
             onImageChange={(imageUrl) => {
               patchElement({ imageUrl });
               // The link's own picture, if any, still stands in front.
-              onImageChange(sceneImageUrl ?? imageUrl);
+              sceneItems.setImage(idElement, sceneImageUrl ?? imageUrl);
             }}
           />
           {/* From a pill, the element's own blocks folded under its rows, to
@@ -435,9 +429,10 @@ function EditForm({
   if (link && idStoryScene !== null) {
     return (
       <RunElementForm
+        idStory={idStory}
         initial={initial}
-        save={(values) => sa_updateSceneElement(idStory, idStoryScene, link.idSceneElement, values)}
-        onSaved={({ item }) => onSavedInScene(item)}
+        target={{ kind: "scene", idStoryScene, idSceneElement: link.idSceneElement }}
+        onSaved={({ item }: { item: PlayItem }) => onSavedInScene(item)}
         onCancel={onCancel}
         submitLabel="Save element"
       />
@@ -445,10 +440,10 @@ function EditForm({
   }
   return (
     <RunElementForm
-      inScene={false}
+      idStory={idStory}
       initial={initial}
-      save={(values) => sa_updateStoryElement(idStory, idElement, values)}
-      onSaved={({ element: saved }) => onSavedInStory(saved)}
+      target={{ kind: "story", idElement }}
+      onSaved={({ element: saved }: { element: ElementDetail }) => onSavedInStory(saved)}
       onCancel={onCancel}
       submitLabel="Save element"
     />

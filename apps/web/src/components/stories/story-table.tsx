@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Badge, Button, Stack, Table, Text } from "@chakra-ui/react";
+import { Button, Stack, Table, Text } from "@chakra-ui/react";
 import {
   createColumnHelper,
   rowSortingFeature,
@@ -18,6 +18,10 @@ import {
   systemLabel,
   type StoryCardData,
 } from "@/lib/stories";
+import { isAdministrator } from "@/lib/user-types";
+import { useUser } from "@/components/auth/user-provider";
+import { LocalDate } from "@/components/dates/local-date";
+import { StoryActivePill } from "./story-active-pill";
 import { StoryTitleMenu } from "./story-title-menu";
 import { StoryFavoriteButton } from "./story-favorite-button";
 
@@ -36,6 +40,8 @@ type Props = {
   onToggleFavorite: (story: StoryCardData, isFavorite: boolean) => void;
   /** Ids whose favorite toggle is in flight; their hearts are disabled. */
   pendingFavorites: ReadonlySet<number>;
+  /** A story retired or brought back from its status pill, for the list to keep up. */
+  onActiveChange?: (story: StoryCardData, isActive: boolean) => void;
 };
 
 /**
@@ -50,7 +56,10 @@ export function StoryTable({
   onSortingChange,
   onToggleFavorite,
   pendingFavorites,
+  onActiveChange,
 }: Props) {
+  // An administrator may retire or bring back any story, as sa_setStoryActive allows.
+  const isAdmin = isAdministrator(useUser().idUserType);
   const columns = useMemo(() => {
     const helper = createColumnHelper<typeof features, StoryCardData>();
     return helper.columns([
@@ -59,7 +68,6 @@ export function StoryTable({
         header: "Story",
         cell: (info) => {
           const story = info.row.original;
-          const system = systemLabel(story);
           return (
             <Stack gap="0" minW="0" maxW="md">
               <StoryTitleMenu
@@ -70,11 +78,6 @@ export function StoryTable({
                 size="sm"
                 fontWeight="medium"
               />
-              {system && (
-                <Text textStyle="xs" color="fg.muted" truncate>
-                  {system}
-                </Text>
-              )}
               {!story.isOwner && story.storytellerName && (
                 <Text textStyle="xs" color="fg.muted" truncate>
                   Storyteller: {story.storytellerName}
@@ -84,17 +87,36 @@ export function StoryTable({
           );
         },
       }),
+      // The game as the card says it (systemLabel); empty for a story with
+      // no system, which the server sorts after the rest.
+      helper.accessor("systemName", {
+        id: "system",
+        header: "System",
+        cell: (info) => {
+          const system = systemLabel(info.row.original);
+          return system ? (
+            <Text textStyle="sm" color="fg.muted" truncate maxW="2xs">
+              {system}
+            </Text>
+          ) : null;
+        },
+      }),
+      // The status pill, and for the story's storyteller or an administrator
+      // the way to retire the story or bring it back (StoryActivePill).
       helper.accessor("isActive", {
         id: "status",
         header: "Status",
-        cell: (info) =>
-          info.getValue() ? (
-            <Badge size="sm" colorPalette="green" variant="subtle">
-              Active
-            </Badge>
-          ) : (
-            <Badge size="sm">Inactive</Badge>
-          ),
+        cell: (info) => {
+          const story = info.row.original;
+          return (
+            <StoryActivePill
+              idStory={story.idStory}
+              isActive={story.isActive}
+              canEdit={story.isOwner || isAdmin}
+              onChanged={(isActive) => onActiveChange?.(story, isActive)}
+            />
+          );
+        },
       }),
       helper.accessor("isFavorite", {
         id: "favorite",
@@ -139,8 +161,15 @@ export function StoryTable({
             </Text>
           ),
       }),
+      // When the story was last played, to the minute, in the reader's own
+      // time zone: the card shows the day alone, the list has room for both.
+      helper.accessor("lastPlayed", {
+        id: "lastPlayed",
+        header: "Last played",
+        cell: (info) => <LocalDate value={info.getValue()} withTime />,
+      }),
     ]);
-  }, [onToggleFavorite, pendingFavorites]);
+  }, [onToggleFavorite, pendingFavorites, onActiveChange, isAdmin]);
 
   const table = useTable({
     features,
@@ -197,13 +226,25 @@ export function StoryTable({
           ))}
         </Table.Header>
         <Table.Body>
+          {/* A story the reader plays in rather than runs is tinted, so
+              their own stories stand apart in a mixed list; data-plays is
+              for the tests, which cannot read the token. */}
           {table.getRowModel().rows.map((row) => (
-            <Table.Row key={row.id} aria-label={row.original.title}>
+            <Table.Row
+              key={row.id}
+              aria-label={row.original.title}
+              bg={row.original.isOwner ? undefined : "bg.subtle"}
+              data-plays={row.original.isOwner ? undefined : "true"}
+            >
               {row.getAllCells().map((cell) => (
                 <Table.Cell
                   key={cell.id}
                   textAlign={numeric.has(cell.column.id) ? "end" : undefined}
-                  whiteSpace={cell.column.id === "played" ? "nowrap" : undefined}
+                  whiteSpace={
+                    cell.column.id === "played" || cell.column.id === "lastPlayed"
+                      ? "nowrap"
+                      : undefined
+                  }
                 >
                   <table.FlexRender cell={cell} />
                 </Table.Cell>

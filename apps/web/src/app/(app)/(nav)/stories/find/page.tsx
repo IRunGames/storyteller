@@ -1,14 +1,13 @@
 import { Container, Heading, Stack, Text } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
-import { FIND_SECTIONS } from "@/lib/stories";
 import { StoriesBoard } from "@/components/stories/stories-board";
 import { sa_listLookingForPlayers } from "../actions";
 
 // Find a Story, the sub-page under Stories in the menu: every active story
-// whose storyteller has opened it to new players. It reuses the Stories
-// board with the one section, so paging and the heart behave as they do
-// there; a heart here lands on the Stories page's Favorites. requireSession()
-// here rather than trusting the group layout; see lib/require-session.ts.
+// whose storyteller has opened it to new players, as one paged list
+// (StoriesBoard); a heart here lands on the Stories page's Favorites.
+// requireSession() here rather than trusting the group layout; see
+// lib/require-session.ts.
 export default async function FindStoryPage() {
   await requireSession();
 
@@ -25,11 +24,7 @@ export default async function FindStoryPage() {
           </Text>
         </Stack>
 
-        <StoriesBoard
-          sections={FIND_SECTIONS}
-          initial={{ open }}
-          loadMore={{ open: sa_listLookingForPlayers }}
-        />
+        <StoriesBoard initial={open} />
       </Stack>
     </Container>
   );

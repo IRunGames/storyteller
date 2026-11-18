@@ -17,6 +17,7 @@ import type { RunPlaySpace } from "@/lib/run";
 import { runSceneSchema, type RunSceneValues } from "@/lib/scene-schemas";
 import { applyActionErrors } from "@/lib/forms";
 import { sa_createRunScene, type CreateRunSceneResult } from "@/components/run/actions";
+import { sa_createLiveScene } from "@/components/live/actions";
 import { toaster } from "@/components/ui/toaster";
 import { FormError } from "@/components/forms/form-error";
 
@@ -27,10 +28,12 @@ type Props = {
   /** The new scene's play space, once the table is on it. */
   onCreated: (space: RunPlaySpace) => void;
   /**
-   * What writes the scene, when not the run page's sa_createRunScene: the
-   * live-edit page's sa_createLiveScene, which leaves the session alone.
+   * The live-edit page's dialog: the scene is made to be prepared rather
+   * than played, pending and in no sitting, with the session left where it
+   * was (sa_createLiveScene). Left out, the run table's sa_createRunScene
+   * puts the table on the new scene.
    */
-  create?: (idStory: number, values: RunSceneValues) => Promise<CreateRunSceneResult>;
+  forEditing?: boolean;
 };
 
 /**
@@ -39,9 +42,9 @@ type Props = {
  * (sa_createRunScene), or pending and in no sitting when none is being
  * played. The board's New scene form also asks which sitting the scene
  * belongs to; here that is the one at the table, so it does not. The
- * live-edit page's selector opens the same dialog with its own `create`.
+ * live-edit page's selector opens the same dialog with `forEditing`.
  */
-export function RunNewSceneDialog({ idStory, open, onClose, onCreated, create }: Props) {
+export function RunNewSceneDialog({ idStory, open, onClose, onCreated, forEditing }: Props) {
   return (
     <Dialog.Root
       open={open}
@@ -63,7 +66,7 @@ export function RunNewSceneDialog({ idStory, open, onClose, onCreated, create }:
                 idStory={idStory}
                 onClose={onClose}
                 onCreated={onCreated}
-                create={create}
+                forEditing={forEditing}
               />
             )}
             <Dialog.CloseTrigger asChild>
@@ -76,12 +79,8 @@ export function RunNewSceneDialog({ idStory, open, onClose, onCreated, create }:
   );
 }
 
-function NewSceneForm({
-  idStory,
-  onClose,
-  onCreated,
-  create = sa_createRunScene,
-}: Omit<Props, "open">) {
+function NewSceneForm({ idStory, onClose, onCreated, forEditing = false }: Omit<Props, "open">) {
+  const create = forEditing ? sa_createLiveScene : sa_createRunScene;
   const {
     register,
     handleSubmit,

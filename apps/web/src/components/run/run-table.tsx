@@ -1,104 +1,43 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Box,
-  Flex,
-  Heading,
-  HStack,
-  SegmentGroup,
-  Separator,
-  Stack,
-  Switch,
-  Text,
-} from "@chakra-ui/react";
-import {
-  Activity,
-  BookOpen,
-  ChartNoAxesColumn,
-  MessageSquare,
-  RefreshCw,
-  Settings,
-  UserRound,
-} from "lucide-react";
-import {
-  DEFAULT_ATTACHMENT_SORT,
-  DEFAULT_ELEMENT_SORT,
-  elementIdOf,
-  isAttachmentSort,
-  isElementSort,
-  playStacks,
-  RUN_ADD_INVISIBLE,
-  RUN_ADD_SHOW_INFO,
-  RUN_LIBRARY_ATTACHMENT_SORT,
-  RUN_LIBRARY_ELEMENT_SORT,
-  RUN_LIBRARY_SCENE_ONLY,
-  DEFAULT_ELEMENT_SHOWING,
-  playItemKey,
-  withShowing,
-  type ElementDetail,
-  type PlayItem,
-  type RunLibrarySource,
-  type RunPlaySpace,
-  type RunScene,
-  type RunSession,
-} from "@/lib/run";
+import { useEffect, useRef, useState } from "react";
+import { Flex, HStack, Text } from "@chakra-ui/react";
+import { BookOpen, ChartNoAxesColumn, RefreshCw } from "lucide-react";
+import type { RunPlaySpace, RunScene, RunSession } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { EMPTY_SCENE_TEXT } from "@/lib/scenes";
 import { SCENE_LOCKED_STATUS, SESSION_PLAYING_STATUSES, SESSION_STATUS } from "@/lib/status";
-import type { StackRename } from "@/lib/stack-schemas";
-import { sessionHeading, type StorySession } from "@/lib/stories";
-import { sa_openRunPlaySpace, sa_setSceneText } from "@/components/run/actions";
+import type { StorySession } from "@/lib/stories";
+import { sa_openRunPlaySpace } from "@/components/run/actions";
 import { useWideStacks } from "@/components/run/use-wide-stacks";
-import { sa_linkSceneElement } from "@/components/scene-elements/actions";
+import { SceneItemsProvider } from "@/components/table-shell/scene-items-context";
+import { useSceneItems } from "@/components/table-shell/use-scene-items";
+import { TableLibraryPanel } from "@/components/table-shell/table-library-panel";
+import { TablePlaySpace, TableStacks } from "@/components/table-shell/table-play-space";
+import { TableShell } from "@/components/table-shell/table-shell";
+import { useTableChat } from "@/components/table-shell/use-table-chat";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
-import { useUser } from "@/components/auth/user-provider";
-import { SessionNotesPopover } from "@/components/sessions/session-notes-popover";
 import { toaster } from "@/components/ui/toaster";
-import { canSeeDiagnostics } from "@/lib/diagnostics";
-import { PlayCharacterSpace } from "@/components/play/play-character-space";
-import { PlayChat } from "@/components/play/play-chat";
-import { useChatLayout } from "@/components/play/play-chat-layout";
-import { PlayChatOverlay } from "@/components/play/play-chat-overlay";
-import { useStoryChat } from "@/components/play/use-story-chat";
-import { PlayDiagnostics } from "@/components/play/play-diagnostics";
-import { PlayHeader } from "@/components/play/play-header";
 import { InactivityCheck } from "./inactivity-check";
-import { JoinLinkButton } from "./join-link-button";
 import { PlayPanelToggle } from "@/components/play/play-panel-toggle";
+import { SceneCompleteOverlay } from "@/components/play/scene-state-overlay";
 import { SceneTextPopover } from "@/components/play/scene-text-popover";
 import { useStoryChannel } from "@/components/play/use-story-channel";
-import { RunLibrary } from "./run-library";
-import { RunLibrarySortMenu } from "./run-library-sort-menu";
-import { RunPlayStack } from "./run-play-stack";
 import { StoryPlayingBox } from "@/components/stories/story-playing-box";
-import { RunSceneSelect } from "./run-scene-select";
-import { RunSessionTitle } from "./run-session-title";
-import { RunStackSelect } from "./run-stack-select";
 import { RunStatsPane } from "./run-stats-pane";
-import { StoryTitleMenu } from "@/components/stories/story-title-menu";
-import { RunManageStacksDialog } from "./run-manage-stacks-dialog";
+import { RunTableHeader } from "./run-table-header";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
-import { StatusPill } from "@/components/status/status-pill";
-import { CoverBackdrop } from "@/components/covers/cover-backdrop";
 import { glass } from "@/theme";
 
-// The storyteller's own preference keys, apart from a player's play.* ones:
-// the two tables are laid out for different jobs, and the storyteller who
-// also plays in someone else's story keeps each the way they left it. The
-// library starts open, since it is what this table is for.
+// The storyteller's own preference keys for the panes this table alone has;
+// the chat's, the character's and the diagnostics' are useTableChat's, under
+// the same `run.` prefix. The library starts open, since it is what this
+// table is for.
 const SHOW_LIBRARY = "run.showLibrary";
 const SHOW_STATS = "run.showStats";
-const SHOW_CHAT = "run.showChat";
-const SHOW_CHARACTER = "run.showCharacter";
-const SHOW_DIAGNOSTICS = "run.showDiagnostics";
 
 const LIBRARY_ID = "run-panel-library";
 const STATS_ID = "run-panel-stats";
-const CHAT_ID = "run-panel-chat";
-const CHARACTER_ID = "run-panel-character";
-const DIAGNOSTICS_ID = "run-panel-diagnostics";
 
 type Props = {
   idStory: number;
@@ -109,8 +48,6 @@ type Props = {
    * or on one without a cover of its own.
    */
   storyCoverUrl: string | null;
-  /** The viewer is the story's owner, for the sessions list's pencils and trashcans. */
-  isOwner: boolean;
   /**
    * The first page of the story's sessions, for the list in the box the play
    * space shows while it is on no scene (StoryPlayingBox).
@@ -127,30 +64,26 @@ type Props = {
 };
 
 // The storyteller's table, /stories/[id]/run: the player's table (PlayTable)
-// with the story's library down the left. It began as a copy of PlayTable
-// rather than a mode of it, so that what only the storyteller may see lives
-// in a page and a component a player never loads; the page proves the
-// caller owns the story before drawing any of it.
+// with the story's library down the left. It is a page and a component a
+// player never loads, so that what only the storyteller may see lives
+// there; the page proves the caller owns the story before drawing any of it.
 //
 // The play space opens with the scene the session is on and the elements
 // brought into it (sa_openRunPlaySpace), in one stack per scene tag with the
 // scene's cover behind them. A stack's + makes a new element filed under
 // its tag, and the library's arrow links an element to the scene under the
-// first stack's tag; both are saved, tag and all, so a reload puts each
-// back in its stack. An element added with no scene at the table is kept
-// in this page's state only, so it is the storyteller's alone; showing it
-// to the players is for when the table has somewhere shared to keep it.
-// The scene selector in the header, beside the session and its status chip,
-// moves the table to another scene, which replaces the play space with that
-// scene's; the scene's status chip sits beside the selector. The session's
-// chip is a menu too: pausing or ending the session from it takes the
-// table down and goes back to the story's page, which is where a paused
-// session is resumed. The scene's title stands in the play space's upper
-// right.
+// In select's tag (TableLibraryPanel); both are saved, tag and all, so a
+// reload puts each back in its stack. The scene selector in the header,
+// beside the session and its status chip, moves the table to another scene,
+// which replaces the play space with that scene's; the scene's status chip
+// sits beside the selector. The session's chip is a menu too: pausing or
+// ending the session from it takes the table down and goes back to the
+// story's page, which is where a paused session is resumed. The scene's
+// title stands in the play space's upper left.
 //
 // Every change made here is published on the story's MQTT topic for the
 // players' table (lib/realtime/publish-scene.ts). The table listens to the
-// story's topics too, for the chat (useStoryChat), whose lines come in
+// story's topics too, for the chat (useTableChat), whose lines come in
 // whether or not its panel is open and are counted on the Chat toggle
 // while it is not; moving to another scene puts an "Entering" divider in
 // it. The diagnostics panel, in the chat's place as on the players' table,
@@ -160,24 +93,15 @@ export function RunTable({
   idStory,
   title,
   storyCoverUrl,
-  isOwner,
   sessions,
   session,
   initialSpace,
   sceneStatusOptions,
   sessionStatusOptions,
 }: Props) {
-  const user = useUser();
   const preferences = useUserPreferences();
-  const diagnosticsOffered = canSeeDiagnostics(user.idUserType);
-  // The chat is held here rather than in its panel, so it keeps listening
-  // while the panel is closed and the Chat toggle can count what came in.
-  // Diagnostics stands in for the chat, so the chat is showing only while
-  // diagnostics is not.
-  const showChat = preferences.get<boolean>(SHOW_CHAT, false);
-  const showDiagnostics = diagnosticsOffered && preferences.get<boolean>(SHOW_DIAGNOSTICS, false);
-  const chat = useStoryChat(idStory, showChat && !showDiagnostics);
-  const [chatLayout] = useChatLayout();
+  const panels = useTableChat(idStory, "run");
+  const { chat } = panels;
   // This table publishes the scene and does not follow it, so the state
   // topic's messages are left alone; the connection is always open for the
   // chat, and for the diagnostics panel.
@@ -185,10 +109,7 @@ export function RunTable({
     onChat: chat.receive,
     onConnect: () => void chat.refresh(),
   });
-  const router = useRouter();
   const [scene, setScene] = useState<RunScene | null>(initialSpace.scene);
-  // The library's tab, held here for the sort menu beside its heading.
-  const [libraryTab, setLibraryTab] = useState<RunLibrarySource>("ATTACHMENT");
   // The session's status as its chip last moved it; the page loaded it.
   const [sessionStatus, setSessionStatus] = useState(session?.status ?? null);
   const [tags, setTags] = useState<string[]>(initialSpace.tags);
@@ -199,18 +120,13 @@ export function RunTable({
   // Bumped when the scene editor's Pictures change them, so the library's
   // Attachments tab reads them again; see RunLibrary's attachmentsVersion.
   const [picturesVersion, setPicturesVersion] = useState(0);
-  const [inPlay, setInPlay] = useState<PlayItem[]>(initialSpace.inPlay);
+  // What is in the play space and every way it changes, handed down to the
+  // stacks, the pills and the library through SceneItemsProvider.
+  const sceneItems = useSceneItems(initialSpace.inPlay);
+  const inPlay = sceneItems.items;
   // Counts the times the space was read again, for the stats pane to read
   // its blocks again with it.
   const [spaceVersion, setSpaceVersion] = useState(0);
-  // The library's In select: the stack what the library adds goes in. Held
-  // as a name and checked against the scene's stacks on every render, so a
-  // new scene, or the chosen stack taken off this one, falls back to the
-  // first stack without anything having to reset it.
-  const [chosenStack, setChosenStack] = useState<string | null>(null);
-  const inStack =
-    chosenStack !== null && tags.includes(chosenStack) ? chosenStack : (tags[0] ?? null);
-  const [managingStacks, setManagingStacks] = useState(false);
   // The pill whose picture the storyteller last put up on the players'
   // table from its tack, by key, or null for none. This page's alone: the
   // pulse that put it up was not written anywhere, so a reload starts from
@@ -230,7 +146,7 @@ export function RunTable({
     setTags(space.tags);
     wideStacks.load(space.wideTags);
     setCoverUrl(space.coverUrl);
-    setInPlay(space.inPlay);
+    sceneItems.load(space.inPlay);
     setPictureUpKey(null);
     setSpaceVersion((current) => current + 1);
   };
@@ -270,155 +186,7 @@ export function RunTable({
 
   const showLibrary = preferences.get<boolean>(SHOW_LIBRARY, true);
   const showStats = preferences.get<boolean>(SHOW_STATS, false);
-  const showCharacter = preferences.get<boolean>(SHOW_CHARACTER, false);
-  // The library's Add as invisible switch; a stack's + reads it too, for
-  // where its new element starts.
-  const addInvisible = preferences.get<boolean>(RUN_ADD_INVISIBLE, false);
-  // The library's Add showing info switch, read the same two ways: whether
-  // the players see a new element's description.
-  const addShowInfo = preferences.get<boolean>(RUN_ADD_SHOW_INFO, false);
-  // The library's All / Scene only switch, kept as a preference like the
-  // one above. Only on while there is a scene to narrow to.
-  const sceneOnly = preferences.get<boolean>(RUN_LIBRARY_SCENE_ONLY, false) && scene !== null;
-  // The library's sorts, one for its Attachments tab and one for the element
-  // tabs, each falling back to the default on a value the menu no longer
-  // offers.
-  const storedAttachmentSort = preferences.get<string>(RUN_LIBRARY_ATTACHMENT_SORT, "");
-  const attachmentSort = isAttachmentSort(storedAttachmentSort)
-    ? storedAttachmentSort
-    : DEFAULT_ATTACHMENT_SORT;
-  const storedElementSort = preferences.get<string>(RUN_LIBRARY_ELEMENT_SORT, "");
-  const elementSort = isElementSort(storedElementSort) ? storedElementSort : DEFAULT_ELEMENT_SORT;
 
-  // An item already in play stays where it is rather than going in twice.
-  const put = (item: PlayItem) =>
-    setInPlay((current) =>
-      current.some((existing) => existing.key === item.key) ? current : [...current, item],
-    );
-
-  // The library's arrow. An element is linked to the scene first, under the
-  // In select's stack, and goes in as the link came back. An element already
-  // in the scene goes in again as a copy, with its own link, and the
-  // storyteller is warned: a second goblin is wanted often enough, a second
-  // copy of the same one by mistake often enough too.
-  async function add(item: PlayItem) {
-    if (isComplete) return;
-    if (scene === null) {
-      if (!inPlay.some((existing) => existing.key === item.key)) put(item);
-      return;
-    }
-    const idElement = elementIdOf(item);
-    try {
-      const result = await sa_linkSceneElement(idStory, scene.idStoryScene, idElement, {
-        hidden: addInvisible,
-        tag: inStack,
-        showInfo: addShowInfo,
-      });
-      if (!result.ok) {
-        toaster.create({ title: result.error, type: "error" });
-        return;
-      }
-      put(result.item);
-      if (result.duplicate) {
-        toaster.create({
-          title: `${item.label} is in the scene already`,
-          description: `A copy was added as ${result.item.label}.`,
-          type: "warning",
-        });
-      }
-    } catch {
-      toaster.create({ title: "The element could not be added. Try again.", type: "error" });
-    }
-  }
-  const remove = (key: string) =>
-    setInPlay((current) => current.filter((existing) => existing.key !== key));
-  // One link taken out of the scene from the library's panel: its pill
-  // goes, and an element in the scene twice keeps its other pill.
-  const removeLink = (idSceneElement: number) =>
-    setInPlay((current) =>
-      current.filter((existing) => existing.idSceneElement !== idSceneElement),
-    );
-  // An item edited or moved from its info popover, in place. Matched by its
-  // element id rather than its key, which carries the kind: an edit that
-  // changes the kind comes back under a new key.
-  const replace = (item: PlayItem) =>
-    setInPlay((current) =>
-      current.map((existing) =>
-        existing.kind !== "ATTACHMENT" && elementIdOf(existing) === elementIdOf(item)
-          ? item
-          : existing,
-      ),
-    );
-  // An element's picture changed from the library's info popover: its pill,
-  // if it is in play, shows the new one.
-  const setImage = (idElement: number, imageUrl: string | null) =>
-    setInPlay((current) =>
-      current.map((existing) =>
-        existing.kind !== "ATTACHMENT" && elementIdOf(existing) === idElement
-          ? { ...existing, imageUrl }
-          : existing,
-      ),
-    );
-  // An element edited from the library's info popover: its pill, if it is
-  // in play, takes the new fields, keeps the field it was showing, and moves
-  // under its new kind's key if the kind changed.
-  const editElement = (element: ElementDetail) =>
-    setInPlay((current) =>
-      current.map((existing) => {
-        if (existing.kind === "ATTACHMENT" || elementIdOf(existing) !== element.idElement) {
-          return existing;
-        }
-        const moved: PlayItem = {
-          ...existing,
-          key: playItemKey(element.kind, element.idElement, existing.idSceneElement),
-          kind: element.kind as PlayItem["kind"],
-          imageUrl: element.imageUrl,
-        };
-        // Something the page alone holds has no fields to choose among.
-        if (!existing.fields) return { ...moved, label: element.name, detail: element.title };
-        return withShowing(
-          {
-            ...moved,
-            fields: {
-              initial_name: element.initialName,
-              name: element.name,
-              title: element.title,
-              label: existing.fields.label,
-            },
-          },
-          existing.showing ?? DEFAULT_ELEMENT_SHOWING,
-        );
-      }),
-    );
-  // Manage stacks saved: the scene's stacks as they now are. A renamed stack
-  // takes its pills with it, as the action took their links, and the In
-  // select follows a stack it had chosen; one taken away leaves its pills
-  // filed under the old name, so they fall into the first stack.
-  const saveStacks = (next: string[], renames: StackRename[]) => {
-    const renamed = (tag: string) => renames.find((rename) => rename.from === tag)?.to ?? tag;
-    setTags(next);
-    if (renames.length > 0) {
-      setInPlay((current) =>
-        current.map((existing) =>
-          existing.sceneTags
-            ? { ...existing, sceneTags: existing.sceneTags.map(renamed) }
-            : existing,
-        ),
-      );
-      setChosenStack((current) => (current === null ? current : renamed(current)));
-    }
-  };
-  // One identity for the life of the table, since the stats pane hands it
-  // to each of its memoised rows.
-  const setStatus = useCallback(
-    (key: string, status: string) =>
-      setInPlay((current) =>
-        current.map((existing) =>
-          existing.key === key ? { ...existing, sceneStatus: status } : existing,
-        ),
-      ),
-    [],
-  );
   // A pill's tack: the picture goes up, or comes down if it is the one up.
   // One picture is up on the players' table at a time (their preview is one
   // dialog, and a fresh open swaps it), so the one key says which pill
@@ -446,516 +214,189 @@ export function RunTable({
       >
         <ChartNoAxesColumn />
       </PlayPanelToggle>
-      <PlayPanelToggle
-        label="Character"
-        controls={CHARACTER_ID}
-        isOpen={showCharacter}
-        onToggle={() => preferences.set(SHOW_CHARACTER, !showCharacter)}
-      >
-        <UserRound />
-      </PlayPanelToggle>
-      <PlayPanelToggle
-        label="Chat"
-        controls={CHAT_ID}
-        isOpen={showChat}
-        count={chat.unread}
-        onToggle={() => preferences.set(SHOW_CHAT, !showChat)}
-      >
-        <MessageSquare />
-      </PlayPanelToggle>
-      {diagnosticsOffered && (
-        <PlayPanelToggle
-          label="Diagnostics"
-          controls={DIAGNOSTICS_ID}
-          isOpen={showDiagnostics}
-          onToggle={() => preferences.set(SHOW_DIAGNOSTICS, !showDiagnostics)}
-        >
-          <Activity />
-        </PlayPanelToggle>
-      )}
+      {panels.toggles.character}
+      {panels.toggles.chat}
+      {panels.toggles.diagnostics}
     </>
   );
 
-  // Diagnostics stands in for the chat rather than beside it, as on the
-  // players' table: the chat's preference is left as it is.
-  const rightPanel = showDiagnostics ? (
-    <PlayDiagnostics id={DIAGNOSTICS_ID} channel={channel} />
-  ) : showChat && chatLayout !== "overlay" ? (
-    <PlayChat id={CHAT_ID} idStory={idStory} chat={chat} />
-  ) : null;
-  // The overlay layout has no panel: a box in the lower right, over the table.
-  const chatOverlay = showChat && !showDiagnostics && chatLayout === "overlay" && (
-    <PlayChatOverlay id={CHAT_ID} idStory={idStory} chat={chat} />
+  const header = (
+    <RunTableHeader
+      idStory={idStory}
+      title={title}
+      session={session}
+      sessionStatus={sessionStatus}
+      onSessionStatusChange={setSessionStatus}
+      scene={scene}
+      onSceneStatusChange={(status) =>
+        setScene((current) => (current ? { ...current, status } : current))
+      }
+      onLoaded={loadSpace}
+      sceneStatusOptions={sceneStatusOptions}
+      sessionStatusOptions={sessionStatusOptions}
+      toggles={toggles}
+      atTable={chat.atTable}
+    />
   );
 
-  return (
-    <Flex direction="column" h="100vh">
-      {/* Asks after a long quiet whether play goes on, and suspends the
-          session if not; the chip and the overlay then follow the status. */}
-      {session && (
-        <InactivityCheck
-          idStory={idStory}
-          idStorySession={session.idStorySession}
-          isPlaying={sessionStatus !== null && SESSION_PLAYING_STATUSES.includes(sessionStatus)}
-          onSuspended={setSessionStatus}
-        />
-      )}
-      <PlayHeader
-        title={title}
-        titleContent={
-          <StoryTitleMenu
-            idStory={idStory}
-            title={title}
-            isStoryteller={isOwner}
-            as="span"
-            size="lg"
-            fontWeight="medium"
-          />
-        }
-        session={session ? sessionHeading(session) : null}
-        sessionContent={session && <RunSessionTitle idStory={idStory} session={session} />}
-        center={toggles}
-        centerInMenu
-        afterSession={
-          <HStack gap="1" flexShrink="0">
-            {/* The session's notes and lingering questions, the same panel
-                the players have beside the heading at their table. */}
-            {session && (
-              <SessionNotesPopover
-                idStorySession={session.idStorySession}
-                heading={sessionHeading(session)}
-              />
-            )}
-            {/* The join link beside the notes, whether or not a session is
-                on: seats are handed out before play begins as well. */}
-            <JoinLinkButton idStory={idStory} atTable={chat.atTable} />
-            {/* The session's status as a chip beside its title, and the
-                way to pause, resume or end it. Pausing keeps the storyteller
-                at the table: a pause is a break in play, and the same chip
-                resumes it. Ending asks first and takes the table down, since
-                an ended session has nothing left to run, so the storyteller
-                goes back to the story's page. */}
-            {session && sessionStatus !== null && (
-              <StatusPill
-                table="story_sessions"
-                id={session.idStorySession}
-                status={sessionStatus}
-                options={sessionStatusOptions}
-                canEdit
-                tooltip="Set session status"
-                confirm={(next) => {
-                  if (next === SESSION_STATUS.DONE) {
-                    return {
-                      title: "End this session?",
-                      body: "The session is over and the table closes. Carrying the story on means starting a new session from the story's page.",
-                      confirmLabel: "End session",
-                    };
-                  }
-                  if (next === SESSION_STATUS.SUSPENDED) {
-                    return {
-                      title: "Suspend this session?",
-                      body: "Play stops for a break. The table stays open, and this menu resumes the session.",
-                      confirmLabel: "Suspend session",
-                    };
-                  }
-                  return null;
-                }}
-                onChanged={(status) => {
-                  setSessionStatus(status);
-                  if (status === SESSION_STATUS.DONE) router.push(`/stories/${idStory}`);
-                }}
-              />
-            )}
-            <RunSceneSelect
-              idStory={idStory}
-              scene={scene}
-              hasSession={session !== null}
-              statusOptions={sceneStatusOptions}
-              onLoaded={loadSpace}
-            />
-            {/* The scene's status beside the selector. Keyed by the scene,
-                so moving to another starts from that scene's status. It
-                stays a menu on a complete scene, as the workflow allows:
-                moving it back lifts the overlay and the locks, which all
-                follow the status. Completing a scene and resuming one each
-                ask first. */}
-            {scene && (
-              <StatusPill
-                key={scene.idStoryScene}
-                table="story_scenes"
-                id={scene.idStoryScene}
-                status={scene.status}
-                options={sceneStatusOptions}
-                canEdit
-                tooltip="Set scene status"
-                confirm={(next) => {
-                  if (next === SCENE_LOCKED_STATUS) {
-                    return {
-                      title: "Complete this scene?",
-                      body: "A complete scene is locked: nothing can be added to it or taken out of it. To carry on the story, start a new scene.",
-                      confirmLabel: "Complete scene",
-                    };
-                  }
-                  // Leaving complete undoes a scene the storyteller
-                  // finished, so it asks too.
-                  if (isComplete) {
-                    const label =
-                      sceneStatusOptions.find((option) => option.key === next)?.label ?? next;
-                    return {
-                      title: "Resume this scene?",
-                      body: `This scene is complete. Resuming it makes it ${label.toLowerCase()} again, so its elements and stacks can be changed.`,
-                      confirmLabel: "Resume scene",
-                    };
-                  }
-                  return null;
-                }}
-                onChanged={(status) =>
-                  setScene((current) => (current ? { ...current, status } : current))
-                }
-              />
-            )}
-          </HStack>
-        }
-      />
+  // Over the stacks, saying so, but letting the pointer through: the pills'
+  // panels and the scene's text are still there to read, and the pills
+  // themselves (locked) offer nothing that changes the scene.
+  //
+  // A suspended session says so in the same way, pale where the complete
+  // scene is dark, so the two read as different things. It takes the
+  // complete scene's place rather than stacking on it: the break in play is
+  // the more recent news. Nothing at the table changes while it is up (the
+  // actions refuse a paused session), and the chip that resumes it is in the
+  // header, outside the overlay.
+  const overlay =
+    sessionStatus === SESSION_STATUS.SUSPENDED ? (
+      <Flex
+        position="absolute"
+        inset="0"
+        align="center"
+        justify="center"
+        bg="whiteAlpha.500"
+        pointerEvents="none"
+        data-testid="session-suspended-overlay"
+      >
+        <Text fontSize="5xl" fontWeight="bold" letterSpacing="widest" color="gray.900">
+          SUSPENDED
+        </Text>
+      </Flex>
+    ) : (
+      isComplete && <SceneCompleteOverlay />
+    );
 
-      {/* minH 0 all the way down, so each panel scrolls inside itself
-          instead of stretching the page past the window. */}
-      <Flex flex="1" minH="0">
-        {showLibrary && (
-          <Box
-            as="section"
-            id={LIBRARY_ID}
-            aria-labelledby="run-library-heading"
-            w={{ base: "72", md: "sm" }}
-            flexShrink="0"
-            minH="0"
-            display="flex"
-            flexDirection="column"
-            gap="3"
-            p="4"
-            borderRightWidth="1px"
-            bg="bg.subtle"
-          >
-            {/* The sort menu beside the heading, and All / Scene only at the
-                far end: how and what the library lists. With no scene at the
-                table there is only All. */}
-            <HStack justify="space-between" gap="2">
-              <HStack gap="1">
-                <Heading id="run-library-heading" size="sm">
-                  Library
-                </Heading>
-                <RunLibrarySortMenu
-                  tab={libraryTab}
-                  attachmentSort={attachmentSort}
-                  elementSort={elementSort}
-                  onAttachmentSortChange={(sort) =>
-                    preferences.set(RUN_LIBRARY_ATTACHMENT_SORT, sort)
-                  }
-                  onElementSortChange={(sort) => preferences.set(RUN_LIBRARY_ELEMENT_SORT, sort)}
-                />
-              </HStack>
-              <SegmentGroup.Root
-                size="xs"
-                aria-label="Which elements"
-                value={sceneOnly ? "SCENE" : "ALL"}
-                onValueChange={(details) =>
-                  preferences.set(RUN_LIBRARY_SCENE_ONLY, details.value === "SCENE")
-                }
-              >
-                <SegmentGroup.Indicator />
-                <SegmentGroup.Items
-                  items={[
-                    { value: "ALL", label: "All" },
-                    { value: "SCENE", label: "Scene only", disabled: scene === null },
-                  ]}
-                />
-              </SegmentGroup.Root>
-            </HStack>
-            {/* A column, so the library takes the height left between the
-                heading and the footer as a flex item rather than through a
-                percentage height, and its results scroll inside it. */}
-            <Box flex="1" minH="0" display="flex" flexDirection="column">
-              <RunLibrary
+  return (
+    <SceneItemsProvider value={sceneItems}>
+      <TableShell
+        before={
+          // Asks after a long quiet whether play goes on, and suspends the
+          // session if not; the chip and the overlay then follow the status.
+          session && (
+            <InactivityCheck
+              idStory={idStory}
+              idStorySession={session.idStorySession}
+              isPlaying={sessionStatus !== null && SESSION_PLAYING_STATUSES.includes(sessionStatus)}
+              onSuspended={setSessionStatus}
+            />
+          )
+        }
+        header={header}
+        left={
+          <>
+            {showLibrary && (
+              <TableLibraryPanel
+                id={LIBRARY_ID}
+                width="sm"
                 idStory={idStory}
-                idStoryScene={scene?.idStoryScene ?? null}
-                tab={libraryTab}
-                onTabChange={setLibraryTab}
-                attachmentSort={attachmentSort}
-                elementSort={elementSort}
-                sceneOnly={sceneOnly}
-                onAdd={(item) => void add(item)}
-                onRemovedFromScene={removeLink}
-                onCreated={put}
-                onImageChange={setImage}
-                onElementEdited={editElement}
-                onItemChange={replace}
-                onSceneStatusChange={setStatus}
-                stackTag={inStack}
-                sceneStacks={tags}
+                scene={scene}
+                tags={tags}
+                onTagsChange={setTags}
                 locked={isComplete}
-                onSceneCoverChange={setCoverUrl}
+                onCoverChange={setCoverUrl}
                 attachmentsVersion={picturesVersion}
               />
-            </Box>
-            {/* Below the list and outside its scroll, under a rule: the
-                switch is about how anything goes into the scene, not about
-                what the list shows, so it stays in reach however far the
-                list has scrolled. */}
-            <Stack gap="3" flexShrink="0">
-              <Separator />
-              {/* How and where the library adds: on the left hidden or not
-                  and with or without its info, and on the right which stack,
-                  with the gear beside it for the stacks themselves. The
-                  stack controls need a scene. */}
-              <HStack justify="space-between" gap="2" minW="0">
-                <HStack gap="3" wrap="wrap" flexShrink="0">
-                  <Switch.Root
-                    checked={addInvisible}
-                    onCheckedChange={(details) =>
-                      preferences.set(RUN_ADD_INVISIBLE, details.checked)
-                    }
-                    size="sm"
-                  >
-                    {/* Chakra renders a checkbox input; role="switch" is the
-                        ARIA pattern for an on/off toggle and what tests query. */}
-                    <Switch.HiddenInput role="switch" />
-                    <Switch.Control>
-                      <Switch.Thumb />
-                    </Switch.Control>
-                    <Switch.Label>Add as invisible</Switch.Label>
-                  </Switch.Root>
-                  <Switch.Root
-                    checked={addShowInfo}
-                    onCheckedChange={(details) =>
-                      preferences.set(RUN_ADD_SHOW_INFO, details.checked)
-                    }
-                    size="sm"
-                  >
-                    <Switch.HiddenInput role="switch" />
-                    <Switch.Control>
-                      <Switch.Thumb />
-                    </Switch.Control>
-                    <Switch.Label>Add showing info</Switch.Label>
-                  </Switch.Root>
-                </HStack>
-                {scene !== null && !isComplete && (
-                  <HStack gap="0" minW="0">
-                    <RunStackSelect
-                      idStory={idStory}
-                      idStoryScene={scene.idStoryScene}
-                      tags={tags}
-                      value={inStack}
-                      onChange={setChosenStack}
-                      onTagsChange={setTags}
-                    />
-                    <IconButtonWithTooltip
-                      label="Manage stacks"
-                      onClick={() => setManagingStacks(true)}
-                    >
-                      <Settings />
-                    </IconButtonWithTooltip>
-                    <RunManageStacksDialog
-                      idStory={idStory}
-                      idStoryScene={scene.idStoryScene}
-                      tags={tags}
-                      open={managingStacks}
-                      onClose={() => setManagingStacks(false)}
-                      onSaved={saveStacks}
-                    />
-                  </HStack>
-                )}
-              </HStack>
-            </Stack>
-          </Box>
-        )}
-        {/* The scene's stat blocks, every element's at once, beside the
-            library and before the play space. */}
-        {showStats && (
-          <RunStatsPane
-            id={STATS_ID}
-            idStory={idStory}
-            idStoryScene={scene?.idStoryScene ?? null}
-            items={inPlay}
-            locked={isComplete}
-            version={spaceVersion}
-            onStatusChange={setStatus}
-          />
-        )}
-
-        <Flex direction="column" flex="1" minW="0">
-          {/* The cover sits behind the scrolling part, so it stays put while
-              the stacks scroll over it. */}
-          <Box
-            as="section"
-            aria-labelledby="play-space-heading"
-            position="relative"
-            flex="1"
-            minH="0"
-          >
-            {shownCoverUrl && (
-              <CoverBackdrop url={shownCoverUrl} scrim="flat" testId="play-space-cover" />
             )}
-            <Stack position="relative" h="full" overflowY="auto" gap="3" p="4">
-              {/* With a scene loaded, the scene is what the space is about:
-                  its title stands in the upper left, on the panel colour,
-                  part see-through, as the pills are, so it reads over the
-                  cover, with the reload before it and the chevron that
-                  opens its description and notes after. The region's own
-                  heading stays for a screen reader, which names the region
-                  by it. */}
-              {/* With no scene there is nothing to title: the story's box
-                  in the lower left says what is being played instead. */}
-              {scene === null ? (
-                <Heading id="play-space-heading" srOnly>
-                  Play space
-                </Heading>
-              ) : (
-                <>
-                  <Heading id="play-space-heading" srOnly>
-                    Play space
-                  </Heading>
-                  <HStack
-                    gap="1"
-                    alignSelf="flex-start"
-                    maxW="full"
-                    rounded="2xl"
-                    css={glass}
-                    ps="1"
-                    pe="1"
-                    py="1"
-                  >
-                    {!reloading && (
-                      <IconButtonWithTooltip
-                        label="Reload the scene"
-                        onClick={() => void reloadSpace()}
-                      >
-                        <RefreshCw />
-                      </IconButtonWithTooltip>
-                    )}
-                    {/* The title is the popover's own trigger, the chevron after it. */}
-                    <SceneTextPopover
-                      asTitle
-                      title={scene.title}
-                      text={scene.text ?? EMPTY_SCENE_TEXT}
-                      save={(values) => sa_setSceneText(idStory, scene.idStoryScene, values)}
-                      onSaved={(text) =>
-                        setScene((current) => (current ? { ...current, text } : current))
-                      }
-                      readOnly={isComplete}
-                      pictures={{
-                        idStory,
-                        idStoryScene: scene.idStoryScene,
-                        onCoverChange: setCoverUrl,
-                        onPicturesChange: () => setPicturesVersion((version) => version + 1),
-                      }}
-                    />
-                  </HStack>
-                </>
-              )}
-              {/* space-between: the first stack against the left edge and
-                  the rest spread across the width. */}
-              {/* With no scene and nothing brought in, an empty Default
-                  stack would only say "Nothing here yet", so the space
-                  is left to the cover and the story's box. Something the
-                  library adds with no scene still shows, in its stack. */}
-              <Flex gap="3" wrap="wrap" align="flex-start" justify="space-between">
-                {(scene !== null || inPlay.length > 0 ? playStacks(tags, inPlay) : []).map(
-                  (stack) => (
-                    <RunPlayStack
-                      key={stack.title}
-                      idStory={idStory}
-                      stack={stack}
-                      sceneTags={tags}
-                      idStoryScene={scene?.idStoryScene ?? null}
-                      onCreated={put}
-                      onRemove={remove}
-                      onStatusChange={setStatus}
-                      onItemChange={replace}
-                      pictureUpKey={pictureUpKey}
-                      onPictureUpChange={setPictureUp}
-                      locked={isComplete}
-                      wide={wideStacks.isWide(stack.tag)}
-                      onWideChange={(wide) => void wideStacks.setWide(stack.tag, wide)}
-                    />
-                  ),
-                )}
-              </Flex>
-            </Stack>
-            {/* Over the stacks, saying so, but letting the pointer through:
-                the pills' panels and the scene's text are still there to
-                read, and the pills themselves (locked) offer nothing that
-                changes the scene. */}
-            {/* A suspended session says so in the same way, pale where the
-                complete scene is dark, so the two read as different things.
-                It takes the complete scene's place rather than stacking on
-                it: the break in play is the more recent news. Nothing at the
-                table changes while it is up (the actions refuse a paused
-                session), and the chip that resumes it is in the header,
-                outside the overlay. */}
-            {sessionStatus === SESSION_STATUS.SUSPENDED ? (
-              <Flex
-                position="absolute"
-                inset="0"
-                align="center"
-                justify="center"
-                bg="whiteAlpha.500"
-                pointerEvents="none"
-                data-testid="session-suspended-overlay"
-              >
-                <Text fontSize="5xl" fontWeight="bold" letterSpacing="widest" color="gray.900">
-                  SUSPENDED
-                </Text>
-              </Flex>
-            ) : (
-              isComplete && (
-                <Flex
-                  position="absolute"
-                  inset="0"
-                  align="center"
-                  justify="center"
-                  bg="blackAlpha.600"
-                  pointerEvents="none"
-                  data-testid="scene-complete-overlay"
-                >
-                  <Text fontSize="5xl" fontWeight="bold" letterSpacing="widest" color="white">
-                    COMPLETE
-                  </Text>
-                </Flex>
-              )
+            {/* The scene's stat blocks, every element's at once, beside the
+                library and before the play space. */}
+            {showStats && (
+              <RunStatsPane
+                id={STATS_ID}
+                idStory={idStory}
+                idStoryScene={scene?.idStoryScene ?? null}
+                items={inPlay}
+                locked={isComplete}
+                version={spaceVersion}
+                onStatusChange={sceneItems.setStatus}
+              />
             )}
-            {/* After the overlays, so it stays above a SUSPENDED one and
-                its chevron, pencils and trashcans keep working. */}
-            {scene === null && (
+          </>
+        }
+        below={panels.characterPanel}
+        right={panels.rightPanel(channel)}
+        overlay={panels.chatOverlay}
+      >
+        <TablePlaySpace
+          coverUrl={shownCoverUrl}
+          overlay={overlay}
+          // After the overlays, so it stays above a SUSPENDED one and its
+          // chevron, pencils and trashcans keep working.
+          after={
+            scene === null && (
               <StoryPlayingBox
                 idStory={idStory}
                 title={title}
                 sessions={sessions}
                 sessionStatusOptions={sessionStatusOptions}
-                canManage={isOwner}
+                canManage
               />
-            )}
-          </Box>
-
-          {showCharacter && (
-            <Box flexBasis="40%" flexShrink="0" minH="0" overflowY="auto" borderTopWidth="1px">
-              <PlayCharacterSpace id={CHARACTER_ID} />
-            </Box>
+            )
+          }
+        >
+          {/* With a scene loaded, the scene is what the space is about:
+              its title stands in the upper left, on the panel colour,
+              part see-through, as the pills are, so it reads over the
+              cover, with the reload before it and the chevron that
+              opens its description and notes after. With no scene there
+              is nothing to title: the story's box in the lower left says
+              what is being played instead. */}
+          {scene !== null && (
+            <HStack
+              gap="1"
+              alignSelf="flex-start"
+              maxW="full"
+              rounded="2xl"
+              css={glass}
+              ps="1"
+              pe="1"
+              py="1"
+            >
+              {!reloading && (
+                <IconButtonWithTooltip label="Reload the scene" onClick={() => void reloadSpace()}>
+                  <RefreshCw />
+                </IconButtonWithTooltip>
+              )}
+              {/* The title is the popover's own trigger, the chevron after it. */}
+              <SceneTextPopover
+                asTitle
+                idStory={idStory}
+                idStoryScene={scene.idStoryScene}
+                title={scene.title}
+                text={scene.text ?? EMPTY_SCENE_TEXT}
+                saver="run"
+                onSaved={(text) =>
+                  setScene((current) => (current ? { ...current, text } : current))
+                }
+                readOnly={isComplete}
+                pictures={{
+                  idStory,
+                  idStoryScene: scene.idStoryScene,
+                  onCoverChange: setCoverUrl,
+                  onPicturesChange: () => setPicturesVersion((version) => version + 1),
+                }}
+              />
+            </HStack>
           )}
-        </Flex>
-
-        {rightPanel && (
-          <Box
-            w={{ base: "72", md: "sm" }}
-            flexShrink="0"
-            minH="0"
-            borderLeftWidth="1px"
-            bg="bg.subtle"
-          >
-            {rightPanel}
-          </Box>
-        )}
-      </Flex>
-      {chatOverlay}
-    </Flex>
+          {/* With no scene and nothing brought in, an empty Default stack
+              would only say "Nothing here yet", so the space is left to the
+              cover and the story's box. Something the library adds with no
+              scene still shows, in its stack. */}
+          {(scene !== null || inPlay.length > 0) && (
+            <TableStacks
+              idStory={idStory}
+              idStoryScene={scene?.idStoryScene ?? null}
+              tags={tags}
+              items={inPlay}
+              locked={isComplete}
+              wideStacks={wideStacks}
+              pictureUpKey={pictureUpKey}
+              onPictureUpChange={setPictureUp}
+            />
+          )}
+        </TablePlaySpace>
+      </TableShell>
+    </SceneItemsProvider>
   );
 }

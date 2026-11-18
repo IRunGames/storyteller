@@ -61,12 +61,12 @@ describe("StoryTitleMenu", () => {
     const menu = await screen.findByRole("menu");
     const links = screen.getAllByRole("menuitem");
     expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["Storyboard", "/stories/-15/storyboard"],
       ["Overview", "/stories/-15"],
       ["Edit", "/stories/-15/edit"],
       ["Library", "/stories/-15/library"],
       ["Build scenes", "/stories/-15/scenes"],
       ["Play", null],
-      ["Storyboard", "/stories/-15/storyboard"],
     ]);
     // Real links, so the browser's own ways with them hold; Play opens the
     // Play popover instead.
@@ -155,10 +155,10 @@ describe("StoryTitleMenu", () => {
     // On the story's own page, so Overview is the current one.
     const items = await screen.findAllByRole("menuitem");
     expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
-      ["Overview", null],
       ["Storyboard", "/stories/-15/storyboard"],
+      ["Overview", null],
     ]);
-    expect(items[0]).toHaveAttribute("aria-current", "page");
+    expect(items[1]).toHaveAttribute("aria-current", "page");
   });
 
   it("draws the title as whatever element the page asks for", () => {

@@ -8,11 +8,13 @@ import { z } from "zod";
 export const STORY_SORT_KEYS = [
   "recent",
   "title",
+  "system",
   "status",
   "favorite",
   "players",
   "sessions",
   "played",
+  "lastPlayed",
 ] as const;
 export type StorySortKey = (typeof STORY_SORT_KEYS)[number];
 

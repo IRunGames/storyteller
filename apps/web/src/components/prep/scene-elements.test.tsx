@@ -4,6 +4,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
+import { useSceneItemsContext } from "@/components/table-shell/scene-items-context";
 import type { PlayItem, PlayStack } from "@/lib/run";
 
 // Two elements, one in each of the scene's stacks.
@@ -38,28 +39,29 @@ const lantern: PlayItem = {
 type StackProps = {
   stack: PlayStack;
   idStoryScene: number | null;
-  onCreated: (item: PlayItem) => void;
   onPictureUpChange?: unknown;
   locked?: boolean;
   fullWidth?: boolean;
 };
 
 // The run page's stack has tests of its own; this one says what it was
-// handed, and its button stands in for the + making a lantern.
-const RunPlayStack = mock.fn(
-  ({ stack, onCreated, onPictureUpChange, locked, fullWidth }: StackProps) => (
+// handed, and its button stands in for the + making a lantern, which goes
+// into the column's play space as the real one's does.
+const RunPlayStack = mock.fn(({ stack, onPictureUpChange, locked, fullWidth }: StackProps) => {
+  const { put } = useSceneItemsContext();
+  return (
     <section aria-label={stack.title}>
       <p>{stack.items.map((item) => item.label).join(", ") || "Nothing here yet."}</p>
       <p>
         {fullWidth ? "full width" : "own width"}, {onPictureUpChange ? "tack" : "no tack"}
         {locked ? ", locked" : ""}
       </p>
-      <button type="button" onClick={() => onCreated(lantern)}>
+      <button type="button" onClick={() => put(lantern)}>
         New element in {stack.title}
       </button>
     </section>
-  ),
-);
+  );
+});
 
 // Manage stacks has tests of its own; open, its button saves the scene
 // stack renamed to "the docks", as the dialog would hand it back.

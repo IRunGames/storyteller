@@ -178,12 +178,12 @@ describe("StoryDetails", () => {
     await user.click(within(title).getByRole("button", { name: "Vampire" }));
     const items = await screen.findAllByRole("menuitem");
     expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
+      ["Storyboard", "/stories/-15/storyboard"],
       ["Overview", null],
       ["Edit", "/stories/-15/edit"],
       ["Library", "/stories/-15/library"],
       ["Build scenes", "/stories/-15/scenes"],
       ["Play", null],
-      ["Storyboard", "/stories/-15/storyboard"],
     ]);
   });
 
@@ -202,8 +202,8 @@ describe("StoryDetails", () => {
     await user.click(screen.getByRole("button", { name: "Vampire" }));
     const items = await screen.findAllByRole("menuitem");
     expect(items.map((item) => [item.textContent, item.getAttribute("href")])).toEqual([
-      ["Overview", null],
       ["Storyboard", "/stories/-15/storyboard"],
+      ["Overview", null],
     ]);
   });
 

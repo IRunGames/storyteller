@@ -5,7 +5,10 @@ import userEvent from "@testing-library/user-event";
 import type { SortingState, Updater } from "@tanstack/react-table";
 
 import { renderWithProviders } from "@/test/render";
+import { currentUser } from "@/test/mocks";
 import type { StoryCardData } from "@/lib/stories";
+import type { CurrentUser } from "@/lib/current-user";
+import { UserProvider } from "@/components/auth/user-provider";
 import { StoryTable } from "./story-table";
 
 const base: StoryCardData = {
@@ -49,15 +52,18 @@ function renderTable(
   onSortingChange = mock.fn((_updater: Updater<SortingState>) => {}),
   onToggleFavorite = mock.fn((_story: StoryCardData, _isFavorite: boolean) => {}),
   pending: ReadonlySet<number> = new Set(),
+  who: CurrentUser = currentUser(),
 ) {
   renderWithProviders(
-    <StoryTable
-      stories={[base, kildealg]}
-      sorting={sorting}
-      onSortingChange={onSortingChange}
-      onToggleFavorite={onToggleFavorite}
-      pendingFavorites={pending}
-    />,
+    <UserProvider user={who}>
+      <StoryTable
+        stories={[base, kildealg]}
+        sorting={sorting}
+        onSortingChange={onSortingChange}
+        onToggleFavorite={onToggleFavorite}
+        pendingFavorites={pending}
+      />
+    </UserProvider>,
   );
   return { onSortingChange, onToggleFavorite };
 }
@@ -69,14 +75,27 @@ describe("StoryTable", () => {
 
     expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
       "Story",
+      "System",
       "Status",
       "Favorite",
       "Players",
       "Sessions",
       "Played",
+      "Last played",
     ]);
     const vampire = screen.getByRole("row", { name: "Vampire" });
-    expect(within(vampire).getByText("Vampire: The Masquerade (5th)")).toBeInTheDocument();
+    // The game is a column of its own, after the title.
+    const [, systemCell] = within(vampire).getAllByRole("cell");
+    expect(systemCell).toHaveTextContent("Vampire: The Masquerade (5th)");
+    // Last played is the instant, day and time, machine-readable in the time
+    // element; the reader's own story is not tinted.
+    expect(within(vampire).getByRole("time")).toHaveAttribute(
+      "dateTime",
+      "2026-01-01T00:00:00.000Z",
+    );
+    expect(vampire).not.toHaveAttribute("data-plays");
+    // A story the reader plays in rather than runs is tinted.
+    expect(screen.getByRole("row", { name: "Kildealg" })).toHaveAttribute("data-plays", "true");
     expect(within(vampire).getByText("Active")).toBeInTheDocument();
     expect(within(vampire).getByLabelText("3 players")).toHaveTextContent("3");
     expect(within(vampire).getByLabelText("4 sessions")).toHaveTextContent("4");
@@ -88,8 +107,15 @@ describe("StoryTable", () => {
     // Their own story says nothing of its storyteller.
     expect(within(vampire).queryByText(/Storyteller:/)).toBeNull();
 
+    // The storyteller's own story's status is a menu with the other state;
+    // another's is the same pill with nothing to press.
+    expect(within(vampire).getByRole("button", { name: "Active" })).toHaveAttribute(
+      "aria-haspopup",
+      "menu",
+    );
     const other = screen.getByRole("row", { name: "Kildealg" });
     expect(within(other).getByText("Inactive")).toBeInTheDocument();
+    expect(within(other).queryByRole("button", { name: "Inactive" })).toBeNull();
     expect(within(other).getByText("Storyteller: Tom")).toBeInTheDocument();
     expect(within(other).getByLabelText("1 player")).toBeInTheDocument();
     expect(within(other).getByText("—")).toBeInTheDocument();
@@ -106,6 +132,15 @@ describe("StoryTable", () => {
     );
   });
 
+  it("lets an administrator retire or bring back a story they do not run", () => {
+    renderTable(undefined, undefined, undefined, undefined, currentUser({ idUserType: -100 }));
+    const other = screen.getByRole("row", { name: "Kildealg" });
+    expect(within(other).getByRole("button", { name: "Inactive" })).toHaveAttribute(
+      "aria-haspopup",
+      "menu",
+    );
+  });
+
   it("sorts from every header, saying which way on the header cell", async () => {
     const user = userEvent.setup();
     const { onSortingChange } = renderTable([{ id: "favorite", desc: true }]);
@@ -114,7 +149,15 @@ describe("StoryTable", () => {
     expect(favorite).toHaveAttribute("aria-sort", "descending");
     expect(screen.getByRole("columnheader", { name: "Story" })).not.toHaveAttribute("aria-sort");
 
-    for (const name of ["Story", "Status", "Players", "Sessions", "Played"]) {
+    for (const name of [
+      "Story",
+      "System",
+      "Status",
+      "Players",
+      "Sessions",
+      "Played",
+      "Last played",
+    ]) {
       await user.click(
         within(screen.getByRole("columnheader", { name })).getByRole("button", { name }),
       );
@@ -125,7 +168,15 @@ describe("StoryTable", () => {
       const next = typeof updater === "function" ? updater([]) : updater;
       return next[0]?.id;
     });
-    expect(asked).toEqual(["title", "status", "players", "sessions", "played"]);
+    expect(asked).toEqual([
+      "title",
+      "system",
+      "status",
+      "players",
+      "sessions",
+      "played",
+      "lastPlayed",
+    ]);
   });
 
   it("turns a heart, and leaves one in flight alone", async () => {

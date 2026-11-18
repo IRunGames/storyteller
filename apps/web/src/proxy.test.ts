@@ -23,7 +23,7 @@ describe("proxy", () => {
 
   for (const path of [
     "/play",
-    "/library",
+    "/stories",
     "/home/anything/nested",
     "/some-page-that-does-not-exist-yet",
   ]) {

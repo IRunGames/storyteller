@@ -74,7 +74,6 @@ export default async function RunTablePage({ params }: { params: Promise<{ id: s
       idStory={story.idStory}
       title={story.title}
       storyCoverUrl={story.imageUrl}
-      isOwner={story.isOwner}
       sessions={sessions}
       session={
         session

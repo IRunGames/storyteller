@@ -4,9 +4,12 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
+import { currentUser } from "@/test/mocks";
+import { UserProvider } from "@/components/auth/user-provider";
 import type { UserPreferenceMap } from "@/lib/user-preference-schemas";
 import { PAGE_SIZE, type StoryCardData } from "@/lib/stories";
 import type { MyStoryListQuery } from "@/lib/story-list-schemas";
+import type { StoryAllowance } from "@/lib/story-limits";
 
 const story = (
   idStory: number,
@@ -53,6 +56,10 @@ const sa_setFavorite = mock.fn(async (_idStory: number, isFavorite: boolean) => 
   isFavorite,
 }));
 const sa_setUserPreference = mock.fn(async (_input: unknown) => ({ ok: true as const }));
+const sa_setStoryActive = mock.fn(async (_idStory: number, isActive: boolean) => ({
+  ok: true as const,
+  isActive,
+}));
 
 type PreferencesModule = typeof import("@/components/preferences/user-preferences-provider");
 let UserPreferencesProvider: PreferencesModule["UserPreferencesProvider"];
@@ -62,11 +69,14 @@ function renderPage(
   preferences: UserPreferenceMap = {},
   initial = [vampire, kildealg],
   initialFavorites: StoryCardData[] = [],
+  allowance: StoryAllowance = { active: 2, limit: 3 },
 ) {
   renderWithProviders(
-    <UserPreferencesProvider preferences={preferences}>
-      <MyStories initial={initial} initialFavorites={initialFavorites} />
-    </UserPreferencesProvider>,
+    <UserProvider user={currentUser()}>
+      <UserPreferencesProvider preferences={preferences}>
+        <MyStories initial={initial} initialFavorites={initialFavorites} allowance={allowance} />
+      </UserPreferencesProvider>
+    </UserProvider>,
   );
 }
 
@@ -75,7 +85,12 @@ const titles = (rows: HTMLElement[]) => rows.map((row) => row.getAttribute("aria
 describe("MyStories", () => {
   before(async () => {
     mock.module("@/app/(app)/(nav)/stories/actions", {
-      namedExports: { sa_listFavoriteStories, sa_listMyStoryPage, sa_setFavorite },
+      namedExports: {
+        sa_listFavoriteStories,
+        sa_listMyStoryPage,
+        sa_setFavorite,
+        sa_setStoryActive,
+      },
     });
     mock.module("@/components/preferences/actions", { namedExports: { sa_setUserPreference } });
     ({ UserPreferencesProvider } =
@@ -284,5 +299,43 @@ describe("MyStories", () => {
     expect(await screen.findByRole("article", { name: "Story 100" })).toBeInTheDocument();
     // A short page means there is no more.
     expect(screen.queryByRole("button", { name: "More" })).toBeNull();
+  });
+  it("opens New story below the limit", () => {
+    renderPage();
+    expect(screen.getByRole("link", { name: "New story" })).toHaveAttribute("href", "/stories/new");
+  });
+
+  it("closes New story at the limit, saying why, and opens it when one of theirs is made inactive", async () => {
+    const user = userEvent.setup();
+    renderPage({ "stories.view": "list" }, undefined, undefined, { active: 3, limit: 3 });
+
+    expect(screen.queryByRole("link", { name: "New story" })).toBeNull();
+    const closed = screen.getByRole("button", { name: "New story" });
+    expect(closed).toHaveAttribute("aria-disabled", "true");
+    await user.hover(closed);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "You already have 3 active stories",
+    );
+
+    // Vampire is the user's own, active: its pill makes it inactive.
+    const row = screen.getByRole("row", { name: "Vampire" });
+    await user.click(within(row).getByRole("button", { name: "Active" }));
+    // The pill's menu takes a click only once the item is highlighted, so the
+    // pointer is nudged until it is (as status-pill.test.tsx does).
+    const inactive = await screen.findByRole("menuitem", { name: "Inactive" });
+    let step = 0;
+    await waitFor(async () => {
+      step += 1;
+      await user.pointer({ target: inactive, coords: { clientX: step, clientY: step } });
+      expect(inactive).toHaveAttribute("data-highlighted");
+    });
+    await user.click(inactive);
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "New story" })).toHaveAttribute(
+        "href",
+        "/stories/new",
+      ),
+    );
+    expect(sa_setStoryActive.mock.calls.at(-1)?.arguments).toEqual([-15, false]);
   });
 });

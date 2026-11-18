@@ -35,13 +35,11 @@ type Load =
  * as it mounts (sa_getStoryboardScene) rather than the board loading every
  * stack of every scene, and loads it afresh each time it is opened, as the
  * preview's page does, so a change at the table is seen without a reload.
- * Inside is the players' play space read only (PlaySpace readOnly): the
- * scene's cover behind the elements in their stacks, as the same pills the
- * play page draws, with nothing to press that writes. Without the space's
- * title row (withTitle false), since the card's face says the title and
- * holds the text; and without the table's word across a scene not in play,
- * since the card's status badge says that and the word would cover the
- * pills on every card of a player's board.
+ * Inside is the players' play space read only (PlaySpace, variant card):
+ * the scene's cover behind the elements in their stacks, as the same pills
+ * the play page draws, with nothing to press that writes, and without the
+ * space's title row or the table's word across a scene not in play, for
+ * the reasons the variant gives.
  *
  * A scene with a cover has a small eye in the panel's upper corner that
  * opens the picture full size in the same dialog a pill's thumbnail opens
@@ -107,19 +105,7 @@ export function SceneElementsPanel({ id, idStory, idStoryScene, title }: Props) 
           <Alert.Title>This scene cannot be shown right now.</Alert.Title>
         </Alert.Root>
       ) : (
-        <PlaySpace
-          idStory={idStory}
-          scene={load.scene}
-          status="connected"
-          readOnly
-          withStateOverlay={false}
-          withTitle={false}
-          onTextChange={() => {}}
-          onNotesChange={() => {}}
-          onStatusChange={() => {}}
-          previewIdSceneElement={null}
-          onPreviewClose={() => {}}
-        />
+        <PlaySpace variant="card" idStory={idStory} scene={load.scene} />
       )}
       {coverUrl && (
         <>

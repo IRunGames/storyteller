@@ -16,7 +16,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     href: "/stories",
     children: [{ label: "Find a Story", href: "/stories/find" }],
   },
-  { label: "Library", href: "/library" },
+  { label: "Store", href: "/store" },
 ];
 
 export function isActive(pathname: string, href: string) {

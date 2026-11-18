@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { Box, Heading, HStack, Stack } from "@chakra-ui/react";
 import { Settings } from "lucide-react";
-import { elementIdOf, playStacks, type PlayItem } from "@/lib/run";
+import { playStacks, type PlayItem } from "@/lib/run";
 import type { StackRename } from "@/lib/stack-schemas";
 import { RunManageStacksDialog } from "@/components/run/run-manage-stacks-dialog";
 import { RunPlayStack } from "@/components/run/run-play-stack";
+import { SceneItemsProvider } from "@/components/table-shell/scene-items-context";
+import { useSceneItems } from "@/components/table-shell/use-scene-items";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
 type Props = {
@@ -34,7 +36,8 @@ type Props = {
  * a play space.
  *
  * The pills are the run page's own, so an element is edited, moved between
- * stacks or taken out of the scene from its panel here as there. They have
+ * stacks or taken out of the scene from its panel here as there, through the
+ * same SceneItemsProvider the tables put round their stacks. They have
  * no tack: putting a picture up on the players' table is something done at
  * the table, not while the scene is being written.
  *
@@ -51,32 +54,8 @@ export function SceneElements({
   onCover = false,
 }: Props) {
   const [tags, setTags] = useState<string[]>(initialTags);
-  const [items, setItems] = useState<PlayItem[]>(initialItems);
+  const sceneItems = useSceneItems(initialItems);
   const [managingStacks, setManagingStacks] = useState(false);
-
-  // A new element from a stack's +; one already here stays where it is.
-  const put = (item: PlayItem) =>
-    setItems((current) =>
-      current.some((existing) => existing.key === item.key) ? current : [...current, item],
-    );
-  const remove = (key: string) =>
-    setItems((current) => current.filter((existing) => existing.key !== key));
-  const setStatus = (key: string, status: string) =>
-    setItems((current) =>
-      current.map((existing) =>
-        existing.key === key ? { ...existing, sceneStatus: status } : existing,
-      ),
-    );
-  // Matched by the element's id rather than the key, which carries the
-  // kind: an edit that changes the kind comes back under a new key.
-  const replace = (item: PlayItem) =>
-    setItems((current) =>
-      current.map((existing) =>
-        existing.kind !== "ATTACHMENT" && elementIdOf(existing) === elementIdOf(item)
-          ? item
-          : existing,
-      ),
-    );
 
   // Manage stacks saved: as the run page does, a renamed stack takes its
   // pills with it, as the action took their links, and one taken away
@@ -84,71 +63,64 @@ export function SceneElements({
   const saveStacks = (next: string[], renames: StackRename[]) => {
     const renamed = (tag: string) => renames.find((rename) => rename.from === tag)?.to ?? tag;
     setTags(next);
-    if (renames.length > 0) {
-      setItems((current) =>
-        current.map((existing) =>
-          existing.sceneTags
-            ? { ...existing, sceneTags: existing.sceneTags.map(renamed) }
-            : existing,
-        ),
-      );
-    }
+    if (renames.length > 0) sceneItems.renameTags(renamed);
   };
 
   return (
-    <Stack as="section" aria-labelledby="scene-elements-heading" gap="4">
-      <HStack justify="space-between" gap="2">
-        <Heading
-          id="scene-elements-heading"
-          as="h2"
-          size="md"
-          alignSelf="flex-start"
-          rounded="2xl"
-          px={onCover ? "3" : undefined}
-          py={onCover ? "1" : undefined}
-          bg={onCover ? "bg.panel/55" : undefined}
-          backdropFilter={onCover ? "blur(6px)" : undefined}
-        >
-          Elements
-        </Heading>
-        {!locked && (
-          <>
-            {/* On the heading's chip over a cover, so the gear reads too. */}
-            <Box
-              rounded="full"
-              bg={onCover ? "bg.panel/55" : undefined}
-              backdropFilter={onCover ? "blur(6px)" : undefined}
-            >
-              <IconButtonWithTooltip label="Manage stacks" onClick={() => setManagingStacks(true)}>
-                <Settings />
-              </IconButtonWithTooltip>
-            </Box>
-            <RunManageStacksDialog
-              idStory={idStory}
-              idStoryScene={idStoryScene}
-              tags={tags}
-              open={managingStacks}
-              onClose={() => setManagingStacks(false)}
-              onSaved={saveStacks}
-            />
-          </>
-        )}
-      </HStack>
-      {playStacks(tags, items).map((stack) => (
-        <RunPlayStack
-          key={stack.title}
-          idStory={idStory}
-          stack={stack}
-          sceneTags={tags}
-          idStoryScene={idStoryScene}
-          onCreated={put}
-          onRemove={remove}
-          onStatusChange={setStatus}
-          onItemChange={replace}
-          locked={locked}
-          fullWidth
-        />
-      ))}
-    </Stack>
+    <SceneItemsProvider value={sceneItems}>
+      <Stack as="section" aria-labelledby="scene-elements-heading" gap="4">
+        <HStack justify="space-between" gap="2">
+          <Heading
+            id="scene-elements-heading"
+            as="h2"
+            size="md"
+            alignSelf="flex-start"
+            rounded="2xl"
+            px={onCover ? "3" : undefined}
+            py={onCover ? "1" : undefined}
+            bg={onCover ? "bg.panel/55" : undefined}
+            backdropFilter={onCover ? "blur(6px)" : undefined}
+          >
+            Elements
+          </Heading>
+          {!locked && (
+            <>
+              {/* On the heading's chip over a cover, so the gear reads too. */}
+              <Box
+                rounded="full"
+                bg={onCover ? "bg.panel/55" : undefined}
+                backdropFilter={onCover ? "blur(6px)" : undefined}
+              >
+                <IconButtonWithTooltip
+                  label="Manage stacks"
+                  onClick={() => setManagingStacks(true)}
+                >
+                  <Settings />
+                </IconButtonWithTooltip>
+              </Box>
+              <RunManageStacksDialog
+                idStory={idStory}
+                idStoryScene={idStoryScene}
+                tags={tags}
+                open={managingStacks}
+                onClose={() => setManagingStacks(false)}
+                onSaved={saveStacks}
+              />
+            </>
+          )}
+        </HStack>
+        {playStacks(tags, sceneItems.items).map((stack) => (
+          <RunPlayStack
+            key={stack.title}
+            idStory={idStory}
+            stack={stack}
+            sceneTags={tags}
+            idStoryScene={idStoryScene}
+            locked={locked}
+            fullWidth
+          />
+        ))}
+      </Stack>
+    </SceneItemsProvider>
   );
 }

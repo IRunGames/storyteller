@@ -44,7 +44,7 @@ type Props = {
  * /preview/scene/[id]: one scene as the players' table shows the scene
  * being played, and nothing more. The tables' header with Preview in the
  * middle where the table has its panel toggles, then the play space read
- * only (PlaySpace readOnly): the pills' info and the scene's text open to
+ * only (PlaySpace, variant preview): the pills' info and the scene's text open to
  * read, each pill's info ending with the element's History, and nothing on
  * the page writes. The scene's title is a dropdown of the story's scenes
  * (SceneTitleMenu), by sitting and scene, newest first, the one shown
@@ -80,11 +80,9 @@ export function ScenePreview({
       />
       <Flex flex="1" minH="0" direction="column">
         <PlaySpace
+          variant="preview"
           idStory={idStory}
           scene={scene}
-          status="connected"
-          readOnly
-          withHistory
           titleStart={<SceneChevron direction="previous" scene={previous} />}
           titleEnd={
             <>
@@ -119,11 +117,6 @@ export function ScenePreview({
               headingProps={headingProps}
             />
           )}
-          onTextChange={() => {}}
-          onNotesChange={() => {}}
-          onStatusChange={() => {}}
-          previewIdSceneElement={null}
-          onPreviewClose={() => {}}
         />
       </Flex>
     </Flex>

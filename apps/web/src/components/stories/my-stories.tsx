@@ -7,17 +7,14 @@ import {
   Button,
   Heading,
   HStack,
-  IconButton,
   Input,
   InputGroup,
-  Portal,
   Stack,
   Switch,
   Text,
-  Tooltip,
 } from "@chakra-ui/react";
 import type { SortingState } from "@tanstack/react-table";
-import { ChevronsRight, LayoutGrid, List, Search } from "lucide-react";
+import { ChevronsRight, Search } from "lucide-react";
 import { STORY_SEARCH_DELAY_MS } from "@/lib/search";
 import { PAGE_SIZE, SECTION_TITLES, type StoryCardData } from "@/lib/stories";
 import {
@@ -28,6 +25,9 @@ import {
 import { sa_listFavoriteStories, sa_listMyStoryPage } from "@/app/(app)/(nav)/stories/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { FormError } from "@/components/forms/form-error";
+import { WithTooltip } from "@/components/buttons/with-tooltip";
+import { ViewToggle, type CardsOrList } from "@/components/buttons/view-toggle";
+import { activeStoryLimitMessage, type StoryAllowance } from "@/lib/story-limits";
 import { StoryCardGrid, StorySection } from "./story-section";
 import { useFavorites } from "./use-favorites";
 import { StoryTable } from "./story-table";
@@ -35,12 +35,7 @@ import { StoryTable } from "./story-table";
 /** Where the Stories page keeps its view, among the user's preferences. */
 export const STORIES_VIEW_KEY = "stories.view";
 
-type View = "cards" | "list";
-
-const VIEWS: { view: View; label: string; icon: React.ReactNode }[] = [
-  { view: "cards", label: "Icon view", icon: <LayoutGrid /> },
-  { view: "list", label: "List view", icon: <List /> },
-];
+type View = CardsOrList;
 
 /** The stories a query brought, with the query they are for. */
 type Listed = { key: string; stories: StoryCardData[]; hasMore: boolean };
@@ -57,6 +52,11 @@ type Props = {
   initial: StoryCardData[];
   /** The first page of the user's favorites, for the Favorites section. */
   initialFavorites: StoryCardData[];
+  /**
+   * The active stories the user owns and how many they may (sa_getStoryAllowance):
+   * New story is closed at the limit, and opens again as one is made inactive here.
+   */
+  allowance: StoryAllowance;
 };
 
 /**
@@ -78,7 +78,7 @@ type Props = {
  * none; the List view has its Favorite column instead. The search and Show
  * inactive are My Stories' alone. A heart on either list changes both.
  */
-export function MyStories({ initial, initialFavorites }: Props) {
+export function MyStories({ initial, initialFavorites, allowance }: Props) {
   const preferences = useUserPreferences();
   const view: View = preferences.get(STORIES_VIEW_KEY) === "list" ? "list" : "cards";
 
@@ -122,6 +122,24 @@ export function MyStories({ initial, initialFavorites }: Props) {
   const remember = useCallback((next: Listed) => {
     listedKey.current = next.key;
     setListed(next);
+  }, []);
+
+  // A story retired or brought back from its status pill keeps its row,
+  // with the new state: taking a retired one out from under the pill would
+  // lose the way to bring it back. The next search lists it as it now is.
+  // The user's own active stories, kept up as the pills move them, so New
+  // story opens the moment one is made inactive. A story they play in but do
+  // not run is not theirs to count.
+  const [activeOwned, setActiveOwned] = useState(allowance.active);
+  const canCreate = activeOwned < allowance.limit;
+  const onActiveChange = useCallback((story: StoryCardData, isActive: boolean) => {
+    setListed((current) => ({
+      ...current,
+      stories: current.stories.map((s) => (s.idStory === story.idStory ? { ...s, isActive } : s)),
+    }));
+    if (story.isOwner && story.isActive !== isActive) {
+      setActiveOwned((count) => count + (isActive ? 1 : -1));
+    }
   }, []);
 
   // A new query asks for its first page; the rows on show stay until it lands.
@@ -200,29 +218,7 @@ export function MyStories({ initial, initialFavorites }: Props) {
   });
 
   const toggle = (
-    <HStack role="group" aria-label="View" gap="1">
-      {VIEWS.map((option) => (
-        <Tooltip.Root key={option.view} openDelay={200} positioning={{ placement: "top" }}>
-          <Tooltip.Trigger asChild>
-            <IconButton
-              type="button"
-              aria-label={option.label}
-              aria-pressed={view === option.view}
-              size="sm"
-              variant={view === option.view ? "solid" : "outline"}
-              onClick={() => void preferences.set(STORIES_VIEW_KEY, option.view)}
-            >
-              {option.icon}
-            </IconButton>
-          </Tooltip.Trigger>
-          <Portal>
-            <Tooltip.Positioner>
-              <Tooltip.Content>{option.label}</Tooltip.Content>
-            </Tooltip.Positioner>
-          </Portal>
-        </Tooltip.Root>
-      ))}
-    </HStack>
+    <ViewToggle value={view} onChange={(next) => void preferences.set(STORIES_VIEW_KEY, next)} />
   );
 
   // A section with no cards but more on the server is part way through
@@ -275,9 +271,19 @@ export function MyStories({ initial, initialFavorites }: Props) {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </InputGroup>
-            <Button asChild>
-              <NextLink href="/stories/new">New story</NextLink>
-            </Button>
+            {canCreate ? (
+              <Button asChild>
+                <NextLink href="/stories/new">New story</NextLink>
+              </Button>
+            ) : (
+              // aria-disabled rather than disabled, so the tooltip that says
+              // why still opens on hover and on focus.
+              <WithTooltip tooltip={activeStoryLimitMessage(allowance.limit)}>
+                <Button aria-disabled opacity={0.5} cursor="not-allowed">
+                  New story
+                </Button>
+              </WithTooltip>
+            )}
             {toggle}
           </HStack>
         </HStack>
@@ -300,6 +306,7 @@ export function MyStories({ initial, initialFavorites }: Props) {
               onSortingChange={setSorting}
               onToggleFavorite={onToggleFavorite}
               pendingFavorites={pendingFavorites}
+              onActiveChange={onActiveChange}
             />
           ) : (
             <StoryCardGrid

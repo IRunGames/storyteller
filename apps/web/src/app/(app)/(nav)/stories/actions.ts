@@ -64,6 +64,8 @@ import { sessionEditSchema } from "@/lib/session-schemas";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
 import { formErrors } from "@/lib/forms";
 import { NOT_A_PLAYER, NOT_YOUR_SESSION, STORY_NOT_FOUND, STORY_NOT_YOURS } from "@/lib/messages";
+import { isAdministrator } from "@/lib/user-types";
+import { activeStoryLimit, activeStoryLimitMessage, type StoryAllowance } from "@/lib/story-limits";
 
 const {
   invitations,
@@ -147,11 +149,16 @@ export async function sa_listMyStoryPage(input: unknown): Promise<StoryCardData[
 
   const sortColumns: Record<Exclude<StorySortKey, "recent">, SQL> = {
     title: sql`lower(${stories.title})`,
+    // The label the System column shows, case set aside. concat_ws of three
+    // nulls is "", which would sort first; made null, a story with no system
+    // sorts after the rest, as Postgres puts a null last ascending.
+    system: sql`lower(nullif(concat_ws(' ', ${systems.systemName}, ${systems.systemVersion}, ${systems.variant}), ''))`,
     status: sql`${stories.isActive}`,
     favorite,
     players: playerCount,
     sessions: sessionCount,
     played: playMinutes,
+    lastPlayed: sql`${stories.lastPlayed}`,
   };
   const sorted =
     query.sortBy === "recent"
@@ -849,6 +856,43 @@ export async function sa_listSystems(): Promise<{ idSystem: number; label: strin
 
 export type StoryFormResult = { ok: false; errors: Record<string, string> };
 
+/** The executor inside db.transaction, for a helper run inside a caller's transaction. */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** How many active, unarchived stories the user owns. */
+async function activeOwnedCount(executor: Tx | typeof db, userId: string): Promise<number> {
+  const [row] = await executor
+    .select({ count: sql<number>`count(*)::int` })
+    .from(stories)
+    .where(and(eq(stories.idCreatedByUser, userId), eq(stories.isActive, true), notArchived));
+  return row?.count ?? 0;
+}
+
+/**
+ * Inside a transaction about to make one of the user's stories active, or
+ * make a new one: the refusal when they are at their limit
+ * (lib/story-limits.ts), or null to go on. The user's row is locked first,
+ * so two saves at once cannot both count below the limit and both land.
+ */
+async function overActiveLimit(
+  tx: Tx,
+  owner: { id: string; idUserType: number },
+): Promise<string | null> {
+  await tx.select({ id: users.id }).from(users).where(eq(users.id, owner.id)).for("update");
+  const limit = activeStoryLimit(owner.idUserType);
+  return (await activeOwnedCount(tx, owner.id)) >= limit ? activeStoryLimitMessage(limit) : null;
+}
+
+/**
+ * The caller's active stories and how many they may have, for the Stories
+ * page's New story button and the New story page, which are closed at the
+ * limit. sa_createStory checks again, so this only decides what is drawn.
+ */
+export async function sa_getStoryAllowance(): Promise<StoryAllowance> {
+  const user = await requireAccount();
+  return { active: await activeOwnedCount(db, user.id), limit: activeStoryLimit(user.idUserType) };
+}
+
 /**
  * Validates and inserts a new story owned by the caller, then redirects to
  * the story's own page, where its attachments are added: the New story form
@@ -870,21 +914,32 @@ export async function sa_createStory(
   if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
 
   const values = parsed.data;
-  const [story] = await db
-    .insert(stories)
-    .values({
-      title: values.title,
-      idSystem: values.idSystem,
-      summary: values.summary || null,
-      isLookingForPlayers: values.isLookingForPlayers,
-      isActive: values.isActive,
-      isArchived: values.isArchived,
-      isPublic: values.isPublic,
-      idArchivedByUser: values.isArchived ? user.id : null,
-      idCreatedByUser: user.id,
-      idUpdatedByUser: user.id,
-    })
-    .returning({ idStory: stories.idStory });
+  // At the limit no new story is made, active or not: the Stories page
+  // closes New story there, and this is what refuses.
+  const made = await db.transaction(
+    async (tx): Promise<{ refused: string } | { story: { idStory: number } }> => {
+      const refused = await overActiveLimit(tx, user);
+      if (refused) return { refused };
+      const [story] = await tx
+        .insert(stories)
+        .values({
+          title: values.title,
+          idSystem: values.idSystem,
+          summary: values.summary || null,
+          isLookingForPlayers: values.isLookingForPlayers,
+          isActive: values.isActive,
+          isArchived: values.isArchived,
+          isPublic: values.isPublic,
+          idArchivedByUser: values.isArchived ? user.id : null,
+          idCreatedByUser: user.id,
+          idUpdatedByUser: user.id,
+        })
+        .returning({ idStory: stories.idStory });
+      return { story };
+    },
+  );
+  if ("refused" in made) return { ok: false, errors: { root: made.refused } };
+  const { story } = made;
 
   redirect(
     safeRedirect(
@@ -961,32 +1016,51 @@ export async function sa_updateStory(
   // system as the UPDATE reads it.
   const systemChanges = sql`${stories.idSystem} IS DISTINCT FROM ${values.idSystem}::integer`;
   const owned = and(eq(stories.idStory, id), eq(stories.idCreatedByUser, user.id));
-  const updated = await db
-    .update(stories)
-    .set({
-      title: values.title,
-      idSystem: values.idSystem,
-      // The story's own stat block goes with the system it was copied
-      // from; the WHERE below has made sure the form said it may.
-      statBlockDefinition: sql`CASE WHEN ${systemChanges} THEN NULL ELSE ${stories.statBlockDefinition} END`,
-      summary: values.summary || null,
-      isLookingForPlayers: values.isLookingForPlayers,
-      isActive: values.isActive,
-      isArchived: values.isArchived,
-      isPublic: values.isPublic,
-      // Only the creator gets here, so the archiver is always the caller.
-      // Null on the way out is what the unarchive trigger would set anyway;
-      // archived_at is the database's to stamp and clear.
-      idArchivedByUser: values.isArchived ? user.id : null,
-      idUpdatedByUser: user.id,
-    })
-    .where(
-      dropStatBlock
-        ? owned
-        : and(owned, not(and(systemChanges, isNotNull(stories.statBlockDefinition))!)),
-    )
-    .returning({ idStory: stories.idStory });
-  if (updated.length === 0) {
+  const result = await db.transaction(
+    async (tx): Promise<{ refused: string } | { updated: { idStory: number }[] }> => {
+      // A retired or archived story saved as active comes back, and counts
+      // against the storyteller's limit (lib/story-limits.ts); the refusal
+      // is the form's own error, shown above its buttons.
+      if (values.isActive && !values.isArchived) {
+        const [current] = await tx
+          .select({ isActive: stories.isActive, isArchived: stories.isArchived })
+          .from(stories)
+          .where(owned);
+        if (current && !(current.isActive && !current.isArchived)) {
+          const refused = await overActiveLimit(tx, user);
+          if (refused) return { refused };
+        }
+      }
+      const updated = await tx
+        .update(stories)
+        .set({
+          title: values.title,
+          idSystem: values.idSystem,
+          // The story's own stat block goes with the system it was copied
+          // from; the WHERE below has made sure the form said it may.
+          statBlockDefinition: sql`CASE WHEN ${systemChanges} THEN NULL ELSE ${stories.statBlockDefinition} END`,
+          summary: values.summary || null,
+          isLookingForPlayers: values.isLookingForPlayers,
+          isActive: values.isActive,
+          isArchived: values.isArchived,
+          isPublic: values.isPublic,
+          // Only the creator gets here, so the archiver is always the caller.
+          // Null on the way out is what the unarchive trigger would set anyway;
+          // archived_at is the database's to stamp and clear.
+          idArchivedByUser: values.isArchived ? user.id : null,
+          idUpdatedByUser: user.id,
+        })
+        .where(
+          dropStatBlock
+            ? owned
+            : and(owned, not(and(systemChanges, isNotNull(stories.statBlockDefinition))!)),
+        )
+        .returning({ idStory: stories.idStory });
+      return { updated };
+    },
+  );
+  if ("refused" in result) return { ok: false, errors: { root: result.refused } };
+  if (result.updated.length === 0) {
     // The story was read as the caller's above, so a write that found no
     // row is the stat block standing in the way.
     return {
@@ -999,6 +1073,55 @@ export async function sa_updateStory(
   }
 
   redirect(`/stories/${id}`);
+}
+
+export type SetStoryActiveResult = { ok: true; isActive: boolean } | { ok: false; error: string };
+
+/**
+ * The Stories list's status pill: retires a story or brings it back
+ * (stories.is_active), as Edit story's Active switch does. The storyteller
+ * of the story may, and so may an administrator, for any story: the pill is
+ * drawn as a menu for both and as a plain pill for everyone else, and this
+ * is what refuses. A story that is not there, or not the caller's to move,
+ * comes back as not found, so nothing says which it was.
+ */
+export async function sa_setStoryActive(
+  idStory: number,
+  isActive: unknown,
+): Promise<SetStoryActiveResult> {
+  const user = await requireAccount();
+  const id = idSchema.safeParse(idStory);
+  const flag = z.boolean().safeParse(isActive);
+  if (!id.success || !flag.success) return { ok: false, error: STORY_NOT_FOUND };
+  const admin = isAdministrator(user.idUserType);
+  const allowed = admin
+    ? eq(stories.idStory, id.data)
+    : and(eq(stories.idStory, id.data), eq(stories.idCreatedByUser, user.id));
+  return db.transaction(async (tx): Promise<SetStoryActiveResult> => {
+    const [story] = await tx
+      .select({
+        owner: stories.idCreatedByUser,
+        isActive: stories.isActive,
+        isArchived: stories.isArchived,
+      })
+      .from(stories)
+      .where(allowed);
+    if (!story) return { ok: false, error: STORY_NOT_FOUND };
+    // Bringing a story back counts against its storyteller's limit
+    // (lib/story-limits.ts). An administrator moving someone else's story
+    // is not held to it: that is the administrator's call.
+    const comesBack = flag.data && !(story.isActive && !story.isArchived);
+    if (comesBack && !(admin && story.owner !== user.id)) {
+      const refused = await overActiveLimit(tx, user);
+      if (refused) return { ok: false, error: refused };
+    }
+    const [updated] = await tx
+      .update(stories)
+      .set({ isActive: flag.data, idUpdatedByUser: user.id })
+      .where(allowed)
+      .returning({ isActive: stories.isActive });
+    return { ok: true, isActive: updated.isActive };
+  });
 }
 
 export type SetFavoriteResult = { ok: true; isFavorite: boolean } | { ok: false; error: string };

@@ -5,7 +5,10 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
+import { sceneItemsStub } from "@/test/scene-items";
 import { Toaster, toaster } from "@/components/ui/toaster";
+import { SceneItemsProvider } from "@/components/table-shell/scene-items-context";
+import { useSceneItems } from "@/components/table-shell/use-scene-items";
 import type { ElementPanelDetail, PlayItem } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import {
@@ -387,8 +390,8 @@ describe("RunPlayPill", () => {
     toaster.remove();
   });
 
-  // The pill as the table holds it: its status in state, so the status
-  // menu's change shows.
+  // The pill as the table holds it: in the table's own play space
+  // (useSceneItems), so the status menu's change shows.
   function Holder({
     start,
     idStoryScene,
@@ -398,23 +401,25 @@ describe("RunPlayPill", () => {
     idStoryScene: number | null;
     otherStacks: string[];
   }) {
-    const [item, setItem] = useState(start);
+    const sceneItems = useSceneItems([start]);
+    const [item] = sceneItems.items;
     // Which pill has its picture up is the table's state, not the item's.
     const [pictureUp, setPictureUp] = useState(false);
     return (
-      <RunPlayPill
-        idStory={-4}
-        idStoryScene={idStoryScene}
-        item={item}
-        stackTag="scene"
-        otherStacks={otherStacks}
-        sceneStacks={["scene", ...otherStacks]}
-        onRemove={() => {}}
-        onItemChange={setItem}
-        onStatusChange={(_key, sceneStatus) => setItem((current) => ({ ...current, sceneStatus }))}
-        pictureUp={pictureUp}
-        onPictureUpChange={(_key, up) => setPictureUp(up)}
-      />
+      <SceneItemsProvider value={sceneItems}>
+        {item && (
+          <RunPlayPill
+            idStory={-4}
+            idStoryScene={idStoryScene}
+            item={item}
+            stackTag="scene"
+            otherStacks={otherStacks}
+            sceneStacks={["scene", ...otherStacks]}
+            pictureUp={pictureUp}
+            onPictureUpChange={(_key, up) => setPictureUp(up)}
+          />
+        )}
+      </SceneItemsProvider>
     );
   }
 
@@ -940,17 +945,16 @@ describe("RunPlayPill", () => {
   it("has no tack where there is no table to put the picture up on", () => {
     // A scene's edit page hands the pill no tack handler.
     renderWithProviders(
-      <RunPlayPill
-        idStory={-4}
-        idStoryScene={-15}
-        item={{ ...linked("READY"), imageUrl: "https://x.test/9.png" }}
-        stackTag="scene"
-        otherStacks={[]}
-        sceneStacks={["scene"]}
-        onRemove={() => {}}
-        onItemChange={() => {}}
-        onStatusChange={() => {}}
-      />,
+      <SceneItemsProvider value={sceneItemsStub()}>
+        <RunPlayPill
+          idStory={-4}
+          idStoryScene={-15}
+          item={{ ...linked("READY"), imageUrl: "https://x.test/9.png" }}
+          stackTag="scene"
+          otherStacks={[]}
+          sceneStacks={["scene"]}
+        />
+      </SceneItemsProvider>,
     );
     expect(screen.getByRole("button", { name: "Preview A hooded figure" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /picture to the players/ })).toBeNull();
@@ -1161,7 +1165,7 @@ describe("RunPlayPill", () => {
   it("in a complete scene, opens its panel to read and offers nothing that changes the link", async () => {
     const u = userEvent.setup();
     const { container } = renderWithProviders(
-      <>
+      <SceneItemsProvider value={sceneItemsStub()}>
         <RunPlayPill
           idStory={-4}
           idStoryScene={-15}
@@ -1170,14 +1174,11 @@ describe("RunPlayPill", () => {
           otherStacks={["assets"]}
           sceneStacks={["scene", "assets"]}
           locked
-          onRemove={() => {}}
-          onItemChange={() => {}}
-          onStatusChange={() => {}}
           pictureUp={false}
           onPictureUpChange={() => {}}
         />
         <Toaster />
-      </>,
+      </SceneItemsProvider>,
     );
 
     // The name is plain, the status is shown but not a menu, the info toggle
@@ -1437,7 +1438,7 @@ describe("RunPlayPill", () => {
     linkBlocks = [blockOf({ combat: { hp: { value: 5, min: 0, max: 9 } } })];
     try {
       renderWithProviders(
-        <>
+        <SceneItemsProvider value={sceneItemsStub()}>
           <RunPlayPill
             idStory={-4}
             idStoryScene={-15}
@@ -1445,14 +1446,11 @@ describe("RunPlayPill", () => {
             stackTag="scene"
             otherStacks={[]}
             sceneStacks={["scene"]}
-            onRemove={() => {}}
-            onItemChange={() => {}}
-            onStatusChange={() => {}}
             pictureUp={false}
             onPictureUpChange={() => {}}
           />
           <Toaster />
-        </>,
+        </SceneItemsProvider>,
       );
       await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
       const popover = await screen.findByRole("region", { name: "About A hooded figure" });
@@ -1514,10 +1512,10 @@ describe("RunPlayPill", () => {
   });
 
   it("removes an element from the scene with the trashcan beside the pencil, asking first", async () => {
-    const onRemove = mock.fn((_key: string) => {});
+    const sceneItems = sceneItemsStub();
     const u = userEvent.setup();
     renderWithProviders(
-      <>
+      <SceneItemsProvider value={sceneItems}>
         <RunPlayPill
           idStory={-4}
           idStoryScene={-15}
@@ -1525,14 +1523,11 @@ describe("RunPlayPill", () => {
           stackTag="scene"
           otherStacks={[]}
           sceneStacks={["scene"]}
-          onRemove={onRemove}
-          onItemChange={() => {}}
-          onStatusChange={() => {}}
           pictureUp={false}
           onPictureUpChange={() => {}}
         />
         <Toaster />
-      </>,
+      </SceneItemsProvider>,
     );
 
     await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
@@ -1549,7 +1544,8 @@ describe("RunPlayPill", () => {
 
     await waitFor(() => expect(sa_unlinkSceneElement.mock.callCount()).toBe(1));
     expect(sa_unlinkSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 9]);
-    await waitFor(() => expect(onRemove.mock.calls[0]?.arguments).toEqual(["PERSON:5:9"]));
+    // The link leaves the play space by its id, so the pill goes.
+    await waitFor(() => expect(sceneItems.removeLink.mock.calls[0]?.arguments).toEqual([9]));
     expect(await screen.findByText("Removed from the scene")).toBeInTheDocument();
   });
 });

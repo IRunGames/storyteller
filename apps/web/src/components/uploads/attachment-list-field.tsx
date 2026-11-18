@@ -1,58 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useLatest } from "@/hooks/use-latest";
+import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { upload } from "@vercel/blob/client";
-import {
-  Box,
-  Button,
-  Field,
-  FileUpload,
-  Grid,
-  HStack,
-  Input,
-  Stack,
-  Text,
-  useFileUpload,
-} from "@chakra-ui/react";
-import { ChevronsRight, Image as ImageIcon } from "lucide-react";
-import { useUser } from "@/components/auth/user-provider";
+import { Box, Button, Field, Grid, HStack, Text } from "@chakra-ui/react";
+import { ChevronsRight } from "lucide-react";
 import { attachmentUrlSchema } from "@/lib/attachment-schemas";
-import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, uploadPrefix } from "@/lib/image-uploads";
 import {
   sa_createAttachment,
   sa_deleteAttachment,
-  sa_listAttachments,
-  sa_markAttachmentError,
-  sa_markAttachmentReady,
-  sa_retryAttachment,
   sa_setAttachmentCover,
   sa_setAttachmentTags,
 } from "./actions";
-import { toaster } from "@/components/ui/toaster";
+import { AttachmentAddControls } from "./attachment-add-controls";
 import { AttachmentCard } from "./attachment-card";
+import { UNKNOWN_STATUS, useAttachmentRows } from "./use-attachment-rows";
+import { justNow, useAttachmentUploads } from "./use-attachment-uploads";
 import type { Attachment, AttachmentKind } from "@/lib/attachments";
-
-// A client-only sentinel, never a status the server sends. It marks a row
-// this field only knows by id -- seeded from `value` after a remount with a
-// null idExternal, the one situation with no sa_listAttachments to ask
-// instead (see the Props doc comment). Rendering it as READY would claim a
-// row is fine when this field has no idea whether it is; rendering it as
-// ERROR would claim a failure that may not exist. It gets its own neutral
-// rendering: no thumbnail, no Retry (there is no cached File to resend and
-// no server status to justify offering one), just a name and Remove.
-const UNKNOWN_STATUS = "UNKNOWN";
-
-/**
- * The stamps for a row this field just made, before the server lists it: the
- * moment it was added, so a newest-first list puts it where it belongs.
- */
-function justNow(): Pick<Attachment, "createdAt" | "updatedAt"> {
-  const now = new Date().toISOString();
-  return { createdAt: now, updatedAt: now };
-}
 
 type Props = {
   kind: AttachmentKind;
@@ -66,7 +30,7 @@ type Props = {
    * tree) has no sa_listAttachments to recover its rows from, since nothing
    * with a null idExternal is findable that way -- `value`, coming from the
    * form's own state, is the only surviving record. Those ids render with
-   * UNKNOWN_STATUS (see above) rather than an invented READY.
+   * UNKNOWN_STATUS (use-attachment-rows.ts) rather than an invented READY.
    *
    * When idExternal is non-null this field ignores `value` completely and
    * hydrates its rows -- with their real statuses -- from
@@ -163,17 +127,6 @@ export type AttachmentRowsView = {
   retry: (idAttachment: number) => void;
 };
 
-function rejectionMessage(rejection: { errors: string[] } | undefined): string {
-  const errors = rejection?.errors ?? [];
-  if (errors.includes("FILE_INVALID_TYPE")) {
-    return "Only PNG, JPEG, WebP or GIF images are accepted.";
-  }
-  if (errors.includes("FILE_TOO_LARGE")) {
-    return "That image is larger than the 10 MB limit.";
-  }
-  return "That file could not be added.";
-}
-
 /**
  * A controlled list of attachment ids for a story, session or scene. Unlike
  * ImageUploadField's single value, each row is its own attachment row from
@@ -183,10 +136,11 @@ function rejectionMessage(rejection: { errors: string[] } | undefined): string {
  * simply carry a null idExternal until Task 9's create action claims them.
  * This field never calls sa_claimAttachments itself.
  *
- * rows is local state, hydrated from the server rather than from `value`
- * for a non-null idExternal (see the Props doc comment for why), plus
- * whatever this session has added on top. An effect below loads the real
- * rows once on mount when there is a real idExternal to load them for.
+ * The rows and how they are kept are useAttachmentRows; the dropzone and
+ * each file's upload and retry are useAttachmentUploads; the link input and
+ * the dropzone are AttachmentAddControls. What is left here is the field's
+ * own changes to a row (its cover, its tags, its removal), a typed link,
+ * and what is drawn of the rows.
  */
 export function AttachmentListField({
   kind,
@@ -203,338 +157,16 @@ export function AttachmentListField({
   renderRows,
   pageSize,
 }: Props) {
-  const { id: userId } = useUser();
   const router = useRouter();
-  const [rows, setRows] = useState<Attachment[]>(() =>
-    idExternal === null
-      ? value.map((id) => ({
-          idAttachment: id,
-          idStory: null,
-          kind,
-          idExternal,
-          idAttachmentUse: null,
-          status: UNKNOWN_STATUS,
-          url: null,
-          isUploaded: false,
-          fileName: null,
-          isCover: false,
-          tags: [],
-          createdAt: null,
-          updatedAt: null,
-        }))
-      : [],
-  );
-  const rowsRef = useRef(rows);
-  // An async upload or retry started under one render's onChange prop must
-  // still report to whichever onChange the parent has wired up by the time
-  // it finishes.
-  const onChangeRef = useLatest(onChange);
-
-  const [loadError, setLoadError] = useState<string | null>(null);
-  // Whether the first load has come back, so an empty list can say "none"
-  // without saying it while the rows are still on their way. A create form
-  // has nothing to load and starts loaded.
-  const [hasLoaded, setHasLoaded] = useState(idExternal === null);
-
-  // Not until the first load is back, so the heading never says (0) for a
-  // story whose attachments are still on their way. A ref for the callback,
-  // so a parent passing a fresh function each render does not re-report.
-  const onCountChangeRef = useLatest(onCountChange);
-  useEffect(() => {
-    if (hasLoaded) onCountChangeRef.current?.(rows.length);
-  }, [hasLoaded, rows.length, onCountChangeRef]);
-  // A load in flight, guarding loadAttachments() against a second click on
-  // Try Again starting an overlapping fetch -- the later-resolving one
-  // would otherwise win even if it read rowsRef before the earlier one's
-  // merge applied.
-  const [isLoadingAttachments, setIsLoadingAttachments] = useState(false);
-  const isLoadingRef = useRef(false);
-
-  // Ids sa_deleteAttachment has been asked to remove this session, kept
-  // separately from rowsRef because rowsRef only says what is on screen
-  // *now* -- it cannot tell a merge "this id used to be here and must stay
-  // gone" once handleRemove has already taken it out. The delete is a
-  // separate round trip from the removal itself (commit() runs first,
-  // sa_deleteAttachment is awaited after), so a list fetch's SELECT can run
-  // in between and still see the row: without this, fetchMergedAttachments
-  // would treat that as a legitimate server row and bring it back, and
-  // commit() would report the resurrected id to the parent as if the user
-  // had never removed it. An id leaves this set again in exactly one place:
-  // when sa_deleteAttachment rejects and handleRemove puts the row back, at
-  // which point the row really is still there and a later merge is right to
-  // report it. A successful delete keeps its id here for good, and a
-  // re-upload of the same file gets a brand new id from sa_createAttachment
-  // rather than reusing this one.
-  const removedIds = useRef(new Set<number>());
-
-  /**
-   * Fetches this field's real rows for a real parent and merges them
-   * against whatever is already showing, rather than replacing outright:
-   * `loaded` is authoritative for the ids it contains, but a row this
-   * session has already added locally (a link typed or a file picked while
-   * this request was still in flight) did not exist when the server query
-   * ran, so it cannot be in `loaded` and must not be erased by it. Ids in
-   * removedIds are dropped regardless of which side they came from, for
-   * the same reason in reverse: a removal already asked for must not be
-   * undone by a select that ran before the delete committed. Does not
-   * touch state itself -- callers decide what to do with the result, which
-   * is what keeps the actual setState calls inline in whichever caller runs
-   * them (see the two call sites below for why that matters).
-   */
-  const fetchMergedAttachments = useCallback(async (): Promise<Attachment[]> => {
-    // Only called with a non-null idExternal; see both call sites.
-    const loaded = await sa_listAttachments(kind, idExternal as number);
-    const loadedIds = new Set(loaded.map((row) => row.idAttachment));
-    const localOnly = rowsRef.current.filter((row) => !loadedIds.has(row.idAttachment));
-    // Local rows first: they were added after the query ran, and the list runs
-    // newest first.
-    return [...localOnly, ...loaded].filter((row) => !removedIds.current.has(row.idAttachment));
-  }, [kind, idExternal]);
-
-  // The Try Again button below calls this directly: a fresh, user-requested
-  // load with no earlier effect run that could race it. isLoadingRef (not
-  // just the isLoadingAttachments state the button's aria-disabled reads)
-  // is what actually stops a second click from starting an overlapping
-  // fetch: state updates are not visible synchronously, so a click that
-  // lands before React re-renders the disabled button would otherwise slip
-  // through.
-  async function loadAttachments(): Promise<void> {
-    if (idExternal === null || isLoadingRef.current) return;
-    isLoadingRef.current = true;
-    setIsLoadingAttachments(true);
-    try {
-      const merged = await fetchMergedAttachments();
-      setLoadError(null);
-      setHasLoaded(true);
-      commit(merged);
-    } catch {
-      // sa_listAttachments calls requireAccount() and runs a db.select, either
-      // of which can reject. Left unhandled, rows would stay [] forever
-      // with nothing on screen to say why -- on an edit form that reads as
-      // "this story has no pictures", which invites the user to re-upload
-      // everything that is really still there.
-      setLoadError("Could not load this story's attachments.");
-    } finally {
-      isLoadingRef.current = false;
-      setIsLoadingAttachments(false);
-    }
-  }
-
-  // Not routed through loadAttachments() above: react-hooks/set-state-in-effect
-  // flags any setState reached from an effect through a named function call,
-  // since it cannot see past the call to confirm the state update happens
-  // only after the await inside it. Inlined here instead, where the await
-  // before every setState call is visible in the same function body.
-  useEffect(() => {
-    if (idExternal === null) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const merged = await fetchMergedAttachments();
-        if (cancelled) return;
-        setLoadError(null);
-        setHasLoaded(true);
-        commit(merged);
-      } catch {
-        if (cancelled) return;
-        setLoadError("Could not load this story's attachments.");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // commit() reaches only refs and a state setter, so a new one each
-    // render is no reason to load again.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idExternal, fetchMergedAttachments]);
-
+  const attachmentRows = useAttachmentRows({ kind, idExternal, value, onChange, onCountChange });
+  // The refs stay on attachmentRows rather than being taken off it: the
+  // handlers below read them, and the hooks lint takes a bare ref captured
+  // by a function handed to renderRows for one read during render.
+  const { rows, commit, addRow, updateRow, loadError, hasLoaded, isLoading, loadAttachments } =
+    attachmentRows;
   const [urlValue, setUrlValue] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
-
-  // The file behind each row still being uploaded or retried, kept in memory
-  // so Retry can resend it -- sa_retryAttachment only flips the row's status
-  // server-side, it does not itself have a copy of the bytes.
-  const filesByAttachment = useRef(new Map<number, File>());
-  // Which attempt is the current one for a given attachment id. A retry
-  // starts a new attempt for the same id, and only the latest attempt for
-  // that id is allowed to write its result -- otherwise a slow first attempt
-  // landing after a faster retry (or after the row was removed) would
-  // overwrite the newer state. Keyed per attachment because uploads for
-  // different rows run independently of one another.
-  const ticketsByAttachment = useRef(new Map<number, number>());
-  // zag's FileUpload machine hands onFileAccept the whole cumulative
-  // acceptedFiles array on every selection, not just the files newly added
-  // by that selection (context.set("acceptedFiles", (prev) => [...prev,
-  // ...files])). File objects already seen keep their identity across that
-  // array, so tracking them by reference is what stops a second selection
-  // from re-uploading the first one all over again.
-  const startedFiles = useRef(new Set<File>());
-
-  // Built with useFileUpload + FileUpload.RootProvider rather than plain
-  // FileUpload.Root so handleRemove below can reach fileUpload.deleteFile():
-  // that API is only available to a component that owns the machine
-  // instance, not to one merely rendering <FileUpload.Root> as a descendant
-  // of itself.
-  const fileUpload = useFileUpload({
-    accept: [...ALLOWED_IMAGE_TYPES],
-    maxFileSize: MAX_IMAGE_BYTES,
-    // No ceiling on how many a holder carries. zag's own default is one
-    // file, so a list has to say so.
-    maxFiles: Infinity,
-    onFileAccept: (details) => handleFilesAccepted(details.files),
-    onFileReject: (details) => setFieldError(rejectionMessage(details.files[0])),
-  });
-
-  function commit(next: Attachment[]) {
-    const prevIds = rowsRef.current.map((row) => row.idAttachment);
-    const nextIds = next.map((row) => row.idAttachment);
-    rowsRef.current = next;
-    setRows(next);
-    // A status or url change (upload finishing, an error, a retry) rewrites
-    // a row in place without touching which ids are present -- onChange
-    // only needs to fire when the id set or its order actually moved.
-    const idsChanged =
-      prevIds.length !== nextIds.length || prevIds.some((id, i) => id !== nextIds[i]);
-    if (idsChanged) onChangeRef.current?.(nextIds);
-  }
-
-  // Ids added through this field, which a search that ran before they existed
-  // cannot have matched; see visibleRows.
-  const addedHere = useRef(new Set<number>());
-
-  // At the front, as sa_listAttachments orders the list: newest first.
-  function addRow(row: Attachment) {
-    addedHere.current.add(row.idAttachment);
-    commit([row, ...rowsRef.current]);
-  }
-
-  function updateRow(id: number, patch: Partial<Attachment>) {
-    commit(rowsRef.current.map((row) => (row.idAttachment === id ? { ...row, ...patch } : row)));
-  }
-
-  function beginAttempt(id: number): number {
-    const ticket = (ticketsByAttachment.current.get(id) ?? 0) + 1;
-    ticketsByAttachment.current.set(id, ticket);
-    return ticket;
-  }
-
-  function isCurrentAttempt(id: number, ticket: number): boolean {
-    return ticketsByAttachment.current.get(id) === ticket;
-  }
-
-  async function runUpload(id: number, file: File) {
-    const ticket = beginAttempt(id);
-    try {
-      const blob = await upload(`${uploadPrefix(userId)}${file.name}`, file, {
-        access: "public",
-        handleUploadUrl: "/api/blob/upload",
-      });
-      if (!isCurrentAttempt(id, ticket)) return;
-      await sa_markAttachmentReady(id, blob.url);
-      if (!isCurrentAttempt(id, ticket)) return;
-      updateRow(id, { status: "READY", url: blob.url });
-    } catch {
-      if (!isCurrentAttempt(id, ticket)) return;
-      await discardFailedUpload(id, file);
-    }
-  }
-
-  /**
-   * A failed upload says so in a toast and its row goes, rather than staying
-   * in the list as an ERROR card: the row holds no file, so there is nothing
-   * in it to keep, and a stuck card was all the storyteller was left with.
-   * The file is released from both ledgers, so picking it again starts a
-   * fresh upload.
-   *
-   * Taken off screen first and recorded in removedIds, as handleRemove does,
-   * so a list fetch landing meanwhile cannot bring it back. Only if the
-   * delete itself is refused does the row come back, as ERROR, where its
-   * Retry and remove buttons are.
-   */
-  async function discardFailedUpload(id: number, file: File) {
-    const index = rowsRef.current.findIndex((row) => row.idAttachment === id);
-    if (index === -1) return;
-    const failedRow = rowsRef.current[index];
-
-    toaster.create({ title: `${file.name} could not be uploaded.`, type: "error" });
-    removedIds.current.add(id);
-    ticketsByAttachment.current.delete(id);
-    filesByAttachment.current.delete(id);
-    startedFiles.current.delete(file);
-    fileUpload.deleteFile(file);
-    commit(rowsRef.current.filter((row) => row.idAttachment !== id));
-
-    try {
-      await sa_deleteAttachment(id);
-    } catch {
-      removedIds.current.delete(id);
-      filesByAttachment.current.set(id, file);
-      try {
-        await sa_markAttachmentError(id);
-      } catch {
-        // Swallowed deliberately: the row comes back as ERROR below either
-        // way, with its remove button. The server-side status stays
-        // UPLOADING until a retry or the sweep corrects it.
-      }
-      if (!rowsRef.current.some((row) => row.idAttachment === id)) {
-        const restored = [...rowsRef.current];
-        restored.splice(Math.min(index, restored.length), 0, { ...failedRow, status: "ERROR" });
-        commit(restored);
-      }
-    }
-  }
-
-  async function startUpload(file: File) {
-    let created: { idAttachment: number; status: string };
-    try {
-      created = await sa_createAttachment({
-        kind,
-        idExternal,
-        fileName: file.name,
-        contentType: file.type,
-        byteSize: file.size,
-      });
-    } catch {
-      // No row was created, so there is nothing on screen for runUpload to
-      // report against: without this the file would simply vanish, with an
-      // unhandled rejection in the console the only trace. An expired
-      // session, a database failure, or an edit form whose story changed
-      // hands since it was opened all land here.
-      setFieldError("That file could not be added. Please try again.");
-      // Both ledgers were charged for a row that never existed. startedFiles
-      // is what stops the same File being uploaded twice, so releasing it
-      // lets the user simply pick the file again; zag's own accepted-files
-      // list never shrinks by itself, so the file is taken out of it too,
-      // as handleRemove does for a row that goes.
-      startedFiles.current.delete(file);
-      fileUpload.deleteFile(file);
-      return;
-    }
-    filesByAttachment.current.set(created.idAttachment, file);
-    addRow({
-      idAttachment: created.idAttachment,
-      idStory: null,
-      kind,
-      idExternal,
-      idAttachmentUse: null,
-      status: created.status,
-      url: null,
-      isUploaded: true,
-      fileName: file.name,
-      isCover: false,
-      tags: [],
-      ...justNow(),
-    });
-    await runUpload(created.idAttachment, file);
-  }
-
-  function handleFilesAccepted(files: File[]) {
-    for (const file of files) {
-      if (startedFiles.current.has(file)) continue;
-      startedFiles.current.add(file);
-      void startUpload(file);
-    }
-  }
+  const uploads = useAttachmentUploads({ kind, idExternal, rows: attachmentRows, setFieldError });
 
   async function handleAddUrl() {
     const url = urlValue.trim();
@@ -576,28 +208,6 @@ export function AttachmentListField({
     }
   }
 
-  async function handleRetry(id: number) {
-    // An ERROR row always has its file cached -- it can only have been set by
-    // startUpload, and removal clears both the row and the cache together --
-    // but the guard comes first anyway so a future caller of this function
-    // can never leave the row saying UPLOADING with nothing behind it to send.
-    const file = filesByAttachment.current.get(id);
-    if (!file) return;
-    try {
-      await sa_retryAttachment(id);
-    } catch {
-      // The row stays ERROR with its Retry button, which is exactly the
-      // state to be in when the retry itself could not be started. Going on
-      // to runUpload regardless would show UPLOADING for a row the server
-      // still has as ERROR, and sa_markAttachmentReady would then be asked
-      // to make a transition the workflow refuses.
-      setFieldError("That upload could not be retried. Please try again.");
-      return;
-    }
-    updateRow(id, { status: "UPLOADING" });
-    await runUpload(id, file);
-  }
-
   /**
    * Makes a row the cover, or stops it being one. Shown at once: the row
    * pressed takes the cover and every other row loses it, matching what
@@ -608,7 +218,7 @@ export function AttachmentListField({
    * the control that was pressed.
    */
   async function handleCover(id: number, isCover: boolean): Promise<boolean> {
-    const before = rowsRef.current;
+    const before = attachmentRows.rowsRef.current;
     commit(
       before.map((row) => ({
         ...row,
@@ -625,7 +235,7 @@ export function AttachmentListField({
       // matched by id because rows may have been added or removed meanwhile.
       const previous = new Map(before.map((row) => [row.idAttachment, row.isCover]));
       commit(
-        rowsRef.current.map((row) => ({
+        attachmentRows.rowsRef.current.map((row) => ({
           ...row,
           isCover: previous.get(row.idAttachment) ?? row.isCover,
         })),
@@ -640,7 +250,7 @@ export function AttachmentListField({
    * refresh: nothing outside this field shows a plain tag.
    */
   async function handleTags(id: number, tags: string[]): Promise<boolean> {
-    const previous = rowsRef.current.find((row) => row.idAttachment === id)?.tags;
+    const previous = attachmentRows.rowsRef.current.find((row) => row.idAttachment === id)?.tags;
     if (!previous) return false;
     updateRow(id, { tags });
     try {
@@ -655,28 +265,19 @@ export function AttachmentListField({
   async function handleRemove(id: number) {
     // Everything undone below is captured first, because a refused delete
     // has to put the row back exactly where it was: the row itself and its
-    // position, the cached file Retry would resend, and the in-flight
-    // attempt's ticket.
-    const index = rowsRef.current.findIndex((row) => row.idAttachment === id);
+    // position, and (useAttachmentUploads.forget) the cached file Retry
+    // would resend and the in-flight attempt's ticket.
+    const index = attachmentRows.rowsRef.current.findIndex((row) => row.idAttachment === id);
     if (index === -1) return;
-    const removedRow = rowsRef.current[index];
-    const ticket = ticketsByAttachment.current.get(id);
-    const file = filesByAttachment.current.get(id);
+    const removedRow = attachmentRows.rowsRef.current[index];
 
     // Recorded before anything else: a list fetch's SELECT can land between
     // this function's synchronous commit() below and the sa_deleteAttachment
     // it then awaits, and would otherwise still see -- and bring back -- a
     // row this call is in the middle of removing.
-    removedIds.current.add(id);
-    // Invalidate first: an upload or retry already in flight for this row
-    // must not resurrect it once the user has asked for it to be gone.
-    ticketsByAttachment.current.delete(id);
-    filesByAttachment.current.delete(id);
-    // zag's own accepted-files list only ever grows (nothing else tells it
-    // a file left), so a row that goes is taken out of it here, and the
-    // list it keeps stays the files actually on screen.
-    if (file) fileUpload.deleteFile(file);
-    commit(rowsRef.current.filter((row) => row.idAttachment !== id));
+    attachmentRows.removedIds.current.add(id);
+    const carried = uploads.forget(id);
+    commit(attachmentRows.rowsRef.current.filter((row) => row.idAttachment !== id));
     try {
       await sa_deleteAttachment(id);
       // The cover is drawn by the server-rendered page around this field (the
@@ -690,13 +291,11 @@ export function AttachmentListField({
       // attached -- and, on a story, still its cover. Everything the removal
       // did is undone and the failure is named inline, next to the field
       // rather than in a toast, because it is a failure the user has to act
-      // on. zag's accepted-files list is the one thing not put back:
-      // deleteFile has no inverse, and nothing reads that list but zag.
-      removedIds.current.delete(id);
-      if (ticket !== undefined) ticketsByAttachment.current.set(id, ticket);
-      if (file) filesByAttachment.current.set(id, file);
-      if (!rowsRef.current.some((row) => row.idAttachment === id)) {
-        const restored = [...rowsRef.current];
+      // on.
+      attachmentRows.removedIds.current.delete(id);
+      uploads.restore(id, carried);
+      if (!attachmentRows.rowsRef.current.some((row) => row.idAttachment === id)) {
+        const restored = [...attachmentRows.rowsRef.current];
         restored.splice(Math.min(index, restored.length), 0, removedRow);
         commit(restored);
       }
@@ -707,45 +306,13 @@ export function AttachmentListField({
   // The link input and dropzone, drawn below where the field starts or into
   // addTarget.
   const addControls = (
-    <Stack id={addId} w="full" gap="3">
-      <Field.Root w="full">
-        <Field.Label>Link</Field.Label>
-        <HStack w="full">
-          <Input
-            flex="1"
-            placeholder="https://…"
-            value={urlValue}
-            onChange={(event) => setUrlValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                void handleAddUrl();
-              }
-            }}
-          />
-          <Button
-            type="button"
-            aria-disabled={!urlValue.trim()}
-            onClick={() => {
-              if (urlValue.trim()) void handleAddUrl();
-            }}
-          >
-            Add link
-          </Button>
-        </HStack>
-      </Field.Root>
-
-      <FileUpload.RootProvider value={fileUpload} w="full">
-        <FileUpload.HiddenInput />
-        {/* 12.8rem is four fifths of the recipe's 2xs (16rem) minimum. */}
-        <FileUpload.Dropzone w="full" minH="12.8rem">
-          <ImageIcon size={32} />
-          <FileUpload.DropzoneContent>
-            <Text>Drag images here or click to browse</Text>
-          </FileUpload.DropzoneContent>
-        </FileUpload.Dropzone>
-      </FileUpload.RootProvider>
-    </Stack>
+    <AttachmentAddControls
+      id={addId}
+      fileUpload={uploads.fileUpload}
+      urlValue={urlValue}
+      onUrlChange={setUrlValue}
+      onAddLink={() => void handleAddUrl()}
+    />
   );
 
   // What is drawn: every row, less any a search left out and, when the
@@ -757,7 +324,7 @@ export function AttachmentListField({
     (row) =>
       (shownIds === null ||
         shownIds.has(row.idAttachment) ||
-        addedHere.current.has(row.idAttachment)) &&
+        attachmentRows.addedHere.current.has(row.idAttachment)) &&
       !(hideCovers && row.isCover),
   );
   // How many of those are drawn, when the page asked for pages: back to the
@@ -791,7 +358,7 @@ export function AttachmentListField({
           <Button
             size="xs"
             type="button"
-            aria-disabled={isLoadingAttachments}
+            aria-disabled={isLoading}
             onClick={() => void loadAttachments()}
           >
             Try again
@@ -806,7 +373,7 @@ export function AttachmentListField({
           setTags: handleTags,
           setCover: handleCover,
           remove: handleRemove,
-          retry: (idAttachment) => void handleRetry(idAttachment),
+          retry: (idAttachment) => void uploads.retry(idAttachment),
         })
       ) : (
         <>
@@ -838,7 +405,7 @@ export function AttachmentListField({
                       : "Uploading…"
                 }
                 canTag={idExternal !== null}
-                onRetry={() => void handleRetry(row.idAttachment)}
+                onRetry={() => void uploads.retry(row.idAttachment)}
                 onRemove={() => void handleRemove(row.idAttachment)}
                 onCoverChange={(isCover) => handleCover(row.idAttachment, isCover)}
                 onTagsChange={(tags) => handleTags(row.idAttachment, tags)}

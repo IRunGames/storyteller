@@ -81,6 +81,14 @@ export function StoryTitleMenu({
      */
     prefetch?: false;
   }[] = [
+    // The Storyboard first: it is the door everyone has, and the one most
+    // often wanted from a card.
+    {
+      value: "storyboard",
+      label: "Storyboard",
+      href: storyboardPath(idStory),
+      icon: <GalleryHorizontalEnd />,
+    },
     { value: "overview", label: "Overview", href: `/stories/${idStory}`, icon: <ScrollText /> },
     ...(isStoryteller
       ? [
@@ -107,12 +115,6 @@ export function StoryTitleMenu({
           },
         ]
       : []),
-    {
-      value: "storyboard",
-      label: "Storyboard",
-      href: storyboardPath(idStory),
-      icon: <GalleryHorizontalEnd />,
-    },
   ];
 
   // lazyMount: the items are only drawn while the menu is open, so a page

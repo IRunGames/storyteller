@@ -116,7 +116,7 @@ describe("AppHeader", () => {
     act(() => toaster.remove());
   });
 
-  it("links to the four sections and marks the current one", () => {
+  it("links to the sections and marks the current one", () => {
     renderHeader();
 
     const nav = screen.getByRole("navigation", { name: "Primary" });
@@ -125,7 +125,7 @@ describe("AppHeader", () => {
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["Play", "/play"],
       ["Stories", "/stories"],
-      ["Library", "/library"],
+      ["Store", "/store"],
     ]);
     expect(links[1]).toHaveAttribute("aria-current", "page");
     expect(links[0]).not.toHaveAttribute("aria-current");
@@ -193,7 +193,7 @@ describe("AppHeader", () => {
       ["Play", "/play"],
       ["Stories", "/stories"],
       ["Find a Story", "/stories/find"],
-      ["Library", "/library"],
+      ["Store", "/store"],
     ]);
   });
 
@@ -257,10 +257,10 @@ describe("AppHeader", () => {
   });
 
   it("treats a nested path as part of its section", () => {
-    pathname = "/library/42";
+    pathname = "/play/42";
     renderHeader();
 
-    expect(screen.getByRole("link", { name: "Library" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Play" })).toHaveAttribute("aria-current", "page");
   });
 
   // The bell is commented out in nav-user-buttons.tsx until notifications
@@ -685,7 +685,7 @@ describe("AppHeader", () => {
     });
 
     it("sends the rating, the text and the current page, then closes and toasts thanks", async () => {
-      pathname = "/library/42";
+      pathname = "/play/42";
       const { u, dialog } = await openFeedback();
 
       const notGood = within(dialog).getByRole("radio", { name: "Not good" });
@@ -703,7 +703,7 @@ describe("AppHeader", () => {
       expect(sa_submitFeedback.mock.calls[0].arguments[0]).toEqual({
         status: "THUMBS_DOWN",
         feedback: "Nice cards",
-        pagePath: "/library/42",
+        pagePath: "/play/42",
       });
       // The popover closes straight away and the confirmation is a toast, so
       // the thanks must appear outside the dialog and the dialog must go. The

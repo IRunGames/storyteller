@@ -12,7 +12,6 @@ import {
   SCENE_ELEMENT_HIDDEN,
   type PlayItem,
 } from "@/lib/run";
-import { sa_createSceneElement } from "@/components/scene-elements/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { RunElementForm } from "./run-element-form";
@@ -44,8 +43,9 @@ type Props = {
 /**
  * A stack's + and an element tab's + in the library: a popover with a short
  * form for a new element, which is written into the story and linked to the
- * scene under the stack's tag (sa_createSceneElement). The form is
- * RunElementForm, the same one a pill's info popover edits with.
+ * scene under the stack's tag (sa_createSceneElement, through the form's
+ * create target). The form is RunElementForm, the same one a pill's info
+ * popover edits with.
  */
 export function RunNewElementPopover({
   idStory,
@@ -113,6 +113,7 @@ export function RunNewElementPopover({
               {/* Only drawn while open, so each opening starts a blank form. */}
               {open && (
                 <RunElementForm
+                  idStory={idStory}
                   initial={{
                     kind,
                     name: "",
@@ -130,18 +131,14 @@ export function RunNewElementPopover({
                     sceneUrlText: "",
                     sceneLabel: "",
                   }}
-                  save={(values) =>
-                    sa_createSceneElement(idStory, idStoryScene, tag, {
-                      ...values,
-                      idAttachment: picture?.idAttachment ?? null,
-                      idSceneAttachment: scenePicture?.idAttachment ?? null,
-                      // Ephemera start with their info hidden whatever the
-                      // switch says: a handout is the storyteller's to give
-                      // out, so its description is not the players' at
-                      // once. The pill's info toggle still shows it.
-                      showInfo: values.kind === "EPHEMERA" ? false : addShowInfo,
-                    })
-                  }
+                  target={{
+                    kind: "create",
+                    idStoryScene,
+                    tag,
+                    idAttachment: picture?.idAttachment ?? null,
+                    idSceneAttachment: scenePicture?.idAttachment ?? null,
+                    showInfo: addShowInfo,
+                  }}
                   elementPicture={
                     <NewElementPicture
                       label="Picture (optional)"
@@ -160,7 +157,7 @@ export function RunNewElementPopover({
                       onChange={setScenePicture}
                     />
                   }
-                  onSaved={({ item }) => {
+                  onSaved={({ item }: { item: PlayItem }) => {
                     onCreated(item);
                     setOpen(false);
                   }}

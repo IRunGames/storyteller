@@ -97,6 +97,8 @@ describe("ScenePreview", () => {
     mock.module("@/components/elements/actions", {
       namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
+    mock.module("@/components/run/actions", { namedExports: { sa_setSceneText: mock.fn() } });
+    mock.module("@/components/live/actions", { namedExports: { sa_setLiveSceneText: mock.fn() } });
     mock.module("@/components/play/actions", {
       namedExports: {
         sa_getStoryChannel: mock.fn(),
