@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { Stack } from "@chakra-ui/react";
 import type { ElementStatBlock, StatBlockHolder } from "@/components/stat-blocks/actions";
-import { FoldButton } from "@/components/stat-blocks/fold-button";
+import { Fold } from "@/components/stat-blocks/fold";
 import { StatBlockView } from "@/components/stat-blocks/stat-block-view";
+import { plural } from "@/lib/plural";
 
 /**
  * The element's own stat blocks under a pill's panel, folded: a heading that
@@ -29,10 +30,11 @@ export function ElementStatBlocksFold({
   if (count === 0) return null;
   return (
     <Stack gap="2" data-testid="element-stat-blocks-fold">
-      <FoldButton open={open} onToggle={() => setOpen((current) => !current)}>
-        {count === 1 ? "1 stat block" : `${count} stat blocks`} on the element
-      </FoldButton>
-      {open && (
+      <Fold
+        open={open}
+        onOpenChange={setOpen}
+        summary={`${plural(count, "stat block")} on the element`}
+      >
         <Stack gap="3" pl="4">
           {stored.map((block) => (
             <StatBlockView
@@ -45,7 +47,7 @@ export function ElementStatBlocksFold({
             />
           ))}
         </Stack>
-      )}
+      </Fold>
     </Stack>
   );
 }

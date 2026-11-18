@@ -6,19 +6,11 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
 import { UserProvider } from "@/components/auth/user-provider";
-import type { CurrentUser } from "@/lib/current-user";
 import type { PlayItem, RunScene } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
+import { currentUser, mockHeader, mockNavigation, mockRouter } from "@/test/mocks";
 
-const user: CurrentUser = {
-  id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
-  name: "Paul Stafford",
-  email: "storyteller@irun.games",
-  image: null,
-  nickName: null,
-  idUserType: -10,
-  isAnonymous: false,
-};
+const user = currentUser();
 
 const scene: RunScene = {
   idStoryScene: -15,
@@ -142,19 +134,8 @@ describe("LiveTable", () => {
         sa_startPlaying: async () => ({ error: "Not in this test." }),
       },
     });
-    mock.module("next/navigation", {
-      namedExports: {
-        useRouter: () => ({ push, refresh: mock.fn() }),
-        usePathname: () => "/stories/-4/scenes/-15",
-      },
-    });
-    mock.module("@/lib/auth-client", { namedExports: { signOut: mock.fn() } });
-    mock.module("@/components/feedback/actions", {
-      namedExports: { sa_submitFeedback: mock.fn() },
-    });
-    mock.module("@/components/preferences/actions", {
-      namedExports: { sa_setUserPreference: mock.fn(async () => ({ ok: true as const })) },
-    });
+    mockNavigation({ router: { ...mockRouter(), push }, pathname: "/stories/-4/scenes/-15" });
+    mockHeader();
     mock.module("@/components/uploads/actions", {
       namedExports: {
         sa_listAttachments,
@@ -165,30 +146,37 @@ describe("LiveTable", () => {
       },
     });
     mock.module("@/components/elements/actions", {
-      namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
+      namedExports: {
+        sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })),
+        sa_getElementDetail: mock.fn(async () => null),
+        sa_updateStoryElement: mock.fn(),
+        sa_listSceneLibraryElements: mock.fn(async () => []),
+        sa_setElementTags: mock.fn(),
+      },
     });
-    mock.module("@/components/run/actions", {
+    mock.module("@/components/scene-elements/actions", {
       namedExports: {
         sa_linkSceneElement: mock.fn(),
-        sa_createRunScene: mock.fn(),
-        sa_createLiveScene,
         sa_createSceneElement: mock.fn(),
         sa_setSceneElementShowing: mock.fn(),
         sa_setSceneElementStatus: mock.fn(),
         sa_setSceneElementShowInfo: mock.fn(),
         sa_pulseSceneElement: mock.fn(),
-        sa_getElementDetail: mock.fn(async () => null),
-        sa_updateStoryElement: mock.fn(),
         sa_unlinkSceneElement: mock.fn(),
-        sa_listSceneLibraryElements: mock.fn(async () => []),
-        sa_setSceneStacks: mock.fn(),
         sa_updateSceneElement: mock.fn(),
         sa_moveSceneElement: mock.fn(),
-        sa_setElementTags: mock.fn(),
+      },
+    });
+    mock.module("@/components/run/actions", {
+      namedExports: {
+        sa_createRunScene: mock.fn(),
+        sa_setSceneStacks: mock.fn(),
+        sa_setStackWide: mock.fn(),
       },
     });
     mock.module("@/components/live/actions", {
       namedExports: {
+        sa_createLiveScene,
         sa_setLiveSceneSession,
         sa_setLiveSceneText,
         sa_searchLiveScenes,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import NextLink from "next/link";
 import { Button, Link } from "@chakra-ui/react";
 import { PAGE_SIZE, SECTION_TITLES, type StoryCardData } from "@/lib/stories";
@@ -8,7 +8,8 @@ import { withRedirect } from "@/lib/safe-redirect";
 import { USER_TYPES } from "@/lib/user-types";
 import { UserTypeVisibility } from "@/components/auth/user-type-visibility";
 import { StorySection } from "@/components/stories/story-section";
-import { sa_listFavoriteStories, sa_setFavorite } from "@/app/(app)/(nav)/stories/actions";
+import { sa_listFavoriteStories } from "@/app/(app)/(nav)/stories/actions";
+import { useFavorites } from "@/components/stories/use-favorites";
 
 type Props = {
   /** The first page of the caller's favorites, loaded by the page. */
@@ -25,7 +26,6 @@ export function HomeFavorites({ initial }: Props) {
   const [serverOffset, setServerOffset] = useState(initial.length);
   const [hasMore, setHasMore] = useState(initial.length === PAGE_SIZE);
   const [isLoadingMore, setLoadingMore] = useState(false);
-  const [pendingFavorites, setPendingFavorites] = useState<ReadonlySet<number>>(new Set());
   const [, startTransition] = useTransition();
 
   function onMore() {
@@ -48,25 +48,27 @@ export function HomeFavorites({ initial }: Props) {
     });
   }
 
-  function onToggleFavorite(story: StoryCardData, isFavorite: boolean) {
-    if (isFavorite || pendingFavorites.has(story.idStory)) return;
-    setPendingFavorites((p) => new Set(p).add(story.idStory));
-    const before = stories;
-    setStories((current) => current.filter((s) => s.idStory !== story.idStory));
-    startTransition(async () => {
-      try {
-        await sa_setFavorite(story.idStory, false);
-      } catch {
-        // Put the card back where it was.
-        setStories(before);
-      } finally {
-        setPendingFavorites((p) => {
-          const next = new Set(p);
-          next.delete(story.idStory);
-          return next;
-        });
+  // Every card here is a favorite, so a heart press can only take the card
+  // away; a refused save puts it back where it was (useFavorites), at the
+  // place remembered when it went.
+  const removedAt = useRef(new Map<number, number>());
+  const favorites = useFavorites((story, isFavorite) =>
+    setStories((current) => {
+      if (!isFavorite) {
+        removedAt.current.set(
+          story.idStory,
+          current.findIndex((s) => s.idStory === story.idStory),
+        );
+        return current.filter((s) => s.idStory !== story.idStory);
       }
-    });
+      if (current.some((s) => s.idStory === story.idStory)) return current;
+      const at = removedAt.current.get(story.idStory) ?? current.length;
+      return [...current.slice(0, at), story, ...current.slice(at)];
+    }),
+  );
+  function onToggleFavorite(story: StoryCardData, isFavorite: boolean) {
+    if (isFavorite) return;
+    favorites.toggle(story, false);
   }
 
   return (
@@ -100,7 +102,7 @@ export function HomeFavorites({ initial }: Props) {
       isLoadingMore={isLoadingMore}
       onMore={onMore}
       onToggleFavorite={onToggleFavorite}
-      pendingFavorites={pendingFavorites}
+      pendingFavorites={favorites.pending}
     />
   );
 }

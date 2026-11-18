@@ -1,5 +1,6 @@
 import { before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
+import type { AddPlayersResult } from "@/app/(app)/(nav)/stories/actions";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -10,18 +11,11 @@ import type { CurrentUser } from "@/lib/current-user";
 
 // The list marks the viewer's own seat, so it reads the signed-in user.
 // Someone who is not in it unless a case seats them.
-const viewer: CurrentUser = {
-  id: "u-viewer",
-  name: "Viewer",
-  email: "viewer@example.test",
-  image: null,
-  nickName: null,
-  idUserType: -10,
-  isAnonymous: false,
-};
+const viewer = currentUser({ id: "u-viewer", name: "Viewer", email: "viewer@example.test" });
 const renderWithProviders = (ui: ReactElement, who: CurrentUser = viewer) =>
   renderBare(<UserProvider user={who}>{ui}</UserProvider>);
 import type { PlayerMatch, StoryPlayer } from "@/lib/stories";
+import { currentUser, mockNavigation, mockRouter } from "@/test/mocks";
 
 const players: StoryPlayer[] = [
   { idUser: "u1", name: "PaulKhash", image: null },
@@ -38,8 +32,8 @@ const luna: PlayerMatch = {
 const sa_searchPlayers = mock.fn<(idStory: number, query: string) => Promise<PlayerMatch[]>>(
   async () => [luna],
 );
-const sa_addStoryPlayers = mock.fn<(idStory: number, ids: string[]) => Promise<StoryPlayer[]>>(
-  async () => [{ idUser: luna.idUser, name: luna.name, image: null }],
+const sa_addStoryPlayers = mock.fn<(idStory: number, ids: string[]) => Promise<AddPlayersResult>>(
+  async () => ({ ok: true, players: [{ idUser: luna.idUser, name: luna.name, image: null }] }),
 );
 
 const sa_removeStoryPlayer = mock.fn<(idStory: number, idUser: string) => Promise<{ ok: boolean }>>(
@@ -52,7 +46,7 @@ const sa_leaveStory = mock.fn<(idStory: number) => Promise<{ ok: boolean }>>(asy
 const sa_joinStory = mock.fn<(idStory: number) => Promise<{ ok: true; player: StoryPlayer }>>(
   async () => ({ ok: true, player: { idUser: "u-viewer", name: "Viewer", image: null } }),
 );
-const router = { refresh: mock.fn<() => void>() };
+const router = mockRouter();
 
 let StoryPlayers: typeof import("./story-players").StoryPlayers;
 
@@ -71,7 +65,7 @@ describe("StoryPlayers", () => {
       },
     });
     // The leave button refreshes the page once the seat is given up.
-    mock.module("next/navigation", { namedExports: { useRouter: () => router } });
+    mockNavigation({ router });
     ({ StoryPlayers } = await import("./story-players"));
   });
 
@@ -176,15 +170,12 @@ describe("StoryPlayers", () => {
 
   describe("the viewer's own seat", () => {
     // The viewer is PaulKhash, the first player.
-    const me: CurrentUser = {
+    const me = currentUser({
       id: "u1",
       name: "Paul Khash",
       email: "paul@example.test",
-      image: null,
       nickName: "PaulKhash",
-      idUserType: -10,
-      isAnonymous: false,
-    };
+    });
 
     it("says Me! in place of their name, with their picture and a way to leave", () => {
       renderWithProviders(

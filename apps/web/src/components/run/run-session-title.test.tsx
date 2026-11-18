@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
-import type { SetSessionTitleResult } from "@/components/run/actions";
+import type { SetSessionTitleResult } from "@/components/sessions/actions";
 
 const sa_setSessionTitle = mock.fn(
   async (_story: number, _session: number, title: string): Promise<SetSessionTitleResult> => ({
@@ -18,7 +18,7 @@ let RunSessionTitle: typeof import("./run-session-title").RunSessionTitle;
 
 describe("RunSessionTitle", () => {
   before(async () => {
-    mock.module("@/components/run/actions", { namedExports: { sa_setSessionTitle } });
+    mock.module("@/components/sessions/actions", { namedExports: { sa_setSessionTitle } });
     ({ RunSessionTitle } = await import("./run-session-title"));
   });
 

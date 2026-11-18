@@ -4,28 +4,20 @@
 // definition; the list is searched for that system by its label, so whatever
 // else is in the table never changes an answer. Everything is removed in
 // `after`.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it } from "node:test";
 import { expect } from "expect";
 import { eq } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
 import type { StatBlockDefinition } from "@/lib/stat-blocks";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-const hasDb = Boolean(process.env.DATABASE_URL);
 const ADMIN_EMAIL = "systems-actions-admin@example.test";
 const STORYTELLER_EMAIL = "systems-actions-storyteller@example.test";
 const SYSTEM_NAME = "Fixture Stat System";
 const NEW_NAME = "Fixture New System";
 const STORY_TITLE = "Fixture system story";
 
-let caller = "";
-const getSession = mock.fn(async () => (caller ? { user: { id: caller } } : null));
-
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 let actions: typeof import("./actions");
 
 let admin = "";
@@ -90,14 +82,13 @@ const definition: StatBlockDefinition = {
   ],
 };
 
-describe("admin systems actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("admin systems actions", {}, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
+    ({ db, tables } = suite);
     actions = await import("./actions");
 
-    admin = await makeTestUser(db, tables, ADMIN_EMAIL);
-    storyteller = await makeTestUser(db, tables, STORYTELLER_EMAIL);
+    admin = await suite.makeUser(ADMIN_EMAIL);
+    storyteller = await suite.makeUser(STORYTELLER_EMAIL);
     await db.update(tables.user).set({ idUserType: -100 }).where(eq(tables.user.id, admin));
     await db.update(tables.user).set({ idUserType: -25 }).where(eq(tables.user.id, storyteller));
 
@@ -108,7 +99,7 @@ describe("admin systems actions", { skip: !hasDb && "DATABASE_URL is not set" },
       .values({ systemName: SYSTEM_NAME, systemVersion: "1e", variant: "Fixture" })
       .returning({ idSystem: tables.systems.idSystem });
     idSystem = system.idSystem;
-    caller = admin;
+    suite.caller = admin;
   });
 
   after(async () => {
@@ -116,12 +107,10 @@ describe("admin systems actions", { skip: !hasDb && "DATABASE_URL is not set" },
     await db.delete(tables.systems).where(eq(tables.systems.idSystem, idSystem));
     await db.delete(tables.systems).where(eq(tables.systems.systemName, NEW_NAME));
     // The admin goes last: the row it saved names it in id_updated_by_user.
-    await removeTestUser(db, tables, STORYTELLER_EMAIL);
-    await removeTestUser(db, tables, ADMIN_EMAIL);
   });
 
   it("is refused to anyone short of an administrator", async () => {
-    caller = storyteller;
+    suite.caller = storyteller;
     try {
       await expect(actions.sa_listAdminSystems()).rejects.toThrow();
       await expect(actions.sa_getAdminSystem(idSystem)).rejects.toThrow();
@@ -134,7 +123,7 @@ describe("admin systems actions", { skip: !hasDb && "DATABASE_URL is not set" },
         actions.sa_updateSystem(idSystem, { systemName: "X", systemVersion: "", variant: "" }),
       ).rejects.toThrow();
     } finally {
-      caller = admin;
+      suite.caller = admin;
     }
   });
 

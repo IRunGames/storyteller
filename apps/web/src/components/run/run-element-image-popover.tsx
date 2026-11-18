@@ -5,7 +5,6 @@ import {
   Box,
   Button,
   HStack,
-  IconButton,
   Input,
   InputGroup,
   List,
@@ -14,16 +13,16 @@ import {
   SegmentGroup,
   Stack,
   Text,
-  Tooltip,
 } from "@chakra-ui/react";
 import { Plus, Search } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
-import { ELEMENT_SEARCH_DELAY_MS } from "@/lib/elements";
 import { attachmentLabel } from "@/lib/run";
-import { sa_listAttachments, sa_searchAttachments } from "@/components/uploads/actions";
-import { sa_setElementImage } from "@/components/run/actions";
+import { sa_listAttachments } from "@/components/uploads/actions";
+import { sa_setElementImage } from "@/components/elements/actions";
 import { toaster } from "@/components/ui/toaster";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
+import { useAttachmentSearch } from "@/components/uploads/use-attachment-search";
 
 type Props = {
   idStory: number;
@@ -56,8 +55,6 @@ export function RunElementImagePopover({
   label,
   onPicked,
 }: Props) {
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [open, setOpen] = useState(false);
   const tooltip = "Add image (attachment)";
@@ -69,25 +66,13 @@ export function RunElementImagePopover({
       onOpenChange={(details) => setOpen(details.open)}
       positioning={{ placement: "bottom-start" }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label={`Add an image to ${label}`}
-              size="xs"
-              variant="ghost"
-              rounded="full"
-            >
-              <Plus />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>{tooltip}</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      <IconButtonWithTooltip
+        label={`Add an image to ${label}`}
+        tooltip={tooltip}
+        popoverTrigger={triggerId}
+      >
+        <Plus />
+      </IconButtonWithTooltip>
       <Portal>
         <Popover.Positioner>
           <Popover.Content w="md">
@@ -142,9 +127,6 @@ export function RunElementImagePicker({
   // shows Loading… until its own list is in rather than the last one's.
   const [loaded, setLoaded] = useState<{ key: string; rows: Attachment[] } | null>(null);
   const [query, setQuery] = useState("");
-  // What the search matched, with the query it was for: a stale answer, or
-  // one for a box since cleared, is not applied.
-  const [matched, setMatched] = useState<{ key: string; ids: ReadonlySet<number> } | null>(null);
   const [saving, setSaving] = useState<number | null>(null);
 
   const holder =
@@ -153,7 +135,6 @@ export function RunElementImagePicker({
       : { kind: "STORY" as const, idExternal: idStory };
   const holderKey = `${holder.kind}:${holder.idExternal}`;
   const needle = query.trim();
-  const searchKey = `${holderKey}:${needle}`;
 
   useEffect(() => {
     let live = true;
@@ -166,25 +147,13 @@ export function RunElementImagePicker({
   }, [holder.kind, holder.idExternal, holderKey]);
 
   // The search goes to the database after the library's pause, as its own
-  // does. Each answer is kept with the query it was for, so only the one
-  // for what the box holds now is applied.
-  useEffect(() => {
-    if (needle === "") return;
-    const timer = setTimeout(async () => {
-      try {
-        const ids = await sa_searchAttachments(holder.kind, holder.idExternal, needle);
-        setMatched({ key: searchKey, ids: new Set(ids) });
-      } catch {
-        // Leave the last results in place; the next keystroke tries again.
-      }
-    }, ELEMENT_SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [holder.kind, holder.idExternal, needle, searchKey]);
+  // does.
+  const search = useAttachmentSearch(holder.kind, holder.idExternal, query);
 
   const rows = loaded?.key === holderKey ? loaded.rows : null;
   // With nothing typed, everything; while a search is out, what the last one
-  // for this holder matched would mislead, so nothing narrows until it is in.
-  const ids = needle === "" ? null : matched?.key === searchKey ? matched.ids : new Set<number>();
+  // matched would mislead, so nothing narrows until it is in.
+  const ids = needle === "" ? null : search.isSearching ? new Set<number>() : search.shownIds;
 
   async function pick(row: Attachment) {
     if ("onChosen" in target) {

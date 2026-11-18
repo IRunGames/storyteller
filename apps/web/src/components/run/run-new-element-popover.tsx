@@ -1,19 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import {
-  Box,
-  Button,
-  Field,
-  HStack,
-  IconButton,
-  Image,
-  Popover,
-  Portal,
-  Stack,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
+import { Box, Button, Field, HStack, Image, Popover, Portal, Stack, Text } from "@chakra-ui/react";
 import { ImagePlus, Minus, Plus } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import type { ElementKind } from "@/lib/elements";
@@ -24,9 +12,9 @@ import {
   SCENE_ELEMENT_HIDDEN,
   type PlayItem,
 } from "@/lib/run";
-import { sa_createSceneElement } from "@/components/run/actions";
+import { sa_createSceneElement } from "@/components/scene-elements/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { RunElementForm } from "./run-element-form";
 import { RunElementImagePicker } from "./run-element-image-popover";
 
@@ -68,8 +56,6 @@ export function RunNewElementPopover({
   floating = false,
   onCreated,
 }: Props) {
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [open, setOpen] = useState(false);
   // The pictures the two Add picture buttons chose, sent with the form and
@@ -99,26 +85,21 @@ export function RunNewElementPopover({
       }}
       positioning={{ placement: floating ? "top-end" : "bottom-start" }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            {floating ? (
-              <IconButton aria-label={label} size="md" rounded="full" boxShadow="md">
-                <Plus />
-              </IconButton>
-            ) : (
-              <IconButton aria-label={label} size="xs" variant="ghost" rounded="full">
-                <Plus />
-              </IconButton>
-            )}
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>{label}</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      {floating ? (
+        <IconButtonWithTooltip
+          label={label}
+          size="md"
+          variant="solid"
+          boxShadow="md"
+          popoverTrigger={triggerId}
+        >
+          <Plus />
+        </IconButtonWithTooltip>
+      ) : (
+        <IconButtonWithTooltip label={label} popoverTrigger={triggerId}>
+          <Plus />
+        </IconButtonWithTooltip>
+      )}
       <Portal>
         <Popover.Positioner>
           {/* Lightly see-through, so the play space shows through the
@@ -229,9 +210,9 @@ function NewElementPicture({
           <Text fontSize="sm" flex="1" minW="0" truncate>
             {attachmentLabel(picture)}
           </Text>
-          <PrepIconButton label="Remove picture" onClick={() => onChange(null)} outlined>
+          <IconButtonWithTooltip label="Remove picture" onClick={() => onChange(null)} outlined>
             <Minus />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         </HStack>
       ) : (
         <Stack gap="2" w="full">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useLatest } from "@/hooks/use-latest";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
@@ -224,13 +225,10 @@ export function AttachmentListField({
       : [],
   );
   const rowsRef = useRef(rows);
-  // Kept current in an effect, not written during render: an async upload
-  // or retry started under one render's onChange prop must still report to
-  // whichever onChange the parent has wired up by the time it finishes.
-  const onChangeRef = useRef(onChange);
-  useEffect(() => {
-    onChangeRef.current = onChange;
-  }, [onChange]);
+  // An async upload or retry started under one render's onChange prop must
+  // still report to whichever onChange the parent has wired up by the time
+  // it finishes.
+  const onChangeRef = useLatest(onChange);
 
   const [loadError, setLoadError] = useState<string | null>(null);
   // Whether the first load has come back, so an empty list can say "none"
@@ -241,13 +239,10 @@ export function AttachmentListField({
   // Not until the first load is back, so the heading never says (0) for a
   // story whose attachments are still on their way. A ref for the callback,
   // so a parent passing a fresh function each render does not re-report.
-  const onCountChangeRef = useRef(onCountChange);
-  useEffect(() => {
-    onCountChangeRef.current = onCountChange;
-  }, [onCountChange]);
+  const onCountChangeRef = useLatest(onCountChange);
   useEffect(() => {
     if (hasLoaded) onCountChangeRef.current?.(rows.length);
-  }, [hasLoaded, rows.length]);
+  }, [hasLoaded, rows.length, onCountChangeRef]);
   // A load in flight, guarding loadAttachments() against a second click on
   // Try Again starting an overlapping fetch -- the later-resolving one
   // would otherwise win even if it read rowsRef before the earlier one's
@@ -348,6 +343,9 @@ export function AttachmentListField({
     return () => {
       cancelled = true;
     };
+    // commit() reaches only refs and a state setter, so a new one each
+    // render is no reason to load again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idExternal, fetchMergedAttachments]);
 
   const [urlValue, setUrlValue] = useState("");

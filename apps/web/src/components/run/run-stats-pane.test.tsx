@@ -372,11 +372,13 @@ describe("RunStatsPane", () => {
     await waitFor(() => expect(sa_rollStat.mock.callCount()).toBe(1));
     expect(sa_rollStat.mock.calls[0].arguments).toEqual([
       { idStory: -4, idSceneElement: 10 },
-      -90,
-      "combat",
-      "init",
-      { title: "A hooded figure", quiet: true },
-      undefined,
+      {
+        idSystem: -90,
+        group: "combat",
+        stat: "init",
+        as: { title: "A hooded figure", quiet: true },
+        rowKey: undefined,
+      },
     ]);
   });
 

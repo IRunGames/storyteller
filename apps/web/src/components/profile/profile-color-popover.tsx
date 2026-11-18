@@ -1,11 +1,12 @@
 "use client";
 
 import { useId, useState } from "react";
-import { IconButton, Popover, Portal, SimpleGrid, Tooltip, chakra } from "@chakra-ui/react";
+import { Popover, SimpleGrid, chakra } from "@chakra-ui/react";
 import { Check, Pencil } from "lucide-react";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { PROFILE_COLORS, PROFILE_PREFERENCE_KEYS, profileColor } from "@/lib/profile";
 import { profileColorSchema } from "@/lib/profile-schemas";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
 /**
  * The pencil on the profile banner and the palette it opens. Picking a
@@ -21,8 +22,6 @@ export function ProfileColorPopover() {
   const preferences = useUserPreferences();
   const current = profileColor(preferences.get(PROFILE_PREFERENCE_KEYS.color));
   const [open, setOpen] = useState(false);
-  // Tooltip and popover each look their trigger up by id; one shared id
-  // keeps the popover anchored to the pencil (see nav-theme-menu.tsx).
   const triggerId = useId();
 
   function choose(value: string) {
@@ -39,28 +38,17 @@ export function ProfileColorPopover() {
       positioning={{ placement: "bottom-end" }}
       ids={{ trigger: triggerId }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label="Change banner color"
-              size="sm"
-              rounded="full"
-              variant="subtle"
-              bg="blackAlpha.500"
-              color="white"
-              _hover={{ bg: "blackAlpha.700" }}
-            >
-              <Pencil />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Change banner color</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      <IconButtonWithTooltip
+        label="Change banner color"
+        size="sm"
+        variant="subtle"
+        bg="blackAlpha.500"
+        color="white"
+        _hover={{ bg: "blackAlpha.700" }}
+        popoverTrigger={triggerId}
+      >
+        <Pencil />
+      </IconButtonWithTooltip>
       {/* Not portalled, unlike the standards' other floating layers: it
           opens inside the profile dialog, which hides everything outside
           itself from assistive technology and traps focus within, so a

@@ -2,20 +2,12 @@
 
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Alert,
-  Button,
-  HStack,
-  IconButton,
-  Popover,
-  Portal,
-  Stack,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
+import { Button, HStack, Popover, Portal, Stack, Text } from "@chakra-ui/react";
 import { LogOut } from "lucide-react";
 import { sa_leaveStory } from "@/app/(app)/(nav)/stories/actions";
 import { toaster } from "@/components/ui/toaster";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
+import { FormError } from "@/components/forms/form-error";
 
 type Props = {
   idStory: number;
@@ -35,8 +27,6 @@ type Props = {
  */
 export function LeaveStoryButton({ idStory, onLeft }: Props) {
   const router = useRouter();
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,27 +62,15 @@ export function LeaveStoryButton({ idStory, onLeft }: Props) {
       ids={{ trigger: triggerId }}
       positioning={{ placement: "top" }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              type="button"
-              aria-label="Leave game"
-              variant="outline"
-              size="xs"
-              rounded="full"
-              colorPalette="red"
-            >
-              <LogOut />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Leave game</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      <IconButtonWithTooltip
+        label="Leave game"
+        type="button"
+        variant="outline"
+        colorPalette="red"
+        popoverTrigger={triggerId}
+      >
+        <LogOut />
+      </IconButtonWithTooltip>
       <Portal>
         <Popover.Positioner>
           <Popover.Content w="xs">
@@ -106,15 +84,7 @@ export function LeaveStoryButton({ idStory, onLeft }: Props) {
                   Are you sure you want to leave? You will have to be invited again by the
                   storyteller to rejoin the game.
                 </Text>
-                {error && (
-                  // role="alert", which Chakra's Alert does not set itself.
-                  <Alert.Root role="alert" status="error" size="sm">
-                    <Alert.Indicator />
-                    <Alert.Content>
-                      <Alert.Description>{error}</Alert.Description>
-                    </Alert.Content>
-                  </Alert.Root>
-                )}
+                <FormError message={error} size="sm" />
                 {/* Cancel at the start and the action at the end, as the
                     forms lay them out. */}
                 <HStack justify="space-between" gap="2">

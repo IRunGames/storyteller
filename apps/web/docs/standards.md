@@ -18,18 +18,21 @@ how we use it. Authentication has its own page, [`auth.md`](auth.md).
 
 ## Where things live
 
-| Path                                                 | Holds                                                                                                                                                                              |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/app/(public)`, `(auth)`, `(app)`, `(app)/(nav)` | Route groups by access tier; `(nav)` is every signed-in page that carries the menu bar. The group name is not part of the URL.                                                     |
-| `src/app/<route>/actions.ts`                         | Server actions for that route. A component no single page owns keeps its action beside itself instead ([`components/feedback/actions.ts`](../src/components/feedback/actions.ts)). |
-| `src/app/<route>/`                                   | A component only that page uses lives beside its `page.tsx` (the admin Systems page's `systems-admin.tsx`): it is the page's implementation, not a component.                      |
-| `src/components/<area>/`                             | Components more than one page shares, grouped by feature (`nav`, `stories`, `auth`). Never a page's own body.                                                                      |
-| `src/components/ui/`                                 | Only Chakra's generated snippets (`provider.tsx`, `color-mode.tsx`, `toaster.tsx`), added with `npx @chakra-ui/cli snippet add <name>`. Never a component library of our own.      |
-| `src/lib/`                                           | Shared code with no React in it: zod schemas (`<feature>-schemas.ts`), view types and formatters, auth helpers.                                                                    |
-| `src/db/`                                            | The Drizzle client and the hand-written schema.                                                                                                                                    |
-| `src/test/`                                          | The test harness (`setup.ts`, `render.tsx`).                                                                                                                                       |
-| `src/proxy.ts`                                       | Next 16's name for middleware. An optimistic cookie check only, never a security boundary.                                                                                         |
-| `*.test.ts(x)`                                       | Colocated with the file under test.                                                                                                                                                |
+| Path                                                        | Holds                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/app/(public)`, `(auth)`, `(app)`, `(app)/(nav)`        | Route groups by access tier; `(nav)` is every signed-in page that carries the menu bar. The group name is not part of the URL.                                                                                                                                                                                                                                                                                                                |
+| `src/app/<route>/actions.ts`                                | Server actions for that route. A component no single page owns keeps its action beside itself instead ([`components/feedback/actions.ts`](../src/components/feedback/actions.ts)).                                                                                                                                                                                                                                                            |
+| `src/app/<route>/`                                          | A component only that page uses lives beside its `page.tsx` (the admin Systems page's `systems-admin.tsx`): it is the page's implementation, not a component.                                                                                                                                                                                                                                                                                 |
+| `src/components/<area>/`                                    | Components more than one page shares, grouped by feature (`nav`, `stories`, `auth`). Never a page's own body.                                                                                                                                                                                                                                                                                                                                 |
+| `src/components/buttons/`, `forms/`, `covers/`, `popovers/` | The few pieces every feature draws the same way: `IconButtonWithTooltip` and `WithTooltip` (the tooltip on every icon button, and on a menu's or popover's trigger), `FormError` (a form's own error), `CoverBackdrop` (a cover picture with its scrim), `InfoPopoverShell` and `InfoPopover` (the small info button and its panel). Never a page's own body.                                                                                 |
+| `src/components/providers/`                                 | What wraps the app once, written by us: `emotion-registry.tsx`.                                                                                                                                                                                                                                                                                                                                                                               |
+| `src/components/ui/`                                        | Only Chakra's generated snippets (`provider.tsx`, `color-mode.tsx`, `toaster.tsx`), added with `npx @chakra-ui/cli snippet add <name>` and edited where the app needs it (the toaster's durations, the provider's theme list, the colour mode read off `lib/themes.ts`). Nothing of our own beside them; `test/architecture.test.ts` checks.                                                                                                  |
+| `src/lib/`                                                  | Shared code with no React in it: zod schemas (`<feature>-schemas.ts`), view types and formatters, auth helpers.                                                                                                                                                                                                                                                                                                                               |
+| `src/db/`                                                   | The Drizzle client, the hand-written schema, and the reads and writes more than one actions module shares: who may read or change a story (`story-access.ts`), the scene's read model (`scene-space.ts`), one scene insert (`scenes.ts`), covers (`covers.ts`), seats (`seats.ts`), the activity log (`activity-log.ts`). A `"use server"` module may only export actions, so what two of them share lives here.                              |
+| `src/hooks/`                                                | React hooks more than one feature shares: `use-latest.ts`, `use-optimistic-action.ts` (a control that shows its change before the action answers and puts it back on a refusal), `use-debounced-search.ts` (a search box that asks the database once the typing pauses). A hook one feature owns stays beside it (`components/play/use-story-chat.ts`, `components/stories/use-favorites.ts`, `components/uploads/use-attachment-search.ts`). |
+| `src/test/`                                                 | The test harness: `setup.ts`, `render.tsx`, `db-suite.ts` for database tests, `scene-fixtures.ts` for the table's suites, `mocks.ts` for the mocks component tests share, and the source scans (`guest-gate`, `architecture`).                                                                                                                                                                                                                |
+| `src/proxy.ts`                                              | Next 16's name for middleware. An optimistic cookie check only, never a security boundary.                                                                                                                                                                                                                                                                                                                                                    |
+| `*.test.ts(x)`                                              | Colocated with the file under test.                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ## UI: Chakra UI v3
 
@@ -70,8 +73,8 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   the theme in JavaScript, which would need `ClientOnly`. The selector is
   spelled out because Chakra only types the `_halloween` condition after its
   typegen CLI has run, which we do not do; tokens in `theme.ts` are untyped
-  and use `_halloween` directly. The snippet's `useColorModeValue` only knows
-  light and dark, so do not reach for it.
+  and use `_halloween` directly. The color-mode snippet's `useColorModeValue`
+  is deleted for the same reason: it only knew light and dark.
 - **State the server cannot know is rendered inside `ClientOnly`** with a
   `Skeleton` fallback, as the theme menu does: the resolved theme is unknown
   during SSR.
@@ -83,9 +86,12 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   with its own words and its own action, as
   [`delete-scene-button.tsx`](../src/components/prep/delete-scene-button.tsx)
   does; it does not draw the popover itself.
-- **Errors are inline, confirmations are toasts.** A form-level failure is an
-  `Alert.Root status="error"`; a field failure is `Field.Root invalid` plus
-  `Field.ErrorText`, and the form stays open so the user can fix it. A
+- **Errors are inline, confirmations are toasts.** A form-level failure is a
+  [`FormError`](../src/components/forms/form-error.tsx), given
+  `errors.root?.message` or the error string as it is (it draws nothing
+  without one, and always carries `role="alert"`); a field failure is
+  `Field.Root invalid` plus `Field.ErrorText`, and the form stays open so the
+  user can fix it. A
   success that closes what the user was looking at is acknowledged with
   `toaster.create({ title, type: "success" })` from
   [`toaster.tsx`](../src/components/ui/toaster.tsx), Chakra's own snippet.
@@ -95,14 +101,19 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   toast an error the user has to act on.
 - **Prefer `aria-disabled` over `disabled`** when the control must stay
   focusable; a disabled button also swallows pointer events, which is why the
-- **Every icon button has a tooltip, placed above it:** `Tooltip.Root
-openDelay={200} positioning={{ placement: "top" }}`. When the button also
-  opens a menu or popover, nest `Tooltip.Trigger asChild` around
-  `Menu.Trigger asChild` so both merge onto the one button, **and give both
-  roots the same `ids={{ trigger }}`** from `useId()`. Each machine looks its
-  trigger up by id when positioning; with separate ids the tooltip's wins and
-  the menu opens at the page corner
-  ([`nav-theme-menu.tsx`](../src/components/nav/nav-theme-menu.tsx)).
+- **Every icon button has a tooltip, placed above it,** through
+  [`IconButtonWithTooltip`](../src/components/buttons/icon-button-with-tooltip.tsx)
+  (a round ghost `xs` button by default; the header's pass their own size,
+  radius and colour over it). When the button also opens a menu or popover,
+  give it `menuTrigger={triggerId}` or `popoverTrigger={triggerId}` and the
+  `Menu.Root` or `Popover.Root` around it `ids={{ trigger: triggerId }}` from
+  one `useId()`: each machine looks its trigger up by id when positioning,
+  and with separate ids the tooltip's wins and the menu opens at the page
+  corner. [`WithTooltip`](../src/components/buttons/with-tooltip.tsx) is the
+  same for a trigger that is not an icon button (a text button, an avatar).
+  Nothing else writes a `Tooltip.Root` around a trigger. A small info button
+  and the panel it opens is an
+  [`InfoPopoverShell`](../src/components/popovers/info-popover-shell.tsx).
 - **Icon-only choices are buttons with `role="radio"`** inside a
   `role="radiogroup"`, with `aria-checked` mirrored by a `filled` icon, rather
   than a `RadioGroup` whose control would have to be hidden and restyled.
@@ -115,7 +126,13 @@ openDelay={200} positioning={{ placement: "top" }}`. When the button also
 - **Every read and write is a server action** in the route's `actions.ts`,
   `"use server"` at the top, and every exported function starts with
   `const user = await requireAccount()` from
-  [`authorize.ts`](../src/lib/authorize.ts). That checks the session _and_ the
+  [`authorize.ts`](../src/lib/authorize.ts). An actions module holds one
+  concern: the table's scene (`components/run/actions.ts`), an element's
+  link to a scene (`components/scene-elements/actions.ts`), the element
+  itself (`components/elements/actions.ts`), the session at the table
+  (`components/sessions/actions.ts`), the join link
+  (`components/join-links/actions.ts`); a page imports from each feature it
+  uses. That checks the session _and_ the
   `s_users` row (exists, active, not a guest), so a stale cookie for a
   deactivated account does nothing, and neither does a guest's. The few
   actions a guest's pages need start with `requireUser()` instead, which lets
@@ -141,15 +158,38 @@ openDelay={200} positioning={{ placement: "top" }}`. When the button also
   dynamic import of the component.
 - **Use `user.id` from `requireAccount()`, never an id the client sent.** Stamp
   `idCreatedByUser` and `idUpdatedByUser` with it on every insert.
+- **Whose row it is comes from [`story-access.ts`](../src/db/story-access.ts):**
+  `ownedStory`, `ownedScene`, `ownedSession`, `ownedElement` and
+  `ownedSceneElement` answer the row when the caller is its storyteller and
+  null (or a reason) otherwise, and `storyAccess` says whether a reader may
+  read a story at all. `ownedScene` and `ownedSceneElement` refuse a
+  complete scene unless the caller passes `allowLocked`, so every write to a
+  scene and to what is in it is held by the one lock; a read passes
+  `allowLocked: true`, and so do the few writes that are allowed on a
+  finished scene (its text from the tables, its stat blocks). No action
+  writes its own join to `stories`.
+- **An action never calls another exported `sa_` action:** that runs the gate
+  again and bypasses `cache()`. What two actions share is a plain helper in
+  the module, or a function in `db/`.
 - **Validate the input with the shared zod schema** and return a discriminated
-  union: `{ ok: true }` or `{ ok: false, errors: Record<string, string> }`
-  keyed by the issue path. Throw only for things the UI cannot fix (not found,
-  not signed in). `redirect()` on success when a navigation is expected.
+  union: `{ ok: true }` or `{ ok: false, errors: formErrors(parsed.error) }`
+  from [`forms.ts`](../src/lib/forms.ts), one message per field keyed by the
+  issue path, an issue with no path on `"root"`. Every input is checked with
+  `safeParse`: a write refused for a bad id or a row that is not the
+  caller's answers `{ ok: false, errors: { root } }`, or `{ ok: false, error }`
+  where the result carries one message; a read answers `null` or `[]`; only
+  the gate throws, for a caller who is not signed in. `redirect()` on success
+  when a navigation is expected. A refusal with no field to sit on is a constant in
+  [`messages.ts`](../src/lib/messages.ts), so one refusal has one wording.
 - **An id is checked the same way everywhere.** A page reads an id from its URL
   with `parseRouteId` ([`route-ids.ts`](../src/lib/route-ids.ts)) and calls
-  `notFound()` on `null`; an action or schema validates an id with `z.int32()`,
-  the range of every id column. An id outside it is a query error rather than a
-  missing row, and neither side writes its own regex or range.
+  `notFound()` on `null`; an action or schema validates an id with `idSchema`
+  from [`schemas.ts`](../src/lib/schemas.ts), which is `z.int32()`, the range
+  of every id column. An id outside it is a query error rather than a missing
+  row, and neither side writes its own regex or range. The same file holds the
+  other fragments every feature's schema is built from: `offsetSchema`,
+  `searchSchema`, `titleSchema(what)`, `longTextSchema(label)` and
+  `selectIntSchema` for a `<select>` whose empty option means null.
 - **Anything derived from the request** (the client IP, say) is read from
   `next/headers` inside the action, treated as a record only, and tolerated
   when absent: local development has no proxy in front of Next.
@@ -193,8 +233,10 @@ openDelay={200} positioning={{ placement: "top" }}`. When the button also
 - **Chakra checkboxes and radios go through `Controller`,** not `register()`:
   Chakra's hidden input carries `value="on"`, which react-hook-form would hand
   to the schema instead of the checked flag.
-- **Errors the action sends back go through `setError`** field by field, with
-  anything unattributable landing on `"root"`. Use
+- **Errors the action sends back go through `applyActionErrors`** from
+  [`forms.ts`](../src/lib/forms.ts): `applyActionErrors({ setError },
+result.errors, FIELDS, fallback?)` sets every field the form registers and
+  puts `root`, or a key the form has no field for, on `"root"`. Use
   `loading={isSubmitting || isSubmitSuccessful}` on the submit button when the
   action redirects, so the button does not flicker back before navigation.
 - **Optional fields say so in the label** rather than marking the required ones.
@@ -264,20 +306,31 @@ needs_user_ids`), fails loudly if the registration did not take, and calls
   imports hoist above `mock.module`, so the module under test is loaded with
   `await import(...)` after the mocks are registered
   ([`app-header.test.tsx`](../src/components/nav/app-header.test.tsx)).
-- **Action tests hit the real database** and are skipped when `DATABASE_URL`
-  is unset. [`scripts/run-tests.mjs`](../scripts/run-tests.mjs) runs every
-  test file that mentions `DATABASE_URL` one at a time, after the rest have
-  run in parallel: side by side, one suite's fixtures land in another's lists. They mock `getSession` from `@/lib/require-session`, import `@/db`
-  lazily inside `before` (the pool opens at import time), create their own
-  fixtures, clean them up in both `before` and `after`, and close the pool
+- **Action tests hit the real database** through `describeWithDb` from
+  [`db-suite.ts`](../src/test/db-suite.ts), which loads `.env.local`, skips
+  the suite when `DATABASE_URL` is unset, mocks `getSession` from
+  `@/lib/require-session`, makes the test user and closes the pool. The body
+  imports `@/db` and the module under test lazily inside its own `before`
+  (the pool opens at import time, and a static import would hoist above the
+  mocks), makes its fixtures, and removes them in `after`
   ([`feedback/actions.test.ts`](../src/components/feedback/actions.test.ts)).
-- **A database test signs in as a test user of its own**, made with
-  `makeTestUser` from [`test-user.ts`](../src/test/test-user.ts) under an
-  `@example.test` address, and removed in `after`. Never a real or
-  `@irun.games` account: the dev database is where the owner plays, and a
-  test's cleanup deletes what its user wrote.
+  [`scripts/run-tests.mjs`](../scripts/run-tests.mjs) runs every file that
+  uses `describeWithDb` (or names `DATABASE_URL` itself) one at a time, after
+  the rest have run in parallel: side by side, one suite's fixtures land in
+  another's lists.
+- **A database test signs in as a test user of its own**, the one
+  `describeWithDb` makes from the `email` it is given, or more through
+  `suite.makeUser`, all under `@example.test` and removed in `after`. Never
+  a real or `@irun.games` account: the dev database is where the owner plays,
+  and a test's cleanup deletes what its user wrote.
   [`real-accounts.test.ts`](../src/test/real-accounts.test.ts) fails the suite
-  if one does.
+  if one does. `suite.caller` is who the actions think is asking; a test that
+  signs in as someone else sets it and sets it back.
+- **Component tests take their shared mocks from
+  [`mocks.ts`](../src/test/mocks.ts)**: `mockNavigation` for
+  `next/navigation`, `mockHeader` for what a page with the `AppHeader` has
+  to replace, `currentUser` for the `CurrentUser` a `UserProvider` is given.
+  Each is called inside `before`, ahead of the dynamic import.
 - **Query by role and accessible name.** If a test cannot find something by
   role, fix the markup, not the query.
 - **Zag's floating layers need patience under jsdom:** `findByRole` and

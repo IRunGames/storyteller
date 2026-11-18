@@ -3,20 +3,23 @@
 import NextLink from "next/link";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Alert, Button, Field, Heading, HStack, Input, Stack, Textarea } from "@chakra-ui/react";
+import { Button, Field, Heading, HStack, Input, Stack, Textarea } from "@chakra-ui/react";
 import {
+  elementSchema,
   elementFormSchema,
   type ElementFormInput,
   type ElementValues,
 } from "@/lib/element-schemas";
 import type { ElementKind } from "@/lib/elements";
 import { hasStats, systemKey, toStatBlockFields, type StatBlock } from "@/lib/stat-blocks";
+import { applyActionErrors } from "@/lib/forms";
 import {
   sa_createElement,
   sa_updateElement,
   type StatBlockSystems,
 } from "@/components/prep/actions";
 import { StatBlockFields } from "@/components/stat-blocks/stat-block-fields";
+import { FormError } from "@/components/forms/form-error";
 import { DeleteElementButton } from "./delete-element-button";
 import { ElementKindSelect } from "./element-kind-select";
 
@@ -125,24 +128,17 @@ export function ElementForm({
     }
 
     // An edit that saves redirects, so this never runs for it. Anything that
-    // comes back is an error the client check did not catch.
-    let anyField = false;
-    for (const [field, message] of Object.entries(result.errors)) {
-      if (field === "") continue;
-      // A stat's error is keyed by its path, statBlocks.<system>.<group>.<stat>.<part>,
-      // which is the field's own name.
-      setError(field as keyof ElementFormInput, { message });
-      anyField = true;
-    }
-    if (!anyField) {
-      setError("root", {
-        message:
-          result.errors[""] ??
-          (element
-            ? "Could not save the element. Please try again."
-            : "Could not create the element. Please try again."),
-      });
-    }
+    // comes back is an error the client check did not catch. A stat's error
+    // is keyed by its path, statBlocks.<system>.<group>.<stat>.<part>, which
+    // is the field's own name.
+    applyActionErrors(
+      { setError },
+      result.errors,
+      (field) => field in elementSchema.shape || field.startsWith("statBlocks."),
+      element
+        ? "Could not save the element. Please try again."
+        : "Could not create the element. Please try again.",
+    );
   }
 
   return (
@@ -156,14 +152,7 @@ export function ElementForm({
         </HStack>
       )}
 
-      {errors.root && (
-        <Alert.Root status="error">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Description>{errors.root.message}</Alert.Description>
-          </Alert.Content>
-        </Alert.Root>
-      )}
+      <FormError message={errors.root?.message} />
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <Stack gap="4">

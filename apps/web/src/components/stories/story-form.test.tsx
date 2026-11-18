@@ -186,9 +186,11 @@ describe("StoryForm", () => {
       { dropStatBlock: true },
     ]);
 
-    // Back on the system it was copied from, nothing goes.
+    // Back on the system it was copied from, nothing goes. The form's own
+    // error from the mocked save (which never redirects) is an alert too, so
+    // the warning is looked for by its words.
     await user.selectOptions(screen.getByLabelText(/System/), "-6");
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/It was copied from/)).toBeNull();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
   });
 

@@ -2,10 +2,11 @@
 
 import { useId } from "react";
 import NextLink from "next/link";
-import { IconButton, Menu, Portal, Tooltip } from "@chakra-ui/react";
+import { Menu, Portal } from "@chakra-ui/react";
 import { Dices, MailPlus, Users, Wrench } from "lucide-react";
 import { UserTypeVisibility } from "@/components/auth/user-type-visibility";
 import { USER_TYPES } from "@/lib/user-types";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
 /**
  * The administrators' tools, one item each, for the wrench menu and the
@@ -37,28 +38,17 @@ export function NavAdminMenu() {
   return (
     <AdminOnly>
       <Menu.Root positioning={{ placement: "bottom-end" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Root
-          openDelay={200}
-          positioning={{ placement: "top" }}
-          ids={{ trigger: triggerId }}
+        <IconButtonWithTooltip
+          label="Admin tools"
+          tooltip="Admin"
+          boxSize="11"
+          rounded="10px"
+          color="nav.icon"
+          menuTrigger={triggerId}
+          portalled={false}
         >
-          <Tooltip.Trigger asChild>
-            <Menu.Trigger asChild>
-              <IconButton
-                aria-label="Admin tools"
-                variant="ghost"
-                boxSize="11"
-                rounded="10px"
-                color="nav.icon"
-              >
-                <Wrench />
-              </IconButton>
-            </Menu.Trigger>
-          </Tooltip.Trigger>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Admin</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Tooltip.Root>
+          <Wrench />
+        </IconButtonWithTooltip>
         <Portal>
           <Menu.Positioner>
             <Menu.Content>

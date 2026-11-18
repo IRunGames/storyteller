@@ -8,26 +8,18 @@
 // cascade). Fixture ids are positive, from the identity column, so they can
 // never collide with the seed's negative ones. Nothing here ever marks a seed
 // item read for the test user: that would hide it on the real home page.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "home-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -41,11 +33,10 @@ let fixtureIds: number[] = [];
 let liveId = 0;
 let unreadId = 0;
 
-describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("home actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
     actions = await import("./actions");
 
     const now = Date.now();
@@ -90,8 +81,6 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     if (!db) return;
     if (fixtureIds.length)
       await db.delete(tables.news).where(inArray(tables.news.idNews, fixtureIds));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("lists what is live now, newest start first, and nothing else", async () => {
@@ -143,6 +132,6 @@ describe("home actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   });
 
   it("refuses an id outside the int4 range", async () => {
-    await expect(actions.sa_markNewsRead([2 ** 31])).rejects.toThrow();
+    expect(await actions.sa_markNewsRead([2 ** 31])).toEqual({ ok: false });
   });
 });

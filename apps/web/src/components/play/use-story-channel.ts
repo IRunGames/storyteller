@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLatest } from "@/hooks/use-latest";
 import mqtt from "mqtt";
 import { parseStoryEvent, storyEventTitle, type StoryEvent } from "@/lib/realtime/events";
 import { chatEventTitle, parseChatEvent, type ChatEvent } from "@/lib/realtime/chat-events";
@@ -77,12 +78,8 @@ export function useStoryChannel(
   const [topic, setTopic] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
-  const handlersRef = useRef(handlers);
-  // Kept current in an effect rather than during render, as the hooks rule
-  // asks; a message always arrives after the render that changed them.
-  useEffect(() => {
-    handlersRef.current = handlers;
-  });
+  // The handlers the channel's message handler calls, which it holds across renders.
+  const handlersRef = useLatest(handlers);
   const nextId = useRef(1);
 
   useEffect(() => {
@@ -160,7 +157,7 @@ export function useStoryChannel(
       // left to finish and then linger.
       client?.end(true);
     };
-  }, [idStory, enabled]);
+  }, [idStory, enabled, handlersRef]);
 
   const clear = useCallback(() => setMessages([]), []);
 

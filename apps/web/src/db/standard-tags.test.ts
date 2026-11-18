@@ -3,31 +3,25 @@
 // with come from the database (tr_bi_story_scenes_standard_tags), not from
 // any one action, so this inserts rows directly. Fixture rows are positive
 // ids left to the database and are deleted in `after`.
-import { after, before, describe, it } from "node:test";
+import { after, before, it } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "db-standard-tags@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let taggedSystem = 0;
 let plainSystem = 0;
 const storyIds: number[] = [];
 
-describe("standard tags", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("standard tags", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
 
     [{ id: taggedSystem }, { id: plainSystem }] = await db
       .insert(tables.systems)
@@ -47,8 +41,6 @@ describe("standard tags", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     await db
       .delete(tables.systems)
       .where(inArray(tables.systems.idSystem, [taggedSystem, plainSystem].filter(Boolean)));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   async function newScene(

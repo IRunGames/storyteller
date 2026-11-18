@@ -14,6 +14,7 @@ import {
   Tooltip,
 } from "@chakra-ui/react";
 import { Check, ChevronDown, ExternalLink, Plus } from "lucide-react";
+import { WithTooltip } from "@/components/buttons/with-tooltip";
 import { scenePreviewPath } from "@/lib/scenes";
 import type { RunPlaySpace, RunScene } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
@@ -90,8 +91,6 @@ export function RunSceneSelect({
   const [scenes, setScenes] = useState<RunScene[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [isLoading, setLoading] = useState(false);
-  // Tooltip and menu each look their trigger up by id; sharing one keeps the
-  // menu from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const current = scene?.title ?? "None";
   // Whether a listed scene can be chosen: the run page needs a session to
@@ -149,33 +148,15 @@ export function RunSceneSelect({
             else void load(chosen);
           }}
         >
-          <Tooltip.Root
-            openDelay={200}
-            positioning={{ placement: "top" }}
-            ids={{ trigger: triggerId }}
-          >
-            <Tooltip.Trigger asChild>
-              <Menu.Trigger asChild>
-                {/* Only the word; the scene's title is the tooltip's and the
-                    accessible name's, and the play space shows it in full.
-                    Open with no session too, for Create new scene. */}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label={`Scene: ${current}`}
-                  loading={isLoading}
-                >
-                  Scene
-                  <ChevronDown />
-                </Button>
-              </Menu.Trigger>
-            </Tooltip.Trigger>
-            <Portal>
-              <Tooltip.Positioner>
-                <Tooltip.Content>{current}</Tooltip.Content>
-              </Tooltip.Positioner>
-            </Portal>
-          </Tooltip.Root>
+          <WithTooltip tooltip={current} menuTrigger={triggerId}>
+            {/* Only the word; the scene's title is the tooltip's and the accessible
+                name's, and the play space shows it in full. Open with no session too,
+                for Create new scene. */}
+            <Button size="sm" variant="ghost" aria-label={`Scene: ${current}`} loading={isLoading}>
+              Scene
+              <ChevronDown />
+            </Button>
+          </WithTooltip>
           <Portal>
             <Menu.Positioner>
               <Menu.Content minW="xs">

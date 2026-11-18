@@ -5,28 +5,31 @@
 // every move is chosen from it: a status the workflow allows out of the row's
 // current one, and a status it does not. That way these cases keep their
 // meaning when the workflows are edited, which they will be.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it, mock } from "node:test";
 import { expect } from "expect";
+import { SCENE_COMPLETE } from "@/lib/messages";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import { eq, inArray, sql } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
 
 import { transitionsFrom, type StatusOption } from "@/lib/status";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 import { makeTestUser, removeTestUser } from "@/test/test-user";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "components-status-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
+// What a move tells the players' table, by which helper the action reached
+// for; what the helpers send is their own test's business.
+const published = {
+  publishElementChanged: mock.fn(async (..._args: unknown[]) => {}),
+  publishSceneChanged: mock.fn(async (..._args: unknown[]) => {}),
+  publishSceneElement: mock.fn(async (..._args: unknown[]) => {}),
+};
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 const GUEST_EMAIL = "components-status-guest@example.test";
 const ABSENT_GUEST_EMAIL = "components-status-absent-guest@example.test";
@@ -43,24 +46,19 @@ let myElement = 0;
 let theirElement = 0;
 let workflow: StatusOption[] = [];
 
-describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("status actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    mock.module("@/lib/realtime/publish-scene", { namedExports: published });
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
     actions = await import("./actions");
 
     workflow = await actions.sa_listStatusOptions("story_scenes");
 
-    const [otherUser] = await db
-      .insert(tables.user)
-      .values({
-        name: "Fixture Status Other",
-        nickName: "StatusOther",
-        email: "fixture-status-other@example.test",
-      })
-      .returning({ id: tables.user.id });
-    otherUserId = otherUser.id;
+    otherUserId = await suite.makeUser("fixture-status-other@example.test", {
+      name: "Fixture Status Other",
+      nickName: "StatusOther",
+    });
 
     const stories = await db
       .insert(tables.stories)
@@ -100,11 +98,8 @@ describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => 
       .delete(tables.storyScenes)
       .where(inArray(tables.storyScenes.idStory, [myStory, theirStory]));
     await db.delete(tables.stories).where(inArray(tables.stories.idStory, [myStory, theirStory]));
-    await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await removeTestUser(db, tables, GUEST_EMAIL);
     await removeTestUser(db, tables, ABSENT_GUEST_EMAIL);
-    await db.$client.end();
   });
 
   const statusOf = async (idStoryScene: number) => {
@@ -130,11 +125,11 @@ describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => 
 
   it("refuses a table that has no business having a status", async () => {
     // The table name comes from the browser, so anything off the list is
-    // rejected before it reaches a query.
-    await expect(
+    // answered with no workflow before it reaches a query.
+    expect(
       // @ts-expect-error the point of the case is a table the type forbids
-      actions.sa_listStatusOptions("s_users"),
-    ).rejects.toThrow();
+      await actions.sa_listStatusOptions("s_users"),
+    ).toEqual([]);
   });
 
   it("moves a row to a status the workflow allows out of the one it holds", async () => {
@@ -252,14 +247,97 @@ describe("status actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => 
     const [move] = transitionsFrom(mine.status, sceneWorkflow);
     expect(move).toBeDefined();
 
+    published.publishSceneElement.mock.resetCalls();
     expect(await actions.sa_setRowStatus("scene_elements", mine.id, move.key)).toEqual({
       ok: true,
       status: move.key,
     });
+    // The link is sent by its own id, which the players' table draws a pill
+    // by; an element may be in the scene more than once.
+    expect(published.publishSceneElement.mock.calls.map((call) => call.arguments)).toEqual([
+      [myStory, myScene, mine.id],
+    ]);
     expect(await actions.sa_setRowStatus("scene_elements", theirs.id, move.key)).toEqual({
       ok: false,
       error: "That is not yours to change.",
     });
+  });
+
+  it("lets the storyteller move a complete scene back out of complete", async () => {
+    // The lock on a complete scene is on what is in it, never on the scene's
+    // own status: a scene marked complete by mistake, or finished too soon,
+    // goes straight back (the workflow lists both ways), and its elements
+    // come unlocked with it.
+    const [{ id: complete }] = await db
+      .insert(tables.storyScenes)
+      .values({
+        idStory: myStory,
+        sceneTitle: "Finished too soon",
+        status: SCENE_LOCKED_STATUS,
+        idCreatedByUser: testUser,
+      })
+      .returning({ id: tables.storyScenes.idStoryScene });
+    try {
+      const back = transitionsFrom(SCENE_LOCKED_STATUS, workflow).map((option) => option.key);
+      expect(back).toEqual(expect.arrayContaining(["PENDING", "ACTIVE"]));
+      for (const next of back) {
+        expect(await actions.sa_setRowStatus("story_scenes", complete, next)).toEqual({
+          ok: true,
+          status: next,
+        });
+        expect(await statusOf(complete)).toBe(next);
+        await db
+          .update(tables.storyScenes)
+          .set({ status: SCENE_LOCKED_STATUS })
+          .where(eq(tables.storyScenes.idStoryScene, complete));
+      }
+    } finally {
+      await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, complete));
+    }
+  });
+
+  it("leaves a scene element's status alone once its scene is complete", async () => {
+    // A complete scene is the record of what was played, so the standing of
+    // what is in it is locked with it (db/story-access.ts), where a pending
+    // scene's links move freely.
+    const [{ id: pending }] = await db
+      .insert(tables.storyScenes)
+      .values({ idStory: myStory, sceneTitle: "Still pending", idCreatedByUser: testUser })
+      .returning({ id: tables.storyScenes.idStoryScene });
+    const [{ id: complete }] = await db
+      .insert(tables.storyScenes)
+      .values({
+        idStory: myStory,
+        sceneTitle: "Played out",
+        status: SCENE_LOCKED_STATUS,
+        idCreatedByUser: testUser,
+      })
+      .returning({ id: tables.storyScenes.idStoryScene });
+    const [open, locked] = await db
+      .insert(tables.sceneElements)
+      .values([
+        { idStoryScene: pending, idElement: myElement, idCreatedByUser: testUser },
+        { idStoryScene: complete, idElement: myElement, idCreatedByUser: testUser },
+      ])
+      .returning({ id: tables.sceneElements.idSceneElement, status: tables.sceneElements.status });
+    const [move] = transitionsFrom(
+      open.status,
+      await actions.sa_listStatusOptions("scene_elements"),
+    );
+    try {
+      expect(await actions.sa_setRowStatus("scene_elements", open.id, move.key)).toEqual({
+        ok: true,
+        status: move.key,
+      });
+      expect(await actions.sa_setRowStatus("scene_elements", locked.id, move.key)).toEqual({
+        ok: false,
+        error: SCENE_COMPLETE,
+      });
+    } finally {
+      await db
+        .delete(tables.storyScenes)
+        .where(inArray(tables.storyScenes.idStoryScene, [pending, complete]));
+    }
   });
 
   it("deletes the story's guests when its session ends, and no one else", async () => {

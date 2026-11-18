@@ -45,10 +45,13 @@ import {
   type RunSession,
 } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
-import { EMPTY_SCENE_TEXT, SCENE_LOCKED_STATUS } from "@/lib/scenes";
+import { EMPTY_SCENE_TEXT } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS, SESSION_PLAYING_STATUSES, SESSION_STATUS } from "@/lib/status";
 import type { StackRename } from "@/lib/stack-schemas";
-import { cssUrlValue, sessionHeading, type StorySession } from "@/lib/stories";
-import { sa_getRunPlaySpace, sa_linkSceneElement, sa_setSceneText } from "@/components/run/actions";
+import { sessionHeading, type StorySession } from "@/lib/stories";
+import { sa_openRunPlaySpace, sa_setSceneText } from "@/components/run/actions";
+import { useWideStacks } from "@/components/run/use-wide-stacks";
+import { sa_linkSceneElement } from "@/components/scene-elements/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { useUser } from "@/components/auth/user-provider";
 import { SessionNotesPopover } from "@/components/sessions/session-notes-popover";
@@ -76,8 +79,10 @@ import { RunStackSelect } from "./run-stack-select";
 import { RunStatsPane } from "./run-stats-pane";
 import { StoryTitleMenu } from "@/components/stories/story-title-menu";
 import { RunManageStacksDialog } from "./run-manage-stacks-dialog";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { StatusPill } from "@/components/status/status-pill";
+import { CoverBackdrop } from "@/components/covers/cover-backdrop";
+import { glass } from "@/theme";
 
 // The storyteller's own preference keys, apart from a player's play.* ones:
 // the two tables are laid out for different jobs, and the storyteller who
@@ -128,7 +133,7 @@ type Props = {
 // caller owns the story before drawing any of it.
 //
 // The play space opens with the scene the session is on and the elements
-// brought into it (sa_getRunPlaySpace), in one stack per scene tag with the
+// brought into it (sa_openRunPlaySpace), in one stack per scene tag with the
 // scene's cover behind them. A stack's + makes a new element filed under
 // its tag, and the library's arrow links an element to the scene under the
 // first stack's tag; both are saved, tag and all, so a reload puts each
@@ -187,6 +192,9 @@ export function RunTable({
   // The session's status as its chip last moved it; the page loaded it.
   const [sessionStatus, setSessionStatus] = useState(session?.status ?? null);
   const [tags, setTags] = useState<string[]>(initialSpace.tags);
+  // The stacks widened to the whole space, the scene's own, so every table
+  // draws them the same (useWideStacks).
+  const wideStacks = useWideStacks(idStory, scene?.idStoryScene ?? null, initialSpace.wideTags);
   const [coverUrl, setCoverUrl] = useState<string | null>(initialSpace.coverUrl);
   // Bumped when the scene editor's Pictures change them, so the library's
   // Attachments tab reads them again; see RunLibrary's attachmentsVersion.
@@ -220,6 +228,7 @@ export function RunTable({
   const loadSpace = (space: RunPlaySpace) => {
     setScene(space.scene);
     setTags(space.tags);
+    wideStacks.load(space.wideTags);
     setCoverUrl(space.coverUrl);
     setInPlay(space.inPlay);
     setPictureUpKey(null);
@@ -234,7 +243,7 @@ export function RunTable({
   async function reloadSpace() {
     setReloading(true);
     try {
-      loadSpace(await sa_getRunPlaySpace(idStory));
+      loadSpace(await sa_openRunPlaySpace(idStory));
     } catch {
       toaster.create({ title: "The scene could not be reloaded. Try again.", type: "error" });
     } finally {
@@ -251,7 +260,7 @@ export function RunTable({
     if (session === null) {
       toldNoSession.current = true;
       toaster.create({ title: "There is no active session.", type: "error" });
-    } else if (session.status === "SUSPENDED") {
+    } else if (session.status === SESSION_STATUS.SUSPENDED) {
       // A table opened on a pause: the session is there to resume from the
       // chip, so it is named as paused rather than missing.
       toldNoSession.current = true;
@@ -487,7 +496,7 @@ export function RunTable({
         <InactivityCheck
           idStory={idStory}
           idStorySession={session.idStorySession}
-          isPlaying={sessionStatus === "OPEN" || sessionStatus === "RESUMED"}
+          isPlaying={sessionStatus !== null && SESSION_PLAYING_STATUSES.includes(sessionStatus)}
           onSuspended={setSessionStatus}
         />
       )}
@@ -535,14 +544,14 @@ export function RunTable({
                 canEdit
                 tooltip="Set session status"
                 confirm={(next) => {
-                  if (next === "DONE") {
+                  if (next === SESSION_STATUS.DONE) {
                     return {
                       title: "End this session?",
                       body: "The session is over and the table closes. Carrying the story on means starting a new session from the story's page.",
                       confirmLabel: "End session",
                     };
                   }
-                  if (next === "SUSPENDED") {
+                  if (next === SESSION_STATUS.SUSPENDED) {
                     return {
                       title: "Suspend this session?",
                       body: "Play stops for a break. The table stays open, and this menu resumes the session.",
@@ -553,7 +562,7 @@ export function RunTable({
                 }}
                 onChanged={(status) => {
                   setSessionStatus(status);
-                  if (status === "DONE") router.push(`/stories/${idStory}`);
+                  if (status === SESSION_STATUS.DONE) router.push(`/stories/${idStory}`);
                 }}
               />
             )}
@@ -739,9 +748,12 @@ export function RunTable({
                       onChange={setChosenStack}
                       onTagsChange={setTags}
                     />
-                    <PrepIconButton label="Manage stacks" onClick={() => setManagingStacks(true)}>
+                    <IconButtonWithTooltip
+                      label="Manage stacks"
+                      onClick={() => setManagingStacks(true)}
+                    >
                       <Settings />
-                    </PrepIconButton>
+                    </IconButtonWithTooltip>
                     <RunManageStacksDialog
                       idStory={idStory}
                       idStoryScene={scene.idStoryScene}
@@ -781,18 +793,7 @@ export function RunTable({
             minH="0"
           >
             {shownCoverUrl && (
-              <>
-                <Box
-                  aria-hidden
-                  data-testid="play-space-cover"
-                  position="absolute"
-                  inset="0"
-                  bgSize="cover"
-                  bgPos="center"
-                  style={{ backgroundImage: `url("${cssUrlValue(shownCoverUrl)}")` }}
-                />
-                <Box aria-hidden position="absolute" inset="0" bg="blackAlpha.400" />
-              </>
+              <CoverBackdrop url={shownCoverUrl} scrim="flat" testId="play-space-cover" />
             )}
             <Stack position="relative" h="full" overflowY="auto" gap="3" p="4">
               {/* With a scene loaded, the scene is what the space is about:
@@ -818,16 +819,18 @@ export function RunTable({
                     alignSelf="flex-start"
                     maxW="full"
                     rounded="2xl"
-                    bg="bg.panel/55"
-                    backdropFilter="blur(6px)"
+                    css={glass}
                     ps="1"
                     pe="1"
                     py="1"
                   >
                     {!reloading && (
-                      <PrepIconButton label="Reload the scene" onClick={() => void reloadSpace()}>
+                      <IconButtonWithTooltip
+                        label="Reload the scene"
+                        onClick={() => void reloadSpace()}
+                      >
                         <RefreshCw />
-                      </PrepIconButton>
+                      </IconButtonWithTooltip>
                     )}
                     {/* The title is the popover's own trigger, the chevron after it. */}
                     <SceneTextPopover
@@ -871,6 +874,8 @@ export function RunTable({
                       pictureUpKey={pictureUpKey}
                       onPictureUpChange={setPictureUp}
                       locked={isComplete}
+                      wide={wideStacks.isWide(stack.tag)}
+                      onWideChange={(wide) => void wideStacks.setWide(stack.tag, wide)}
                     />
                   ),
                 )}
@@ -887,7 +892,7 @@ export function RunTable({
                 table changes while it is up (the actions refuse a paused
                 session), and the chip that resumes it is in the header,
                 outside the overlay. */}
-            {sessionStatus === "SUSPENDED" ? (
+            {sessionStatus === SESSION_STATUS.SUSPENDED ? (
               <Flex
                 position="absolute"
                 inset="0"

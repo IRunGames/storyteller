@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Accordion,
-  Alert,
   Box,
   Button,
   Checkbox,
@@ -17,7 +16,9 @@ import {
 } from "@chakra-ui/react";
 import { Search } from "lucide-react";
 import { ATTACH_HOLDER_NOUNS, type AttachHolderKind, type Attachment } from "@/lib/attachments";
-import { sa_attachToHolder, sa_listAttachments, sa_searchAttachments } from "./actions";
+import { FormError } from "@/components/forms/form-error";
+import { sa_attachToHolder, sa_listAttachments } from "./actions";
+import { useAttachmentSearch } from "./use-attachment-search";
 
 type Props = {
   /** The story whose own attachments are offered. */
@@ -33,9 +34,6 @@ type Props = {
    */
   defaultOpen?: boolean;
 };
-
-// The same pause the board's search boxes take, so a word asks once.
-const SEARCH_DELAY_MS = 250;
 
 // What can be attached: the story's pictures that have something to show.
 // The action applies the same rule again.
@@ -61,8 +59,6 @@ export function StoryAttachmentPicker({ idStory, holder, onAttached, defaultOpen
   const [rows, setRows] = useState<Attachment[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  // The ids the search matched; null shows every row.
-  const [shownIds, setShownIds] = useState<ReadonlySet<number> | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [isMoving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
@@ -85,27 +81,8 @@ export function StoryAttachmentPicker({ idStory, holder, onAttached, defaultOpen
     if (value.includes("picker")) setOpened(true);
   }
 
-  // Which search is the latest, so a slow reply to an earlier one does not
-  // land on top of what the box says now.
-  const searchSeq = useRef(0);
-  useEffect(() => {
-    if (!opened) return;
-    const needle = query.trim();
-    const seq = ++searchSeq.current;
-    if (needle === "") {
-      const timer = setTimeout(() => setShownIds(null), 0);
-      return () => clearTimeout(timer);
-    }
-    const timer = setTimeout(async () => {
-      try {
-        const ids = await sa_searchAttachments("STORY", idStory, needle);
-        if (seq === searchSeq.current) setShownIds(new Set(ids));
-      } catch {
-        // Leave the last results in place; the next keystroke tries again.
-      }
-    }, SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [opened, idStory, query]);
+  // The search goes to the database as the board's does, only while open.
+  const { shownIds } = useAttachmentSearch("STORY", idStory, query, { enabled: opened });
 
   function toggle(id: number, checked: boolean) {
     setNotice(null);
@@ -167,12 +144,7 @@ export function StoryAttachmentPicker({ idStory, holder, onAttached, defaultOpen
           <Accordion.ItemBody>
             <Stack gap="3">
               {loadError ? (
-                <Alert.Root role="alert" status="error" size="sm">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Description>{loadError}</Alert.Description>
-                  </Alert.Content>
-                </Alert.Root>
+                <FormError message={loadError} size="sm" />
               ) : rows === null ? (
                 <Grid templateColumns="repeat(3, 1fr)" gap="2">
                   <Skeleton h="16" />
@@ -246,14 +218,7 @@ export function StoryAttachmentPicker({ idStory, holder, onAttached, defaultOpen
                 </>
               )}
 
-              {moveError && (
-                <Alert.Root role="alert" status="error" size="sm">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Description>{moveError}</Alert.Description>
-                  </Alert.Content>
-                </Alert.Root>
-              )}
+              <FormError message={moveError} size="sm" />
               {notice && (
                 <Text role="status" textStyle="sm" color="fg.muted">
                   {notice}

@@ -27,14 +27,14 @@ import { useStoryChat } from "@/components/play/use-story-chat";
 import type { ChannelStatus } from "@/components/play/use-story-channel";
 import { AttachmentPreviewDialog } from "@/components/uploads/attachment-preview";
 import { toPlayItem, type PlayScene } from "@/lib/play-scene";
-import { elementIdOf, playStacks } from "@/lib/run";
+import { elementIdOf, isStackWide, playStacks } from "@/lib/run";
 import { withRedirect } from "@/lib/safe-redirect";
-import { cssUrlValue } from "@/lib/stories";
 import { LogoMark } from "@/components/nav/brand-mark";
 import { BackgroundToggle } from "@/components/play/background-toggle";
 import { authClient } from "@/lib/auth-client";
 import { GuestLeaveButton } from "./guest-leave-button";
 import { PassivePill } from "./passive-pill";
+import { CoverBackdrop } from "@/components/covers/cover-backdrop";
 
 type Props = {
   idStory: number;
@@ -153,18 +153,11 @@ export function PassiveTable({
   return (
     <Box position="relative" h="100vh" overflow="hidden" bg="bg">
       {coverUrl && (
-        <>
-          <Box
-            aria-hidden
-            data-testid="table-cover"
-            position="absolute"
-            inset="0"
-            bgSize="cover"
-            bgPos="center"
-            style={{ backgroundImage: `url("${cssUrlValue(coverUrl)}")` }}
-          />
-          {!detailsHidden && <Box aria-hidden position="absolute" inset="0" bg="blackAlpha.400" />}
-        </>
+        <CoverBackdrop
+          url={coverUrl}
+          scrim={detailsHidden ? "none" : "flat"}
+          testId="table-cover"
+        />
       )}
 
       {!user.isAnonymous && (
@@ -257,46 +250,60 @@ export function PassiveTable({
             </Text>
           ) : (
             <Flex gap="6" wrap="wrap" align="flex-start" justify="space-between">
-              {playStacks(scene.tags, items).map((stack) => (
-                <Stack
-                  key={stack.title}
-                  as="section"
-                  aria-label={stack.title}
-                  gap="3"
-                  w={{ base: "full", md: "30rem" }}
-                  flexShrink="0"
-                >
-                  <Heading
-                    as="h2"
-                    textStyle="xl"
-                    truncate
-                    textShadow={HALO}
-                    textTransform="uppercase"
-                    letterSpacing="wider"
-                    px="2"
+              {/* A stack the storyteller has widened takes the whole width
+                  here too, its pills in columns as on their table, so the
+                  room sees what they see. */}
+              {playStacks(scene.tags, items).map((stack) => {
+                const wide = isStackWide(scene.wideTags, stack.tag);
+                return (
+                  <Stack
+                    key={stack.title}
+                    as="section"
+                    aria-label={stack.title}
+                    gap="3"
+                    w={wide ? "full" : { base: "full", md: "30rem" }}
+                    flexShrink="0"
+                    data-wide={wide ? "true" : undefined}
                   >
-                    {stack.title}
-                  </Heading>
-                  {stack.items.length > 0 && (
-                    <List.Root listStyleType="none" gap="3">
-                      {stack.items.map((item) => (
-                        <List.Item key={item.key}>
-                          <PassivePill
-                            idStory={idStory}
-                            item={item}
-                            onPreview={
-                              user.isAnonymous
-                                ? undefined
-                                : () => setPreviewIdElement(elementIdOf(item))
-                            }
-                            onNotesChange={user.isAnonymous ? undefined : setElementNotes}
-                          />
-                        </List.Item>
-                      ))}
-                    </List.Root>
-                  )}
-                </Stack>
-              ))}
+                    <Heading
+                      as="h2"
+                      textStyle="xl"
+                      truncate
+                      textShadow={HALO}
+                      textTransform="uppercase"
+                      letterSpacing="wider"
+                      px="2"
+                    >
+                      {stack.title}
+                    </Heading>
+                    {stack.items.length > 0 && (
+                      <List.Root
+                        listStyleType="none"
+                        gap="3"
+                        display={wide ? "grid" : undefined}
+                        gridTemplateColumns={
+                          wide ? "repeat(auto-fill, minmax(40rem, 1fr))" : undefined
+                        }
+                      >
+                        {stack.items.map((item) => (
+                          <List.Item key={item.key}>
+                            <PassivePill
+                              idStory={idStory}
+                              item={item}
+                              onPreview={
+                                user.isAnonymous
+                                  ? undefined
+                                  : () => setPreviewIdElement(elementIdOf(item))
+                              }
+                              onNotesChange={user.isAnonymous ? undefined : setElementNotes}
+                            />
+                          </List.Item>
+                        ))}
+                      </List.Root>
+                    )}
+                  </Stack>
+                );
+              })}
             </Flex>
           )}
         </Box>

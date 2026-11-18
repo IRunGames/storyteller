@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Span } from "@chakra-ui/react";
+import { STATUS_CHANGE_FAILED } from "@/lib/messages";
 import { statusLabel, transitionsFrom, type StatusOption, type StatusTable } from "@/lib/status";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { sa_setRowStatus } from "./actions";
-import { pillStyle } from "./pill-style";
+import { StatusPillSpan } from "./pill-style";
 import { StatusMenuPill, type StatusConfirmation } from "./status-menu-pill";
-import { toaster } from "@/components/ui/toaster";
 
 export type { StatusConfirmation };
 
@@ -43,9 +42,8 @@ type Props = {
  * (StatusMenuPill draws it), and choosing one takes effect immediately
  * through sa_setRowStatus.
  *
- * The change is shown before the action answers, because the menu closing on
- * a pill that still reads the old word looks like nothing happened. A refusal
- * puts the old status back.
+ * The change is shown before the action answers and put back if it refuses
+ * (useOptimisticAction).
  */
 export function StatusPill({
   table,
@@ -57,46 +55,23 @@ export function StatusPill({
   tooltip,
   confirm,
 }: Props) {
-  const [shown, setShown] = useState(status);
-  const [, startTransition] = useTransition();
-
-  // The row's own status wins when it changes underneath: a list that
-  // reloaded, or another pill's change to the same row.
-  const [lastGiven, setLastGiven] = useState(status);
-  if (lastGiven !== status) {
-    setLastGiven(status);
-    setShown(status);
-  }
+  const [shown, choose] = useOptimisticAction(
+    status,
+    async (next) => {
+      const result = await sa_setRowStatus(table, id, next);
+      if (!result.ok) return result;
+      onChanged?.(result.status);
+      return { ok: true, value: result.status };
+    },
+    { failed: STATUS_CHANGE_FAILED },
+  );
 
   // The workflow's own label, falling back to the key for a status the
   // options do not list — a row loaded before a status was renamed, say.
   const label = options.find((option) => option.key === shown)?.label ?? statusLabel(shown);
 
-  function choose(next: string) {
-    const previous = shown;
-    setShown(next);
-    startTransition(async () => {
-      try {
-        const result = await sa_setRowStatus(table, id, next);
-        if (result.ok) {
-          onChanged?.(result.status);
-          return;
-        }
-        setShown(previous);
-        toaster.create({ title: result.error, type: "error" });
-      } catch {
-        setShown(previous);
-        toaster.create({ title: "That status could not be changed.", type: "error" });
-      }
-    });
-  }
-
   if (!canEdit) {
-    return (
-      <Span data-status={shown} {...pillStyle()}>
-        {label}
-      </Span>
-    );
+    return <StatusPillSpan data-status={shown}>{label}</StatusPillSpan>;
   }
 
   return (

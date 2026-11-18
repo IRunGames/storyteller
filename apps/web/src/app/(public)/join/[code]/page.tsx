@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Box, Flex } from "@chakra-ui/react";
 import { getSession } from "@/lib/require-session";
 import { randomGuestName } from "@/lib/guest-names";
+import { cssUrlValue } from "@/lib/stories";
 import { pickWelcomeBackground } from "@/lib/welcome";
 import { sa_getJoinStory } from "./actions";
 import { JoinForm } from "./join-form";
@@ -37,13 +38,17 @@ export default async function JoinPage({ params }: { params: Promise<{ code: str
 
   return (
     <Flex position="relative" minH="100vh" p="4" align="center" justify="center" bg="bg.subtle">
+      {/* The story's picture is an attachment url a storyteller may have typed,
+          so it is escaped before it lands in the CSS, as the story card does. */}
       <Box
         aria-hidden
         position="fixed"
         inset="0"
         bgSize="cover"
         bgPos="center"
-        style={{ backgroundImage: `url("${story.imageUrl ?? pickWelcomeBackground()}")` }}
+        style={{
+          backgroundImage: `url("${cssUrlValue(story.imageUrl ?? pickWelcomeBackground())}")`,
+        }}
       />
       <Box
         position="relative"

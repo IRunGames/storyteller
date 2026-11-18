@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { toaster } from "@/components/ui/toaster";
 import { DeleteButton, type DeleteOutcome } from "@/components/confirm/delete-button";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import {
   formatStatValue,
   isNumberFormat,
@@ -53,8 +53,10 @@ import {
 } from "./actions";
 import { StatBlockPanelForm } from "./stat-block-panel-form";
 import { StatNumber } from "./stat-number";
-import { FoldButton } from "./fold-button";
+import { Fold } from "./fold";
+import { plural } from "@/lib/plural";
 import { rollText } from "@/lib/roll";
+import { ROLLS_FAILED, toastRollAll } from "./roll-toasts";
 
 /**
  * A holder's stat blocks at the table, under its rows in the element
@@ -64,7 +66,7 @@ import { rollText } from "@/lib/roll";
  * was opened from the library. Nothing is drawn for a holder with no block
  * and no story system to start one, and nothing while loading, so the rows
  * above do not jump. Folded, the blocks start closed behind a line that
- * counts them (FoldButton), as the panel's scene card wants them, so the
+ * counts them (Fold), as the panel's scene card wants them, so the
  * card opens short; the pill's die region shows them open.
  */
 export function ElementStatBlocks({
@@ -135,16 +137,17 @@ export function ElementStatBlocks({
   // The blocks the holder has filled in, counted on the fold's line.
   const count = blocks.reduce((sum, block) => sum + (block.stored ? block.carried.length : 0), 0);
   return (
-    <Stack gap="2">
-      <FoldButton open={open} onToggle={() => setOpen((current) => !current)}>
-        {count === 0
+    <Fold
+      open={open}
+      onOpenChange={setOpen}
+      summary={
+        count === 0
           ? "No stat blocks in this scene yet"
-          : count === 1
-            ? "1 stat block in this scene"
-            : `${count} stat blocks in this scene`}
-      </FoldButton>
-      {open && views}
-    </Stack>
+          : `${plural(count, "stat block")} in this scene`
+      }
+    >
+      {views}
+    </Fold>
   );
 }
 
@@ -269,7 +272,13 @@ export function StatBlockView({
     ? async (group, stat, rowKey) => {
         setBusy(true);
         try {
-          const result = await sa_rollStat(holder, block.idSystem, group, stat, rollAs, rowKey);
+          const result = await sa_rollStat(holder, {
+            idSystem: block.idSystem,
+            group,
+            stat,
+            as: rollAs,
+            rowKey,
+          });
           if (!result.ok) toaster.create({ title: result.error, type: "error" });
           else if (!result.posted) {
             toaster.create({
@@ -292,22 +301,9 @@ export function StatBlockView({
     if (!rollAs) return;
     setBusy(true);
     try {
-      const result = await sa_rollGroupRows(holder, block.idSystem, group.name, rollAs);
-      if (!result.ok) toaster.create({ title: result.error, type: "error" });
-      else if (result.rolls.length === 0) {
-        toaster.create({ title: "There was nothing to roll.", type: "info" });
-      } else {
-        const quiet = result.rolls.filter((rolled) => !rolled.posted);
-        if (quiet.length > 0) {
-          toaster.create({
-            title: `${group.label} rolled quietly`,
-            description: quiet.map((rolled) => rollText(rolled.roll)).join(" · "),
-            type: "info",
-          });
-        }
-      }
+      toastRollAll(group.label, await sa_rollGroupRows(holder, block.idSystem, group.name, rollAs));
     } catch {
-      toaster.create({ title: "The rolls could not be made. Try again.", type: "error" });
+      toaster.create({ title: ROLLS_FAILED, type: "error" });
     } finally {
       setBusy(false);
     }
@@ -330,7 +326,13 @@ export function StatBlockView({
   async function change(group: string, stat: string, patch: StatPatch, rowKey?: string) {
     setBusy(true);
     try {
-      const result = await sa_setStat(holder, block.idSystem, group, stat, patch, rowKey);
+      const result = await sa_setStat(holder, {
+        idSystem: block.idSystem,
+        group,
+        stat,
+        patch,
+        rowKey,
+      });
       if (result.ok) onChange(result.block);
       else toaster.create({ title: result.error, type: "error" });
     } catch {
@@ -374,7 +376,7 @@ export function StatBlockView({
                     has made of them is lost. This cannot be undone.
                   </DeleteButton>
                 ) : (
-                  <PrepIconButton
+                  <IconButtonWithTooltip
                     label="Copy stats from the element"
                     disabled={copying}
                     onClick={() =>
@@ -382,18 +384,18 @@ export function StatBlockView({
                     }
                   >
                     <ClipboardPaste />
-                  </PrepIconButton>
+                  </IconButtonWithTooltip>
                 ))}
               {editing &&
                 "idSceneElement" in holder &&
                 (block.onElement === false ? (
-                  <PrepIconButton
+                  <IconButtonWithTooltip
                     label="Copy stats to the element"
                     disabled={copying}
                     onClick={() => void copyUnasked(copyToElement, "Stats copied to the element")}
                   >
                     <Copy />
-                  </PrepIconButton>
+                  </IconButtonWithTooltip>
                 ) : (
                   <DeleteButton
                     label="Copy stats to the element"
@@ -407,13 +409,13 @@ export function StatBlockView({
                     {`The element's own ${block.label} stats, the ones it is prepared with, are replaced by these as they stand in this scene. This cannot be undone.`}
                   </DeleteButton>
                 ))}
-              <PrepIconButton
+              <IconButtonWithTooltip
                 label={editing ? "Done editing stat blocks" : "Edit stat blocks"}
                 expanded={editing}
                 onClick={() => setEditing(!editing)}
               >
                 <Pencil />
-              </PrepIconButton>
+              </IconButtonWithTooltip>
             </HStack>
           )}
         </HStack>
@@ -634,9 +636,9 @@ function RepeatingGroupView({
           onToggle={() => setOpen((current) => !current)}
         />
         {onRollAll && (
-          <PrepIconButton label="Roll All" size="2xs" disabled={busy} onClick={onRollAll}>
+          <IconButtonWithTooltip label="Roll All" size="2xs" disabled={busy} onClick={onRollAll}>
             <Dices />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         )}
       </HStack>
       {open && group.rows.length === 0 && (
@@ -1026,23 +1028,23 @@ function StatCell({
       return (
         <HStack gap="1">
           {moves && (
-            <PrepIconButton
+            <IconButtonWithTooltip
               label={`${stat.label} down`}
               onClick={() => index > 0 && onChange({ value: rack[index - 1] })}
             >
               <ChevronLeft />
-            </PrepIconButton>
+            </IconButtonWithTooltip>
           )}
           {words}
           {moves && (
-            <PrepIconButton
+            <IconButtonWithTooltip
               label={`${stat.label} up`}
               onClick={() =>
                 index >= 0 && index < rack.length - 1 && onChange({ value: rack[index + 1] })
               }
             >
               <ChevronRight />
-            </PrepIconButton>
+            </IconButtonWithTooltip>
           )}
         </HStack>
       );

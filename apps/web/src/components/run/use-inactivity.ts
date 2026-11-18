@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLatest } from "@/hooks/use-latest";
 
 /** How long the table may go untouched before the storyteller is asked. */
 export const INACTIVE_AFTER_MS = 20 * 60_000;
@@ -41,10 +42,7 @@ export function useInactivity({
   const askingRef = useRef(false);
   // Kept in a ref so the interval need not restart when the caller passes a
   // new function each render.
-  const onTimeoutRef = useRef(onTimeout);
-  useEffect(() => {
-    onTimeoutRef.current = onTimeout;
-  }, [onTimeout]);
+  const onTimeoutRef = useLatest(onTimeout);
 
   useEffect(() => {
     if (!enabled) return;
@@ -83,7 +81,7 @@ export function useInactivity({
         window.removeEventListener(name, seen, { capture: true });
       }
     };
-  }, [enabled]);
+  }, [enabled, onTimeoutRef]);
 
   const stillHere = () => {
     lastActivity.current = Date.now();

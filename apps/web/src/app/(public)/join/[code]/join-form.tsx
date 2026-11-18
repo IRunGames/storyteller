@@ -19,6 +19,7 @@ import {
 import { Dices } from "lucide-react";
 import { randomGuestName } from "@/lib/guest-names";
 import { joinSchema, type JoinValues } from "@/lib/join-schemas";
+import { FormError } from "@/components/forms/form-error";
 import { sa_joinAsGuest, sa_joinByLink } from "./actions";
 
 type Props = {
@@ -89,14 +90,7 @@ export function JoinForm({ code, title, isFull, hasSession, member, suggested }:
       ) : (
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <Stack gap="4">
-            {errors.root && (
-              <Alert.Root status="error">
-                <Alert.Indicator />
-                <Alert.Content>
-                  <Alert.Description>{errors.root.message}</Alert.Description>
-                </Alert.Content>
-              </Alert.Root>
-            )}
+            <FormError message={errors.root?.message} />
 
             {member === null ? (
               <Field.Root required invalid={!!errors.nickname}>

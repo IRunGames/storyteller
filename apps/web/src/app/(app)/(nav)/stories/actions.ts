@@ -18,10 +18,12 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { z } from "zod";
+import { idSchema, offsetSchema, searchSchema, titleSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { createInvitation, emailInvitation } from "@/db/invitations";
-import { storyAccess } from "@/db/story-access";
+import { removeSeat } from "@/db/seats";
+import { ownedSession, ownedStory, storyAccess, storyReadership } from "@/db/story-access";
 import {
   cardOrder,
   cardQuery,
@@ -34,6 +36,9 @@ import {
 } from "@/db/story-cards";
 import { requireAccount, requireUser } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
+import { recountTable } from "@/lib/guests";
+import { publishLater } from "@/lib/realtime/publish";
+import { publishSceneChanged, publishSessionUpdated } from "@/lib/realtime/publish-scene";
 import { safeRedirect } from "@/lib/safe-redirect";
 import {
   MY_STORIES_PAGE_SIZE,
@@ -43,7 +48,6 @@ import {
 import {
   PAGE_SIZE,
   PLAYER_SEARCH_LIMIT,
-  SESSION_DONE_STATUS,
   SESSIONS_PAGE_SIZE,
   systemLabel,
   type PlayerMatch,
@@ -55,9 +59,11 @@ import {
   type UpdateSessionResult,
 } from "@/lib/stories";
 import { storyInviteSchema } from "@/lib/invitation-schemas";
-import { SCENE_LOCKED_STATUS } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS, SESSION_DONE_STATUS, SESSION_STATUS } from "@/lib/status";
 import { sessionEditSchema } from "@/lib/session-schemas";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
+import { formErrors } from "@/lib/forms";
+import { NOT_A_PLAYER, NOT_YOUR_SESSION, STORY_NOT_FOUND, STORY_NOT_YOURS } from "@/lib/messages";
 
 const {
   invitations,
@@ -75,14 +81,10 @@ const {
 // Every export here is a server action: it is the only way the Stories pages
 // touch the database, and each one starts by proving who is asking.
 
-const offsetSchema = z.number().int().min(0);
-
 // A page size the caller may ask for. The floor keeps a zero-row page from
 // looking like the end of the list, and the ceiling keeps one request from
 // asking for the whole table.
 const pageSizeSchema = z.number().int().min(1).max(100);
-
-const idStorySchema = z.int32();
 
 // One session row as every session list shows it, read from v_story_sessions,
 // which numbers each session in its story and counts who came as the info
@@ -102,33 +104,6 @@ const sessionColumns = {
 };
 
 /**
- * Stories the user created or plays in. Inactive ones are left out unless the
- * "Show inactive" switch asks for them, so a retired story does not crowd the
- * list but is never lost; archived ones are always left out.
- */
-export async function sa_listMyStories(
-  offset: number,
-  showInactive = false,
-): Promise<StoryCardData[]> {
-  const user = await requireAccount();
-  const skip = offsetSchema.parse(offset);
-  const includeInactive = z.boolean().parse(showInactive);
-
-  const playsIn = db
-    .select({ one: storyPlayers.idStoryPlayer })
-    .from(storyPlayers)
-    .where(and(eq(storyPlayers.idStory, stories.idStory), eq(storyPlayers.idUser, user.id)));
-
-  const involved = and(or(eq(stories.idCreatedByUser, user.id), exists(playsIn)), notArchived);
-
-  return cardQuery(user.id)
-    .where(includeInactive ? involved : and(involved, eq(stories.isActive, true)))
-    .orderBy(...cardOrder)
-    .limit(PAGE_SIZE)
-    .offset(skip);
-}
-
-/**
  * One page of the Stories page's list: every story the user runs, plays in
  * or has favorited, less the archived and, unless asked, the retired ones;
  * searched over stories.search_text (title, summary and standard tags) and
@@ -138,12 +113,16 @@ export async function sa_listMyStories(
  * rest; the Icon view also puts them first in a Favorites section of their
  * own (sa_listFavoriteStories). Ties in the sorted column fall back to the
  * page's own order, touched last first, then the id, so a page never
- * repeats or skips a row. Bad input throws: the page builds the query
- * itself.
+ * repeats or skips a row. Bad input is an empty page: the page builds the
+ * query itself, so there is nothing a reader could fix.
  */
 export async function sa_listMyStoryPage(input: unknown): Promise<StoryCardData[]> {
   const user = await requireAccount();
-  const query = myStoryListQuerySchema.parse(input);
+  // A query that is out of bounds is a bad request, answered with an empty
+  // page as any list answers one, rather than a thrown error.
+  const parsed = myStoryListQuerySchema.safeParse(input);
+  if (!parsed.success) return [];
+  const query = parsed.data;
 
   const playsIn = db
     .select({ one: storyPlayers.idStoryPlayer })
@@ -189,7 +168,8 @@ export async function sa_listMyStoryPage(input: unknown): Promise<StoryCardData[
 /** Stories the user has favorited, less any that have since been archived. */
 export async function sa_listFavoriteStories(offset: number): Promise<StoryCardData[]> {
   const user = await requireAccount();
-  const skip = offsetSchema.parse(offset);
+  const skip = offsetSchema.safeParse(offset);
+  if (!skip.success) return [];
 
   return cardQuery(user.id)
     .innerJoin(
@@ -199,45 +179,73 @@ export async function sa_listFavoriteStories(offset: number): Promise<StoryCardD
     .where(notArchived)
     .orderBy(...cardOrder)
     .limit(PAGE_SIZE)
-    .offset(skip);
+    .offset(skip.data);
 }
 
 /** Active stories whose storyteller has flagged them as open to new players. */
 export async function sa_listLookingForPlayers(offset: number): Promise<StoryCardData[]> {
   const user = await requireAccount();
-  const skip = offsetSchema.parse(offset);
+  const skip = offsetSchema.safeParse(offset);
+  if (!skip.success) return [];
 
   return cardQuery(user.id)
     .where(and(eq(stories.isLookingForPlayers, true), eq(stories.isActive, true)))
     .orderBy(...cardOrder)
     .limit(PAGE_SIZE)
-    .offset(skip);
+    .offset(skip.data);
 }
 
+/**
+ * One story as its card and its page show it, or null when there is no such
+ * story or the caller may not read it: its storyteller, its players, and
+ * anyone signed in when it is public or advertised while active may, the
+ * rule db/story-access.ts states. The card already carries those flags, so
+ * no second query is needed. One answer for both, so the page's notFound()
+ * tells a stranger nothing about whether the story is there.
+ */
 export async function sa_getStory(idStory: number): Promise<StoryCardData | null> {
   const user = await requireAccount();
 
   // An unusable id is simply not a story: safeParse rather than parse, so the
   // page's notFound() handles it instead of a raw ZodError becoming a 500.
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return null;
 
   const [story] = await cardQuery(user.id).where(eq(stories.idStory, id.data)).limit(1);
-  return story ?? null;
+  if (!story) return null;
+  const mayRead =
+    story.isOwner ||
+    story.isPlayer ||
+    story.isPublic ||
+    (story.isLookingForPlayers && story.isActive);
+  return mayRead ? story : null;
+}
+
+/**
+ * Whether the caller may read the story, by db/story-access.ts, for the
+ * reads below that have only an id. False for a story that is not there, so
+ * a caller answers the same for both.
+ */
+async function mayReadStory(userId: string, idStory: number): Promise<boolean> {
+  const story = await storyReadership(idStory);
+  return story !== null && (await storyAccess(userId, story)) !== null;
 }
 
 /**
  * Who plays in a story, oldest member first. The storyteller is not among
  * them: they own the story through stories.id_created_by_user and have no
- * story_players row (db/seeds/seed_story_players.sql says the same).
+ * story_players row (db/seeds/seed_story_players.sql says the same). Empty
+ * for a story the caller may not read (db/story-access.ts), as for one that
+ * is not there.
  */
 export async function sa_listStoryPlayers(idStory: number): Promise<StoryPlayer[]> {
-  await requireAccount();
+  const user = await requireAccount();
 
   // As in sa_getStory: an id Postgres cannot compare is not a story, so it
   // has no players rather than raising.
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return [];
+  if (!(await mayReadStory(user.id, id.data))) return [];
 
   return (
     db
@@ -252,23 +260,15 @@ export async function sa_listStoryPlayers(idStory: number): Promise<StoryPlayer[
 }
 
 /**
- * The story's id and creator, or a throw: the storyteller is the only one who
- * seats players, so both the search and the insert start here. Not found
- * and not the owner are thrown rather than returned because the popover
- * cannot fix either; it is only shown to the owner in the first place.
+ * The story's id when the caller is its storyteller (db/story-access.ts),
+ * for the seating actions, which only the storyteller may use; null for an
+ * id that is not one, a story that is not there, or someone else's story,
+ * which the popover, only ever shown to the owner, answers alike.
  */
-async function requireOwnedStory(userId: string, idStory: number): Promise<number> {
-  const id = idStorySchema.parse(idStory);
-  const [story] = await db
-    .select({ idCreatedByUser: stories.idCreatedByUser })
-    .from(stories)
-    .where(eq(stories.idStory, id))
-    .limit(1);
-  if (!story) throw new Error("Story not found");
-  if (story.idCreatedByUser !== userId) {
-    throw new Error("Only the storyteller who created a story can invite players to it");
-  }
-  return id;
+async function ownedStoryId(userId: string, idStory: number): Promise<number | null> {
+  const id = idSchema.safeParse(idStory);
+  if (!id.success) return null;
+  return (await ownedStory(userId, id.data))?.idStory ?? null;
 }
 
 // Users who could be seated at the story: active, not its storyteller, and
@@ -282,22 +282,19 @@ function seatable(idStory: number, storytellerId: string) {
   return and(eq(users.status, "ACTIVE"), not(eq(users.id, storytellerId)), not(exists(seated)));
 }
 
-const querySchema = z.string().max(200);
-
 export type RemovePlayerResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Take a player off a story, and their favorite of it with them.
- *
- * Only the storyteller who created the story may do it, which
- * requireOwnedStory enforces. The favorite goes too because it is a seat at
- * a table they no longer have: leaving it behind would keep the story on the
- * Favorites section of a page they can no longer play from. A favorite they
- * never made is simply not there, and the delete says nothing about it.
- *
- * Both deletes are one transaction, so a story can never be left having
- * dropped one and kept the other. Removing someone who is not seated is not
- * an error: the row is gone either way, which is what the caller wanted.
+ * Take a player off a story: their seat, their presence at its sessions and
+ * waiting room, and their favorite of it (removeSeat), the favorite because
+ * it is a seat at a table they no longer have, and leaving it behind would
+ * keep the story on the Favorites section of a page they can no longer play
+ * from. Only the storyteller who created the story may. Removing someone
+ * who is not seated is not an error: the rows are gone either way, which is
+ * what the caller wanted. Every table is told the scene changed, so the
+ * removed player's table reloads and finds it is no longer theirs, and the
+ * head count is published again when they were at the table, as the link
+ * button's Remove does.
  */
 export async function sa_removeStoryPlayer(
   idStory: number,
@@ -305,12 +302,10 @@ export async function sa_removeStoryPlayer(
 ): Promise<RemovePlayerResult> {
   const user = await requireAccount();
 
-  // The caller's right to do this at all, and an id Postgres can compare.
-  // Thrown by requireOwnedStory for a story that is not theirs, which the
-  // dialog cannot fix; a bad user id is a refusal it can show.
-  const id = await requireOwnedStory(user.id, idStory);
+  const id = await ownedStoryId(user.id, idStory);
+  if (id === null) return { ok: false, error: STORY_NOT_YOURS };
   const player = z.string().uuid().safeParse(idUser);
-  if (!player.success) return { ok: false, error: "That is not a player of this story." };
+  if (!player.success) return { ok: false, error: NOT_A_PLAYER };
 
   // The storyteller is not in story_players and has no seat to lose, so a
   // request to remove them is refused rather than quietly doing nothing.
@@ -318,15 +313,9 @@ export async function sa_removeStoryPlayer(
     return { ok: false, error: "The storyteller cannot be removed from their own story." };
   }
 
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(storyPlayers)
-      .where(and(eq(storyPlayers.idStory, id), eq(storyPlayers.idUser, player.data)));
-    await tx
-      .delete(storyFavorites)
-      .where(and(eq(storyFavorites.idStory, id), eq(storyFavorites.idUser, player.data)));
-  });
-
+  const removed = await db.transaction((tx) => removeSeat(id, player.data, tx));
+  if (removed.wasPresent) recountTable(id);
+  publishLater(() => publishSceneChanged(id));
   return { ok: true };
 }
 
@@ -345,7 +334,7 @@ export type JoinStoryResult = { ok: true; player: StoryPlayer } | { ok: false; e
 export async function sa_joinStory(idStory: number): Promise<JoinStoryResult> {
   const user = await requireAccount();
   const closed = "This story is not open for you to join.";
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return { ok: false, error: closed };
 
   const seated = db
@@ -385,30 +374,22 @@ export type LeaveStoryResult = { ok: true } | { ok: false; error: string };
  * Their favorite of it goes too, for the reason sa_removeStoryPlayer gives.
  * Getting back in takes another invitation from the storyteller.
  *
- * Only the caller's own row is touched, so this needs no owner check; a
- * story they have no seat at (their own included, since the storyteller has
- * none) is refused rather than reported as left. Both deletes are one
- * transaction, and the favorite is only taken once a seat was found.
+ * Only the caller's own rows are touched (removeSeat), so this needs no
+ * owner check; a story they have no seat at (their own included, since the
+ * storyteller has none) is refused rather than reported as left. Someone
+ * who was at the table leaves its head count behind, which is published
+ * again.
  */
 export async function sa_leaveStory(idStory: number): Promise<LeaveStoryResult> {
   const user = await requireAccount();
   const notSeated = "You are not a player of this story.";
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return { ok: false, error: notSeated };
 
-  const left = await db.transaction(async (tx) => {
-    const seats = await tx
-      .delete(storyPlayers)
-      .where(and(eq(storyPlayers.idStory, id.data), eq(storyPlayers.idUser, user.id)))
-      .returning({ id: storyPlayers.idStoryPlayer });
-    if (seats.length === 0) return false;
-    await tx
-      .delete(storyFavorites)
-      .where(and(eq(storyFavorites.idStory, id.data), eq(storyFavorites.idUser, user.id)));
-    return true;
-  });
-
-  return left ? { ok: true } : { ok: false, error: notSeated };
+  const removed = await db.transaction((tx) => removeSeat(id.data, user.id, tx));
+  if (!removed.wasSeated) return { ok: false, error: notSeated };
+  if (removed.wasPresent) recountTable(id.data);
+  return { ok: true };
 }
 
 /**
@@ -420,19 +401,21 @@ export async function sa_leaveStory(idStory: number): Promise<LeaveStoryResult> 
  */
 export async function sa_searchPlayers(idStory: number, query: string): Promise<PlayerMatch[]> {
   const user = await requireAccount();
-  const id = await requireOwnedStory(user.id, idStory);
-  const needle = querySchema.parse(query).trim();
-  if (needle === "") return [];
+  const id = await ownedStoryId(user.id, idStory);
+  const needle = searchSchema.safeParse(query);
+  if (id === null || !needle.success || needle.data === "") return [];
 
   return db
     .select({ idUser: users.id, name: playerName, email: users.email, image: users.image })
     .from(users)
-    .where(and(ilike(users.searchText, likeContains(needle)), seatable(id, user.id)))
+    .where(and(ilike(users.searchText, likeContains(needle.data)), seatable(id, user.id)))
     .orderBy(asc(playerName), asc(users.email))
     .limit(PLAYER_SEARCH_LIMIT);
 }
 
 const inviteSchema = z.array(z.uuid()).min(1).max(PLAYER_SEARCH_LIMIT);
+
+export type AddPlayersResult = { ok: true; players: StoryPlayer[] } | { ok: false; error: string };
 
 /**
  * Seats the given users at a story the caller created and returns the rows
@@ -441,15 +424,19 @@ const inviteSchema = z.array(z.uuid()).min(1).max(PLAYER_SEARCH_LIMIT);
  * skipped rather than refused: the popover's list was built moments ago and
  * a second storyteller tab may have seated someone since. story_players has
  * no unique key on (id_story, id_user), so the insert selects only the users
- * with no row yet instead of relying on a conflict.
+ * with no row yet instead of relying on a conflict. Refused for a story the
+ * caller does not tell and for a list of ids that is not one.
  */
 export async function sa_addStoryPlayers(
   idStory: number,
   idUsers: string[],
-): Promise<StoryPlayer[]> {
+): Promise<AddPlayersResult> {
   const user = await requireAccount();
-  const id = await requireOwnedStory(user.id, idStory);
-  const ids = inviteSchema.parse(idUsers);
+  const id = await ownedStoryId(user.id, idStory);
+  if (id === null) return { ok: false, error: STORY_NOT_YOURS };
+  const parsed = inviteSchema.safeParse(idUsers);
+  if (!parsed.success) return { ok: false, error: "Choose whom to invite." };
+  const ids = parsed.data;
 
   // Written out rather than db.insert().select(): Drizzle only accepts an
   // insert-select whose columns are the whole table in order, and every
@@ -463,13 +450,14 @@ export async function sa_addStoryPlayers(
     returning ${storyPlayers.idUser}
   `);
   const seatedIds = inserted.rows.map((row) => row.id_user);
-  if (seatedIds.length === 0) return [];
+  if (seatedIds.length === 0) return { ok: true, players: [] };
 
-  return db
+  const players = await db
     .select({ idUser: users.id, name: playerName, image: users.image })
     .from(users)
     .where(inArray(users.id, seatedIds))
     .orderBy(asc(playerName));
+  return { ok: true, players };
 }
 
 export type StoryInvitation = {
@@ -500,7 +488,8 @@ export async function sa_inviteToStory(
   send: boolean,
 ): Promise<InviteToStoryResult> {
   const user = await requireAccount();
-  const id = await requireOwnedStory(user.id, idStory);
+  const id = await ownedStoryId(user.id, idStory);
+  if (id === null) return { ok: false, errors: { root: STORY_NOT_YOURS } };
   const parsed = storyInviteSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, errors: { email: parsed.error.issues[0]?.message ?? "Invalid email." } };
@@ -541,7 +530,8 @@ export async function sa_inviteToStory(
  */
 export async function sa_listStoryInvitations(idStory: number): Promise<StoryInvitation[]> {
   const user = await requireAccount();
-  const id = await requireOwnedStory(user.id, idStory);
+  const id = await ownedStoryId(user.id, idStory);
+  if (id === null) return [];
   return db
     .select({
       idInvitation: invitations.idInvitation,
@@ -572,14 +562,15 @@ export async function sa_revokeStoryInvitation(
   idInvitation: number,
 ): Promise<{ ok: boolean }> {
   const user = await requireAccount();
-  const id = await requireOwnedStory(user.id, idStory);
-  const invitationId = z.int32().positive().parse(idInvitation);
+  const id = await ownedStoryId(user.id, idStory);
+  const invitationId = idSchema.safeParse(idInvitation);
+  if (id === null || !invitationId.success) return { ok: false };
   const revoked = await db
     .update(invitations)
     .set({ revokedAt: sql`now()`, idUpdatedByUser: user.id })
     .where(
       and(
-        eq(invitations.idInvitation, invitationId),
+        eq(invitations.idInvitation, invitationId.data),
         eq(invitations.idStory, id),
         isNull(invitations.acceptedAt),
         isNull(invitations.revokedAt),
@@ -594,23 +585,27 @@ export async function sa_revokeStoryInvitation(
  * listed: a session at the table or suspended is still one of the story's
  * sessions, it just has no length yet. created_at sets the order: a session
  * row is created as it opens, and unlike open_at it can never be null.
+ * Empty for a story the caller may not read (db/story-access.ts), as for
+ * one that is not there; a seated guest reads through their seat.
  */
 export async function sa_listStorySessions(
   idStory: number,
   offset: number,
   limit: number = SESSIONS_PAGE_SIZE,
 ): Promise<StorySession[]> {
-  await requireUser();
-  const skip = offsetSchema.parse(offset);
+  const user = await requireUser();
+  const skip = offsetSchema.safeParse(offset);
   // The Prep Work timeline asks for a longer page than the story page's
   // section does. The bound is here rather than trusted from the caller: a
-  // page size is a number from the browser like any other.
-  const take = pageSizeSchema.parse(limit);
+  // page size is a number from the browser like any other, and one out of
+  // bounds is an empty page.
+  const take = pageSizeSchema.safeParse(limit);
 
   // As in sa_getStory: an id Postgres cannot compare is not a story, so it
   // has no sessions rather than raising.
-  const id = idStorySchema.safeParse(idStory);
-  if (!id.success) return [];
+  const id = idSchema.safeParse(idStory);
+  if (!id.success || !skip.success || !take.success) return [];
+  if (!(await mayReadStory(user.id, id.data))) return [];
 
   return (
     db
@@ -620,21 +615,23 @@ export async function sa_listStorySessions(
       // Sessions opened in one statement share a created_at, so the id
       // breaks the tie and a page never repeats or skips a row.
       .orderBy(desc(vStorySessions.createdAt), desc(vStorySessions.idStorySession))
-      .limit(take)
-      .offset(skip)
+      .limit(take.data)
+      .offset(skip.data)
   );
 }
 
 /**
  * How many sessions the story has in all, for the count beside the Prep Work
  * timeline's heading. Counted rather than taken from the rows loaded, which
- * are only ever the first page.
+ * are only ever the first page. Zero for a story the caller may not read
+ * (db/story-access.ts), as for one that is not there.
  */
 export async function sa_countStorySessions(idStory: number): Promise<number> {
-  await requireAccount();
+  const user = await requireAccount();
 
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return 0;
+  if (!(await mayReadStory(user.id, id.data))) return 0;
 
   const [row] = await db
     .select({ count: sql<number>`count(*)`.mapWith(Number) })
@@ -661,7 +658,7 @@ export async function sa_getStorySession(
 
   // An id outside int4, which Postgres cannot compare, is not a session
   // rather than a query error.
-  const id = idStorySchema.safeParse(idStorySession);
+  const id = idSchema.safeParse(idStorySession);
   if (!id.success) return null;
 
   const [row] = await db
@@ -675,6 +672,8 @@ export async function sa_getStorySession(
       storyTitle: stories.title,
       idStoryteller: stories.idCreatedByUser,
       isPublic: stories.isPublic,
+      isLookingForPlayers: stories.isLookingForPlayers,
+      isActive: stories.isActive,
     })
     .from(vStorySessions)
     .innerJoin(stories, eq(stories.idStory, vStorySessions.idStory))
@@ -688,6 +687,8 @@ export async function sa_getStorySession(
     idStory: row.idStory,
     idCreatedByUser: row.idStoryteller,
     isPublic: row.isPublic,
+    isLookingForPlayers: row.isLookingForPlayers,
+    isActive: row.isActive,
   });
   if (access === null) return null;
   const isStoryteller = access === "storyteller";
@@ -777,25 +778,35 @@ export type SessionNeighbours = {
  * The sessions either side of one in its story: the one opened before it
  * and the one opened after, by session number, which v_story_sessions
  * counts in the same opening order the Timeline sorts by. Null on either
- * side where there is none, and on both where the id is unusable or names
- * no session. Any signed-in user may look, as with sa_getStorySession: the
- * number and title are what every list of sessions shows.
+ * side where there is none, and on both where the id is unusable, names no
+ * session, or names a session of a story the caller may not read, as with
+ * sa_getStorySession (db/story-access.ts): a title is as much of the story
+ * as a stranger must not see.
  */
 export async function sa_getStorySessionNeighbours(
   idStorySession: number,
 ): Promise<SessionNeighbours> {
-  await requireUser();
+  const user = await requireUser();
 
   const none: SessionNeighbours = { previous: null, next: null };
-  const id = idStorySchema.safeParse(idStorySession);
+  const id = idSchema.safeParse(idStorySession);
   if (!id.success) return none;
 
   const [here] = await db
-    .select({ idStory: vStorySessions.idStory, number: vStorySessions.sessionNumber })
+    .select({
+      idStory: stories.idStory,
+      number: vStorySessions.sessionNumber,
+      idCreatedByUser: stories.idCreatedByUser,
+      isPublic: stories.isPublic,
+      isLookingForPlayers: stories.isLookingForPlayers,
+      isActive: stories.isActive,
+    })
     .from(vStorySessions)
+    .innerJoin(stories, eq(stories.idStory, vStorySessions.idStory))
     .where(eq(vStorySessions.idStorySession, id.data))
     .limit(1);
-  if (!here || here.idStory === null || here.number === null) return none;
+  if (!here || here.number === null) return none;
+  if ((await storyAccess(user.id, here)) === null) return none;
   const number = here.number;
 
   const beside = await db
@@ -838,17 +849,6 @@ export async function sa_listSystems(): Promise<{ idSystem: number; label: strin
 
 export type StoryFormResult = { ok: false; errors: Record<string, string> };
 
-// The zod issues as the form wants them: one message per field, the first
-// issue winning, keyed by the issue's path. Shared by create and update.
-function fieldErrors(parsed: z.ZodSafeParseError<unknown>): StoryFormResult {
-  const errors: Record<string, string> = {};
-  for (const issue of parsed.error.issues) {
-    const key = issue.path.join(".");
-    errors[key] ??= issue.message;
-  }
-  return { ok: false, errors };
-}
-
 /**
  * Validates and inserts a new story owned by the caller, then redirects to
  * the story's own page, where its attachments are added: the New story form
@@ -867,7 +867,7 @@ export async function sa_createStory(
   const user = await requireAccount();
 
   const parsed = storySchema.safeParse(input);
-  if (!parsed.success) return fieldErrors(parsed);
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
 
   const values = parsed.data;
   const [story] = await db
@@ -906,7 +906,7 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
   const user = await requireAccount();
 
   // As in sa_getStory: an id Postgres cannot compare is not a story.
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return null;
 
   const [story] = await db
@@ -929,11 +929,11 @@ export async function sa_getStoryForEdit(idStory: number): Promise<StoryValues |
 
 /**
  * Validates and saves the edit form over a story the caller created, then
- * redirects to the story's page. The story is read first and its creator
- * compared with the id of the s_users row requireAccount() loaded, never an id
- * the client sent; a mismatch is thrown, since the form cannot fix it. The
- * same predicate is repeated in the UPDATE's WHERE so the write cannot land
- * on a row that changed hands between the read and the write.
+ * redirects to the story's page. The story is read first as the caller's
+ * (ownedStoryId), by the id of the s_users row requireAccount() loaded,
+ * never an id the client sent; someone else's story comes back as `root`.
+ * The same predicate is repeated in the UPDATE's WHERE so the write cannot
+ * land on a row that changed hands between the read and the write.
  *
  * A story with its own stat block (stories.stat_block_definition) loses it
  * when its system changes, since the copy stands in for the system it was
@@ -949,21 +949,12 @@ export async function sa_updateStory(
   options: { dropStatBlock?: boolean } = {},
 ): Promise<StoryFormResult> {
   const user = await requireAccount();
-  const id = idStorySchema.parse(idStory);
-  const dropStatBlock = z.boolean().optional().parse(options.dropStatBlock) ?? false;
-
-  const [story] = await db
-    .select({ idCreatedByUser: stories.idCreatedByUser })
-    .from(stories)
-    .where(eq(stories.idStory, id))
-    .limit(1);
-  if (!story) throw new Error("Story not found");
-  if (story.idCreatedByUser !== user.id) {
-    throw new Error("Only the storyteller who created a story can edit it");
-  }
+  const id = await ownedStoryId(user.id, idStory);
+  if (id === null) return { ok: false, errors: { root: STORY_NOT_YOURS } };
+  const dropStatBlock = z.boolean().optional().safeParse(options.dropStatBlock).data ?? false;
 
   const parsed = storySchema.safeParse(input);
-  if (!parsed.success) return fieldErrors(parsed);
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
 
   const values = parsed.data;
   // Whether this save changes the story's system, against the row's own
@@ -1010,31 +1001,32 @@ export async function sa_updateStory(
   redirect(`/stories/${id}`);
 }
 
+export type SetFavoriteResult = { ok: true; isFavorite: boolean } | { ok: false; error: string };
+
 /**
  * Adds or removes the caller's favorite on a story. Idempotent in both
  * directions: adding twice relies on the (id_story, id_user) unique constraint
  * and removing an absent row is a no-op. Only ever touches rows for user.id.
+ * A story the caller may not read (db/story-access.ts) is refused as one
+ * that is not there is: the heart is only ever shown on a card they were
+ * given, so the card puts its heart back and says so.
  */
 export async function sa_setFavorite(
   idStory: number,
   isFavorite: boolean,
-): Promise<{ isFavorite: boolean }> {
+): Promise<SetFavoriteResult> {
   const user = await requireAccount();
-  const id = idStorySchema.parse(idStory);
-  const wanted = z.boolean().parse(isFavorite);
+  const id = idSchema.safeParse(idStory);
+  const wanted = z.boolean().safeParse(isFavorite);
+  if (!id.success || !wanted.success || !(await mayReadStory(user.id, id.data))) {
+    return { ok: false, error: STORY_NOT_FOUND };
+  }
 
-  const [story] = await db
-    .select({ idStory: stories.idStory })
-    .from(stories)
-    .where(eq(stories.idStory, id))
-    .limit(1);
-  if (!story) throw new Error("Story not found");
-
-  if (wanted) {
+  if (wanted.data) {
     await db
       .insert(storyFavorites)
       .values({
-        idStory: id,
+        idStory: id.data,
         idUser: user.id,
         idCreatedByUser: user.id,
         idUpdatedByUser: user.id,
@@ -1045,42 +1037,21 @@ export async function sa_setFavorite(
   } else {
     await db
       .delete(storyFavorites)
-      .where(and(eq(storyFavorites.idStory, id), eq(storyFavorites.idUser, user.id)));
+      .where(and(eq(storyFavorites.idStory, id.data), eq(storyFavorites.idUser, user.id)));
   }
 
-  return { isFavorite: wanted };
+  return { ok: true, isFavorite: wanted.data };
 }
 
 // The Timeline's session controls, for the story's storyteller alone. A
 // session that is not there and one on someone else's story are the same
 // answer, as the board's other reads give.
 
-const NOT_YOUR_SESSION = "That session is not one of your story's.";
-
-/** The session's story and status when the caller tells that story, or null. */
-async function ownedSession(
-  userId: string,
-  idStorySession: number,
-): Promise<{ idStory: number; status: string } | null> {
-  const [row] = await db
-    .select({
-      idStory: storySessions.idStory,
-      status: storySessions.status,
-      owner: stories.idCreatedByUser,
-    })
-    .from(storySessions)
-    .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
-    .where(eq(storySessions.idStorySession, idStorySession))
-    .limit(1);
-  if (!row || row.owner !== userId) return null;
-  return { idStory: row.idStory, status: row.status };
-}
-
 export type CreateSessionResult =
   { ok: true; session: StorySession } | { ok: false; error: string };
 
 // The day's title the Timeline's + sends, held to what the column takes.
-const newSessionTitleSchema = z.string().trim().min(1).max(200);
+const newSessionTitleSchema = titleSchema("session");
 
 /**
  * The Timeline's +: a new session on a story the caller tells, titled as
@@ -1100,16 +1071,11 @@ export async function sa_createStorySession(
   title: string,
 ): Promise<CreateSessionResult> {
   const user = await requireAccount();
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   const name = newSessionTitleSchema.safeParse(title);
   if (!id.success || !name.success) return { ok: false, error: "That session could not be made." };
 
-  const [story] = await db
-    .select({ owner: stories.idCreatedByUser })
-    .from(stories)
-    .where(eq(stories.idStory, id.data))
-    .limit(1);
-  if (story?.owner !== user.id) {
+  if ((await ownedStory(user.id, id.data)) === null) {
     return { ok: false, error: "Only the storyteller can add sessions to this story." };
   }
 
@@ -1125,7 +1091,7 @@ export async function sa_createStorySession(
       .returning({ id: storySessions.idStorySession });
     await tx
       .update(storySessions)
-      .set({ status: "SUSPENDED", idUpdatedByUser: user.id })
+      .set({ status: SESSION_STATUS.SUSPENDED, idUpdatedByUser: user.id })
       .where(eq(storySessions.idStorySession, row.id));
     return row;
   });
@@ -1145,9 +1111,11 @@ export async function sa_createStorySession(
  */
 export async function sa_getSessionForEdit(idStorySession: number): Promise<SessionForEdit | null> {
   const user = await requireAccount();
-  const id = idStorySchema.safeParse(idStorySession);
+  const id = idSchema.safeParse(idStorySession);
   if (!id.success) return null;
 
+  const owned = await ownedSession(user.id, id.data);
+  if (owned === null) return null;
   const [row] = await db
     .select({
       idStory: storySessions.idStory,
@@ -1156,13 +1124,11 @@ export async function sa_getSessionForEdit(idStorySession: number): Promise<Sess
       summary: storySessions.summary,
       notes: storySessions.notes,
       lingeringQuestions: storySessions.lingeringQuestions,
-      owner: stories.idCreatedByUser,
     })
     .from(storySessions)
-    .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
     .where(eq(storySessions.idStorySession, id.data))
     .limit(1);
-  if (!row || row.owner !== user.id) return null;
+  if (!row) return null;
 
   const scenes = await db
     .select({
@@ -1194,23 +1160,21 @@ export async function sa_getSessionForEdit(idStorySession: number): Promise<Sess
  * title, summary, notes and lingering questions, each cleared when empty.
  * Any status may be written up, a DONE one most of all. Field errors come
  * back for the form, and a session that is not the caller's as `root`.
+ * Every table hears the session was renamed.
  */
 export async function sa_updateStorySession(
   idStorySession: number,
   input: unknown,
 ): Promise<UpdateSessionResult> {
   const user = await requireAccount();
-  const id = idStorySchema.safeParse(idStorySession);
+  const id = idSchema.safeParse(idStorySession);
   if (!id.success) return { ok: false, errors: { root: NOT_YOUR_SESSION } };
-  if ((await ownedSession(user.id, id.data)) === null) {
-    return { ok: false, errors: { root: NOT_YOUR_SESSION } };
-  }
+  const session = await ownedSession(user.id, id.data);
+  if (session === null) return { ok: false, errors: { root: NOT_YOUR_SESSION } };
 
   const parsed = sessionEditSchema.safeParse(input);
   if (!parsed.success) {
-    const errors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) errors[issue.path.join(".")] ??= issue.message;
-    return { ok: false, errors };
+    return { ok: false, errors: formErrors(parsed.error) };
   }
   const values = parsed.data;
 
@@ -1224,6 +1188,9 @@ export async function sa_updateStorySession(
       idUpdatedByUser: user.id,
     })
     .where(eq(storySessions.idStorySession, id.data));
+  // The tables show the session's title in their headers, as the run
+  // table's rename tells them.
+  publishLater(() => publishSessionUpdated(session.idStory, id.data, values.title));
   return { ok: true, title: values.title };
 }
 
@@ -1236,16 +1203,21 @@ export type DeleteSessionResult = { ok: true } | { ok: false; error: string };
  * the story with no sitting (story_scenes.id_story_session is ON DELETE SET
  * NULL), the story's current session is cleared if it was this one
  * (stories.id_story_session, the same), and who was waiting for it or at it
- * goes with it (session_players, ON DELETE CASCADE).
+ * goes with it (session_players, ON DELETE CASCADE). Every table is told
+ * the scene changed.
  */
 export async function sa_deleteStorySession(idStorySession: number): Promise<DeleteSessionResult> {
   const user = await requireAccount();
-  const id = idStorySchema.safeParse(idStorySession);
+  const id = idSchema.safeParse(idStorySession);
   if (!id.success) return { ok: false, error: NOT_YOUR_SESSION };
 
   const session = await ownedSession(user.id, id.data);
   if (session === null) return { ok: false, error: NOT_YOUR_SESSION };
 
   await db.delete(storySessions).where(eq(storySessions.idStorySession, id.data));
+  // A table on this session finds the story is being played no longer, and
+  // reloads onto nothing; a table on another session is told as it is for
+  // any change to the story's sittings.
+  publishLater(() => publishSceneChanged(session.idStory));
   return { ok: true };
 }

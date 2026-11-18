@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Input, Popover, Stack, Text } from "@chakra-ui/react";
+import { useState } from "react";
+import { Button, Input, Popover, Stack, Text } from "@chakra-ui/react";
 import { Plus } from "lucide-react";
 import type { LikedSystem } from "@/lib/profile";
-import { PLAYER_SEARCH_DELAY_MS } from "@/lib/stories";
+import { SEARCH_DELAY_MS } from "@/lib/search";
+import { useDebouncedSearch } from "@/hooks/use-debounced-search";
+import { FormError } from "@/components/forms/form-error";
 import { sa_addLikedSystem, sa_searchSystems } from "./actions";
 
 type Props = {
@@ -25,26 +27,15 @@ export function ProfileAddSystemPopover({ onAdded }: Props) {
   const [matches, setMatches] = useState<LikedSystem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState<number | null>(null);
-  // Which search is the latest, so a slow reply to an earlier query never
-  // overwrites the matches for what the box says now.
-  const searchSeq = useRef(0);
 
-  // A beat after the last keystroke rather than on each one, as the
-  // invite-players search does. Only while open: a closed popover asks for
-  // nothing.
-  useEffect(() => {
-    if (!open) return;
-    const seq = ++searchSeq.current;
-    const timer = setTimeout(async () => {
-      try {
-        const found = await sa_searchSystems(query);
-        if (seq === searchSeq.current) setMatches(found);
-      } catch {
-        // Leave the last matches in place; the next keystroke tries again.
-      }
-    }, PLAYER_SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [open, query]);
+  // Only while open: a closed popover asks for nothing. An empty box lists
+  // every system, so the search runs with it too.
+  useDebouncedSearch(() => sa_searchSystems(query), {
+    key: query,
+    delay: SEARCH_DELAY_MS,
+    enabled: open,
+    onResult: setMatches,
+  });
 
   function close() {
     setOpen(false);
@@ -96,14 +87,7 @@ export function ProfileAddSystemPopover({ onAdded }: Props) {
           </Popover.Header>
           <Popover.Body pt="0">
             <Stack gap="3">
-              {error && (
-                <Alert.Root role="alert" status="error" size="sm">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Description>{error}</Alert.Description>
-                  </Alert.Content>
-                </Alert.Root>
-              )}
+              <FormError message={error} size="sm" />
               <Input
                 type="search"
                 size="sm"

@@ -1,10 +1,11 @@
 "use client";
 
 import { createElement, useId } from "react";
-import { IconButton, Menu, Portal, Tooltip } from "@chakra-ui/react";
+import { Menu, Portal } from "@chakra-ui/react";
 import { Ban, Circle, CircleCheck, EyeOff, RotateCw, type LucideIcon } from "lucide-react";
 import { isSceneElementStatus, SCENE_ELEMENT_STATUSES, type SceneElementStatus } from "@/lib/run";
 import { statusLabel } from "@/lib/status";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
 type Props = {
   /** What the pill calls the element, for the button's name. */
@@ -39,8 +40,6 @@ export function sceneStatusIcon(status: string): LucideIcon {
  * the pill moves the link and shows the change (RunPlayPill).
  */
 export function RunSceneStatusMenu({ label, status, onChange }: Props) {
-  // Tooltip and menu each look their trigger up by id; sharing one keeps the
-  // menu from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const name = statusLabel(status);
 
@@ -54,29 +53,17 @@ export function RunSceneStatusMenu({ label, status, onChange }: Props) {
         }
       }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Menu.Trigger asChild>
-            {/* Named for the status it shows and what a press does, since
-                the icon alone says only the first. The icon is chosen by
-                status, so it is made with createElement rather than as a
-                tag that changes from render to render. */}
-            <IconButton
-              aria-label={`${name}: change ${label}'s status`}
-              size="xs"
-              variant="ghost"
-              rounded="full"
-            >
-              {createElement(sceneStatusIcon(status))}
-            </IconButton>
-          </Menu.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>{name}</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      {/* Named for the status it shows and what a press does, since the icon
+          alone says only the first. The icon is chosen by status, so it is made
+          with createElement rather than as a tag that changes from render to
+          render. */}
+      <IconButtonWithTooltip
+        label={`${name}: change ${label}'s status`}
+        tooltip={name}
+        menuTrigger={triggerId}
+      >
+        {createElement(sceneStatusIcon(status))}
+      </IconButtonWithTooltip>
       <Portal>
         <Menu.Positioner>
           <Menu.Content minW="10rem">

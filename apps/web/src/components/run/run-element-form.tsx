@@ -3,12 +3,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Alert, Button, Field, HStack, Input, Stack, Text, Textarea } from "@chakra-ui/react";
+import { Button, Field, HStack, Input, Stack, Text, Textarea } from "@chakra-ui/react";
 import { runElementSchema, type RunElementValues } from "@/lib/element-schemas";
 import type { StatusOption } from "@/lib/status";
+import { applyActionErrors } from "@/lib/forms";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { StatusChoicePill } from "@/components/status/status-choice-pill";
 import { ElementKindSelect } from "@/components/prep/element-kind-select";
+import { FormError } from "@/components/forms/form-error";
 
 /** What a save hands back: its own success, or errors keyed by field. */
 type SaveResult<Saved> = Saved | { ok: false; errors: Record<string, string> };
@@ -131,10 +133,7 @@ export function RunElementForm<Saved extends { ok: true }>({
       onSaved(result);
       return;
     }
-    for (const [field, message] of Object.entries(result.errors)) {
-      const known = (FIELDS as readonly string[]).includes(field);
-      setError(known ? (field as (typeof FIELDS)[number]) : "root", { message });
-    }
+    applyActionErrors({ setError }, result.errors, FIELDS);
   }
 
   if (loadFailed) {
@@ -145,14 +144,7 @@ export function RunElementForm<Saved extends { ok: true }>({
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
       <Stack gap="3">
-        {errors.root && (
-          <Alert.Root status="error">
-            <Alert.Indicator />
-            <Alert.Content>
-              <Alert.Description>{errors.root.message}</Alert.Description>
-            </Alert.Content>
-          </Alert.Root>
-        )}
+        <FormError message={errors.root?.message} />
         {/* The scene's part of the element in a box of its own, darker than
             the form round it, so what belongs to this scene alone reads
             apart from the element's own fields below. */}

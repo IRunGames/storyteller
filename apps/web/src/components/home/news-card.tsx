@@ -1,17 +1,10 @@
 "use client";
 
 import { useState, type MouseEvent } from "react";
-import {
-  Button,
-  Card,
-  Dialog,
-  IconButton,
-  Portal,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
+import { Button, Card, Dialog, IconButton, Portal, Text, Tooltip } from "@chakra-ui/react";
 import { X } from "lucide-react";
-import { formatNewsDate, type NewsItem } from "@/lib/news";
+import { formatDayUtc } from "@/lib/dates";
+import type { NewsItem } from "@/lib/news";
 import { sa_markNewsRead } from "@/app/(app)/(nav)/home/actions";
 
 type Props = {
@@ -69,12 +62,7 @@ export function NewsCard({ item, onDismiss }: Props) {
     >
       {/* Room on the left for the close icon, which floats over that corner. */}
       <Card.Body gap="2" pl="12">
-        <Dialog.Root
-          open={open}
-          onOpenChange={onOpenChange}
-          size="full"
-          scrollBehavior="inside"
-        >
+        <Dialog.Root open={open} onOpenChange={onOpenChange} size="full" scrollBehavior="inside">
           <Dialog.Trigger asChild>
             {/* A plain button so the title reads as a title but is the one
                 thing to press to open the story. The trigger has opened the
@@ -104,7 +92,7 @@ export function NewsCard({ item, onDismiss }: Props) {
                 </Dialog.Header>
                 <Dialog.Body>
                   <Text textStyle="xs" color="fg.muted" mb="3">
-                    {formatNewsDate(item.startsAt)}
+                    {formatDayUtc(item.startsAt)}
                   </Text>
                   <Text>{item.body}</Text>
                 </Dialog.Body>
@@ -136,7 +124,7 @@ export function NewsCard({ item, onDismiss }: Props) {
           </Portal>
         </Dialog.Root>
         <Text textStyle="xs" color="fg.muted">
-          {formatNewsDate(item.startsAt)}
+          {formatDayUtc(item.startsAt)}
         </Text>
         <Card.Description lineClamp={3}>{item.body}</Card.Description>
       </Card.Body>

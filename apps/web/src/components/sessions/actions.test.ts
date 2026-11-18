@@ -1,143 +1,139 @@
-// Integration test for the tables' session notes panel in actions.ts,
-// against the real database and skipped when DATABASE_URL is unset. `before`
-// makes a story the test user tells with one session, and a second user to
-// seat at it and unseat; `after` deletes the story, which takes the session
-// with it, and the second user.
-import { after, before, describe, it, mock } from "node:test";
+// Integration test against the real database, skipped when DATABASE_URL is
+// unset so `just test` stays green offline. The run table's control of the session at the table: its title and the inactivity check.
+// The fixture is test/scene-fixtures.ts's: a story of the test user's with a
+// scene and elements, and a story belonging to someone else; each test opens
+// the session it needs and `beforeEach` clears them.
+import { after, before, beforeEach, it } from "node:test";
 import { expect } from "expect";
-import { and, eq } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { eq } from "drizzle-orm";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
+import {
+  type SceneFixture,
+  makeSceneFixture,
+  mockPublishing,
+  publishMocks,
+} from "@/test/scene-fixtures";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
-const TEST_USER_EMAIL = "sessions-notes-actions@example.test";
-const OTHER_EMAIL = "sessions-notes-fixture@example.test";
-let testUser = "";
-let otherUserId = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-// Which user is signed in: the storyteller by default, switched to the
-// other user by the tests that read as a player or a stranger.
-let caller = "";
-const getSession = mock.fn(async () => ({ user: { id: caller } }));
+const mocks = publishMocks();
+const { published } = mocks;
 
 let actions: typeof import("./actions");
+let db: Db;
+let tables: Tables;
+let fx: SceneFixture;
+let testUser = "";
+let mine = 0;
+let theirs = 0;
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
-
-let idStory = 0;
-let idStorySession = 0;
-
-describe("session notes actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
-  before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
-    caller = testUser;
-    actions = await import("./actions");
-
-    // A rerun after a crash would trip the unique email.
-    await db.delete(tables.user).where(eq(tables.user.email, OTHER_EMAIL));
-    const [other] = await db
-      .insert(tables.user)
-      .values({ name: "Session Notes Fixture", email: OTHER_EMAIL })
-      .returning({ id: tables.user.id });
-    otherUserId = other.id;
-
-    [{ id: idStory }] = await db
-      .insert(tables.stories)
-      .values({ title: "Session notes fixture", idCreatedByUser: testUser })
-      .returning({ id: tables.stories.idStory });
-    [{ id: idStorySession }] = await db
-      .insert(tables.storySessions)
-      .values({ idStory, status: "OPEN", notes: "Kept so far.", idCreatedByUser: testUser })
-      .returning({ id: tables.storySessions.idStorySession });
-  });
-
-  after(async () => {
-    if (!db) return;
-    if (idStory) await db.delete(tables.stories).where(eq(tables.stories.idStory, idStory));
-    if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
-  });
-
-  const theirSeat = () =>
-    and(eq(tables.storyPlayers.idStory, idStory), eq(tables.storyPlayers.idUser, otherUserId));
-
-  it("hands the storyteller the session's notes, and saves what they write, empty as null", async () => {
-    expect(await actions.sa_getSessionNotes(idStorySession)).toEqual({
-      notes: "Kept so far.",
-      lingeringQuestions: null,
+describeWithDb(
+  "session control actions",
+  { email: "session-control-actions@example.test" },
+  (suite) => {
+    before(async () => {
+      mockPublishing(mocks);
+      ({ db, tables } = suite);
+      testUser = suite.testUser;
+      actions = await import("./actions");
+      fx = await makeSceneFixture(suite, "Session control fixture");
+      ({ mine, theirs } = fx);
     });
 
-    expect(
-      await actions.sa_setSessionNotes(idStorySession, {
-        notes: "  Written at the table.  ",
-        lingeringQuestions: "",
-      }),
-    ).toEqual({
-      ok: true,
-      notes: { notes: "Written at the table.", lingeringQuestions: null },
-    });
-    const [row] = await db
-      .select({
-        notes: tables.storySessions.notes,
-        lingeringQuestions: tables.storySessions.lingeringQuestions,
-        idUpdatedByUser: tables.storySessions.idUpdatedByUser,
-      })
-      .from(tables.storySessions)
-      .where(eq(tables.storySessions.idStorySession, idStorySession));
-    expect(row).toEqual({
-      notes: "Written at the table.",
-      lingeringQuestions: null,
-      idUpdatedByUser: testUser,
-    });
-  });
+    beforeEach(() => fx.clearSessions());
 
-  it("lets a seated player read and write them too, and nobody without a seat", async () => {
-    caller = otherUserId;
-    try {
-      expect(await actions.sa_getSessionNotes(idStorySession)).toBeNull();
-      expect(
-        await actions.sa_setSessionNotes(idStorySession, { notes: "x", lingeringQuestions: "" }),
-      ).toEqual({ ok: false, errors: { root: "This session is not at a table of yours." } });
+    after(async () => {
+      if (!db) return;
+      await fx.remove();
+    });
 
-      await db.insert(tables.storyPlayers).values({ idStory, idUser: otherUserId });
-      expect(await actions.sa_getSessionNotes(idStorySession)).toEqual({
-        notes: "Written at the table.",
-        lingeringQuestions: null,
-      });
-      expect(
-        await actions.sa_setSessionNotes(idStorySession, {
-          notes: "Written at the table.",
-          lingeringQuestions: "Who sent them?",
-        }),
-      ).toEqual({
+    const openSession = (...args: Parameters<SceneFixture["openSession"]>) =>
+      fx.openSession(...args);
+
+    it("renames a session of the story, clearing an empty title", async () => {
+      const session = await openSession(mine, null);
+      const titleOf = async () =>
+        (
+          await db
+            .select({ title: tables.storySessions.title })
+            .from(tables.storySessions)
+            .where(eq(tables.storySessions.idStorySession, session))
+        )[0].title;
+
+      expect(await actions.sa_setSessionTitle(mine, session, "  The drowned bell ")).toEqual({
         ok: true,
-        notes: { notes: "Written at the table.", lingeringQuestions: "Who sent them?" },
+        title: "The drowned bell",
       });
-    } finally {
-      caller = testUser;
-      await db.delete(tables.storyPlayers).where(theirSeat());
-    }
-  });
+      expect(await titleOf()).toBe("The drowned bell");
+      expect(await actions.sa_setSessionTitle(mine, session, "   ")).toEqual({
+        ok: true,
+        title: null,
+      });
+      expect(await titleOf()).toBeNull();
 
-  it("refuses text past the schema's limit, and answers nothing for an unusable id", async () => {
-    const result = await actions.sa_setSessionNotes(idStorySession, {
-      notes: "x".repeat(8001),
-      lingeringQuestions: "",
-    });
-    expect(result).toEqual({
-      ok: false,
-      errors: { notes: "Keep the notes under 8000 characters." },
+      expect(await actions.sa_setSessionTitle(mine, session, "x".repeat(201))).toEqual({
+        ok: false,
+        error: "Keep the title under 200 characters.",
+      });
+      // Another's story, or a session of a story other than the one named.
+      expect(await actions.sa_setSessionTitle(theirs, session, "Mine now")).toEqual({
+        ok: false,
+        error: "That session is not part of this story.",
+      });
+      expect(await titleOf()).toBeNull();
     });
 
-    expect(await actions.sa_getSessionNotes(2 ** 40)).toBeNull();
-    expect(await actions.sa_getSessionNotes(2 ** 30)).toBeNull();
-  });
-});
+    it("suspends a session left inactive, noting why in its activity_log", async () => {
+      const session = await openSession(mine, null);
+      published.publishSceneChanged.mock.resetCalls();
+
+      expect(await actions.sa_suspendInactiveSession(mine, session, false)).toEqual({
+        ok: true,
+        status: "SUSPENDED",
+      });
+      const [row] = await db
+        .select({ status: tables.storySessions.status, log: tables.storySessions.activityLog })
+        .from(tables.storySessions)
+        .where(eq(tables.storySessions.idStorySession, session));
+      expect(row.status).toBe("SUSPENDED");
+      const entry = (row.log as Record<string, unknown>[]).find(
+        (e) => e.activityCategory === "inactivity_log",
+      );
+      expect(entry).toMatchObject({
+        activityDetails: "suspended for inactivity",
+        userId: testUser,
+        activityData: { answered: false },
+      });
+      expect(published.publishSceneChanged.mock.calls.map((c) => c.arguments)).toEqual([[mine]]);
+
+      // Already suspended: nothing moves again.
+      expect(await actions.sa_suspendInactiveSession(mine, session, true)).toEqual({
+        ok: false,
+        error: "That session is not being played.",
+      });
+    });
+
+    it("suspends no session of another's story, nor one that is not being played", async () => {
+      const theirSession = await openSession(theirs, null);
+      expect(await actions.sa_suspendInactiveSession(theirs, theirSession, false)).toEqual({
+        ok: false,
+        error: "That session is not being played.",
+      });
+      const done = await openSession(mine, null, "DONE");
+      expect(await actions.sa_suspendInactiveSession(mine, done, false)).toEqual({
+        ok: false,
+        error: "That session is not being played.",
+      });
+    });
+
+    it("refuses an answer that is not yes or no, leaving the session playing", async () => {
+      const session = await openSession(mine, null);
+      expect(
+        await actions.sa_suspendInactiveSession(mine, session, "yes" as unknown as boolean),
+      ).toEqual({ ok: false, error: "Whether the storyteller answered must be yes or no." });
+      const [row] = await db
+        .select({ status: tables.storySessions.status })
+        .from(tables.storySessions)
+        .where(eq(tables.storySessions.idStorySession, session));
+      expect(row.status).toBe("OPEN");
+    });
+  },
+);

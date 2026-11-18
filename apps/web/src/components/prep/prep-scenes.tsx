@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Box,
@@ -15,20 +15,17 @@ import {
   Tooltip,
 } from "@chakra-ui/react";
 import { ChevronsRight, Eye, Pencil } from "lucide-react";
-import {
-  SCENE_LOCKED_STATUS,
-  SCENE_SEARCH_DELAY_MS,
-  SCENES_PAGE_SIZE,
-  scenePreviewPath,
-  type StoryScene,
-} from "@/lib/scenes";
+import { SCENES_PAGE_SIZE, scenePreviewPath, type StoryScene } from "@/lib/scenes";
+import { SEARCH_DELAY_MS } from "@/lib/search";
 import type { StatusOption } from "@/lib/status";
+import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 import { sa_listStoryScenes } from "@/components/prep/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { LocalDate } from "@/components/dates/local-date";
 import { IconLink } from "@/components/links/icon-link";
 import { DeleteSceneButton } from "./delete-scene-button";
 import { SceneInfoPopover } from "./scene-info-popover";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 
 type Props = {
   idStory: number;
@@ -110,64 +107,40 @@ export function PrepScenes({
   const [scenes, setScenes] = useState(initial);
   const [hasMore, setHasMore] = useState(initial.length === SCENES_PAGE_SIZE);
   const [isLoadingMore, setLoadingMore] = useState(false);
-  const [isSearching, setSearching] = useState(false);
   const [, startTransition] = useTransition();
 
-  // Which search is the latest: a slow reply to an earlier query must not
-  // land on top of the results for what the box says now.
-  const searchSeq = useRef(0);
-  // The page already loaded the first page narrowed to what the board opened
-  // with (the storyteller's last filter, or none), so until the box or the
-  // pills move away from that, the column asks for nothing. Every later
-  // change does, including one back to where it started.
-  const searched = useRef(false);
-  const openedWith = useRef(`${filter.trim()}|${shownStatuses.join(",")}`);
-
-  // The statuses as a string, so the effect below re-runs when the set
-  // changes rather than on every render that rebuilds the array.
+  const needle = filter.trim();
+  // The statuses as a string, so the search re-runs when the set changes
+  // rather than on every render that rebuilds the array.
   const statusKey = shownStatuses.join(",");
   const everyStatus = statusOptions.length > 0 && shownStatuses.length === statusOptions.length;
-
-  useEffect(() => {
-    const needle = filter.trim();
-    // Nothing has been touched yet: the page already loaded the first page
-    // unfiltered, with every status on, and the board has created nothing
-    // here since.
-    if (!searched.current && `${needle}|${statusKey}` === openedWith.current && reloadKey === 0) {
-      return;
-    }
-    searched.current = true;
-
-    const seq = ++searchSeq.current;
-    setSearching(true);
-    const timer = setTimeout(async () => {
-      try {
-        const found = await sa_listStoryScenes(idStory, 0, needle, shownStatuses);
-        if (seq !== searchSeq.current) return;
-        setScenes(found);
-        setHasMore(found.length === SCENES_PAGE_SIZE);
-      } catch {
-        // Leave the last results in place; the next keystroke tries again.
-      } finally {
-        if (seq === searchSeq.current) setSearching(false);
-      }
-    }, SCENE_SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
-    // shownStatuses is rebuilt on every render; statusKey is what actually
-    // changed. eslint cannot see through that, hence the disable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idStory, filter, statusKey, reloadKey]);
+  // The page already loaded the first page narrowed to what the board opened
+  // with (the storyteller's last filter, or none), so until the box or the
+  // pills move away from that, or the board creates a row here, the column
+  // asks for nothing. Every later change does, including one back to where
+  // it started.
+  const key = `${needle}|${statusKey}|${reloadKey}`;
+  const [openedWith] = useState(key);
+  const search = useDebouncedSearch(() => sa_listStoryScenes(idStory, 0, needle, shownStatuses), {
+    key: `${idStory}|${key}`,
+    delay: SEARCH_DELAY_MS,
+    enabled: key !== openedWith,
+    onResult: (found) => {
+      setScenes(found);
+      setHasMore(found.length === SCENES_PAGE_SIZE);
+    },
+  });
 
   function onMore() {
     const offset = scenes.length;
-    const seq = searchSeq.current;
+    const asked = search.count();
     setLoadingMore(true);
     startTransition(async () => {
       try {
-        const page = await sa_listStoryScenes(idStory, offset, filter.trim(), shownStatuses);
+        const page = await sa_listStoryScenes(idStory, offset, needle, shownStatuses);
         // The box moved on while this was in flight; its own search will
         // replace the list, so this page is no longer wanted.
-        if (seq !== searchSeq.current) return;
+        if (asked !== search.count()) return;
         setScenes((current) => [...current, ...page]);
         setHasMore(page.length === SCENES_PAGE_SIZE);
       } catch {
@@ -195,10 +168,10 @@ export function PrepScenes({
   }
 
   if (scenes.length === 0) {
-    const untouched = filter.trim() === "" && everyStatus;
+    const untouched = needle === "" && everyStatus;
     return (
       <Text color="fg.muted">
-        {untouched ? "No scenes yet." : isSearching ? "Searching…" : "No matches."}
+        {untouched ? "No scenes yet." : search.isSearching ? "Searching…" : "No matches."}
       </Text>
     );
   }

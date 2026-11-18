@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Alert, Button, Field, HStack, Input, NativeSelect, Stack } from "@chakra-ui/react";
+import { Button, Field, HStack, Input, NativeSelect, Stack } from "@chakra-ui/react";
 import { sa_inviteToApp, type AdminInvitation } from "@/app/(app)/(nav)/admin/invitations/actions";
 import { copyInviteLink } from "@/components/invitations/copy-invite-link-button";
 import { toaster } from "@/components/ui/toaster";
@@ -14,6 +14,8 @@ import {
   type AppInviteValues,
 } from "@/lib/invitation-schemas";
 import { USER_TYPES } from "@/lib/user-types";
+import { applyActionErrors } from "@/lib/forms";
+import { FormError } from "@/components/forms/form-error";
 
 /**
  * The administrators' New invitation form: an address and the account type
@@ -40,9 +42,7 @@ export function NewInvitationForm({ onInvited }: { onInvited: (row: AdminInvitat
       try {
         const result = await sa_inviteToApp(values, send);
         if (!result.ok) {
-          for (const [field, message] of Object.entries(result.errors)) {
-            setError(field === "email" || field === "idUserType" ? field : "root", { message });
-          }
+          applyActionErrors({ setError }, result.errors, ["email", "idUserType"]);
           return;
         }
         onInvited(result.invitation);
@@ -71,14 +71,7 @@ export function NewInvitationForm({ onInvited }: { onInvited: (row: AdminInvitat
   return (
     <form onSubmit={invite(true)} noValidate aria-label="New invitation">
       <Stack gap="3">
-        {errors.root && (
-          <Alert.Root role="alert" status="error" size="sm">
-            <Alert.Indicator />
-            <Alert.Content>
-              <Alert.Description>{errors.root.message}</Alert.Description>
-            </Alert.Content>
-          </Alert.Root>
-        )}
+        <FormError message={errors.root?.message} size="sm" />
         <HStack gap="3" align="flex-start" wrap="wrap">
           <Field.Root required invalid={!!errors.email} flex="1" minW="60">
             <Field.Label>Email</Field.Label>

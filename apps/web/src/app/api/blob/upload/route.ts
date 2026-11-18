@@ -3,6 +3,15 @@ import { requireAccount, UnauthorizedError } from "@/lib/authorize";
 import { ALLOWED_IMAGE_TYPES, maxUploadBytes, uploadPrefix } from "@/lib/image-uploads";
 
 /**
+ * A refusal the route composed itself, so its message may be shown to the
+ * user as it is. Every other error is logged and answered with a fixed line:
+ * a driver's or the SDK's message could name internals.
+ */
+class UploadRefused extends Error {}
+
+const REFUSED = "Upload could not be authorised.";
+
+/**
  * Issues the short-lived token the browser uses to upload straight to Vercel
  * Blob.
  *
@@ -17,9 +26,10 @@ import { ALLOWED_IMAGE_TYPES, maxUploadBytes, uploadPrefix } from "@/lib/image-u
  * the URL back from `upload()` directly.
  */
 export async function POST(request: Request): Promise<Response> {
-  const body = (await request.json()) as HandleUploadBody;
-
   try {
+    // Inside the try: a body that is not JSON is the caller's mistake, a 400,
+    // not a crash of the route.
+    const body = (await request.json()) as HandleUploadBody;
     const result = await handleUpload({
       body,
       request,
@@ -30,7 +40,7 @@ export async function POST(request: Request): Promise<Response> {
         // prefix can be enforced. Without it a signed-in user could write
         // into someone else's prefix and make the delete check meaningless.
         if (!pathname.startsWith(uploadPrefix(user.id))) {
-          throw new Error("That upload path does not belong to you.");
+          throw new UploadRefused("That upload path does not belong to you.");
         }
 
         return {
@@ -49,7 +59,10 @@ export async function POST(request: Request): Promise<Response> {
     if (error instanceof UnauthorizedError) {
       return Response.json({ error: "You need to be signed in to do that." }, { status: 401 });
     }
-    const message = error instanceof Error ? error.message : "Upload could not be authorised.";
-    return Response.json({ error: message }, { status: 400 });
+    if (error instanceof UploadRefused) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+    console.error("Could not authorise an upload", error);
+    return Response.json({ error: REFUSED }, { status: 400 });
   }
 }

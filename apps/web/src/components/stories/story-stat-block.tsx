@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import NextLink from "next/link";
-import { Alert, Badge, Button, Heading, HStack, Stack, Text } from "@chakra-ui/react";
+import { Badge, Button, Heading, HStack, Stack, Text } from "@chakra-ui/react";
 import { Copy, Pencil, RefreshCw } from "lucide-react";
 import {
   sa_copySystemStatBlockDefinition,
@@ -12,6 +12,7 @@ import { DeleteButton } from "@/components/confirm/delete-button";
 import { LocalDate } from "@/components/dates/local-date";
 import { StatBlockDefinitionView } from "@/components/stat-blocks/stat-block-definition-view";
 import { toaster } from "@/components/ui/toaster";
+import { FormError } from "@/components/forms/form-error";
 
 /** Whether one stamp is later than another; a missing stamp is older than any. */
 function isNewer(stamp: string | undefined, than: string | undefined): boolean {
@@ -142,14 +143,7 @@ export function StoryStatBlock({
           )}
         </HStack>
       )}
-      {error && (
-        <Alert.Root role="alert" status="error" size="sm">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Description>{error}</Alert.Description>
-          </Alert.Content>
-        </Alert.Root>
-      )}
+      <FormError message={error} size="sm" />
 
       <StatBlockDefinitionView definition={shown} mutedColor={mutedColor} />
     </Stack>

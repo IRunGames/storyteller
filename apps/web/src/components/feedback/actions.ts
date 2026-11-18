@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { db, schema } from "@/db";
 import { requireAccount } from "@/lib/authorize";
 import { feedbackSchema } from "@/lib/feedback-schemas";
+import { formErrors } from "@/lib/forms";
 
 const { feedback } = schema;
 
@@ -24,12 +25,7 @@ export async function sa_submitFeedback(input: unknown): Promise<SubmitFeedbackR
 
   const parsed = feedbackSchema.safeParse(input);
   if (!parsed.success) {
-    const errors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = issue.path.join(".");
-      errors[key] ??= issue.message;
-    }
-    return { ok: false, errors };
+    return { ok: false, errors: formErrors(parsed.error) };
   }
 
   // Vercel puts the client first in x-forwarded-for; local development has no

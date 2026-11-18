@@ -1,20 +1,11 @@
 import { z } from "zod";
-
-// A <select> posts "" for "no system" and a string for a chosen one; the
-// preprocess turns both into what the stories.id_system column wants.
-const idSystem = z.preprocess(
-  (value) => (value === "" || value === null || value === undefined ? null : Number(value)),
-  z.int32().nullable(),
-);
+import { selectIntSchema, titleSchema } from "@/lib/schemas";
 
 // One schema for creating and editing: both forms post the same fields.
 const storyFields = z.object({
-  title: z
-    .string()
-    .trim()
-    .min(1, "Please give the story a title.")
-    .max(200, "Keep the title under 200 characters."),
-  idSystem,
+  title: titleSchema("story"),
+  // The system <select> posts "" for "no system", which the column holds as null.
+  idSystem: selectIntSchema,
   summary: z.string().trim().max(4000, "Keep the summary under 4000 characters."),
   isLookingForPlayers: z.boolean(),
   isActive: z.boolean(),

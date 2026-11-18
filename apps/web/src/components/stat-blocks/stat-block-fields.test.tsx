@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/render";
 import type { ElementValues } from "@/lib/element-schemas";
 import type { StatBlockSystems } from "@/components/prep/actions";
+import { mockNavigation } from "@/test/mocks";
 
 type Result = { ok: true } | { ok: false; errors: Record<string, string> };
 
@@ -261,9 +262,7 @@ describe("ElementForm stat blocks", () => {
     mock.module("@/components/prep/actions", {
       namedExports: { sa_createElement, sa_updateElement, sa_deleteElement },
     });
-    mock.module("next/navigation", {
-      namedExports: { useRouter: () => ({ push: mock.fn(), refresh: mock.fn() }) },
-    });
+    mockNavigation();
     ({ ElementForm } = await import("@/components/prep/element-form"));
   });
 

@@ -1,6 +1,4 @@
-import { z } from "zod";
-
-const idSchema = z.int32();
+import { idSchema } from "@/lib/schemas";
 
 // The id a page reads from its URL, or null for the not-found page. A page
 // calls it as `const idStory = parseRouteId(id); if (idStory === null) notFound();`.

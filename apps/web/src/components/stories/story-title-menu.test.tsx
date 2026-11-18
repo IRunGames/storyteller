@@ -5,6 +5,7 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
+import { mockNavigation } from "@/test/mocks";
 
 // The page the menu is on, as the router would say.
 let pathname = "/stories/-15";
@@ -24,7 +25,7 @@ let StoryTitleMenu: typeof import("./story-title-menu").StoryTitleMenu;
 
 describe("StoryTitleMenu", () => {
   before(async () => {
-    mock.module("next/navigation", { namedExports: { usePathname: () => pathname } });
+    mockNavigation({ pathname: () => pathname });
     // The real Link, wrapped so each render reports its props.
     const { default: NextLink } = await import("next/link");
     const RecordingLink = forwardRef<HTMLAnchorElement, ComponentProps<typeof NextLink>>(

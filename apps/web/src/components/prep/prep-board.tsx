@@ -3,6 +3,7 @@
 import { StoryTitleMenu } from "@/components/stories/story-title-menu";
 
 import { useEffect, useRef, useState } from "react";
+import { useLatest } from "@/hooks/use-latest";
 import { useRouter } from "next/navigation";
 import { Box, Button, Flex, Heading, HStack, Stack } from "@chakra-ui/react";
 import { Maximize } from "lucide-react";
@@ -115,13 +116,10 @@ export function PrepBoard({
     null,
   );
   const savedJson = useRef(JSON.stringify(writePrepBoardState(initialState, COLUMN_WORKFLOWS)));
-  const save = useRef(() => {});
-  useEffect(() => {
-    save.current = () => {
-      if (!pending.current || pending.current.json === savedJson.current) return;
-      savedJson.current = pending.current.json;
-      void preferences.set(preferenceKey, pending.current.value);
-    };
+  const save = useLatest(() => {
+    if (!pending.current || pending.current.json === savedJson.current) return;
+    savedJson.current = pending.current.json;
+    void preferences.set(preferenceKey, pending.current.value);
   });
   useEffect(() => {
     const value = writePrepBoardState(
@@ -138,7 +136,7 @@ export function PrepBoard({
     // save.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modes, filters]);
-  useEffect(() => () => save.current(), []);
+  useEffect(() => () => save.current(), [save]);
   // The Attachments column's + opens the link input and dropzone at the top of
   // the column, over the cards, and closes them again.
   const [addingAttachments, setAddingAttachments] = useState(false);

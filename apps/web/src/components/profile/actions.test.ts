@@ -2,26 +2,21 @@
 // unset so `just test` stays green offline. The caller is a fixture user made
 // here, never the seed user, because these actions rewrite the caller's own
 // name and bio; the systems it likes are seed rows, which it only reads.
-import { after, before, beforeEach, describe, it, mock } from "node:test";
+import { after, before, beforeEach, it } from "node:test";
 import { expect } from "expect";
 import { asc, eq, inArray, lt } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-const hasDb = Boolean(process.env.DATABASE_URL);
 const ME_EMAIL = "profile-fixture-me@example.test";
 const OTHER_EMAIL = "profile-fixture-other@example.test";
 
 let me = "";
 let other = "";
-const getSession = mock.fn(async () => ({ user: { id: me } }));
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let seedSystems: { idSystem: number; systemName: string }[] = [];
 let mine = 0;
@@ -51,20 +46,15 @@ async function removeFixtures() {
   await db.delete(tables.user).where(inArray(tables.user.id, ids));
 }
 
-describe("profile actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("profile actions", {}, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
+    ({ db, tables } = suite);
     actions = await import("./actions");
 
     await removeFixtures();
-    [{ id: me }, { id: other }] = await db
-      .insert(tables.user)
-      .values([
-        { name: "Profile Fixture", email: ME_EMAIL, nickName: "Fixture" },
-        { name: "Profile Other", email: OTHER_EMAIL },
-      ])
-      .returning({ id: tables.user.id });
+    me = await suite.makeUser(ME_EMAIL, { name: "Profile Fixture", nickName: "Fixture" });
+    other = await suite.makeUser(OTHER_EMAIL, { name: "Profile Other" });
+    suite.caller = me;
 
     seedSystems = await db
       .select({ idSystem: tables.systems.idSystem, systemName: tables.systems.systemName })
@@ -98,7 +88,6 @@ describe("profile actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   after(async () => {
     if (!db) return;
     await removeFixtures();
-    await db.$client.end();
   });
 
   it("reads the caller's profile", async () => {

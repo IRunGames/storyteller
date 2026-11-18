@@ -2,6 +2,7 @@
 
 import { and, desc, eq, gt, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { requireAccount } from "@/lib/authorize";
 import { NEWS_LIMIT, type NewsItem } from "@/lib/news";
@@ -10,8 +11,6 @@ const { news, newsReads } = schema;
 
 // The only way the home page touches the news tables; requireAccount() proves
 // who is asking before anything is read or written.
-
-const idNewsSchema = z.int32();
 
 /**
  * The announcements to show the caller right now: started, not expired, not
@@ -60,11 +59,14 @@ export async function sa_listNews(): Promise<NewsItem[]> {
  * (id_news, id_user) unique constraint absorbs a repeat, so opening a story
  * twice is harmless. Only ever writes rows for user.id. An unknown id is
  * refused by the foreign key, and that is a bug in the caller rather than
- * something to handle here.
+ * something to handle here; an id that is not one at all, or a list longer
+ * than any the card could send, is refused as a bad request.
  */
-export async function sa_markNewsRead(idNews: number[]): Promise<{ ok: true }> {
+export async function sa_markNewsRead(idNews: number[]): Promise<{ ok: boolean }> {
   const user = await requireAccount();
-  const ids = z.array(idNewsSchema).max(NEWS_LIMIT).parse(idNews);
+  const parsed = z.array(idSchema).max(NEWS_LIMIT).safeParse(idNews);
+  if (!parsed.success) return { ok: false };
+  const ids = parsed.data;
   if (ids.length === 0) return { ok: true };
 
   await db

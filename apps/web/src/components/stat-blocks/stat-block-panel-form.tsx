@@ -3,12 +3,14 @@
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Alert, Button, HStack, Stack } from "@chakra-ui/react";
+import { Button, HStack, Stack } from "@chakra-ui/react";
 import { toaster } from "@/components/ui/toaster";
 import type { StatBlockSystems } from "@/components/prep/actions";
 import type { ElementFormInput } from "@/lib/element-schemas";
 import { statBlocksSchema } from "@/lib/stat-block-schemas";
 import { systemKey, toStatBlockFields, type StatBlockSystem } from "@/lib/stat-blocks";
+import { applyActionErrors } from "@/lib/forms";
+import { FormError } from "@/components/forms/form-error";
 import { sa_setStatBlocks, type ElementStatBlock, type StatBlockHolder } from "./actions";
 import { StatBlockFields } from "./stat-block-fields";
 
@@ -72,22 +74,13 @@ export function StatBlockPanelForm({ holder, block, onSaved, onCancel }: Props) 
       }
       return;
     }
-    for (const [path, message] of Object.entries(result.errors)) {
-      setError(path === "root" ? "root" : (path as "statBlocks"), { message });
-    }
+    applyActionErrors({ setError }, result.errors, (path) => path.startsWith("statBlocks"));
   }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate data-testid={`stat-block-form-${key}`}>
       <Stack gap="3">
-        {errors.root && (
-          <Alert.Root role="alert" status="error" size="sm">
-            <Alert.Indicator />
-            <Alert.Content>
-              <Alert.Description>{errors.root.message}</Alert.Description>
-            </Alert.Content>
-          </Alert.Root>
-        )}
+        <FormError message={errors.root?.message} size="sm" />
         <StatBlockFields
           systems={systems}
           control={control}

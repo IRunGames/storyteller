@@ -4,6 +4,7 @@ import { db } from "./index";
 import { sceneElementImageUrl } from "./attachment-url";
 import { elements, sceneElements, stories, storySessions } from "./schema";
 import { ELEMENT_KINDS } from "@/lib/elements";
+import { SESSION_PLAYING_STATUSES } from "@/lib/status";
 
 // Reads that both the storyteller's publishing and the players' table need,
 // kept here for the reason attachment-url.ts gives: a "use server" module
@@ -27,7 +28,9 @@ export async function currentScene(idStory: number): Promise<CurrentScene | null
     })
     .from(stories)
     .innerJoin(storySessions, eq(storySessions.idStorySession, stories.idStorySession))
-    .where(and(eq(stories.idStory, idStory), inArray(storySessions.status, ["OPEN", "RESUMED"])))
+    .where(
+      and(eq(stories.idStory, idStory), inArray(storySessions.status, SESSION_PLAYING_STATUSES)),
+    )
     .limit(1);
   return row ?? null;
 }

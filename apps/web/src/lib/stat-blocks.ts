@@ -5,7 +5,9 @@
 // definition, and how a stat's shown value is worked out, for the server
 // actions, the forms and the table alike. The zod schemas that check the
 // shapes are in stat-block-schemas.ts.
+import type { z } from "zod";
 import { normalizeDice } from "./roll";
+import type { statDefinitionSchema, statGroupDefinitionSchema } from "./stat-block-schemas";
 import { evaluateFormula, parseFormula, type FormulaNode } from "./stat-formula";
 
 export const STAT_TYPES = ["display", "pool", "stack", "rack", "dice", "computed"] as const;
@@ -81,110 +83,33 @@ export const STAT_TYPE_LABELS: Record<StatType, string> = {
 export type RackEntry = string | number;
 
 /**
- * One stat of a definition. Every field is present, an empty string or
- * array standing for "none", so the editor's rows and the stored jsonb are
- * one shape.
+ * Text that reads as a number: an optional sign, digits, and an optional
+ * decimal part, which is what a stat's box or a rack entry may hold for a
+ * number. The one rule for the four places text is read back as a value.
  */
-export type StatDefinition = {
-  /** The key, /^[a-z][a-z0-9_]*$/, unique within its group; what formulas name. */
-  name: string;
-  /** What is shown; "" means show the name. */
-  label: string;
-  /** What the stat is for, a hover away on the form and at the table; "" for none. */
-  description: string;
-  type: StatType;
-  /** A rack's entries in order; [] for any other type. */
-  rack: RackEntry[];
-  /** A computed stat's formula (stat-formula.ts); "" for any other type. */
-  computedAs: string;
-  /**
-   * Whether the table draws the stat. A hidden stat is still filled in on
-   * the prep form and still feeds formulas, so a system can keep a formula's
-   * working out of the element panel.
-   */
-  visible: boolean;
-  /** How the value is held and written (STAT_FORMATS); "" for as it is. */
-  format: StatFormat;
-  /** The stat shares a line with the stat after it, on the form and at the table (statLines). */
-  sticky: boolean;
-  /**
-   * Shown at the table as words rather than in a box with a clicker: for a
-   * modifier set on the prep form and not nudged in play.
-   */
-  static: boolean;
-  /**
-   * The roll that goes with a pool, a stack or a display held to a number,
-   * as the chat's /roll takes it ("2d6+1"); "" for none, and always "" on
-   * any other stat (canRoll). One of ROLL_PRESETS or anything the roller
-   * reads.
-   */
-  roll: string;
-  /**
-   * Whether the table's stats pane offers to roll the stat for every element
-   * in the scene at once, as an initiative is rolled. Only a stat the table
-   * can roll (hasDie) may be global.
-   */
-  global: boolean;
-  /**
-   * Whether an editable number at the table has the up/down clicker beside
-   * its box (StatNumber); without it the box alone is drawn. Only a stat
-   * held to a number format has one to show, so on any other it is idle.
-   */
-  upDown: boolean;
-  /**
-   * Whether a rack at the table has the left/right buttons that move it to
-   * the entry before or after, as upDown gives a number its clicker; without
-   * them the entry is only shown. Only a rack has entries to move through,
-   * so on any other stat it is idle; a static rack has none either way.
-   */
-  leftRight: boolean;
-  /**
-   * The dice rolled once when the stat's block is added to an element
-   * ("2d6", "8d8+3"), for its starting value and, on a pool or a stack, its
-   * max; "" for a stat that starts at 0. Only a pool, a stack or a display
-   * held to a number may have one (canRoll).
-   */
-  initialRoll: string;
-  /**
-   * The Dice stat whose dice are rolled for the stat's starting value, and
-   * on a pool or a stack its max, as "group.stat" ("defense.hit_dice"); ""
-   * for none. For dice that differ from element to element, where
-   * initialRoll is the same for all, so the two are never both set. A stat
-   * in a plain group rolls a Dice stat in a plain group, one in a repeating
-   * group a Dice stat of its own row (initialSource). Only a stat that may
-   * have an initialRoll may have one.
-   */
-  initialFrom: string;
-};
+export const NUMBER_TEXT = /^-?\d+(\.\d+)?$/;
+
+/** The text as a number when it reads as one (NUMBER_TEXT), else as it is. */
+export function numberOrText(text: string): number | string {
+  return NUMBER_TEXT.test(text) ? Number(text) : text;
+}
+
+/**
+ * One stat of a definition, as statDefinitionSchema (stat-block-schemas.ts)
+ * checks it; every field is present, an empty string or array standing for
+ * "none", so the editor's rows and the stored jsonb are one shape. The
+ * fields are documented on the schema, which is the one place they are
+ * declared; the type is read off it so the two cannot drift apart. A type
+ * import only, so no zod reaches this module at run time.
+ */
+export type StatDefinition = z.infer<typeof statDefinitionSchema>;
 
 /** The rolls the template editor offers before a custom one. */
 export const ROLL_PRESETS = ["1d6", "2d6", "1d8", "1d10", "1d12", "1d20"] as const;
 
-export type StatGroupDefinition = {
-  name: string;
-  label: string;
-  /**
-   * "" for a plain group. The name of one of this group's stats for a group
-   * that repeats: an element then carries any number of rows of the group,
-   * and that stat's value tells one row from another. Naming the stat is
-   * what makes the group repeat, so there is no second flag to keep in step.
-   */
-  keyedBy: string;
-  /**
-   * Whether the table draws a die on the group's heading that rolls the
-   * first die of every row at once (sa_rollGroupRows). Only a group that
-   * repeats may.
-   */
-  rollAll: boolean;
-  /**
-   * Whether each row of this group says how many of it the element has (its
-   * multiple, MULTIPLE in the row, 1 unless set): Palladium's attacks per
-   * melee with each weapon. Roll all then rolls each row that many times.
-   * Only a group that repeats may.
-   */
-  canHaveMultiples: boolean;
-  stats: StatDefinition[];
-};
+/** One group of a definition, as statGroupDefinitionSchema checks it; see StatDefinition. */
+export type StatGroupDefinition = z.infer<typeof statGroupDefinitionSchema>;
+
 export type StatBlockDefinition = {
   groups: StatGroupDefinition[];
   /**
@@ -342,6 +267,14 @@ export function systemKey(idSystem: number): string {
 /** Whether a definition has anything to draw. */
 export function hasStats(definition: StatBlockDefinition): boolean {
   return definition.groups.some((group) => group.stats.length > 0);
+}
+
+/** One group of a definition by name, or undefined. */
+export function findGroup(
+  definition: StatBlockDefinition,
+  groupName: string,
+): StatGroupDefinition | undefined {
+  return definition.groups.find((group) => group.name === groupName);
 }
 
 /** Finds a stat by group and name; null when either is not there. */
@@ -740,28 +673,35 @@ export function emptyStatGroup(
     const held = source && source.group.name !== group.name ? block?.[source.group.name] : null;
     const sourceDice =
       held && !Array.isArray(held) ? String(held[source!.stat.name]?.value ?? "") : undefined;
-    const start = startingNumber(stat, roll, sourceDice);
-    switch (stat.type) {
-      case "display":
-        values[stat.name] = { value: start };
-        break;
-      case "pool":
-        values[stat.name] = { value: start, min: 0, max: start };
-        break;
-      case "stack":
-        values[stat.name] = start === 0 ? { value: 0 } : { value: start, max: start };
-        break;
-      case "rack":
-        if (stat.rack.length > 0) values[stat.name] = { value: stat.rack[0] };
-        break;
-      case "dice":
-        values[stat.name] = {};
-        break;
-      case "computed":
-        break;
-    }
+    const value = startingValue(stat, startingNumber(stat, roll, sourceDice));
+    if (value !== undefined) values[stat.name] = value;
   }
   return values;
+}
+
+/**
+ * What one stat stores as it starts, given its starting number: a pool full
+ * at it, 0 to it; a stack at it with it as the max, or bare at 0; a rack on
+ * its first entry, or nothing for a rack with none; a display at it; a dice
+ * stat empty, to be typed; nothing for a computed stat, which stores
+ * nothing. The one rule for a group picked for an element and a row added
+ * to one (emptyStatRowFields).
+ */
+export function startingValue(stat: StatDefinition, start: number): StatValue | undefined {
+  switch (stat.type) {
+    case "display":
+      return { value: start };
+    case "pool":
+      return { value: start, min: 0, max: start };
+    case "stack":
+      return start === 0 ? { value: 0 } : { value: start, max: start };
+    case "rack":
+      return stat.rack.length > 0 ? { value: stat.rack[0] } : undefined;
+    case "dice":
+      return {};
+    case "computed":
+      return undefined;
+  }
 }
 
 /** Every group of the template picked at once, each as emptyStatGroup starts it. */
@@ -955,13 +895,11 @@ export function emptyStatRowFields(
   for (const stat of group.stats) {
     const start = startingNumber(stat, roll);
     const rolled = roll !== undefined && stat.initialRoll !== "" && canRoll(stat);
+    // A rack starts on its entry whether or not anything rolled; a number
+    // only when the roller gave it one.
+    const starting = stat.type === "rack" || rolled ? startingValue(stat, start) : undefined;
     fields[stat.name] = {
-      value:
-        stat.type === "rack" && stat.rack.length > 0
-          ? String(stat.rack[0])
-          : rolled
-            ? String(start)
-            : "",
+      value: starting?.value === undefined ? "" : String(starting.value),
       min: "",
       max: rolled && (stat.type === "pool" || stat.type === "stack") ? String(start) : "",
     };
@@ -1004,8 +942,7 @@ export function toStatBlockFields(
 
 const asStored = (text: string): number | string | undefined => {
   const trimmed = text.trim();
-  if (trimmed === "") return undefined;
-  return /^-?\d+(\.\d+)?$/.test(trimmed) ? Number(trimmed) : trimmed;
+  return trimmed === "" ? undefined : numberOrText(trimmed);
 };
 
 /**

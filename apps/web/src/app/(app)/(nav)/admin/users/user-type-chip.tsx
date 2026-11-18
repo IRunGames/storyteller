@@ -1,9 +1,10 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
-import { Badge, Button, Menu, Portal, Tooltip } from "@chakra-ui/react";
+import { useId } from "react";
+import { Badge, Button, Menu, Portal } from "@chakra-ui/react";
 import { ChevronDown } from "lucide-react";
-import { toaster } from "@/components/ui/toaster";
+import { WithTooltip } from "@/components/buttons/with-tooltip";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { sa_setUserType, type UserTypeOption } from "./actions";
 
 /** The type the action gave the account, as the row needs it. */
@@ -33,24 +34,21 @@ type Props = {
  * between types, so every type is always on offer, unlike the status chip
  * beside it.
  *
- * The change is shown before the action answers, as the status chip does; a
- * refusal puts the old type back and says why in a toast, there being
- * nothing on the page for the administrator to correct.
+ * The change is shown before the action answers and put back if it refuses
+ * (useOptimisticAction), as the status chip does.
  */
 export function UserTypeChip({ idUser, idUserType, types, readOnly = false, onChanged }: Props) {
-  const [shown, setShown] = useState(idUserType);
-  const [, startTransition] = useTransition();
-  // Tooltip and menu each look their trigger up by id; sharing one keeps the
-  // menu from opening at the page corner (nav-theme-menu.tsx).
+  const [shown, choose] = useOptimisticAction(
+    idUserType,
+    async (next) => {
+      const result = await sa_setUserType(idUser, next);
+      if (!result.ok) return result;
+      onChanged?.({ idUserType: result.idUserType, userTypeName: result.userTypeName });
+      return { ok: true, value: result.idUserType };
+    },
+    { failed: "That type could not be changed." },
+  );
   const triggerId = useId();
-
-  // The row's own type wins when it changes underneath: a page that
-  // reloaded, say.
-  const [lastGiven, setLastGiven] = useState(idUserType);
-  if (lastGiven !== idUserType) {
-    setLastGiven(idUserType);
-    setShown(idUserType);
-  }
 
   const label = types.find((type) => type.idUserType === shown)?.label ?? String(shown);
 
@@ -62,51 +60,25 @@ export function UserTypeChip({ idUser, idUserType, types, readOnly = false, onCh
     );
   }
 
-  function choose(value: string) {
+  function pick(value: string) {
     const next = Number(value);
-    if (next === shown) return;
-    const previous = shown;
-    setShown(next);
-    startTransition(async () => {
-      try {
-        const result = await sa_setUserType(idUser, next);
-        if (result.ok) {
-          setShown(result.idUserType);
-          onChanged?.({ idUserType: result.idUserType, userTypeName: result.userTypeName });
-          return;
-        }
-        setShown(previous);
-        toaster.create({ title: result.error, type: "error" });
-      } catch {
-        setShown(previous);
-        toaster.create({ title: "That type could not be changed.", type: "error" });
-      }
-    });
+    if (next !== shown) choose(next);
   }
 
   return (
     <Menu.Root ids={{ trigger: triggerId }} positioning={{ placement: "bottom-start" }}>
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Menu.Trigger asChild>
-            <Button type="button" size="xs" variant="outline" rounded="full">
-              {label}
-              <ChevronDown />
-            </Button>
-          </Menu.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Change type</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      <WithTooltip tooltip="Change type" menuTrigger={triggerId}>
+        <Button type="button" size="xs" variant="outline" rounded="full">
+          {label}
+          <ChevronDown />
+        </Button>
+      </WithTooltip>
       {/* Through a Portal, so the pill inside the table's scroll area is not
           clipped by it. */}
       <Portal>
         <Menu.Positioner>
           <Menu.Content minW="12rem">
-            <Menu.RadioItemGroup value={String(shown)} onValueChange={(e) => choose(e.value)}>
+            <Menu.RadioItemGroup value={String(shown)} onValueChange={(e) => pick(e.value)}>
               {types.map((type) => (
                 <Menu.RadioItem key={type.idUserType} value={String(type.idUserType)}>
                   <Menu.ItemIndicator />

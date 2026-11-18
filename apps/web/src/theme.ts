@@ -1,4 +1,4 @@
-import { createSystem, defaultConfig, defineConfig } from "@chakra-ui/react";
+import { createSystem, defaultConfig, defineConfig, defineStyle } from "@chakra-ui/react";
 
 // Design tokens taken from the "Something Wicked menu bar" Claude Design
 // canvas. Only the header reads the nav.* colours; the rest of the app keeps
@@ -549,3 +549,13 @@ const config = defineConfig({
 });
 
 export const system = createSystem(defaultConfig, config);
+
+/**
+ * The glass panel the tables draw their chips on, over the cover: the panel
+ * colour part see-through with the picture blurred behind it, so a title or
+ * a pill reads on any cover without hiding it. Passed as `css={glass}` on
+ * whatever element carries it (an HStack, a Text, a Box); a recipe would
+ * need a styled component per element type, and a Box of its own could not
+ * be the HStack or Text that it is at each site.
+ */
+export const glass = defineStyle({ bg: "bg.panel/55", backdropFilter: "blur(6px)" });

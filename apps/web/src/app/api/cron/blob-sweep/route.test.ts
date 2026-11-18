@@ -11,15 +11,13 @@
 // not disturb have to be someone else's, and a cleanup phrased as "every
 // positive-id row this user owns" would reach into the fixtures
 // stories/actions.test.ts is asserting against at the same moment.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it, mock } from "node:test";
 import { expect } from "expect";
 import { and, eq, gt, inArray, sql } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
 import { createRequire } from "node:module";
 
 import { GRACE_MS } from "@/lib/blob-sweep";
-
-loadEnvConfig(process.cwd());
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
 // @vercel/blob is a dual CJS/ESM package. `mock.module` only intercepts the
 // ESM entry a dynamic import() would resolve to, not the CJS entry route.ts's
@@ -35,15 +33,14 @@ const requireHere = createRequire(__filename);
 // own leftovers and nothing else, which is what makes the sweep in `before`
 // safe to run while other files are mid-assertion.
 const FIXTURE_USER = "00000000-0000-7000-8000-000000000017";
-// A seeded story on which `before` makes a scene for the "claimed" fixture
-// to hang off: tr_biu_attachment_uses_external_exists raises on a holder
-// with no row, so the use needs a real scene rather than a made-up id, and
-// the seeds no longer hold one (story -1 and its scenes were renumbered off
-// them on 2026-10-15).
-const SEED_STORY = -3;
+// A story and scene of FIXTURE_USER's that `before` makes for the "claimed"
+// fixture to hang off: tr_biu_attachment_uses_external_exists raises on a
+// holder with no row, so the use needs a real scene rather than a made-up
+// id. The story is this file's own rather than a seeded or existing one,
+// because the seeds hold no story with a scene and every other story in the
+// development database is somebody's real work, which a test never writes to.
+let storyId = 0;
 let sceneId = 0;
-
-const hasDb = Boolean(process.env.DATABASE_URL);
 
 type ListedBlob = { url: string; uploadedAt: Date };
 const list = mock.fn<(options?: unknown) => Promise<{ blobs: ListedBlob[]; cursor?: string }>>(
@@ -55,9 +52,8 @@ let originalDel: unknown;
 
 let GET: typeof import("./route").GET;
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 function request(authorization?: string): Request {
   return new Request("http://localhost/api/cron/blob-sweep", {
@@ -73,7 +69,7 @@ const created: number[] = [];
  * a scene, the scene uses it, which is what claims it for the scene's story.
  */
 async function insertAttachment(
-  values: DbModule["schema"]["attachments"]["$inferInsert"],
+  values: Tables["attachments"]["$inferInsert"],
   idStoryScene: number | null = null,
 ): Promise<{ id: number }> {
   const [row] = await db
@@ -92,7 +88,7 @@ async function insertAttachment(
   return row;
 }
 
-describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("GET /api/cron/blob-sweep", {}, (suite) => {
   before(async () => {
     process.env.CRON_SECRET = "s3cret";
     const blobModule: { list: unknown; del: unknown } = requireHere("@vercel/blob");
@@ -101,12 +97,16 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
     blobModule.list = list;
     blobModule.del = del;
 
-    ({ db, schema: tables } = await import("@/db"));
+    ({ db, tables } = suite);
     ({ GET } = await import("./route"));
+    [{ id: storyId }] = await db
+      .insert(tables.stories)
+      .values({ title: "Blob sweep fixture story", idCreatedByUser: FIXTURE_USER })
+      .returning({ id: tables.stories.idStory });
     [{ id: sceneId }] = await db
       .insert(tables.storyScenes)
       .values({
-        idStory: SEED_STORY,
+        idStory: storyId,
         sceneTitle: "Blob sweep fixture scene",
         idCreatedByUser: FIXTURE_USER,
       })
@@ -140,11 +140,10 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
       .update(tables.userPreferences)
       .set({ preferences: sql`${tables.userPreferences.preferences} - 'profile.avatarUrl'` })
       .where(eq(tables.userPreferences.idUser, FIXTURE_USER));
-    if (sceneId) {
-      await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, sceneId));
+    // The story takes its scene with it.
+    if (storyId) {
+      await db.delete(tables.stories).where(eq(tables.stories.idStory, storyId));
     }
-    // Otherwise the process lingers until the pool's idle timeout.
-    await db.$client.end();
   });
 
   it("refuses a request with no bearer token and lists or deletes nothing", async () => {
@@ -247,6 +246,41 @@ describe("GET /api/cron/blob-sweep", { skip: !hasDb && "DATABASE_URL is not set"
         ]),
       );
     expect(survivors.map((row) => row.id).sort()).toEqual([claimed.id, recentUnclaimed.id].sort());
+  });
+
+  // The row goes before Blob is asked: a blob left behind is an orphan the
+  // next sweep collects, while a row left pointing at a deleted blob would be
+  // a 404 the app shows. Same order, and reason, as sa_deleteAttachment's.
+  it("deletes a stale row even when Blob refuses to take its blob", async () => {
+    list.mock.resetCalls();
+    del.mock.resetCalls();
+    const store = "https://abc123.public.blob.vercel-storage.com";
+    const url = `${store}/uploads/u1/refused.jpg`;
+    const old = new Date(Date.now() - GRACE_MS - 60 * 60 * 1000);
+    const stale = await insertAttachment({
+      status: "UPLOADING",
+      url,
+      isUploaded: true,
+      idCreatedByUser: FIXTURE_USER,
+    });
+    await db
+      .update(tables.attachments)
+      .set({ createdAt: old })
+      .where(eq(tables.attachments.idAttachment, stale.id));
+    // No blobs to list, so the one refusal lands on the unclaimed-rows pass.
+    list.mock.mockImplementation(async () => ({ blobs: [], cursor: undefined }));
+    del.mock.mockImplementationOnce(async () => {
+      throw new Error("Blob is down");
+    });
+
+    await expect(GET(request("Bearer s3cret"))).rejects.toThrow("Blob is down");
+
+    expect(del.mock.calls.flatMap((call) => call.arguments[0])).toEqual([url]);
+    const left = await db
+      .select({ id: tables.attachments.idAttachment })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idAttachment, stale.id));
+    expect(left).toEqual([]);
   });
 
   // A profile picture is not an attachment, so only its preference keeps it

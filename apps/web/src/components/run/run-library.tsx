@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import {
   Box,
   HStack,
@@ -17,7 +17,9 @@ import {
 } from "@chakra-ui/react";
 import { ArrowRight, Plus, Recycle, Search, Trash2, X } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
-import { ELEMENT_SEARCH_DELAY_MS, type ElementSort } from "@/lib/elements";
+import type { ElementSort } from "@/lib/elements";
+import { SEARCH_DELAY_MS } from "@/lib/search";
+import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 import {
   attachmentLabel,
   elementIdOf,
@@ -30,16 +32,15 @@ import {
   type RunLibrarySource,
 } from "@/lib/run";
 import { sa_listStoryElements } from "@/components/prep/actions";
-import { sa_listSceneLibraryElements } from "@/components/run/actions";
+import { sa_listSceneLibraryElements } from "@/components/elements/actions";
 import {
   sa_attachAsCover,
   sa_attachToHolder,
   sa_detachFromHolder,
-  sa_searchAttachments,
 } from "@/components/uploads/actions";
 import { toaster } from "@/components/ui/toaster";
 import { DeleteButton, type DeleteOutcome } from "@/components/confirm/delete-button";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
 import { AttachmentCoverButton } from "@/components/uploads/attachment-cover-button";
 import {
@@ -49,6 +50,7 @@ import {
 import { AttachmentTagsPopover } from "@/components/uploads/attachment-tags-popover";
 import { RunElementInfoPopover } from "./run-element-info-popover";
 import { RunNewElementPopover } from "./run-new-element-popover";
+import { useAttachmentSearch } from "@/components/uploads/use-attachment-search";
 
 type Props = {
   idStory: number;
@@ -164,13 +166,6 @@ export function RunLibrary({
   // popover, so the tab lists it as it now is.
   const [created, setCreated] = useState(0);
 
-  // The latest request, so a slow reply for an earlier query or tab does not
-  // land on top of what the panel shows now.
-  const seq = useRef(0);
-  // The query the last request was made with, so a keystroke waits out the
-  // pause and a change of tab asks at once.
-  const lastNeedle = useRef("");
-
   const needle = query.trim();
   // The scene the element tabs are narrowed to, or null for the whole story.
   const onlyScene = sceneOnly ? idStoryScene : null;
@@ -184,24 +179,28 @@ export function RunLibrary({
       ? { kind: "STORY_SCENE" as const, idExternal: onlyScene }
       : { kind: "STORY" as const, idExternal: idStory };
 
-  useEffect(() => {
-    // The Attachments tab searches for itself; see RunAttachments.
-    if (tab === "ATTACHMENT") return;
-    const mine = ++seq.current;
-    const delay = needle === lastNeedle.current ? 0 : ELEMENT_SEARCH_DELAY_MS;
-    lastNeedle.current = needle;
-
-    const timer = setTimeout(async () => {
+  // A keystroke waits out the pause; a change of tab or sort asks at once.
+  // The Attachments tab searches for itself; see RunAttachments.
+  useDebouncedSearch(
+    async () => {
+      if (tab === "ATTACHMENT") return null;
       try {
-        const found = await loadElements(idStory, onlyScene, tab, needle, elementSort);
-        if (mine === seq.current) setItems(found);
+        return await loadElements(idStory, onlyScene, tab, needle, elementSort);
       } catch {
-        // Leave the last results in place; the next keystroke tries again.
-        if (mine === seq.current) setItems((current) => current ?? []);
+        // A failed load shows an empty list rather than Loading… for ever;
+        // the next keystroke tries again.
+        setItems((current) => current ?? []);
+        return null;
       }
-    }, delay);
-    return () => clearTimeout(timer);
-  }, [idStory, onlyScene, tab, needle, created, elementSort]);
+    },
+    {
+      key: `${idStory}|${onlyScene}|${tab}|${needle}|${created}|${elementSort}`,
+      typed: needle,
+      delay: SEARCH_DELAY_MS,
+      enabled: tab !== "ATTACHMENT",
+      onResult: (found) => found && setItems(found),
+    },
+  );
 
   return (
     // flex 1 and minH 0 down to the tab panel, which is what scrolls: each
@@ -421,29 +420,10 @@ function RunAttachments({
   onSceneCoverChange: (url: string | null) => void;
   onMoved: () => void;
 }) {
-  // The ids the search matched, or null with nothing typed.
-  const [matchedIds, setMatchedIds] = useState<ReadonlySet<number> | null>(null);
-
-  const seq = useRef(0);
-  // Empty at first, so a query already typed when this mounts asks at once
-  // rather than after the pause.
-  const lastNeedle = useRef("");
-
-  useEffect(() => {
-    const mine = ++seq.current;
-    const delay = needle === lastNeedle.current ? 0 : ELEMENT_SEARCH_DELAY_MS;
-    lastNeedle.current = needle;
-    const timer = setTimeout(async () => {
-      try {
-        const ids =
-          needle === "" ? null : new Set(await sa_searchAttachments(kind, idExternal, needle));
-        if (mine === seq.current) setMatchedIds(ids);
-      } catch {
-        // Leave the last results in place; the next keystroke tries again.
-      }
-    }, delay);
-    return () => clearTimeout(timer);
-  }, [kind, idExternal, needle]);
+  // A keystroke waits out the pause; a change of holder asks at once.
+  const { shownIds: matchedIds } = useAttachmentSearch(kind, idExternal, needle, {
+    atOnceOnHolderChange: true,
+  });
 
   return (
     <AttachmentListField
@@ -538,12 +518,12 @@ function RunAttachments({
               if (!row || row.status !== "READY" || locked) return null;
               if (kind === "STORY" && idStoryScene === null) return null;
               return kind === "STORY" ? (
-                <PrepIconButton
+                <IconButtonWithTooltip
                   label={`Attach ${item.label} to the scene`}
                   onClick={() => void attach(row)}
                 >
                   <ArrowRight />
-                </PrepIconButton>
+                </IconButtonWithTooltip>
               ) : (
                 <DeleteButton
                   thing="this picture from the scene"
@@ -588,12 +568,12 @@ function RunAttachments({
                       asked, unlike the card's trashcan: there is nothing in it to
                       lose. */}
                   {row.status === "ERROR" && (
-                    <PrepIconButton
+                    <IconButtonWithTooltip
                       label={`Delete ${item.label}`}
                       onClick={() => void remove(row.idAttachment)}
                     >
                       <Trash2 />
-                    </PrepIconButton>
+                    </IconButtonWithTooltip>
                   )}
                   {row.status === "READY" && (
                     <AttachmentCoverButton
@@ -696,12 +676,12 @@ function LibraryList({
               {renderArrow
                 ? renderArrow(item)
                 : onAdd && (
-                    <PrepIconButton
+                    <IconButtonWithTooltip
                       label={`Add ${item.label} to the play space`}
                       onClick={() => onAdd(item)}
                     >
                       <ArrowRight />
-                    </PrepIconButton>
+                    </IconButtonWithTooltip>
                   )}
             </HStack>
           </List.Item>

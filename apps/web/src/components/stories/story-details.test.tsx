@@ -10,19 +10,12 @@ import type { CurrentUser } from "@/lib/current-user";
 
 // The list marks the viewer's own seat, so it reads the signed-in user.
 // Someone who is not in it unless a case seats them.
-const viewer: CurrentUser = {
-  id: "u-viewer",
-  name: "Viewer",
-  email: "viewer@example.test",
-  image: null,
-  nickName: null,
-  idUserType: -10,
-  isAnonymous: false,
-};
+const viewer = currentUser({ id: "u-viewer", name: "Viewer", email: "viewer@example.test" });
 const renderWithProviders = (ui: ReactElement, who: CurrentUser = viewer) =>
   renderBare(<UserProvider user={who}>{ui}</UserProvider>);
 import type { StatusOption } from "@/lib/status";
 import type { StoryCardData, StoryPlayer, StorySession } from "@/lib/stories";
+import { currentUser, mockNavigation } from "@/test/mocks";
 
 const story: StoryCardData = {
   idStory: -15,
@@ -94,7 +87,10 @@ const sa_startPlaying = mock.fn(
   }),
 );
 
-const sa_setFavorite = mock.fn(async (_idStory: number, isFavorite: boolean) => ({ isFavorite }));
+const sa_setFavorite = mock.fn(async (_idStory: number, isFavorite: boolean) => ({
+  ok: true as const,
+  isFavorite,
+}));
 
 const section = (name: string) => screen.getByRole("region", { name });
 
@@ -144,12 +140,7 @@ describe("StoryDetails", () => {
     mock.module("@/app/(app)/(nav)/stories/[id]/stat-blocks/actions", {
       namedExports: { sa_copySystemStatBlockDefinition: async () => ({ ok: false, error: "" }) },
     });
-    mock.module("next/navigation", {
-      namedExports: {
-        useRouter: () => ({ push: mock.fn(), refresh: mock.fn() }),
-        usePathname: () => "/stories/-15",
-      },
-    });
+    mockNavigation({ pathname: "/stories/-15" });
     ({ StoryDetails } = await import("./story-details"));
   });
 

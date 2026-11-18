@@ -19,7 +19,7 @@ import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import { stackNameSchema, stacksSchema, type StackRename } from "@/lib/stack-schemas";
 import { sa_setSceneStacks } from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
 type Props = {
   idStory: number;
@@ -209,23 +209,29 @@ function ManageStacks({ idStory, idStoryScene, tags, onClose, onSaved }: Omit<Pr
                         left out rather than disabled, so the row's buttons
                         never point nowhere. */}
                       {index > 0 && (
-                        <PrepIconButton label={`Move ${tag} up`} onClick={() => move(index, -1)}>
+                        <IconButtonWithTooltip
+                          label={`Move ${tag} up`}
+                          onClick={() => move(index, -1)}
+                        >
                           <ArrowUp />
-                        </PrepIconButton>
+                        </IconButtonWithTooltip>
                       )}
                       {index < list.length - 1 && (
-                        <PrepIconButton label={`Move ${tag} down`} onClick={() => move(index, 1)}>
+                        <IconButtonWithTooltip
+                          label={`Move ${tag} down`}
+                          onClick={() => move(index, 1)}
+                        >
                           <ArrowDown />
-                        </PrepIconButton>
+                        </IconButtonWithTooltip>
                       )}
-                      <PrepIconButton
+                      <IconButtonWithTooltip
                         label={`Remove ${tag}`}
                         onClick={() =>
                           setList((current) => current.filter((each) => each.id !== row.id))
                         }
                       >
                         <X />
-                      </PrepIconButton>
+                      </IconButtonWithTooltip>
                     </HStack>
                   </List.Item>
                 );

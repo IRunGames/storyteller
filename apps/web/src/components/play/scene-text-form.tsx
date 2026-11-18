@@ -2,9 +2,11 @@
 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Alert, Button, Field, HStack, Input, Stack, Textarea } from "@chakra-ui/react";
+import { Button, Field, HStack, Input, Stack, Textarea } from "@chakra-ui/react";
 import { liveSceneTextSchema, sceneTextSchema, type SceneTextValues } from "@/lib/scene-schemas";
 import type { SceneText, SetSceneTextResult } from "@/lib/scenes";
+import { applyActionErrors } from "@/lib/forms";
+import { FormError } from "@/components/forms/form-error";
 import { ScenePictures, type ScenePicturesProps } from "./scene-pictures";
 
 type Props = {
@@ -86,23 +88,13 @@ export function SceneTextForm({
       onSaved(result.text, result.title);
       return;
     }
-    for (const [field, message] of Object.entries(result.errors)) {
-      const known = (FIELDS as readonly string[]).includes(field);
-      setError(known ? (field as (typeof FIELDS)[number]) : "root", { message });
-    }
+    applyActionErrors({ setError }, result.errors, FIELDS);
   }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
       <Stack gap="3">
-        {errors.root && (
-          <Alert.Root status="error">
-            <Alert.Indicator />
-            <Alert.Content>
-              <Alert.Description>{errors.root.message}</Alert.Description>
-            </Alert.Content>
-          </Alert.Root>
-        )}
+        <FormError message={errors.root?.message} />
         {withTitle && (
           <Field.Root required invalid={!!errors.title}>
             <Field.Label>Title</Field.Label>

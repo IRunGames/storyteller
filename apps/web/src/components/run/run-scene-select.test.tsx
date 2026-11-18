@@ -62,7 +62,11 @@ async function choose(user: ReturnType<typeof userEvent.setup>, name: string | R
 describe("RunSceneSelect", () => {
   before(async () => {
     mock.module("@/components/run/actions", {
-      namedExports: { sa_listRunScenes, sa_loadRunScene, sa_createRunScene },
+      namedExports: {
+        sa_listRunScenes,
+        sa_loadRunScene,
+        sa_createRunScene,
+      },
     });
     ({ RunSceneSelect } = await import("./run-scene-select"));
   });

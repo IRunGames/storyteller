@@ -2,8 +2,10 @@
 
 import { and, asc, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { statBlockSystems } from "@/db/stat-block-systems";
+import { ownedStory } from "@/db/story-access";
 import { requireAccount } from "@/lib/authorize";
 import { publishLater } from "@/lib/realtime/publish";
 import { publishElementChanged, publishSceneElement } from "@/lib/realtime/publish-scene";
@@ -11,8 +13,8 @@ import { readStatBlocks, statBlocksSchema } from "@/lib/stat-block-schemas";
 import {
   carriedGroups,
   emptyStatBlock,
-  emptyStatGroup,
   evaluateStatBlock,
+  findGroup,
   findStat,
   isRepeating,
   matchRackEntry,
@@ -26,6 +28,7 @@ import {
   type StatBlockDefinition,
   type StatBlocks,
   type StatBlockSystem,
+  type StatGroupDefinition,
   type StatRow,
   type StatValue,
 } from "@/lib/stat-blocks";
@@ -35,6 +38,8 @@ import { currentScene, type CurrentScene } from "@/db/scene-items";
 import { insertChat } from "@/db/chats";
 import { publishChat } from "@/lib/realtime/publish";
 import { isElementShowing, pillText, SCENE_ELEMENT_HIDDEN } from "@/lib/run";
+import { formErrors } from "@/lib/forms";
+import { ELEMENT_NOT_YOURS, NOTHING_TO_ROLL } from "@/lib/messages";
 
 const { elements, sceneElements, stories, storyScenes } = schema;
 
@@ -45,7 +50,10 @@ const { elements, sceneElements, stories, storyScenes } = schema;
 // scene element hold blocks the same way (elements.stat_blocks and
 // scene_elements.stat_blocks, one a copy of the other at link time), so
 // every action takes a StatBlockHolder saying which, and the reads and
-// writes below are over whichever table it names.
+// writes below are over whichever table it names. A scene element's blocks
+// are not held by its scene's lock: the storyteller keeps the stats of a
+// finished scene's creatures up to date after the fact, so these writes
+// set the lock aside on purpose where the other writes to a link refuse it.
 
 /** Whose blocks: an element's own, or a scene element's copy. Both within a story of the caller's. */
 export type StatBlockHolder =
@@ -74,6 +82,24 @@ export type ElementStatBlock = {
 
 /** What a change to one stat carries: the parts the stat stores. */
 export type StatPatch = { value?: number | string; min?: number; max?: number };
+
+/** Which stat of which block a change names, and the change; a row's by its key. */
+export type StatChange = {
+  idSystem: number;
+  group: string;
+  stat: string;
+  patch: StatPatch;
+  rowKey?: string;
+};
+
+/** Which stat of which block a die rolls, and whose roll it is; a row's by its key. */
+export type StatRoll = {
+  idSystem: number;
+  group: string;
+  stat: string;
+  as: RollAs;
+  rowKey?: string;
+};
 
 export type SetElementStatResult =
   { ok: true; block: ElementStatBlock } | { ok: false; error: string };
@@ -129,7 +155,6 @@ export type RolledForOne = {
 
 export type RollAllResult = { ok: true; rolls: RolledForOne[] } | { ok: false; error: string };
 
-const idSchema = z.int32();
 const nameSchema = z.string().min(1).max(40);
 const rowKeySchema = z.string().trim().min(1).max(200).optional();
 const rollAsSchema = z.object({ title: z.string().trim().max(200), quiet: z.boolean() });
@@ -142,19 +167,23 @@ const holderSchema = z.union([
   z.object({ idStory: idSchema, idElement: idSchema }),
   z.object({ idStory: idSchema, idSceneElement: idSchema }),
 ]);
+const changeSchema = z.object({
+  idSystem: idSchema,
+  group: nameSchema,
+  stat: nameSchema,
+  patch: patchSchema,
+  rowKey: rowKeySchema,
+});
+const rollSchema = z.object({
+  idSystem: idSchema,
+  group: nameSchema,
+  stat: nameSchema,
+  as: rollAsSchema,
+  rowKey: rowKeySchema,
+});
 
-const GONE = "That element is not one of your story's.";
 const NOT_SETTABLE = { ok: false as const, error: "That stat is not one that can be set." };
-
-/** Whether the caller is the storyteller who created the story, as the run page's actions ask. */
-async function ownsStory(userId: string, idStory: number): Promise<boolean> {
-  const [row] = await db
-    .select({ owner: stories.idCreatedByUser })
-    .from(stories)
-    .where(eq(stories.idStory, idStory))
-    .limit(1);
-  return row?.owner === userId;
-}
+const NO_STATS = { ok: false as const, error: "That system has no stats to fill in." };
 
 /**
  * The holder's row as the actions need it: its stored blocks, the story's
@@ -164,8 +193,12 @@ async function ownsStory(userId: string, idStory: number): Promise<boolean> {
 type Loaded = {
   blocks: StatBlocks;
   storySystem: number | null;
-  /** For a scene element, what its change is published as. */
-  link: { idStoryScene: number; idElement: number } | null;
+  /**
+   * For a scene element, what its change is published as (the scene and the
+   * link's own id, which the table draws a pill by) and the element it links,
+   * whose own blocks a first save may fill in.
+   */
+  link: { idStoryScene: number; idSceneElement: number; idElement: number } | null;
   /** For a scene element, its element's own blocks; null for an element. */
   elementBlocks: StatBlocks | null;
 };
@@ -192,6 +225,7 @@ async function loadHolder(holder: StatBlockHolder): Promise<Loaded | null> {
       statBlocks: sceneElements.statBlocks,
       storySystem: stories.idSystem,
       idStoryScene: sceneElements.idStoryScene,
+      idSceneElement: sceneElements.idSceneElement,
       idElement: sceneElements.idElement,
       elementBlocks: elements.statBlocks,
     })
@@ -210,7 +244,11 @@ async function loadHolder(holder: StatBlockHolder): Promise<Loaded | null> {
     ? {
         blocks: readStatBlocks(row.statBlocks),
         storySystem: row.storySystem,
-        link: { idStoryScene: row.idStoryScene, idElement: row.idElement },
+        link: {
+          idStoryScene: row.idStoryScene,
+          idSceneElement: row.idSceneElement,
+          idElement: row.idElement,
+        },
         elementBlocks: readStatBlocks(row.elementBlocks),
       }
     : null;
@@ -257,8 +295,8 @@ function announce(holder: StatBlockHolder, loaded: Loaded) {
   if ("idElement" in holder) {
     publishLater(() => publishElementChanged(holder.idStory, holder.idElement));
   } else if (loaded.link) {
-    const { idStoryScene, idElement } = loaded.link;
-    publishLater(() => publishSceneElement(holder.idStory, idStoryScene, idElement));
+    const { idStoryScene, idSceneElement } = loaded.link;
+    publishLater(() => publishSceneElement(holder.idStory, idStoryScene, idSceneElement));
   }
 }
 
@@ -305,7 +343,7 @@ export async function sa_getStatBlocks(
   const user = await requireAccount();
   const parsed = holderSchema.safeParse(holder);
   if (!parsed.success) return null;
-  if (!(await ownsStory(user.id, parsed.data.idStory))) return null;
+  if ((await ownedStory(user.id, parsed.data.idStory)) === null) return null;
 
   const found = await loadHolder(parsed.data);
   if (!found) return null;
@@ -396,7 +434,8 @@ function clamped(
 /**
  * The holder and the system a change names, checked for the caller; or the
  * refusal to answer with. The caller is asked for by each action itself
- * (requireAccount), as test/guest-gate.test.ts wants to see.
+ * (requireAccount), as test/guest-gate.test.ts wants to see. A holder or a
+ * system that is not one is refused as an element that is not the caller's.
  */
 async function target(
   userId: string,
@@ -406,15 +445,82 @@ async function target(
   | { ok: true; holder: StatBlockHolder; found: Loaded; system: StatBlockSystem }
   | { ok: false; error: string }
 > {
-  const parsed = holderSchema.parse(holder);
-  const system = idSchema.parse(idSystem);
-  if (!(await ownsStory(userId, parsed.idStory))) return { ok: false, error: GONE };
-  const found = await loadHolder(parsed);
-  if (!found) return { ok: false, error: GONE };
-  const systems = await statBlockSystems(parsed.idStory);
-  const known = systems.find((candidate) => candidate.idSystem === system);
-  if (!known) return { ok: false, error: "That system has no stats to fill in." };
-  return { ok: true, holder: parsed, found, system: known };
+  const parsed = holderSchema.safeParse(holder);
+  const system = idSchema.safeParse(idSystem);
+  if (!parsed.success || !system.success) return { ok: false, error: ELEMENT_NOT_YOURS };
+  if ((await ownedStory(userId, parsed.data.idStory)) === null) {
+    return { ok: false, error: ELEMENT_NOT_YOURS };
+  }
+  const found = await loadHolder(parsed.data);
+  if (!found) return { ok: false, error: ELEMENT_NOT_YOURS };
+  const systems = await statBlockSystems(parsed.data.idStory);
+  const known = systems.find((candidate) => candidate.idSystem === system.data);
+  if (!known) return NO_STATS;
+  return { ok: true, holder: parsed.data, found, system: known };
+}
+
+/** The system's block as written, worked out for the answer, with the element's blocks beside a scene element's. */
+function evaluatedWritten(
+  system: StatBlockSystem,
+  written: unknown,
+  found: Loaded,
+): ElementStatBlock {
+  return evaluated(
+    system,
+    readStatBlocks(written)[systemKey(system.idSystem)],
+    true,
+    found.elementBlocks,
+  );
+}
+
+/** One group of an evaluated block by name, or undefined. */
+function evaluatedGroupNamed(block: ElementStatBlock, name: string): EvaluatedGroup | undefined {
+  return block.groups.find((group) => group.name === name);
+}
+
+/**
+ * Rewrites the rows of a repeating group on the holder, whole, under the
+ * holder's lock: jsonb has no operator that replaces one element of an
+ * array by the value of one of its fields, so the system's block is read
+ * with the row locked, the row found by its key, and the block written back
+ * whole inside one transaction. `rewrite` says what the rows become, given
+ * the row's index; a row the prep form has since removed is refused rather
+ * than landing on another. What a stat change on a row and the default-row
+ * star have in common.
+ */
+async function rewriteRows(
+  holder: StatBlockHolder,
+  userId: string,
+  system: StatBlockSystem,
+  groupDefinition: StatGroupDefinition,
+  key: string,
+  rewrite: (rows: StatRow[], index: number, block: StatBlock) => StatRow[] | null,
+): Promise<{ ok: true; statBlocks: unknown } | { ok: false; error: string }> {
+  const systemKeyText = systemKey(system.idSystem);
+  const label = groupDefinition.label || groupDefinition.name;
+  return db.transaction(async (tx) => {
+    // Locked through the holder's own table, so two row changes queue.
+    const locked = await lockedBlocks(tx, holder);
+    if (locked === undefined) return { ok: false as const, error: ELEMENT_NOT_YOURS };
+    const stored = readStatBlocks(locked)[systemKeyText];
+    const block = stored
+      ? tidyStatBlock(system.definition, stored)
+      : emptyStatBlock(system.definition, rollTotal);
+    const rows = rowsOf(groupDefinition, block[groupDefinition.name]);
+    const index = rows.findIndex((row) => rowKeyText(row[groupDefinition.keyedBy]?.value) === key);
+    if (index === -1) return { ok: false as const, error: `That ${label} is no longer there.` };
+    const written = rewrite(rows, index, block);
+    if (written === null) return NOT_SETTABLE;
+    const statBlocks = await writeBlocks(
+      holder,
+      userId,
+      (column) =>
+        sql`${column} || jsonb_build_object(${systemKeyText}::text, ${JSON.stringify({ ...block, [groupDefinition.name]: written })}::jsonb)`,
+      tx,
+    );
+    if (statBlocks === undefined) return { ok: false as const, error: ELEMENT_NOT_YOURS };
+    return { ok: true as const, statBlocks };
+  });
 }
 
 /**
@@ -424,32 +530,22 @@ async function target(
  * system, group and stat levels with ||, so two stats changed at once do
  * not overwrite each other and a first change on a holder with no block
  * creates the keys above it, which jsonb_set would not. A repeating group
- * takes the row's key as well, and is written differently: jsonb has no
- * operator that replaces one element of an array by the value of one of
- * its fields, so the system's block is read with the row locked, the row
- * found by its key, and the block written back whole inside one
- * transaction; a row the prep form has since removed is refused rather
- * than landing on another. The key stat itself is set on the prep form,
- * not here. The table is told, as any change is. The block comes back
- * worked out.
+ * takes the row's key as well and is written whole under the holder's lock
+ * (rewriteRows). The key stat itself is set on the prep form, not here. The
+ * table is told, as any change is. The block comes back worked out.
  */
 export async function sa_setStat(
   holder: StatBlockHolder,
-  idSystem: number,
-  group: string,
-  stat: string,
-  patch: StatPatch,
-  rowKey?: string,
+  change: StatChange,
 ): Promise<SetElementStatResult> {
-  const groupName = nameSchema.parse(group);
-  const statName = nameSchema.parse(stat);
-  const change = patchSchema.parse(patch);
-  const key = rowKeySchema.parse(rowKey);
   const user = await requireAccount();
-  const checked = await target(user.id, holder, idSystem);
+  const asked = changeSchema.safeParse(change);
+  if (!asked.success) return NOT_SETTABLE;
+  const { group: groupName, stat: statName, patch, rowKey: key } = asked.data;
+  const checked = await target(user.id, holder, asked.data.idSystem);
   if (!checked.ok) return checked;
   const { found, system } = checked;
-  const groupDefinition = system.definition.groups.find((g) => g.name === groupName);
+  const groupDefinition = findGroup(system.definition, groupName);
   if (!groupDefinition) return NOT_SETTABLE;
 
   const systemKeyText = systemKey(system.idSystem);
@@ -463,7 +559,7 @@ export async function sa_setStat(
     const block = found.blocks[systemKeyText]
       ? tidyStatBlock(system.definition, found.blocks[systemKeyText])
       : emptyStatBlock(system.definition, rollTotal);
-    const next = clamped(system, groupName, statName, block, change, null);
+    const next = clamped(system, groupName, statName, block, patch, null);
     if (next === null) return NOT_SETTABLE;
 
     // The group level merges only into an object: a group made plain again
@@ -477,55 +573,30 @@ export async function sa_setStat(
           coalesce(${column} -> ${systemKeyText}, '{}'::jsonb) || jsonb_build_object(${groupName}::text,
             CASE WHEN jsonb_typeof(${column} -> ${systemKeyText} -> ${groupName}) = 'object' THEN ${column} -> ${systemKeyText} -> ${groupName} ELSE '{}'::jsonb END || jsonb_build_object(${statName}::text, ${JSON.stringify(next)}::jsonb)))`,
     );
-    if (written === undefined) return { ok: false, error: GONE };
+    if (written === undefined) return { ok: false, error: ELEMENT_NOT_YOURS };
 
     announce(checked.holder, found);
-    return {
-      ok: true,
-      block: evaluated(system, readStatBlocks(written)[systemKeyText], true, found.elementBlocks),
-    };
+    return { ok: true, block: evaluatedWritten(system, written, found) };
   }
 
-  const label = groupDefinition.label || groupDefinition.name;
-  const result = await db.transaction(async (tx) => {
-    // Locked through the holder's own table, so two row changes queue.
-    const locked = await lockedBlocks(tx, checked.holder);
-    if (locked === undefined) return { ok: false as const, error: GONE };
-    const stored = readStatBlocks(locked)[systemKeyText];
-    const block = stored
-      ? tidyStatBlock(system.definition, stored)
-      : emptyStatBlock(system.definition, rollTotal);
-    const rows = rowsOf(groupDefinition, block[groupName]);
-    const index = rows.findIndex((row) => rowKeyText(row[groupDefinition.keyedBy]?.value) === key);
-    if (index === -1) return { ok: false as const, error: `That ${label} is no longer there.` };
-    const next = clamped(system, groupName, statName, block, change, index);
-    if (next === null) return NOT_SETTABLE;
-
-    const written: StatRow[] = rows.map((row, i) =>
-      i === index ? { ...row, [statName]: next } : row,
-    );
-    const statBlocks = await writeBlocks(
-      checked.holder,
-      user.id,
-      (column) =>
-        sql`${column} || jsonb_build_object(${systemKeyText}::text, ${JSON.stringify({ ...block, [groupName]: written })}::jsonb)`,
-      tx,
-    );
-    if (statBlocks === undefined) return { ok: false as const, error: GONE };
-    return { ok: true as const, statBlocks };
-  });
+  const result = await rewriteRows(
+    checked.holder,
+    user.id,
+    system,
+    groupDefinition,
+    key!,
+    (rows, index, block) => {
+      // Clamped against the block as the lock found it, not as the table read it.
+      const next = clamped(system, groupName, statName, block, patch, index);
+      return next === null
+        ? null
+        : rows.map((row, i) => (i === index ? { ...row, [statName]: next } : row));
+    },
+  );
   if (!result.ok) return result;
 
   announce(checked.holder, found);
-  return {
-    ok: true,
-    block: evaluated(
-      system,
-      readStatBlocks(result.statBlocks)[systemKeyText],
-      true,
-      found.elementBlocks,
-    ),
-  };
+  return { ok: true, block: evaluatedWritten(system, result.statBlocks, found) };
 }
 
 /** The holder's blocks read FOR UPDATE inside a transaction; undefined when the row is not there. */
@@ -550,81 +621,6 @@ async function lockedBlocks(
 }
 
 /**
- * Picks one of the template's stat blocks for the holder: the group's
- * starting values go in under its name, unless the holder already carries
- * it, in which case nothing changes and the block comes back as it is. The
- * same merge as a stat change, so a first pick makes the system's block.
- */
-export async function sa_addStatBlock(
-  holder: StatBlockHolder,
-  idSystem: number,
-  group: string,
-): Promise<SetElementStatResult> {
-  const groupName = nameSchema.parse(group);
-  const user = await requireAccount();
-  const checked = await target(user.id, holder, idSystem);
-  if (!checked.ok) return checked;
-  const { found, system } = checked;
-  const groupDefinition = system.definition.groups.find((g) => g.name === groupName);
-  if (!groupDefinition) return { ok: false, error: "That stat block is not in the template." };
-  const systemKeyText = systemKey(system.idSystem);
-  // Each stat's Initialized as is rolled here, once, as the block is made,
-  // and so are the dice a Dice stat in another of the holder's blocks holds
-  // for the stats initialized from it.
-  const held = found.blocks[systemKeyText];
-  const starting = emptyStatGroup(
-    system.definition,
-    groupDefinition,
-    rollTotal,
-    held ? tidyStatBlock(system.definition, held) : undefined,
-  );
-
-  const written = await writeBlocks(
-    checked.holder,
-    user.id,
-    (column) => sql`${column} || jsonb_build_object(${systemKeyText}::text,
-        jsonb_build_object(${groupName}::text, ${JSON.stringify(starting)}::jsonb) || coalesce(${column} -> ${systemKeyText}, '{}'::jsonb))`,
-  );
-  if (written === undefined) return { ok: false, error: GONE };
-  announce(checked.holder, found);
-  return {
-    ok: true,
-    block: evaluated(system, readStatBlocks(written)[systemKeyText], true, found.elementBlocks),
-  };
-}
-
-/**
- * Takes one stat block off the holder, values and all; the system's key
- * stays, empty if that was its last, so the panel keeps offering the
- * picker. Nothing changes for a block the holder does not carry.
- */
-export async function sa_removeStatBlock(
-  holder: StatBlockHolder,
-  idSystem: number,
-  group: string,
-): Promise<SetElementStatResult> {
-  const groupName = nameSchema.parse(group);
-  const user = await requireAccount();
-  const checked = await target(user.id, holder, idSystem);
-  if (!checked.ok) return checked;
-  const { found, system } = checked;
-  const systemKeyText = systemKey(system.idSystem);
-
-  const written = await writeBlocks(
-    checked.holder,
-    user.id,
-    (column) => sql`${column} || jsonb_build_object(${systemKeyText}::text,
-        coalesce(${column} -> ${systemKeyText}, '{}'::jsonb) - ${groupName}::text)`,
-  );
-  if (written === undefined) return { ok: false, error: GONE };
-  announce(checked.holder, found);
-  return {
-    ok: true,
-    block: evaluated(system, readStatBlocks(written)[systemKeyText], true, found.elementBlocks),
-  };
-}
-
-/**
  * The holder's blocks set whole from the panel's edit form, checked
  * against the systems' definitions as the prep form's post is
  * (statBlocksSchema), the errors keyed by the form's field paths. Only the
@@ -644,37 +640,42 @@ export async function sa_setStatBlocks(
 ): Promise<SetStatBlocksResult> {
   const user = await requireAccount();
   const parsed = holderSchema.safeParse(holder);
-  const gone = { ok: false as const, errors: { root: GONE } };
+  const gone = { ok: false as const, errors: { root: ELEMENT_NOT_YOURS } };
   if (!parsed.success) return gone;
-  if (!(await ownsStory(user.id, parsed.data.idStory))) return gone;
+  if ((await ownedStory(user.id, parsed.data.idStory)) === null) return gone;
   const found = await loadHolder(parsed.data);
   if (!found) return gone;
 
   const systems = await statBlockSystems(parsed.data.idStory);
   const checked = statBlocksSchema(systems).safeParse(blocks ?? {});
   if (!checked.success) {
-    return {
-      ok: false,
-      errors: Object.fromEntries(
-        checked.error.issues.map((issue) => [
-          ["statBlocks", ...issue.path].join("."),
-          issue.message,
-        ]),
-      ),
-    };
+    return { ok: false, errors: formErrors(checked.error, ["statBlocks"]) };
   }
-  const written = await writeBlocks(
-    parsed.data,
-    user.id,
-    (column) => sql`${column} || ${JSON.stringify(checked.data)}::jsonb`,
-  );
+  // The holder's write and the copy onto a bare element land together, so a
+  // failure between them cannot leave the element with blocks its scene
+  // element never got. Announced only once both are in.
+  const link = found.link;
+  const { written, copiedToElement } = await db.transaction(async (tx) => {
+    const written = await writeBlocks(
+      parsed.data,
+      user.id,
+      (column) => sql`${column} || ${JSON.stringify(checked.data)}::jsonb`,
+      tx,
+    );
+    if (written === undefined) return { written, copiedToElement: false };
+    const saved = readStatBlocks(written);
+    const copiedToElement =
+      link !== null &&
+      carries(saved) &&
+      (await giveToBareElement(parsed.data.idStory, link.idElement, saved, user.id, tx));
+    return { written, copiedToElement };
+  });
   if (written === undefined) return gone;
   announce(parsed.data, found);
+  if (copiedToElement && link) {
+    publishLater(() => publishElementChanged(parsed.data.idStory, link.idElement));
+  }
   const saved = readStatBlocks(written);
-  const copiedToElement =
-    found.link !== null &&
-    carries(saved) &&
-    (await giveToBareElement(parsed.data.idStory, found.link.idElement, saved, user.id));
   return {
     ok: true,
     blocks: blocksOf(
@@ -689,17 +690,19 @@ export async function sa_setStatBlocks(
 
 /**
  * Writes a scene element's blocks onto its element when the element
- * carries none of its own, telling the table; whether it did. An element
- * whose blocks hold any group is left alone, decided in the WHERE so a
- * block given to it since the scene element was read is not overwritten.
+ * carries none of its own; whether it did, for the caller to tell the table
+ * once its transaction has committed. An element whose blocks hold any group
+ * is left alone, decided in the WHERE so a block given to it since the scene
+ * element was read is not overwritten.
  */
 async function giveToBareElement(
   idStory: number,
   idElement: number,
   blocks: StatBlocks,
   userId: string,
+  tx: Pick<typeof db, "update"> = db,
 ): Promise<boolean> {
-  const [row] = await db
+  const [row] = await tx
     .update(elements)
     .set({ statBlocks: blocks, idUpdatedByUser: userId })
     .where(
@@ -710,9 +713,7 @@ async function giveToBareElement(
       ),
     )
     .returning({ idElement: elements.idElement });
-  if (!row) return false;
-  publishLater(() => publishElementChanged(idStory, idElement));
-  return true;
+  return row !== undefined;
 }
 
 /**
@@ -743,7 +744,7 @@ export async function sa_copyStatBlocksToElement(
     })
     .where(and(eq(elements.idElement, found.link.idElement), eq(elements.idStory, holder.idStory)))
     .returning({ idElement: elements.idElement });
-  if (!row) return { ok: false, error: GONE };
+  if (!row) return { ok: false, error: ELEMENT_NOT_YOURS };
   publishLater(() => publishElementChanged(holder.idStory, row.idElement));
   return { ok: true };
 }
@@ -760,25 +761,27 @@ export async function sa_copyStatBlocksFromElement(
 ): Promise<CopyStatBlocksFromElementResult> {
   const user = await requireAccount();
   const parsed = holderSchema.safeParse(holder);
-  if (!parsed.success) return { ok: false, error: GONE };
+  if (!parsed.success) return { ok: false, error: ELEMENT_NOT_YOURS };
   if (!("idSceneElement" in parsed.data)) {
     return { ok: false, error: "Only an element in a scene has a copy of its stats." };
   }
-  if (!(await ownsStory(user.id, parsed.data.idStory))) return { ok: false, error: GONE };
+  if ((await ownedStory(user.id, parsed.data.idStory)) === null) {
+    return { ok: false, error: ELEMENT_NOT_YOURS };
+  }
   const found = await loadHolder(parsed.data);
-  if (!found?.link) return { ok: false, error: GONE };
+  if (!found?.link) return { ok: false, error: ELEMENT_NOT_YOURS };
   const [element] = await db
     .select({ statBlocks: elements.statBlocks })
     .from(elements)
     .where(eq(elements.idElement, found.link.idElement))
     .limit(1);
-  if (!element) return { ok: false, error: GONE };
+  if (!element) return { ok: false, error: ELEMENT_NOT_YOURS };
   const written = await writeBlocks(
     parsed.data,
     user.id,
     () => sql`${JSON.stringify(readStatBlocks(element.statBlocks))}::jsonb`,
   );
-  if (written === undefined) return { ok: false, error: GONE };
+  if (written === undefined) return { ok: false, error: ELEMENT_NOT_YOURS };
   announce(parsed.data, found);
   return {
     ok: true,
@@ -796,7 +799,8 @@ export async function sa_copyStatBlocksFromElement(
  * group's default by moving it to the front, the rows otherwise keeping
  * their order. The first row is the default, with nothing else stored to
  * say so: Roll for all rolls it, and the prep form's own star moves rows
- * the same way. Written as a row change is, whole under the holder's lock.
+ * the same way. Written as a row change is, whole under the holder's lock
+ * (rewriteRows).
  */
 export async function sa_setDefaultRow(
   holder: StatBlockHolder,
@@ -804,53 +808,31 @@ export async function sa_setDefaultRow(
   group: string,
   rowKey: string,
 ): Promise<SetElementStatResult> {
-  const groupName = nameSchema.parse(group);
-  const key = rowKeySchema.parse(rowKey);
   const user = await requireAccount();
+  const groupName = nameSchema.safeParse(group);
+  const key = rowKeySchema.safeParse(rowKey);
+  const notRepeating = {
+    ok: false as const,
+    error: "Only a repeating stat block has a default row.",
+  };
+  if (!groupName.success || !key.success || key.data === undefined) return notRepeating;
   const checked = await target(user.id, holder, idSystem);
   if (!checked.ok) return checked;
   const { found, system } = checked;
-  const groupDefinition = system.definition.groups.find((g) => g.name === groupName);
-  if (!groupDefinition || !isRepeating(groupDefinition) || key === undefined) {
-    return { ok: false, error: "Only a repeating stat block has a default row." };
-  }
-  const systemKeyText = systemKey(system.idSystem);
-  const label = groupDefinition.label || groupDefinition.name;
-  const result = await db.transaction(async (tx) => {
-    const locked = await lockedBlocks(tx, checked.holder);
-    if (locked === undefined) return { ok: false as const, error: GONE };
-    const stored = readStatBlocks(locked)[systemKeyText];
-    const block = stored
-      ? tidyStatBlock(system.definition, stored)
-      : emptyStatBlock(system.definition, rollTotal);
-    const rows = rowsOf(groupDefinition, block[groupName]);
-    const index = rows.findIndex((row) => rowKeyText(row[groupDefinition.keyedBy]?.value) === key);
-    if (index === -1) return { ok: false as const, error: `That ${label} is no longer there.` };
-    const written = [rows[index], ...rows.filter((_, i) => i !== index)];
-    const statBlocks = await writeBlocks(
-      checked.holder,
-      user.id,
-      (column) =>
-        sql`${column} || jsonb_build_object(${systemKeyText}::text, ${JSON.stringify({ ...block, [groupName]: written })}::jsonb)`,
-      tx,
-    );
-    if (statBlocks === undefined) return { ok: false as const, error: GONE };
-    return { ok: true as const, statBlocks };
-  });
+  const groupDefinition = findGroup(system.definition, groupName.data);
+  if (!groupDefinition || !isRepeating(groupDefinition)) return notRepeating;
+  const result = await rewriteRows(
+    checked.holder,
+    user.id,
+    system,
+    groupDefinition,
+    key.data,
+    (rows, index) => [rows[index], ...rows.filter((_, i) => i !== index)],
+  );
   if (!result.ok) return result;
   announce(checked.holder, found);
-  return {
-    ok: true,
-    block: evaluated(
-      system,
-      readStatBlocks(result.statBlocks)[systemKeyText],
-      true,
-      found.elementBlocks,
-    ),
-  };
+  return { ok: true, block: evaluatedWritten(system, result.statBlocks, found) };
 }
-
-const NOTHING_TO_ROLL = "There is nothing to roll.";
 
 /**
  * Rolls a stat's die at the table: a dice stat rolls the dice it holds, and
@@ -865,23 +847,18 @@ const NOTHING_TO_ROLL = "There is nothing to roll.";
  */
 export async function sa_rollStat(
   holder: StatBlockHolder,
-  idSystem: number,
-  group: string,
-  stat: string,
-  as: RollAs,
-  rowKey?: string,
+  roll: StatRoll,
 ): Promise<RollStatResult> {
-  const groupName = nameSchema.parse(group);
-  const statName = nameSchema.parse(stat);
-  const key = rowKeySchema.parse(rowKey);
-  const rollAs = rollAsSchema.parse(as);
   const user = await requireAccount();
-  const checked = await target(user.id, holder, idSystem);
+  const asked = rollSchema.safeParse(roll);
+  if (!asked.success) return { ok: false, error: NOTHING_TO_ROLL };
+  const { group: groupName, stat: statName, as: rollAs, rowKey: key } = asked.data;
+  const checked = await target(user.id, holder, asked.data.idSystem);
   if (!checked.ok) return checked;
   const { found, system } = checked;
 
   const block = evaluated(system, found.blocks[systemKey(system.idSystem)], true);
-  const evaluatedGroup = block.groups.find((g) => g.name === groupName);
+  const evaluatedGroup = evaluatedGroupNamed(block, groupName);
   if (!evaluatedGroup) return { ok: false, error: NOTHING_TO_ROLL };
   const stats =
     key === undefined
@@ -898,9 +875,9 @@ export async function sa_rollStat(
   if (!result.ok) return result;
   if (rollAs.quiet) return { ok: true, roll: result.roll, posted: false };
 
-  const current = await currentScene(holder.idStory);
+  const current = await currentScene(checked.holder.idStory);
   if (current === null) return { ok: true, roll: result.roll, posted: false };
-  await sayRoll(holder.idStory, current, user.id, result.roll);
+  await sayRoll(checked.holder.idStory, current, user.id, result.roll);
   return { ok: true, roll: result.roll, posted: true };
 }
 
@@ -920,32 +897,33 @@ export async function sa_rollGroupRows(
   group: string,
   as: RollAs,
 ): Promise<RollAllResult> {
-  const groupName = nameSchema.parse(group);
-  const rollAs = rollAsSchema.parse(as);
   const user = await requireAccount();
+  const notRolledAll = { ok: false as const, error: "That group is not rolled all at once." };
+  const groupName = nameSchema.safeParse(group);
+  const rollAs = rollAsSchema.safeParse(as);
+  if (!groupName.success || !rollAs.success) return notRolledAll;
   const checked = await target(user.id, holder, idSystem);
   if (!checked.ok) return checked;
   const { found, system } = checked;
 
   const block = evaluated(system, found.blocks[systemKey(system.idSystem)], true);
-  const evaluatedGroup = block.groups.find((g) => g.name === groupName);
-  if (!evaluatedGroup || !isRepeating(evaluatedGroup) || !evaluatedGroup.rollAll) {
-    return { ok: false, error: "That group is not rolled all at once." };
-  }
+  const evaluatedGroup = evaluatedGroupNamed(block, groupName.data);
+  if (!evaluatedGroup || !isRepeating(evaluatedGroup) || !evaluatedGroup.rollAll)
+    return notRolledAll;
 
-  const current = rollAs.quiet ? null : await currentScene(holder.idStory);
+  const current = rollAs.data.quiet ? null : await currentScene(checked.holder.idStory);
   const rolls: RolledForOne[] = [];
   for (const row of evaluatedGroup.rows) {
     const rolled = row.stats.find((candidate) => notationFor(candidate) !== "");
     if (!rolled) continue;
     const key = rowKeyText(row.key) ?? "";
-    const who = rollAs.title === "" ? key : `${rollAs.title} (${key})`;
+    const who = rollAs.data.title === "" ? key : `${rollAs.data.title} (${key})`;
     const times = row.multiple;
     for (let n = 1; n <= times; n += 1) {
       const title = times > 1 ? `${who} ${n}/${times}` : who;
       const result = rollDice(notationFor(rolled), `for ${title}: ${rolled.label}`);
       if (!result.ok) continue;
-      if (current !== null) await sayRoll(holder.idStory, current, user.id, result.roll);
+      if (current !== null) await sayRoll(checked.holder.idStory, current, user.id, result.roll);
       rolls.push({ title, roll: result.roll, posted: current !== null });
     }
   }
@@ -1038,19 +1016,20 @@ export async function sa_getSceneStatBlocks(
   idStoryScene: number,
 ): Promise<SceneStatBlocks[] | null> {
   const user = await requireAccount();
-  const story = idSchema.parse(idStory);
-  const scene = idSchema.parse(idStoryScene);
-  if (!(await ownsStory(user.id, story))) return null;
+  const story = idSchema.safeParse(idStory);
+  const scene = idSchema.safeParse(idStoryScene);
+  if (!story.success || !scene.success) return null;
+  if ((await ownedStory(user.id, story.data)) === null) return null;
   const [known] = await db
     .select({ idStoryScene: storyScenes.idStoryScene })
     .from(storyScenes)
-    .where(and(eq(storyScenes.idStoryScene, scene), eq(storyScenes.idStory, story)))
+    .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.data)))
     .limit(1);
   if (!known) return null;
 
-  const systems = await statBlockSystems(story);
+  const systems = await statBlockSystems(story.data);
   const result: SceneStatBlocks[] = [];
-  for (const link of await sceneLinks(story, scene)) {
+  for (const link of await sceneLinks(story.data, scene.data)) {
     const blocks = blocksOf(
       systems,
       link.storySystem,
@@ -1087,16 +1066,23 @@ export async function sa_rollStatForAll(
   group: string,
   stat: string,
 ): Promise<RollAllResult> {
-  const groupName = nameSchema.parse(group);
-  const statName = nameSchema.parse(stat);
   const user = await requireAccount();
-  const story = idSchema.parse(idStory);
-  const scene = idSchema.parse(idStoryScene);
-  if (!(await ownsStory(user.id, story))) return { ok: false, error: GONE };
+  const asked = z
+    .object({
+      story: idSchema,
+      scene: idSchema,
+      system: idSchema,
+      group: nameSchema,
+      stat: nameSchema,
+    })
+    .safeParse({ story: idStory, scene: idStoryScene, system: idSystem, group, stat });
+  if (!asked.success) return { ok: false, error: ELEMENT_NOT_YOURS };
+  const { story, scene, group: groupName, stat: statName } = asked.data;
+  if ((await ownedStory(user.id, story)) === null) return { ok: false, error: ELEMENT_NOT_YOURS };
   const system = (await statBlockSystems(story)).find(
-    (candidate) => candidate.idSystem === idSchema.parse(idSystem),
+    (candidate) => candidate.idSystem === asked.data.system,
   );
-  if (!system) return { ok: false, error: "That system has no stats to fill in." };
+  if (!system) return NO_STATS;
   const definition = findStat(system.definition, groupName, statName);
   if (!definition?.global) return { ok: false, error: "That stat is not rolled for all." };
 
@@ -1106,9 +1092,7 @@ export async function sa_rollStatForAll(
     const blocks = readStatBlocks(link.statBlocks);
     const key = systemKey(system.idSystem);
     if (!(key in blocks)) continue;
-    const evaluatedGroup = evaluated(system, blocks[key], true).groups.find(
-      (g) => g.name === groupName,
-    );
+    const evaluatedGroup = evaluatedGroupNamed(evaluated(system, blocks[key], true), groupName);
     if (!evaluatedGroup) continue;
     const title = linkTitle(link);
     // A plain group rolls its one stat; a repeating group its default row,

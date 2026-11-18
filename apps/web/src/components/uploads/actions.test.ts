@@ -13,14 +13,13 @@
 // the uses go with their attachments (the foreign key cascades).
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
+import { SCENE_COMPLETE } from "@/lib/messages";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import { and, eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
 import { createRequire } from "node:module";
 
 import type { AttachmentKind } from "@/lib/attachments";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
-
-loadEnvConfig(process.cwd());
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
 // @vercel/blob is a dual CJS/ESM package. `mock.module` only intercepts the
 // ESM entry a dynamic import() would resolve to, not the CJS entry
@@ -28,7 +27,6 @@ loadEnvConfig(process.cwd());
 // monkey-patching the same require-cached module object instead.
 const requireHere = createRequire(__filename);
 
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "components-uploads-actions@example.test";
 let testUser = "";
 // A different seeded user, owning none of the seeded attachments, so it is
@@ -42,12 +40,11 @@ let sceneId = 0;
 // A story seeded as OTHER_USER's own, for the ownership-of-the-holder tests.
 const OTHER_STORY_ID = -16;
 
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 // What a change to a scene element's pictures tells the players' table,
 // mocked so the tests see it reached for; what it sends is its own test's
 // business (lib/realtime/publish-scene.test.ts).
+// A scene's cover change is said to every table as the scene having changed.
+const publishSceneChanged = mock.fn(async (_idStory: number) => {});
 const publishSceneElementPictures = mock.fn(
   async (_idStory: number, _idSceneElement: number) => {},
 );
@@ -61,9 +58,8 @@ let actions: typeof import("./actions");
 // `@/db` opens its pool at import time, so it has to be pulled in from
 // inside `before` -- a static import is evaluated before loadEnvConfig()
 // above runs, and the pool would be built without a connection string.
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 // Every attachment id this file brought into being, both the ones it inserted
 // directly and the ones sa_createAttachment made for it, so `after` can take
@@ -79,7 +75,7 @@ type Use = { kind: AttachmentKind; idExternal: number; tags?: string[]; sortOrde
  * onto an attachment inserted without one.
  */
 async function insertAttachment(
-  values: DbModule["schema"]["attachments"]["$inferInsert"],
+  values: Tables["attachments"]["$inferInsert"],
   uses: Use[] = [],
 ): Promise<{ id: number }> {
   const [row] = await db
@@ -115,15 +111,16 @@ async function usesOf(id: number) {
     .orderBy(tables.attachmentUses.idAttachmentUse);
 }
 
-describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("attachment actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    mock.module("@/lib/realtime/publish-scene", { namedExports: { publishSceneElementPictures } });
+    mock.module("@/lib/realtime/publish-scene", {
+      namedExports: { publishSceneElementPictures, publishSceneChanged },
+    });
     const blobModule: { del: unknown } = requireHere("@vercel/blob");
     originalDel = blobModule.del;
     blobModule.del = del;
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
     actions = await import("./actions");
     [{ id: storyId }] = await db
       .insert(tables.stories)
@@ -151,9 +148,6 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, sceneId));
     }
     if (storyId) await db.delete(tables.stories).where(eq(tables.stories.idStory, storyId));
-    // Otherwise the process lingers until the pool's idle timeout.
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("inserts a typed link as READY with is_uploaded false, used by its holder", async () => {
@@ -447,6 +441,29 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     }
   });
 
+  it("refuses a file name or size the upload route would never have issued", async () => {
+    const before = await db
+      .select({ id: tables.attachments.idAttachment })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idCreatedByUser, testUser));
+    await expect(
+      actions.sa_createAttachment({
+        kind: "STORY_SCENE",
+        idExternal: null,
+        fileName: "x".repeat(300),
+      }),
+    ).rejects.toThrow();
+    await expect(
+      actions.sa_createAttachment({ kind: "STORY_SCENE", idExternal: null, byteSize: -1 }),
+    ).rejects.toThrow();
+    const after = await db
+      .select({ id: tables.attachments.idAttachment })
+      .from(tables.attachments)
+      .where(eq(tables.attachments.idCreatedByUser, testUser));
+    // Nothing was inserted: the refusal happened before the write.
+    expect(after).toHaveLength(before.length);
+  });
+
   it("refuses to create an attachment on a story the caller does not own", async () => {
     await expect(
       actions.sa_createAttachment({
@@ -582,10 +599,14 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       );
       const { id: plain } = await onStory("https://example.com/picker-new-scene-cover.jpg");
 
+      publishSceneChanged.mock.resetCalls();
       expect(await actions.sa_attachAsCover("STORY_SCENE", idScene, plain)).toEqual({
         ok: true,
         url: "https://example.com/picker-new-scene-cover.jpg",
       });
+      // The players' table draws the scene behind its cover, so it hears
+      // the scene changed.
+      expect(publishSceneChanged.mock.calls.map((call) => call.arguments)).toEqual([[idStory]]);
       const covers = await actions.sa_listAttachments("STORY_SCENE", idScene);
       expect(covers.filter((row) => row.isCover).map((row) => row.idAttachment)).toEqual([plain]);
       expect(covers.find((row) => row.idAttachment === earlier)?.isCover).toBe(false);
@@ -609,9 +630,10 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         error: "That attachment can no longer be used by the scene.",
       });
       expect(await sceneUse(uploading)).toBeUndefined();
-      await expect(actions.sa_attachAsCover("STORY_SCENE", theirScene, plain)).rejects.toThrow(
-        "You do not have access to that story.",
-      );
+      expect(await actions.sa_attachAsCover("STORY_SCENE", theirScene, plain)).toEqual({
+        ok: false,
+        error: "You do not have access to that story.",
+      });
     });
 
     it("detaches a picture from the scene, its cover with it, leaving the story's own tags", async () => {
@@ -643,9 +665,10 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         (row) => row.idAttachment === cover,
       );
       expect(back).toMatchObject({ isCover: false, tags: ["harbour"] });
-      await expect(actions.sa_detachFromHolder("STORY_SCENE", theirScene, [cover])).rejects.toThrow(
-        "You do not have access to that story.",
-      );
+      expect(await actions.sa_detachFromHolder("STORY_SCENE", theirScene, [cover])).toEqual({
+        ok: false,
+        error: "You do not have access to that story.",
+      });
     });
 
     it("puts no ceiling on how many attachments a scene uses", async () => {
@@ -686,9 +709,10 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
     it("refuses a scene on a story the caller does not own", async () => {
       const { id } = await onStory("https://example.com/picker-refused.jpg");
-      await expect(actions.sa_attachToHolder("STORY_SCENE", theirScene, [id])).rejects.toThrow(
-        "You do not have access to that story.",
-      );
+      expect(await actions.sa_attachToHolder("STORY_SCENE", theirScene, [id])).toEqual({
+        ok: false,
+        error: "You do not have access to that story.",
+      });
       expect(await usesOf(id)).toEqual([]);
     });
   });
@@ -749,9 +773,10 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
     it("refuses a session on a story the caller does not own", async () => {
       const { id } = await onStory("https://example.com/session-refused.jpg");
-      await expect(actions.sa_attachToHolder("STORY_SESSION", theirSession, [id])).rejects.toThrow(
-        "You do not have access to that story.",
-      );
+      expect(await actions.sa_attachToHolder("STORY_SESSION", theirSession, [id])).toEqual({
+        ok: false,
+        error: "You do not have access to that story.",
+      });
       expect(await usesOf(id)).toEqual([]);
     });
   });
@@ -793,6 +818,48 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       insertAttachment({ idStory, status: "READY", url, idCreatedByUser: testUser });
     const linkUses = async (id: number) =>
       (await usesOf(id)).filter((use) => use.kind === "SCENE_ELEMENT" && use.idExternal === idLink);
+
+    it("leaves a link's pictures alone once its scene is complete, and lists them still", async () => {
+      // A complete scene is the record of what was played, so what its
+      // links show is locked with it (db/story-access.ts); a pending scene's
+      // links take pictures as before.
+      const { id: face } = await onStory("https://example.com/locked-face.jpg");
+      const { id: hood } = await onStory("https://example.com/locked-hood.jpg");
+      expect(await actions.sa_attachAsCover("SCENE_ELEMENT", idLink, face)).toMatchObject({
+        ok: true,
+      });
+      await db
+        .update(tables.storyScenes)
+        .set({ status: SCENE_LOCKED_STATUS })
+        .where(eq(tables.storyScenes.idStoryScene, idScene));
+      try {
+        const locked = { ok: false, error: SCENE_COMPLETE };
+        expect(await actions.sa_attachToHolder("SCENE_ELEMENT", idLink, [hood])).toEqual(locked);
+        expect(await actions.sa_attachAsCover("SCENE_ELEMENT", idLink, hood)).toEqual(locked);
+        expect(await actions.sa_detachFromHolder("SCENE_ELEMENT", idLink, [face])).toEqual(locked);
+        await expect(
+          actions.sa_setAttachmentCover("SCENE_ELEMENT", idLink, face, false),
+        ).rejects.toThrow(SCENE_COMPLETE);
+        // Still read: the cover is what the pill shows.
+        expect(
+          (await actions.sa_listAttachments("SCENE_ELEMENT", idLink)).map((row) => [
+            row.idAttachment,
+            row.isCover,
+          ]),
+        ).toEqual([[face, true]]);
+      } finally {
+        await db
+          .update(tables.storyScenes)
+          .set({ status: "PENDING" })
+          .where(eq(tables.storyScenes.idStoryScene, idScene));
+        // The pictures go, their uses with them, so the next test starts clean.
+        await db
+          .delete(tables.attachments)
+          .where(inArray(tables.attachments.idAttachment, [face, hood]));
+        // The cover's publish was this test's; the next test counts its own.
+        publishSceneElementPictures.mock.resetCalls();
+      }
+    });
 
     it("gives the link a cover and other pictures of the story's, held to the scene's story", async () => {
       const { id: face } = await onStory("https://example.com/link-face.jpg");
@@ -862,10 +929,11 @@ describe("attachment actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect(await usesOf(brief)).toEqual([]);
 
       // Another storyteller's story: the link cannot be reached.
-      getSession.mock.mockImplementationOnce(async () => ({ user: { id: OTHER_USER } }));
-      await expect(actions.sa_attachToHolder("SCENE_ELEMENT", idLink, [brief])).rejects.toThrow(
-        "You do not have access to that story.",
-      );
+      suite.getSession.mock.mockImplementationOnce(async () => ({ user: { id: OTHER_USER } }));
+      expect(await actions.sa_attachToHolder("SCENE_ELEMENT", idLink, [brief])).toEqual({
+        ok: false,
+        error: "You do not have access to that story.",
+      });
       expect(await actions.sa_listAttachments("SCENE_ELEMENT", idLink)).not.toContainEqual(
         expect.objectContaining({ idAttachment: brief }),
       );

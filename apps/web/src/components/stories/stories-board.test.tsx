@@ -1,11 +1,20 @@
-import { describe, it, mock } from "node:test";
+import { before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { FIND_SECTIONS, PAGE_SIZE, STORIES_SECTIONS, type StoryCardData } from "@/lib/stories";
-import { StoriesBoard } from "./stories-board";
+
+// The hearts' action, which the board reaches through useFavorites.
+type SetFavoriteResult = { ok: true; isFavorite: boolean } | { ok: false; error: string };
+const sa_setFavorite = mock.fn(
+  async (_id: number, isFavorite: boolean): Promise<SetFavoriteResult> => ({
+    ok: true,
+    isFavorite,
+  }),
+);
+let StoriesBoard: typeof import("./stories-board").StoriesBoard;
 
 function stories(count: number, from = 1, isFavorite = false): StoryCardData[] {
   return Array.from({ length: count }, (_, i) => ({
@@ -43,7 +52,9 @@ const emptyLoaders = {
 // can be checked in one render.
 const ALL_SECTIONS = ["favorites", "mine", "open"] as const;
 
-type BoardProps = Parameters<typeof StoriesBoard<"favorites" | "mine" | "open">>[0];
+type BoardProps = Parameters<
+  typeof import("./stories-board").StoriesBoard<"favorites" | "mine" | "open">
+>[0];
 
 function renderBoard(overrides: Partial<BoardProps> = {}) {
   return renderWithProviders(
@@ -51,7 +62,6 @@ function renderBoard(overrides: Partial<BoardProps> = {}) {
       sections={ALL_SECTIONS}
       initial={{ favorites: [], mine: stories(3), open: [] }}
       loadMore={emptyLoaders}
-      setFavorite={async (_id, isFavorite) => ({ isFavorite })}
       {...overrides}
     />,
   );
@@ -60,6 +70,16 @@ function renderBoard(overrides: Partial<BoardProps> = {}) {
 const section = (name: string) => screen.getByRole("region", { name });
 
 describe("StoriesBoard", () => {
+  before(async () => {
+    mock.module("@/app/(app)/(nav)/stories/actions", { namedExports: { sa_setFavorite } });
+    ({ StoriesBoard } = await import("./stories-board"));
+  });
+
+  beforeEach(() => {
+    sa_setFavorite.mock.resetCalls();
+    sa_setFavorite.mock.mockImplementation(async (_id, isFavorite) => ({ ok: true, isFavorite }));
+  });
+
   it("offers a Show inactive switch on My Stories only, which reloads that list", async () => {
     const user = userEvent.setup();
     const mine = mock.fn(async (_offset: number, showInactive?: boolean) =>
@@ -123,7 +143,6 @@ describe("StoriesBoard", () => {
         sections={STORIES_SECTIONS}
         initial={{ favorites: stories(1, 50, true), mine: stories(2) }}
         loadMore={{ favorites: emptyLoaders.favorites, mine: emptyLoaders.mine }}
-        setFavorite={async (_id, isFavorite) => ({ isFavorite })}
       />,
     );
 
@@ -137,7 +156,6 @@ describe("StoriesBoard", () => {
         sections={FIND_SECTIONS}
         initial={{ open: [] }}
         loadMore={{ open: emptyLoaders.open }}
-        setFavorite={async (_id, isFavorite) => ({ isFavorite })}
       />,
     );
 
@@ -152,13 +170,11 @@ describe("StoriesBoard", () => {
 
   it("on Find a Story, a heart fills without a Favorites section to land in", async () => {
     const user = userEvent.setup();
-    const setFavorite = mock.fn(async (_id: number, isFavorite: boolean) => ({ isFavorite }));
     renderWithProviders(
       <StoriesBoard
         sections={FIND_SECTIONS}
         initial={{ open: stories(2, 90) }}
         loadMore={{ open: emptyLoaders.open }}
-        setFavorite={setFavorite}
       />,
     );
 
@@ -167,7 +183,7 @@ describe("StoriesBoard", () => {
     });
     await user.click(hearts[0]);
 
-    await waitFor(() => expect(setFavorite.mock.calls[0].arguments).toEqual([90, true]));
+    await waitFor(() => expect(sa_setFavorite.mock.calls[0].arguments).toEqual([90, true]));
     expect(
       within(section("Looking for Players")).getByRole("button", { name: "Remove from Favorites" }),
     ).toBeInTheDocument();
@@ -176,17 +192,15 @@ describe("StoriesBoard", () => {
 
   it("favoriting from My Stories adds the card to the top of Favorites and fills its heart", async () => {
     const user = userEvent.setup();
-    const setFavorite = mock.fn(async (_id: number, isFavorite: boolean) => ({ isFavorite }));
     renderBoard({
       initial: { favorites: stories(1, 50, true), mine: stories(2), open: [] },
-      setFavorite,
     });
 
     await user.click(
       within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })[1],
     );
 
-    await waitFor(() => expect(setFavorite.mock.calls[0].arguments).toEqual([2, true]));
+    await waitFor(() => expect(sa_setFavorite.mock.calls[0].arguments).toEqual([2, true]));
     const favoriteTitles = within(section("Favorites"))
       .getAllByRole("article")
       .map((a) => a.getAttribute("aria-label"));
@@ -220,11 +234,10 @@ describe("StoriesBoard", () => {
 
   it("reverts the heart when the action fails", async () => {
     const user = userEvent.setup();
-    renderBoard({
-      setFavorite: async () => {
-        throw new Error("nope");
-      },
+    sa_setFavorite.mock.mockImplementationOnce(async () => {
+      throw new Error("nope");
     });
+    renderBoard();
 
     await user.click(
       within(section("My Stories")).getAllByRole("button", { name: "Add to Favorites" })[0],

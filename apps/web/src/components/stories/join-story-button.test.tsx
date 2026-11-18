@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
 import type { StoryPlayer } from "@/lib/stories";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
 const me: StoryPlayer = { idUser: "u-me", name: "Viewer", image: null };
 
@@ -14,14 +15,14 @@ const sa_joinStory = mock.fn<(idStory: number) => Promise<Result>>(async () => (
   ok: true,
   player: me,
 }));
-const router = { refresh: mock.fn<() => void>() };
+const router = mockRouter();
 
 let JoinStoryButton: typeof import("./join-story-button").JoinStoryButton;
 
 describe("JoinStoryButton", () => {
   before(async () => {
     mock.module("@/app/(app)/(nav)/stories/actions", { namedExports: { sa_joinStory } });
-    mock.module("next/navigation", { namedExports: { useRouter: () => router } });
+    mockNavigation({ router });
     ({ JoinStoryButton } = await import("./join-story-button"));
   });
 

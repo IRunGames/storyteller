@@ -1,19 +1,9 @@
 "use client";
 
-import { useId, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import {
-  Alert,
-  HStack,
-  IconButton,
-  Popover,
-  Portal,
-  Skeleton,
-  Stack,
-  Tooltip,
-} from "@chakra-ui/react";
-import { ExternalLink, Info } from "lucide-react";
-import { IconLink } from "@/components/links/icon-link";
-import { POPOVER_EDGE_GAP, usePopoverMaxHeight } from "./use-popover-max-height";
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { Skeleton, Stack } from "@chakra-ui/react";
+import { FormError } from "@/components/forms/form-error";
+import { InfoPopoverShell } from "./info-popover-shell";
 
 type Props<T> = {
   /** Names the button and its tooltip, both: "Scene info", "Session info". */
@@ -42,13 +32,11 @@ type Props<T> = {
   children: (loaded: T, setLoaded: Dispatch<SetStateAction<T | null>>) => ReactNode;
 };
 
-// The small info button on a card or a row, and the popover it opens: a
-// heading, and whatever the caller renders under it once the detail has
-// arrived. Everything up to that point is the same wherever the button sits,
-// so it lives here rather than being copied per column.
-//
-// The detail is fetched on first open rather than with the list, since most
-// rows are never opened, and kept afterwards.
+// The small info button on a card or a row, and the popover it opens
+// (InfoPopoverShell): a heading, and whatever the caller renders under it
+// once the detail has arrived. The detail is fetched on first open rather
+// than with the list, since most rows are never opened, and kept
+// afterwards.
 export function InfoPopover<T>({
   label,
   color,
@@ -60,16 +48,9 @@ export function InfoPopover<T>({
   popoutHref,
   children,
 }: Props<T>) {
-  const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(false);
-  // Both machines look their trigger up by id; with separate ids the
-  // tooltip's wins and the popover opens at the page corner.
-  const triggerId = useId();
-  // Measured from the trigger when it opens: a tall panel opened from a row
-  // near the top of the page would otherwise run off the top.
-  const maxHeight = usePopoverMaxHeight(open, triggerId);
 
   async function fetchOnce() {
     if (loaded !== null || isLoading) return;
@@ -86,75 +67,28 @@ export function InfoPopover<T>({
     }
   }
 
-  function onOpenChange(next: boolean) {
-    setOpen(next);
-    if (next) void fetchOnce();
-  }
-
   return (
-    <Popover.Root
-      open={open}
-      onOpenChange={(details) => onOpenChange(details.open)}
-      // The same gap the measured height leaves, so the positioner and the
-      // cap agree on where the edge is.
-      positioning={{ placement: "bottom-end", overflowPadding: POPOVER_EDGE_GAP }}
-      ids={{ trigger: triggerId }}
+    <InfoPopoverShell
+      label={label}
+      color={color}
+      icon={icon}
+      heading={heading(loaded)}
+      popoutHref={popoutHref}
+      onOpen={() => void fetchOnce()}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton aria-label={label} variant="ghost" size="xs" rounded="full" color={color}>
-              {icon ?? <Info />}
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>{label}</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
-      <Portal>
-        <Popover.Positioner>
-          {/* Notes and scene descriptions run long, so the panel scrolls
-              inside itself rather than off the edge of the viewport: the cap
-              is the room actually free on the side the positioner puts it. */}
-          <Popover.Content w="sm" maxH={maxHeight ?? "80vh"} overflowY="auto">
-            <Popover.Arrow />
-            {/* Popover.Title, not bare text: it is what the dialog's
-                aria-labelledby points at, so the popover gets a name. */}
-            <Popover.Header fontWeight="semibold">
-              <HStack justify="space-between" align="start" gap="2">
-                <Popover.Title>{heading(loaded)}</Popover.Title>
-                {popoutHref && (
-                  <IconLink label="Open in a new tab" href={popoutHref} newTab>
-                    <ExternalLink />
-                  </IconLink>
-                )}
-              </HStack>
-            </Popover.Header>
-            <Popover.Body>
-              {error ? (
-                // role="alert", which Chakra's Alert does not set itself.
-                <Alert.Root role="alert" status="error" size="sm">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Description>{error}</Alert.Description>
-                  </Alert.Content>
-                </Alert.Root>
-              ) : loaded !== null ? (
-                children(loaded, setLoaded)
-              ) : (
-                <Stack gap="3">
-                  <Skeleton h="5" w="1/3" />
-                  <Skeleton h="4" />
-                  <Skeleton h="4" w="2/3" />
-                </Stack>
-              )}
-            </Popover.Body>
-          </Popover.Content>
-        </Popover.Positioner>
-      </Portal>
-    </Popover.Root>
+      {() =>
+        error ? (
+          <FormError message={error} size="sm" />
+        ) : loaded !== null ? (
+          children(loaded, setLoaded)
+        ) : (
+          <Stack gap="3">
+            <Skeleton h="5" w="1/3" />
+            <Skeleton h="4" />
+            <Skeleton h="4" w="2/3" />
+          </Stack>
+        )
+      }
+    </InfoPopoverShell>
   );
 }

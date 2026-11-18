@@ -1,7 +1,6 @@
 import { useId } from "react";
 import { Badge, Box, Heading, HStack, Stack, Text } from "@chakra-ui/react";
 import {
-  cssUrlValue,
   systemLabel,
   type StoryCardData,
   type StoryPlayer,
@@ -18,6 +17,7 @@ import type { StatusOption } from "@/lib/status";
 import type { StoryStatBlockDefinition } from "@/app/(app)/(nav)/stories/[id]/stat-blocks/actions";
 import { StorySessions } from "./story-sessions";
 import { StoryStatBlock } from "./story-stat-block";
+import { CoverBackdrop } from "@/components/covers/cover-backdrop";
 
 type Props = {
   story: StoryCardData;
@@ -46,27 +46,10 @@ export function StoryDetails({ story, players, sessions, sessionStatusOptions, s
     // flex="1" fills the nav layout's column so the backdrop reaches the foot
     // of the viewport, not just the bottom of the text.
     <Box position="relative" flex="1">
+      {/* The cards' scrim, so the panel edges never meet a bright cover
+          directly and the page reads the same in every theme. */}
       {story.imageUrl && (
-        <>
-          <Box
-            data-testid="story-backdrop"
-            position="absolute"
-            inset="0"
-            bgSize="cover"
-            bgPos="center"
-            style={{ backgroundImage: `url("${cssUrlValue(story.imageUrl)}")` }}
-          />
-          {/* The cards' scrim, so the panel edges never meet a bright cover
-              directly and the page reads the same in every theme. */}
-          <Box
-            position="absolute"
-            inset="0"
-            bgGradient="to-b"
-            gradientFrom="blackAlpha.700"
-            gradientVia="blackAlpha.400"
-            gradientTo="blackAlpha.800"
-          />
-        </>
+        <CoverBackdrop url={story.imageUrl} scrim="gradient" testId="story-backdrop" />
       )}
 
       <StoryPanel

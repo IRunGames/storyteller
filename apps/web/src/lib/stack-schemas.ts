@@ -56,6 +56,16 @@ export type SceneStacksValues = z.infer<typeof sceneStacksSchema>;
 /** One stack renamed in Manage stacks: its name as it was, and as it is now. */
 export type StackRename = { from: string; to: string };
 
+/**
+ * The expand button on a stack's heading: the stack, by its tag or null for
+ * the Default stack, and whether it is now wide. The tag is taken as held,
+ * not through stackNameSchema: it names a stack the scene already has.
+ */
+export const stackWideSchema = z.object({
+  tag: z.string().max(40).nullable(),
+  wide: z.boolean(),
+});
+
 /** The New stack dialog's one field. */
 export const newStackSchema = z.object({ name: stackNameSchema });
 

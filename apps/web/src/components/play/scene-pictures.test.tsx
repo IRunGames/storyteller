@@ -5,18 +5,10 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
-import type { CurrentUser } from "@/lib/current-user";
 import type { Attachment } from "@/lib/attachments";
+import { currentUser, mockNavigation } from "@/test/mocks";
 
-const user: CurrentUser = {
-  id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
-  name: "Paul Stafford",
-  email: "storyteller@irun.games",
-  image: null,
-  nickName: null,
-  idUserType: -10,
-  isAnonymous: false,
-};
+const user = currentUser();
 
 const SCENE_ID = 42;
 
@@ -57,9 +49,7 @@ let ScenePictures: typeof import("./scene-pictures").ScenePictures;
 
 describe("ScenePictures", () => {
   before(async () => {
-    mock.module("next/navigation", {
-      namedExports: { useRouter: () => ({ refresh: mock.fn(), push: mock.fn() }) },
-    });
+    mockNavigation();
     // The field's own test file covers adding, uploading and tagging.
     mock.module("@/components/uploads/actions", {
       namedExports: {

@@ -2,27 +2,18 @@
 // unset so `just test` stays green offline. `before` makes a story a second
 // user tells and the test user plays in, with one scene holding a shown and a
 // hidden element, and a stranger's story with a scene of its own.
-import { after, before, beforeEach, describe, it, mock } from "node:test";
+import { after, before, beforeEach, it } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "preview-scene-id-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-let caller = "";
-const getSession = mock.fn(async () => ({ user: { id: caller } }));
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let tellerId = "";
 let playsIn = 0;
@@ -35,20 +26,16 @@ let strangersScene = 0;
 let zed = 0;
 let lantern = 0;
 
-describe("scene preview actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("scene preview actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
-    caller = testUser;
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
+    suite.caller = testUser;
     actions = await import("./actions");
 
-    await db.delete(tables.user).where(eq(tables.user.email, "scene-preview-fixture@example.test"));
-    const [teller] = await db
-      .insert(tables.user)
-      .values({ name: "Scene Preview Fixture", email: "scene-preview-fixture@example.test" })
-      .returning({ id: tables.user.id });
-    tellerId = teller.id;
+    tellerId = await suite.makeUser("scene-preview-fixture@example.test", {
+      name: "Scene Preview Fixture",
+    });
 
     [{ id: playsIn }, { id: strangers }] = await db
       .insert(tables.stories)
@@ -145,7 +132,7 @@ describe("scene preview actions", { skip: !hasDb && "DATABASE_URL is not set" },
   });
 
   beforeEach(() => {
-    caller = testUser;
+    suite.caller = testUser;
   });
 
   after(async () => {
@@ -156,9 +143,6 @@ describe("scene preview actions", { skip: !hasDb && "DATABASE_URL is not set" },
         .where(inArray(tables.storyPlayers.idStory, [playsIn, strangers]));
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, [playsIn, strangers]));
     }
-    if (tellerId) await db.delete(tables.user).where(eq(tables.user.id, tellerId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("shows a player the scene as the players' table would, hidden elements left out", async () => {
@@ -181,6 +165,12 @@ describe("scene preview actions", { skip: !hasDb && "DATABASE_URL is not set" },
   });
 
   it("lists the story's scenes by sitting, newest first, and within one by scene, latest first, the unplayed last", async () => {
+    // The player's list stops at the scenes played to completion: the
+    // crossing is still prep, and is not even named to them.
+    const player = await actions.sa_getScenePreview(docks);
+    expect(player?.scenes.map((scene) => scene.idStoryScene)).toEqual([ford, docks, earlier]);
+
+    suite.caller = tellerId;
     const atDocks = await actions.sa_getScenePreview(docks);
     expect(atDocks?.scenes).toEqual([
       {
@@ -212,14 +202,22 @@ describe("scene preview actions", { skip: !hasDb && "DATABASE_URL is not set" },
     const atFord = await actions.sa_getScenePreview(ford);
     expect(atFord?.previous).toMatchObject({ idStoryScene: docks });
     expect(atFord?.next).toBeNull();
+    // The unplayed crossing is the storyteller's to step onto.
+    suite.caller = tellerId;
     const atLater = await actions.sa_getScenePreview(later);
     expect(atLater?.previous).toBeNull();
     expect(atLater?.next).toMatchObject({ idStoryScene: earlier });
   });
 
   it("shows the storyteller the same", async () => {
-    caller = tellerId;
+    suite.caller = tellerId;
     expect((await actions.sa_getScenePreview(docks))?.scene.scene?.title).toBe("Fixture docks");
+  });
+
+  it("keeps a scene not yet played from a player, as the prep board does, and shows it to the storyteller", async () => {
+    expect(await actions.sa_getScenePreview(later)).toBeNull();
+    suite.caller = tellerId;
+    expect((await actions.sa_getScenePreview(later))?.scene.scene?.title).toBe("Fixture crossing");
   });
 
   it("finds nothing for a stranger, a scene that is not there, or an id out of range", async () => {

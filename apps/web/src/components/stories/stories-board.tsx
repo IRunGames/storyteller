@@ -10,6 +10,7 @@ import {
   type StoryCardData,
 } from "@/lib/stories";
 import { StorySection } from "./story-section";
+import { useFavorites } from "./use-favorites";
 
 type Loader = (offset: number) => Promise<StoryCardData[]>;
 
@@ -32,8 +33,6 @@ type Props<K extends SectionKey> = {
   loadMore: Pick<Loaders, K>;
   /** Something for a section's heading row, far right: the New story button. */
   headerActions?: Partial<Record<K, ReactNode>>;
-  /** Server action that writes the caller's favorite. */
-  setFavorite: (idStory: number, isFavorite: boolean) => Promise<{ isFavorite: boolean }>;
 };
 
 /**
@@ -112,10 +111,13 @@ export function StoriesBoard<K extends SectionKey>({
   initial,
   loadMore,
   headerActions,
-  setFavorite,
 }: Props<K>) {
   const [board, setBoard] = useState(() => initialState(sections, initial));
-  const [pendingFavorites, setPendingFavorites] = useState<ReadonlySet<number>>(new Set());
+  // The hearts: a press flips every section's copy of the story at once and
+  // back again if the save is refused (useFavorites).
+  const favorites = useFavorites((story, isFavorite) =>
+    setBoard((b) => withFavorite(b, sections, story, isFavorite)),
+  );
   const [showInactive, setShowInactive] = useState(false);
   const [, startTransition] = useTransition();
 
@@ -191,26 +193,6 @@ export function StoriesBoard<K extends SectionKey>({
     });
   }
 
-  function onToggleFavorite(story: StoryCardData, isFavorite: boolean) {
-    if (pendingFavorites.has(story.idStory)) return;
-    setPendingFavorites((p) => new Set(p).add(story.idStory));
-    setBoard((b) => withFavorite(b, sections, story, isFavorite));
-    startTransition(async () => {
-      try {
-        await setFavorite(story.idStory, isFavorite);
-      } catch {
-        // Put it back the way it was.
-        setBoard((b) => withFavorite(b, sections, story, !isFavorite));
-      } finally {
-        setPendingFavorites((p) => {
-          const next = new Set(p);
-          next.delete(story.idStory);
-          return next;
-        });
-      }
-    });
-  }
-
   // Favorites earn their place at the top; an empty block there would only
   // push My Stories down for everyone who has not hearted anything. But an
   // empty list with more on the server is a paging state, not an empty one —
@@ -250,8 +232,8 @@ export function StoriesBoard<K extends SectionKey>({
             hasMore={hasMore}
             isLoadingMore={isLoadingMore}
             onMore={() => onMore(key)}
-            onToggleFavorite={onToggleFavorite}
-            pendingFavorites={pendingFavorites}
+            onToggleFavorite={favorites.toggle}
+            pendingFavorites={favorites.pending}
           />
         );
       })}

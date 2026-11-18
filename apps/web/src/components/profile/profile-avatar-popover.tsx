@@ -2,20 +2,16 @@
 
 import { useId, useState } from "react";
 import {
-  Alert,
   Button,
   Field,
   FileUpload,
   HStack,
-  IconButton,
   Input,
   Popover,
-  Portal,
   Separator,
   Spinner,
   Stack,
   Text,
-  Tooltip,
   useFileUpload,
 } from "@chakra-ui/react";
 import { upload } from "@vercel/blob/client";
@@ -25,6 +21,8 @@ import { useUserPreferences } from "@/components/preferences/user-preferences-pr
 import { ALLOWED_IMAGE_TYPES, MAX_AVATAR_BYTES, avatarPrefix } from "@/lib/image-uploads";
 import { PROFILE_PREFERENCE_KEYS } from "@/lib/profile";
 import { avatarUrlSchema } from "@/lib/profile-schemas";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
+import { FormError } from "@/components/forms/form-error";
 import { loadsAsImage } from "./load-image";
 
 function rejectionMessage(errors: string[]): string {
@@ -126,25 +124,13 @@ export function ProfileAvatarPopover() {
       positioning={{ placement: "bottom-start" }}
       ids={{ trigger: triggerId }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label="Change profile picture"
-              size="xs"
-              rounded="full"
-              variant="subtle"
-            >
-              <Pencil />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Change profile picture</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      <IconButtonWithTooltip
+        label="Change profile picture"
+        variant="subtle"
+        popoverTrigger={triggerId}
+      >
+        <Pencil />
+      </IconButtonWithTooltip>
       {/* Not portalled, unlike the standards' other floating layers: it
           opens inside the profile dialog, which hides everything outside
           itself from assistive technology and traps focus within, so a
@@ -157,16 +143,7 @@ export function ProfileAvatarPopover() {
           </Popover.Header>
           <Popover.Body pt="0">
             <Stack gap="4">
-              {error && (
-                // role="alert", which Chakra's Alert does not set itself, so
-                // the failure is announced where the user's focus is.
-                <Alert.Root role="alert" status="error" size="sm">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Description>{error}</Alert.Description>
-                  </Alert.Content>
-                </Alert.Root>
-              )}
+              <FormError message={error} size="sm" />
 
               <FileUpload.RootProvider value={fileUpload}>
                 <FileUpload.HiddenInput />

@@ -5,26 +5,18 @@
 // someone else's with a session; `after` deletes only those two stories,
 // which takes their sessions and scenes with them. Fixture ids are positive
 // and left to the database, so they never collide with the seed's.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it, mock } from "node:test";
 import { expect } from "expect";
 import { and, eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "stories-session-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let otherUserId = "";
 let mine = 0;
@@ -34,22 +26,24 @@ let done = 0;
 let theirSession = 0;
 let scene = 0;
 
-describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+// What each write tells the players' table, mocked so the tests see which
+// helper an action reached for; what the helpers send is their own test's
+// business (lib/realtime/publish-scene.test.ts).
+const published = {
+  publishSceneChanged: mock.fn(async (..._args: unknown[]) => {}),
+  publishSessionUpdated: mock.fn(async (..._args: unknown[]) => {}),
+};
+
+describeWithDb("session actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
+    mock.module("@/lib/realtime/publish-scene", { namedExports: published });
     actions = await import("./actions");
 
-    // A rerun after a crash would trip the unique email.
-    await db
-      .delete(tables.user)
-      .where(eq(tables.user.email, "session-actions-fixture@example.test"));
-    const [otherUser] = await db
-      .insert(tables.user)
-      .values({ name: "Session Actions Fixture", email: "session-actions-fixture@example.test" })
-      .returning({ id: tables.user.id });
-    otherUserId = otherUser.id;
+    otherUserId = await suite.makeUser("session-actions-fixture@example.test", {
+      name: "Session Actions Fixture",
+    });
 
     [{ id: mine }, { id: theirs }] = await db
       .insert(tables.stories)
@@ -102,9 +96,6 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     if (mine || theirs) {
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, [mine, theirs]));
     }
-    if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("counts who came to each session as the info panel lists them", async () => {
@@ -121,7 +112,7 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   it("opens a session to the storyteller, the story's players, and anyone on a public story", async () => {
     // Read as the other user, who owns nothing here and has no seat in the
     // test user's story.
-    getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
+    suite.getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
     const byStory = eq(tables.stories.idStory, mine);
     const theirSeat = and(
       eq(tables.storyPlayers.idStory, mine),
@@ -161,7 +152,7 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         .where(eq(tables.storySessions.idStorySession, done));
       await db.update(tables.stories).set({ isPublic: false }).where(byStory);
       await db.delete(tables.storyPlayers).where(theirSeat);
-      getSession.mock.mockImplementation(async () => ({ user: { id: testUser } }));
+      suite.getSession.mock.mockImplementation(async () => ({ user: { id: testUser } }));
     }
   });
 
@@ -210,14 +201,14 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         "Fixture played out",
       ]);
 
-      getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
+      suite.getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
       expect((await actions.sa_getStorySession(done))?.scenes.map((s) => s.title)).toEqual([
         "Fixture played out",
       ]);
       // A scene of a session still being played is prep, however it stands.
       expect((await actions.sa_getStorySession(open))?.scenes).toEqual([]);
     } finally {
-      getSession.mock.mockImplementation(async () => ({ user: { id: testUser } }));
+      suite.getSession.mock.mockImplementation(async () => ({ user: { id: testUser } }));
       await db.delete(tables.storyPlayers).where(theirSeat);
       await db
         .delete(tables.storyScenes)
@@ -311,6 +302,11 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         lingeringQuestions: "Who sent the letter?",
       }),
     ).toEqual({ ok: true, title: "The long night" });
+    // The tables show the session's title in their headers, so each hears
+    // the rename, as it hears the run table's.
+    expect(published.publishSessionUpdated.mock.calls.map((call) => call.arguments)).toEqual([
+      [mine, open, "The long night"],
+    ]);
 
     const [row] = await db
       .select({
@@ -360,7 +356,12 @@ describe("session actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("deletes a session that is not DONE, leaving its scenes in the story in no session", async () => {
+    published.publishSceneChanged.mock.resetCalls();
     expect(await actions.sa_deleteStorySession(open)).toEqual({ ok: true });
+    // A table on the session finds the story is being played no longer.
+    expect(published.publishSceneChanged.mock.calls.map((call) => call.arguments)).toEqual([
+      [mine],
+    ]);
 
     const gone = await db
       .select({ id: tables.storySessions.idStorySession })

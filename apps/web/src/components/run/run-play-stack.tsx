@@ -1,10 +1,10 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId } from "react";
 import { Heading, HStack, List, Stack, Text } from "@chakra-ui/react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import type { PlayItem, PlayStack } from "@/lib/run";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { RunNewElementPopover } from "./run-new-element-popover";
 import { RunPlayPill } from "./run-play-pill";
 
@@ -37,6 +37,13 @@ type Props = {
   fullWidth?: boolean;
   /** The scene is complete: each pill is there to read, with nothing that changes it. */
   locked?: boolean;
+  /** The stack is widened to the whole play space (useWideStacks). */
+  wide?: boolean;
+  /**
+   * The expand button was pressed: the stack is to be wide, or narrow again.
+   * Left out, as on the scene's edit page, there is no button.
+   */
+  onWideChange?: (wide: boolean) => void;
 };
 
 // Widening blurs of the background colour, the tightest repeated, so the
@@ -55,8 +62,9 @@ const HALO_FILTER = [1, 2, 4, 6].map((px) => `drop-shadow(0 0 ${px}px ${HALO_COL
  * behind it, so the cover shows through as colour without its detail
  * fighting the text. The button before the + widens the stack to the whole
  * play space, its pills widened with it, side by side only where the play
- * space is wide enough for two of them, and back; the page's alone, told to
- * nobody and forgotten on a reload.
+ * space is wide enough for two of them, and back. Which stacks are wide is
+ * the scene's (story_scenes.wide_tags), so the players' and the display
+ * table draw them wide too, and the scene comes back as it was left.
  */
 export function RunPlayStack({
   idStory,
@@ -71,9 +79,10 @@ export function RunPlayStack({
   onPictureUpChange,
   locked = false,
   fullWidth = false,
+  wide = false,
+  onWideChange,
 }: Props) {
   const headingId = useId();
-  const [wide, setWide] = useState(false);
 
   return (
     <Stack
@@ -106,13 +115,13 @@ export function RunPlayStack({
         >
           {stack.title}
         </Heading>
-        {!fullWidth && (
-          <PrepIconButton
+        {!fullWidth && onWideChange && (
+          <IconButtonWithTooltip
             label={wide ? `Shrink ${stack.title}` : `Expand ${stack.title}`}
-            onClick={() => setWide((current) => !current)}
+            onClick={() => onWideChange(!wide)}
           >
             {wide ? <Minimize2 /> : <Maximize2 />}
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         )}
         {/* No + on a complete scene, which takes nothing new: the action
             would refuse it anyway. */}

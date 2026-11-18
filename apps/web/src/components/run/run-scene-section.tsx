@@ -17,7 +17,7 @@ import { Image as ImageIcon, Plus } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import { attachmentLabel, type PlayItem, type SceneLink } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
-import { sa_setSceneElementShowInfo } from "@/components/run/actions";
+import { sa_setSceneElementShowInfo } from "@/components/scene-elements/actions";
 import {
   sa_attachAsCover,
   sa_detachFromHolder,
@@ -25,7 +25,7 @@ import {
   sa_setAttachmentCover,
 } from "@/components/uploads/actions";
 import { toaster } from "@/components/ui/toaster";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import type { RollAs, StatBlockHolder } from "@/components/stat-blocks/actions";
 import { ElementStatBlocks } from "@/components/stat-blocks/stat-block-view";
 import { StatusPill } from "@/components/status/status-pill";
@@ -288,14 +288,14 @@ export function RunSceneSection({
       title="Other images"
       action={
         !locked && (
-          <PrepIconButton
+          <IconButtonWithTooltip
             label="Add images"
             expanded={addingImages}
             onClick={() => setAddingImages((open) => !open)}
             outlined
           >
             <Plus />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         )
       }
       rows={[]}

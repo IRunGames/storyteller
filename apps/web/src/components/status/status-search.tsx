@@ -4,7 +4,7 @@ import { useId } from "react";
 import { chakra, HStack, Input, InputGroup, Portal, Stack, Tooltip } from "@chakra-ui/react";
 import { Search } from "lucide-react";
 import type { StatusOption } from "@/lib/status";
-import { pillStyle } from "./pill-style";
+import { StatusPillButton } from "./pill-style";
 
 /**
  * What a column is being narrowed to: the words typed, and the statuses still
@@ -39,11 +39,6 @@ type Props = {
    */
   groupLabel?: string;
 };
-
-// A toggle, not a status: same colours as the pill that shows a row's status,
-// so the two read as the same thing, and dimmed to a plain outline when it is
-// switched off.
-const ToggleButton = chakra("button");
 
 /**
  * A search box with the statuses of what it searches above it: one pill per
@@ -147,7 +142,7 @@ export function StatusPills({
           // be a second tooltip over the same pill.
           <Tooltip.Root key={option.key} openDelay={200} positioning={{ placement: "top" }}>
             <Tooltip.Trigger asChild>
-              <ToggleButton
+              <StatusPillButton
                 type="button"
                 // A toggle rather than a checkbox: it is pressed or it is not,
                 // and pressing it changes what is listed rather than filling
@@ -157,7 +152,6 @@ export function StatusPills({
                 onClick={() => toggle(option.key)}
                 flex="none"
                 cursor="pointer"
-                {...pillStyle()}
                 {...(on
                   ? {}
                   : {
@@ -171,7 +165,7 @@ export function StatusPills({
                     })}
               >
                 {option.label}
-              </ToggleButton>
+              </StatusPillButton>
             </Tooltip.Trigger>
             <Portal>
               <Tooltip.Positioner>

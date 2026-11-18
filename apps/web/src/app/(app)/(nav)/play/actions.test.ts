@@ -8,24 +8,16 @@
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
 import { PAGE_SIZE } from "@/lib/stories";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "play-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 const TITLE_PLAYS_IN = "Play fixture — other's story, test user plays in it";
 const TITLE_OWNS = "Play fixture — test user's own active story";
@@ -40,21 +32,23 @@ let stranger = 0;
 let fillerIds: number[] = [];
 let fixtureStoryIds: number[] = [];
 
-describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+// What each write tells the players' table, mocked so the tests see which
+// helper an action reached for; what the helpers send is their own test's
+// business (lib/realtime/publish-scene.test.ts).
+const published = {
+  publishSceneChanged: mock.fn(async (..._args: unknown[]) => {}),
+};
+
+describeWithDb("play actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
+    mock.module("@/lib/realtime/publish-scene", { namedExports: published });
     actions = await import("./actions");
 
-    const [otherUser] = await db
-      .insert(tables.user)
-      .values({
-        name: "Play Fixture Other",
-        email: "play-fixture-other@example.test",
-      })
-      .returning({ id: tables.user.id });
-    otherUserId = otherUser.id;
+    otherUserId = await suite.makeUser("play-fixture-other@example.test", {
+      name: "Play Fixture Other",
+    });
 
     const inserted = await db
       .insert(tables.stories)
@@ -120,9 +114,6 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
         .where(inArray(tables.storyPlayers.idStory, fixtureStoryIds));
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, fixtureStoryIds));
     }
-    if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("lists the active stories the caller owns or plays in, and nothing else", async () => {
@@ -246,10 +237,15 @@ describe("play actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     }
 
     it("creates a new OPEN session with the title given, makes it current and goes to the table", async () => {
+      published.publishSceneChanged.mock.resetCalls();
       await expectRedirectTo(
         actions.sa_startPlaying(owns, null, "Oct 6, 2026 session"),
         `/stories/${owns}/run`,
       );
+      // The players' tables and waiting rooms follow the story's pointer.
+      expect(published.publishSceneChanged.mock.calls.map((call) => call.arguments)).toEqual([
+        [owns],
+      ]);
 
       const { idStorySession } = await storyRow(owns);
       expect(idStorySession).not.toBeNull();

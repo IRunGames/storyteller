@@ -35,7 +35,7 @@ function renderCheck(isPlaying = true) {
 
 describe("InactivityCheck", () => {
   before(async () => {
-    mock.module("@/components/run/actions", { namedExports: { sa_suspendInactiveSession } });
+    mock.module("@/components/sessions/actions", { namedExports: { sa_suspendInactiveSession } });
     ({ InactivityCheck } = await import("./inactivity-check"));
   });
 

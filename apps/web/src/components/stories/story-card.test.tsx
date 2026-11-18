@@ -277,55 +277,38 @@ describe("StoryCard", () => {
     expect(screen.getAllByRole("article")[3]).not.toHaveAttribute("data-live");
   });
 
-  it("offers everyone the Storyboard beside Play, before the owner's Library, with a tooltip", async () => {
+  it("offers everyone the Storyboard to the right of the story's name, with a tooltip", async () => {
     const user = userEvent.setup();
     renderWithProviders(<StoryCard story={story} />);
     const board = screen.getByRole("link", { name: "Storyboard" });
     expect(board).toHaveAttribute("href", "/stories/-13/storyboard");
-    // Right of Play (a player's is a link to the table): it comes after it
-    // in document order.
+    // On the title's line: it follows the title and precedes the game's
+    // line in document order.
+    const title = screen.getByRole("heading", { level: 3, name: "The Devil's Spine" });
+    expect(title.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: "Play" }).compareDocumentPosition(board) &
+      board.compareDocumentPosition(screen.getByText("Cypher System · Numenera (Revised)")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     await user.hover(board);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Storyboard");
-
-    renderWithProviders(<StoryCard story={{ ...story, isOwner: true, isActive: false }} />);
-    const [, retired] = screen.getAllByRole("link", { name: "Storyboard" });
-    expect(retired).toHaveAttribute("href", "/stories/-13/storyboard");
-    expect(
-      retired.compareDocumentPosition(
-        screen.getByRole("link", { name: "Library: Full Story Resources" }),
-      ) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
   });
 
-  it("offers the owner the Library beside Play, and beside the Inactive pill", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<StoryCard story={story} />);
-    expect(
-      screen.queryByRole("link", { name: "Library: Full Story Resources" }),
-    ).not.toBeInTheDocument();
-
-    renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
-    const prep = screen.getByRole("link", { name: "Library: Full Story Resources" });
-    expect(prep).toHaveAttribute("href", "/stories/-13/library");
-    // Right of Play: it comes after it in document order.
-    expect(
-      screen.getByRole("button", { name: "Play" }).compareDocumentPosition(prep) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    await user.hover(prep);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Library: Full Story Resources");
-  });
-
-  it("keeps the Library for the owner of a retired story", () => {
-    renderWithProviders(<StoryCard story={{ ...story, isOwner: true, isActive: false }} />);
-    expect(screen.getByRole("link", { name: "Library: Full Story Resources" })).toHaveAttribute(
-      "href",
-      "/stories/-13/library",
+  it("keeps the Storyboard door for a story with no game and for a retired one", () => {
+    renderWithProviders(
+      <StoryCard
+        story={{ ...story, systemName: null, systemVersion: null, variant: null, isActive: false }}
+      />,
     );
+    expect(screen.getByRole("link", { name: "Storyboard" })).toHaveAttribute(
+      "href",
+      "/stories/-13/storyboard",
+    );
+  });
+
+  it("has no Library door, for the owner either", () => {
+    renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
+    expect(screen.queryByRole("link", { name: /Library/ })).not.toBeInTheDocument();
   });
 
   it("offers a player a plain Play to the table while no session is on", async () => {
@@ -509,9 +492,9 @@ describe("StoryCard", () => {
     renderWithProviders(<StoryCard story={{ ...story, isOwner: true }} />);
     const play = screen.getByRole("button", { name: "Play" });
     // A grid item stretches to its column unless told otherwise; the cell
-    // must start-align so the round button keeps its width. Play sits in the
-    // row it shares with the Library button, and that row is the grid's item.
-    expect(play.parentElement?.parentElement).toHaveStyle({ justifyItems: "start" });
+    // must start-align so the round button keeps its width. Play is the
+    // grid's item itself.
+    expect(play.parentElement).toHaveStyle({ justifyItems: "start" });
   });
 
   it("disables the heart while a toggle is pending", async () => {

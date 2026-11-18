@@ -244,7 +244,7 @@ export const stories = pgTable("stories", {
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   idArchivedByUser: uuid("id_archived_by_user"),
   // The code in the story's join link, /join/<code>; null until the
-  // storyteller first asks for the link (sa_getJoinLink).
+  // storyteller first asks for the link (sa_getOrCreateJoinLink).
   joinCode: text("join_code").unique(),
   // title, summary and standard_tags joined for the Stories page's search,
   // built by the database from the search_fields recipe on the stories row
@@ -532,6 +532,13 @@ export const storyScenes = pgTable("story_scenes", {
   // story's standard tags, which the database fills in
   // (tr_bi_story_scenes_standard_tags) when an insert leaves this empty.
   tags: text("tags")
+    .array()
+    .notNull()
+    .default(sql`'{}'`),
+  // The stacks the storyteller has widened to the whole play space, by tag,
+  // with "" for the Default stack (lib/run.ts stackKey); every table draws
+  // them wide (db/migrations/..._add_story_scenes_wide_tags.sql).
+  wideTags: text("wide_tags")
     .array()
     .notNull()
     .default(sql`'{}'`),

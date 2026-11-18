@@ -3,30 +3,23 @@
 // with a definition, a story of the test user's run in it, one of another
 // storyteller's in it, and one of the test user's with no system, all
 // removed in `after`.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
 
 import type { StatBlockDefinition } from "@/lib/stat-blocks";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
-
-loadEnvConfig(process.cwd());
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
 const TEST_USER_EMAIL = "story-stat-blocks@example.test";
 const OTHER_EMAIL = "story-stat-blocks-other@example.test";
 const SYSTEM_NAME = "Fixture Story Stat Blocks";
 let testUser = "";
 let otherUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let idSystem = 0;
 let myStory = 0;
@@ -69,12 +62,11 @@ const definition: StatBlockDefinition = {
 /** A definition as the column holds it, the stamp aside. */
 const groupsOf = (found: StatBlockDefinition | null | undefined) => found?.groups;
 
-describe("story stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("story stat block actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
-    otherUser = await makeTestUser(db, tables, OTHER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
+    otherUser = await suite.makeUser(OTHER_EMAIL);
     actions = await import("./actions");
 
     await db.delete(tables.systems).where(eq(tables.systems.systemName, SYSTEM_NAME));
@@ -104,9 +96,6 @@ describe("story stat block actions", { skip: !hasDb && "DATABASE_URL is not set"
       .delete(tables.stories)
       .where(inArray(tables.stories.idStory, [myStory, theirStory, noSystemStory]));
     await db.delete(tables.systems).where(eq(tables.systems.idSystem, idSystem));
-    await removeTestUser(db, tables, OTHER_EMAIL);
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("shows anyone signed in a story's system's definition, and whether they tell the story", async () => {

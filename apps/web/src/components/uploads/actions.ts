@@ -3,12 +3,24 @@
 import { and, desc, eq, ilike, inArray, notExists, sql } from "drizzle-orm";
 import { del } from "@vercel/blob";
 import { z } from "zod";
+import { searchSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
+import { clearCover, setCover, useIsCover } from "@/db/covers";
+import {
+  ownedElement,
+  ownedScene,
+  ownedSceneElement,
+  ownedSession,
+  ownedStory,
+  type SceneRefusal,
+} from "@/db/story-access";
 import { requireAccount } from "@/lib/authorize";
+import { SCENE_COMPLETE } from "@/lib/messages";
 import { likeContains } from "@/lib/filter-text";
 import { isOwnUploadedBlobUrl, isUploadedBlobUrl } from "@/lib/image-uploads";
 import {
   attachHolderKindSchema,
+  attachmentFileSchema,
   attachmentIdsSchema,
   attachmentKindSchema,
   attachmentTagsSchema,
@@ -18,85 +30,64 @@ import {
 } from "@/lib/attachment-schemas";
 import {
   ATTACH_HOLDER_NOUNS,
-  COVER_TAG,
   type AttachHolderKind,
   type Attachment,
   type AttachmentKind,
 } from "@/lib/attachments";
 import { publishLater } from "@/lib/realtime/publish";
-import { publishSceneElementPictures } from "@/lib/realtime/publish-scene";
+import { publishSceneChanged, publishSceneElementPictures } from "@/lib/realtime/publish-scene";
 
-const {
-  attachments,
-  attachmentUses,
-  vAttachmentUses,
-  stories,
-  storySessions,
-  storyScenes,
-  sceneElements,
-  elements,
-} = schema;
+const { attachments, attachmentUses, vAttachmentUses, stories } = schema;
 
-// tags @> '{cover}', the predicate attachment_uses_one_cover_idx is built on,
-// so the planner can match it to the index; = ANY would not.
-const useIsCoverSql = sql<boolean>`${attachmentUses.tags} @> array[${COVER_TAG}]::text[]`;
+const NO_ACCESS = "You do not have access to that story.";
+
+/** A holder found to be the caller's, with its story; or why it was refused. */
+type HolderAccess = { idStory: number; refused: null } | { idStory: null; refused: SceneRefusal };
 
 /**
- * The story a holder belongs to, when the caller is its storyteller: null
- * otherwise, and for a holder that is not there. A story is its own; a
- * session, a scene or an element names theirs; a scene element's is its
- * scene's, as tr_attachment_uses_same_story reads it. Proven by walking to the
- * story and comparing its creator, the same way the board's own reads prove
- * it. The exists-trigger (tr_biu_attachment_uses_external_exists) only
- * proves the holder row is there; it is a backstop against a bad id, never
- * the authorisation.
+ * The story a holder belongs to, when the caller is its storyteller
+ * (db/story-access.ts), or why not: a holder that is not there or is
+ * someone else's story's, or a link to a complete scene, whose pictures are
+ * part of the record of what was played and so take no change
+ * (SCENE_LOCKED_STATUS), as every other write to a link is held. A story is
+ * its own; a session, a scene or an element names theirs; a scene element's
+ * is its scene's, as tr_attachment_uses_same_story reads it. The
+ * exists-trigger (tr_biu_attachment_uses_external_exists) only proves the
+ * holder row is there; it is a backstop against a bad id, never the
+ * authorisation. A scene's own pictures are not locked: the storyteller
+ * curates a finished scene's gallery from its Pictures. A read passes
+ * `allowLocked`, since a complete scene's pictures are still shown.
  */
 async function holderStory(
   userId: string,
   kind: AttachmentKind,
   idExternal: number,
-): Promise<number | null> {
-  const owned = { idStory: stories.idStory, owner: stories.idCreatedByUser };
-  let row: { idStory: number; owner: string | null } | undefined;
+  options: { allowLocked?: boolean } = {},
+): Promise<HolderAccess> {
+  const notYours: HolderAccess = { idStory: null, refused: "not-yours" };
+  const found = (idStory: number | undefined | null): HolderAccess =>
+    idStory == null ? notYours : { idStory, refused: null };
   switch (kind) {
     case "STORY":
-      [row] = await db.select(owned).from(stories).where(eq(stories.idStory, idExternal)).limit(1);
-      break;
+      return found((await ownedStory(userId, idExternal))?.idStory);
     case "STORY_SESSION":
-      [row] = await db
-        .select(owned)
-        .from(storySessions)
-        .innerJoin(stories, eq(stories.idStory, storySessions.idStory))
-        .where(eq(storySessions.idStorySession, idExternal))
-        .limit(1);
-      break;
-    case "STORY_SCENE":
-      [row] = await db
-        .select(owned)
-        .from(storyScenes)
-        .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
-        .where(eq(storyScenes.idStoryScene, idExternal))
-        .limit(1);
-      break;
+      return found((await ownedSession(userId, idExternal))?.idStory);
+    case "STORY_SCENE": {
+      const scene = await ownedScene(userId, idExternal, { allowLocked: true });
+      return found(scene.ok ? scene.scene.idStory : null);
+    }
     case "ELEMENT":
-      [row] = await db
-        .select(owned)
-        .from(elements)
-        .innerJoin(stories, eq(stories.idStory, elements.idStory))
-        .where(eq(elements.idElement, idExternal))
-        .limit(1);
-      break;
-    case "SCENE_ELEMENT":
-      [row] = await db
-        .select(owned)
-        .from(sceneElements)
-        .innerJoin(storyScenes, eq(storyScenes.idStoryScene, sceneElements.idStoryScene))
-        .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
-        .where(eq(sceneElements.idSceneElement, idExternal))
-        .limit(1);
-      break;
+      return found((await ownedElement(userId, idExternal))?.idStory);
+    case "SCENE_ELEMENT": {
+      const link = await ownedSceneElement(userId, idExternal, options);
+      return link.ok ? found(link.link.idStory) : { idStory: null, refused: link.reason };
+    }
   }
-  return row && row.owner === userId ? row.idStory : null;
+}
+
+/** The refusal a holder answers with, in the words the pickers show. */
+function refusal(access: { refused: SceneRefusal }): string {
+  return access.refused === "locked" ? SCENE_COMPLETE : NO_ACCESS;
 }
 
 /**
@@ -150,11 +141,14 @@ export async function sa_createAttachment(input: {
   const user = await requireAccount();
   const kind = attachmentKindSchema.parse(input.kind);
   const idExternal = idExternalSchema.nullable().parse(input.idExternal);
+  // What the browser said about the file, bounded before it reaches the row.
+  const file = attachmentFileSchema.parse(input);
 
   let idStory: number | null = null;
   if (idExternal !== null) {
-    idStory = await holderStory(user.id, kind, idExternal);
-    if (idStory === null) throw new Error("You do not have access to that story.");
+    const holder = await holderStory(user.id, kind, idExternal);
+    if (holder.refused !== null) throw new Error(refusal(holder));
+    idStory = holder.idStory;
   }
 
   // A url means a typed link, which is READY at once. No url means an upload
@@ -172,9 +166,9 @@ export async function sa_createAttachment(input: {
         status: isLink ? "READY" : sql`DEFAULT`,
         url,
         isUploaded: !isLink,
-        fileName: input.fileName ?? null,
-        contentType: input.contentType ?? null,
-        byteSize: input.byteSize ?? null,
+        fileName: file.fileName ?? null,
+        contentType: file.contentType ?? null,
+        byteSize: file.byteSize ?? null,
         idCreatedByUser: user.id,
         idUpdatedByUser: user.id,
       })
@@ -300,19 +294,13 @@ export async function sa_deleteAttachment(id: number): Promise<void> {
 }
 
 /**
- * Makes an attachment a holder's cover, or stops it being one. The cover is
- * the holder's use of the file tagged COVER_TAG: making one the cover takes
- * the tag off whichever of the holder's uses held it, in the same
- * transaction and before the tag is added, since attachment_uses_one_cover_idx
- * would refuse two at once; and the use is made on the spot when the holder
- * had none, which is how a story comes to use a file from its pool. Taking
- * the cover away leaves the use, except a story's: the story shows a file
- * only as its cover, so a STORY use left with no tags means nothing and
- * goes.
+ * Makes an attachment a holder's cover, or stops it being one (setCover and
+ * clearCover in db/covers.ts, which say how a cover is kept to one use and
+ * why a story's bare use goes with its tag).
  *
  * Only the holder's storyteller may (holderStory), only for a file of that
  * story, and a row that is not READY is refused as well: it has no picture
- * to show.
+ * to show. A link to a complete scene is refused with SCENE_COMPLETE.
  */
 export async function sa_setAttachmentCover(
   kind: AttachmentKind,
@@ -325,8 +313,10 @@ export async function sa_setAttachmentCover(
   const parsedIdExternal = idExternalSchema.parse(idExternal);
   const attachmentId = idAttachmentSchema.parse(id);
 
-  const idStory = await holderStory(user.id, parsedKind, parsedIdExternal);
-  if (idStory === null) throw new Error("Attachment not found");
+  const access = await holderStory(user.id, parsedKind, parsedIdExternal);
+  if (access.refused === "locked") throw new Error(SCENE_COMPLETE);
+  if (access.refused !== null) throw new Error("Attachment not found");
+  const idStory = access.idStory;
   const [row] = await db
     .select({ status: attachments.status, idStory: attachments.idStory })
     .from(attachments)
@@ -337,70 +327,12 @@ export async function sa_setAttachmentCover(
     throw new Error("Only a finished attachment can be the cover");
   }
 
-  const holder = and(
-    eq(attachmentUses.kind, parsedKind),
-    eq(attachmentUses.idExternal, parsedIdExternal),
-  );
+  const holder = { kind: parsedKind, idExternal: parsedIdExternal };
   await db.transaction(async (tx) => {
-    if (isCover) {
-      await tx
-        .update(attachmentUses)
-        .set({
-          tags: sql`array_remove(${attachmentUses.tags}, ${COVER_TAG})`,
-          idUpdatedByUser: user.id,
-        })
-        .where(and(holder, useIsCoverSql, sql`${attachmentUses.idAttachment} <> ${attachmentId}`));
-      if (parsedKind === "STORY") await dropEmptyStoryUses(tx, parsedIdExternal);
-      await tx
-        .insert(attachmentUses)
-        .values({
-          idAttachment: attachmentId,
-          kind: parsedKind,
-          idExternal: parsedIdExternal,
-          tags: [COVER_TAG],
-          idCreatedByUser: user.id,
-          idUpdatedByUser: user.id,
-        })
-        .onConflictDoUpdate({
-          target: [attachmentUses.idAttachment, attachmentUses.kind, attachmentUses.idExternal],
-          set: {
-            tags: sql`case when ${useIsCoverSql} then ${attachmentUses.tags} else array_append(${attachmentUses.tags}, ${COVER_TAG}) end`,
-            idUpdatedByUser: user.id,
-          },
-        });
-    } else {
-      await tx
-        .update(attachmentUses)
-        .set({
-          tags: sql`array_remove(${attachmentUses.tags}, ${COVER_TAG})`,
-          idUpdatedByUser: user.id,
-        })
-        .where(and(holder, eq(attachmentUses.idAttachment, attachmentId), useIsCoverSql));
-      if (parsedKind === "STORY") await dropEmptyStoryUses(tx, parsedIdExternal);
-    }
+    if (isCover) await setCover(holder, attachmentId, user.id, tx);
+    else await clearCover(holder, user.id, { idAttachment: attachmentId }, tx);
   });
-  if (parsedKind === "SCENE_ELEMENT") {
-    publishLater(() => publishSceneElementPictures(idStory, parsedIdExternal));
-  }
-}
-
-/**
- * A story shows a file only as its cover, so a STORY use with no tags left
- * says nothing and goes; the file stays in the story's pool regardless.
- */
-async function dropEmptyStoryUses(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  idStory: number,
-): Promise<void> {
-  await tx
-    .delete(attachmentUses)
-    .where(
-      and(
-        eq(attachmentUses.kind, "STORY"),
-        eq(attachmentUses.idExternal, idStory),
-        sql`${attachmentUses.tags} = '{}'::text[]`,
-      ),
-    );
+  tellPlayers(idStory, parsedKind, parsedIdExternal);
 }
 
 /**
@@ -446,7 +378,10 @@ export async function sa_listAttachments(
   const parsedId = idExternalSchema.safeParse(idExternal);
   if (!parsedKind.success || !parsedId.success) return [];
 
-  const idStory = await holderStory(user.id, parsedKind.data, parsedId.data);
+  // A read: a complete scene's pictures are still listed.
+  const { idStory } = await holderStory(user.id, parsedKind.data, parsedId.data, {
+    allowLocked: true,
+  });
   if (idStory === null) return [];
 
   if (parsedKind.data === "STORY") {
@@ -459,7 +394,7 @@ export async function sa_listAttachments(
         url: attachments.url,
         isUploaded: attachments.isUploaded,
         fileName: attachments.fileName,
-        isCover: sql<boolean>`coalesce(${useIsCoverSql}, false)`,
+        isCover: sql<boolean>`coalesce(${useIsCover}, false)`,
         tags: attachments.tags,
         createdAt: attachments.createdAt,
         updatedAt: attachments.updatedAt,
@@ -540,7 +475,6 @@ function iso(date: Date | null): string | null {
 }
 
 // A search box's contents, bounded like the Scenes column's.
-const attachmentQuerySchema = z.string().max(200);
 
 /**
  * Which of a holder's attachments match what a search box holds, by
@@ -560,13 +494,15 @@ export async function sa_searchAttachments(
 
   const parsedKind = attachmentKindSchema.safeParse(kind);
   const parsedId = idExternalSchema.safeParse(idExternal);
-  const needle = attachmentQuerySchema.parse(query).trim();
-  if (!parsedKind.success || !parsedId.success) return [];
+  const needle = searchSchema.safeParse(query);
+  if (!parsedKind.success || !parsedId.success || !needle.success) return [];
 
-  const idStory = await holderStory(user.id, parsedKind.data, parsedId.data);
+  const { idStory } = await holderStory(user.id, parsedKind.data, parsedId.data, {
+    allowLocked: true,
+  });
   if (idStory === null) return [];
 
-  const matches = needle === "" ? undefined : likeContains(needle);
+  const matches = needle.data === "" ? undefined : likeContains(needle.data);
   if (parsedKind.data === "STORY") {
     const rows = await db
       .select({ idAttachment: attachments.idAttachment })
@@ -593,18 +529,35 @@ export async function sa_searchAttachments(
 }
 
 export type AttachResult = { ok: true; attached: number[] } | { ok: false; error: string };
+
+// What the picker sends: a holder of a kind pictures are attached to, and
+// the files, each held to its schema before any reaches a query.
+const holderIdsSchema = z.object({
+  kind: attachHolderKindSchema,
+  idExternal: idExternalSchema,
+  ids: attachmentIdsSchema,
+});
+const holderIdSchema = z.object({
+  kind: attachHolderKindSchema,
+  idExternal: idExternalSchema,
+  id: idAttachmentSchema,
+});
 export type DetachResult = { ok: true; detached: number[] } | { ok: false; error: string };
 export type AttachAsCoverResult = { ok: true; url: string } | { ok: false; error: string };
 
 /**
  * A change to a scene element's pictures is told to the players' table,
- * whose pill shows the link's cover; a scene's pictures are the storyteller's
- * backdrop and library, and a session's cover is read when its popover
- * opens, so the players follow neither.
+ * whose pill shows the link's cover, and a change to a scene's cover too,
+ * since the players' table draws the scene behind its cover and reads it
+ * afresh when the scene is said to have changed (publishSceneChanged, which
+ * says nothing when the scene is not the one being played). A session's
+ * cover is read when its popover opens, so the players do not follow it.
  */
-function tellPlayers(idStory: number, kind: AttachHolderKind, idExternal: number): void {
+function tellPlayers(idStory: number, kind: AttachmentKind, idExternal: number): void {
   if (kind === "SCENE_ELEMENT") {
     publishLater(() => publishSceneElementPictures(idStory, idExternal));
+  } else if (kind === "STORY_SCENE") {
+    publishLater(() => publishSceneChanged(idStory));
   }
 }
 
@@ -622,7 +575,8 @@ function tellPlayers(idStory: number, kind: AttachHolderKind, idExternal: number
  * left alone rather than attached by mistake. One the holder already uses
  * is left as it is. What was attached comes back, for the picker to say.
  * There is no ceiling on how many a holder uses: a story's pool is as big
- * as the storyteller makes it, and a scene may take all of it.
+ * as the storyteller makes it, and a scene may take all of it. A link to a
+ * complete scene is refused: its pictures are part of what was played.
  */
 export async function sa_attachToHolder(
   kind: AttachHolderKind,
@@ -630,13 +584,14 @@ export async function sa_attachToHolder(
   ids: number[],
 ): Promise<AttachResult> {
   const user = await requireAccount();
-  const holderKind = attachHolderKindSchema.parse(kind);
-  const holderId = idExternalSchema.parse(idExternal);
-  const parsedIds = attachmentIdsSchema.parse(ids);
+  const asked = holderIdsSchema.safeParse({ kind, idExternal, ids });
+  if (!asked.success) return { ok: false, error: NO_ACCESS };
+  const { kind: holderKind, idExternal: holderId, ids: parsedIds } = asked.data;
   if (parsedIds.length === 0) return { ok: true, attached: [] };
 
-  const idStory = await holderStory(user.id, holderKind, holderId);
-  if (idStory === null) throw new Error("You do not have access to that story.");
+  const access = await holderStory(user.id, holderKind, holderId);
+  if (access.refused !== null) return { ok: false, error: refusal(access) };
+  const idStory = access.idStory;
 
   const result = await db.transaction(async (tx) => {
     // The files the holder does not use yet, of those asked for.
@@ -694,13 +649,14 @@ export async function sa_detachFromHolder(
   ids: number[],
 ): Promise<DetachResult> {
   const user = await requireAccount();
-  const holderKind = attachHolderKindSchema.parse(kind);
-  const holderId = idExternalSchema.parse(idExternal);
-  const parsedIds = attachmentIdsSchema.parse(ids);
+  const asked = holderIdsSchema.safeParse({ kind, idExternal, ids });
+  if (!asked.success) return { ok: false, error: NO_ACCESS };
+  const { kind: holderKind, idExternal: holderId, ids: parsedIds } = asked.data;
   if (parsedIds.length === 0) return { ok: true, detached: [] };
 
-  const idStory = await holderStory(user.id, holderKind, holderId);
-  if (idStory === null) throw new Error("You do not have access to that story.");
+  const access = await holderStory(user.id, holderKind, holderId);
+  if (access.refused !== null) return { ok: false, error: refusal(access) };
+  const idStory = access.idStory;
 
   const detached = await db
     .delete(attachmentUses)
@@ -725,9 +681,10 @@ export async function sa_detachFromHolder(
  *
  * The attach is sa_attachToHolder's, with its conditions: only the holder's
  * storyteller, and only a READY file of that story. The cover is then
- * sa_setAttachmentCover's, taking the tag off whichever of the holder's
- * pictures held it first. Both in one transaction, so a refusal leaves the
- * holder as it was rather than using the file but not as its cover.
+ * setCover's, taking the tag off whichever of the holder's pictures held it
+ * first. Both in one transaction, so a refusal leaves the holder as it was
+ * rather than using the file but not as its cover. A link to a complete
+ * scene is refused, as attaching to it is.
  */
 export async function sa_attachAsCover(
   kind: AttachHolderKind,
@@ -735,12 +692,13 @@ export async function sa_attachAsCover(
   id: number,
 ): Promise<AttachAsCoverResult> {
   const user = await requireAccount();
-  const holderKind = attachHolderKindSchema.parse(kind);
-  const holderId = idExternalSchema.parse(idExternal);
-  const attachmentId = idAttachmentSchema.parse(id);
+  const asked = holderIdSchema.safeParse({ kind, idExternal, id });
+  if (!asked.success) return { ok: false, error: NO_ACCESS };
+  const { kind: holderKind, idExternal: holderId, id: attachmentId } = asked.data;
 
-  const idStory = await holderStory(user.id, holderKind, holderId);
-  if (idStory === null) throw new Error("You do not have access to that story.");
+  const access = await holderStory(user.id, holderKind, holderId);
+  if (access.refused !== null) return { ok: false, error: refusal(access) };
+  const idStory = access.idStory;
   const noun = ATTACH_HOLDER_NOUNS[holderKind];
 
   const result = await db.transaction(async (tx) => {
@@ -761,37 +719,7 @@ export async function sa_attachAsCover(
         error: `That attachment can no longer be used by the ${noun}.`,
       };
     }
-    await tx
-      .update(attachmentUses)
-      .set({
-        tags: sql`array_remove(${attachmentUses.tags}, ${COVER_TAG})`,
-        idUpdatedByUser: user.id,
-      })
-      .where(
-        and(
-          eq(attachmentUses.kind, holderKind),
-          eq(attachmentUses.idExternal, holderId),
-          useIsCoverSql,
-        ),
-      );
-    await tx
-      .insert(attachmentUses)
-      .values({
-        idAttachment: attachmentId,
-        kind: holderKind,
-        idExternal: holderId,
-        tags: [COVER_TAG],
-        idCreatedByUser: user.id,
-        idUpdatedByUser: user.id,
-      })
-      .onConflictDoUpdate({
-        target: [attachmentUses.idAttachment, attachmentUses.kind, attachmentUses.idExternal],
-        set: {
-          tags: sql`array_append(${attachmentUses.tags}, ${COVER_TAG})`,
-          idUpdatedByUser: user.id,
-        },
-      });
-
+    await setCover({ kind: holderKind, idExternal: holderId }, attachmentId, user.id, tx);
     return { ok: true as const, url: file.url };
   });
   if (result.ok) tellPlayers(idStory, holderKind, holderId);

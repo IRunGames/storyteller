@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button, chakra, Heading, HStack, List, Stack, Text } from "@chakra-ui/react";
 import { BookOpen, ChevronDown } from "lucide-react";
 import { LocalDate } from "@/components/dates/local-date";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { sa_listElementHistory, type ElementHistoryRow } from "./actions";
 
 type Props = {
@@ -17,7 +17,7 @@ type Props = {
 /**
  * The History section at the foot of an element's panel: a book and the
  * word, with a chevron at the end that opens it, turning over and going
- * solid while open as the pill's own chevron does (PrepIconButton
+ * solid while open as the pill's own chevron does (IconButtonWithTooltip
  * expanded). Open, it lists the story's other scenes the element has been
  * in, most recently played first (sa_listElementHistory), five at a time
  * with Load more under them. Read on first opening and kept, so closing
@@ -64,7 +64,7 @@ export function ElementHistory({ idStory, idElement, idStoryScene }: Props) {
             History
           </Heading>
         </HStack>
-        <PrepIconButton label="History" expanded={open} onClick={toggle}>
+        <IconButtonWithTooltip label="History" expanded={open} onClick={toggle}>
           <chakra.span
             display="inline-flex"
             transition="transform 0.15s"
@@ -72,7 +72,7 @@ export function ElementHistory({ idStory, idElement, idStoryScene }: Props) {
           >
             <ChevronDown />
           </chakra.span>
-        </PrepIconButton>
+        </IconButtonWithTooltip>
       </HStack>
       {open &&
         (failed && rows === null ? (

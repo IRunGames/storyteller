@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useState } from "react";
 import { Box, Heading, HStack, Portal, Stack, Text, Tooltip } from "@chakra-ui/react";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import {
   ArrowDown10,
   ArrowDownUp,
@@ -23,9 +23,9 @@ import {
 import { SCENE_ELEMENT_HIDDEN, type PlayItem } from "@/lib/run";
 import { statLabel } from "@/lib/stat-blocks";
 import type { StatusOption } from "@/lib/status";
-import { rollText } from "@/lib/roll";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { StatusPill } from "@/components/status/status-pill";
+import { ROLLS_FAILED, toastRollAll } from "@/components/stat-blocks/roll-toasts";
 
 /** One global stat the pane offers to roll for all, found on the blocks it lists. */
 type GlobalStat = { idSystem: number; group: string; stat: string; label: string };
@@ -174,29 +174,16 @@ export function RunStatsPane({
         global.group,
         global.stat,
       );
-      if (!result.ok) {
-        toaster.create({ title: result.error, type: "error" });
-        return;
-      }
-      if (result.rolls.length === 0) {
-        toaster.create({ title: "There was nothing to roll.", type: "info" });
-        return;
-      }
+      toastRollAll(global.label, result);
+      if (!result.ok || result.rolls.length === 0) return;
+      // Each pill shows its own total under the stat's label.
       const byLink: Record<number, number> = {};
       for (const rolled of result.rolls) {
         if (rolled.idSceneElement !== undefined) byLink[rolled.idSceneElement] = rolled.roll.total;
       }
       setTotals({ label: global.label, byLink });
-      const quiet = result.rolls.filter((roll) => !roll.posted);
-      if (quiet.length > 0) {
-        toaster.create({
-          title: `${global.label} rolled quietly`,
-          description: quiet.map((roll) => rollText(roll.roll)).join(" · "),
-          type: "info",
-        });
-      }
     } catch {
-      toaster.create({ title: "The rolls could not be made. Try again.", type: "error" });
+      toaster.create({ title: ROLLS_FAILED, type: "error" });
     } finally {
       setRolling(null);
     }
@@ -237,7 +224,7 @@ export function RunStatsPane({
           Stats
         </Heading>
         {globals.map((global) => (
-          <PrepIconButton
+          <IconButtonWithTooltip
             key={globalKey(global)}
             label={`Roll ${global.label} for all`}
             expanded={rolling === globalKey(global)}
@@ -245,10 +232,10 @@ export function RunStatsPane({
             onClick={() => void rollAll(global)}
           >
             <Dices />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         ))}
         {totals && (
-          <PrepIconButton
+          <IconButtonWithTooltip
             label={
               sort === "desc"
                 ? "Sort by the last roll low to high"
@@ -257,15 +244,15 @@ export function RunStatsPane({
             onClick={() => setSort((current) => (current === "desc" ? "asc" : "desc"))}
           >
             {sort === "desc" ? <ArrowDown10 /> : sort === "asc" ? <ArrowUp01 /> : <ArrowDownUp />}
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         )}
         <Box ml="auto">
-          <PrepIconButton
+          <IconButtonWithTooltip
             label={wide ? "Shrink the stats pane" : "Expand the stats pane"}
             onClick={() => setWide((current) => !current)}
           >
             {wide ? <Minimize2 /> : <Maximize2 />}
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         </Box>
       </HStack>
       <Stack flex="1" minH="0" overflowY="auto" gap="5">
@@ -360,8 +347,8 @@ const StatsPaneRow = memo(function StatsPaneRow({
                 {/* Focusable, so the keyboard reaches the tooltip too. */}
                 <Text
                   as="span"
-                  fontWeight="normal"
                   color="fg.muted"
+                  fontWeight="normal"
                   tabIndex={0}
                   data-testid="rolled-total"
                 >
@@ -389,13 +376,13 @@ const StatsPaneRow = memo(function StatsPaneRow({
             />
           )}
           {!locked && (
-            <PrepIconButton
+            <IconButtonWithTooltip
               label={editing ? "Done editing stat blocks" : "Edit stat blocks"}
               expanded={editing}
               onClick={() => setEditing((current) => !current)}
             >
               <Pencil />
-            </PrepIconButton>
+            </IconButtonWithTooltip>
           )}
         </HStack>
       </HStack>

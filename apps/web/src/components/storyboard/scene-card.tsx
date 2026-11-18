@@ -17,11 +17,11 @@ import {
 import { Layers, Maximize2, Minimize2 } from "lucide-react";
 import { formatSceneLength } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
-import { cssUrlValue } from "@/lib/stories";
 import type { StoryboardScene } from "@/lib/storyboard";
 import { sa_setSceneText } from "@/components/run/actions";
 import { SceneTextPopover } from "@/components/play/scene-text-popover";
 import { SceneElementsPanel } from "./scene-elements-panel";
+import { CoverBackdrop } from "@/components/covers/cover-backdrop";
 
 type Props = {
   idStory: number;
@@ -147,26 +147,14 @@ export function SceneCard({ idStory, scene, statusOptions, canEdit }: Props) {
         cursor="pointer"
         onClick={() => setOpen(!open)}
       >
-        <Box
-          data-testid="scene-cover"
-          position="absolute"
-          inset="0"
-          bg="gray.700"
-          bgSize="cover"
-          bgPos="center"
-          style={coverUrl ? { backgroundImage: `url("${cssUrlValue(coverUrl)}")` } : undefined}
-        />
-        {/* The story card's scrim, for the same reason: the title has to read
-            on a bright picture and the bottom row on a dark one; deeper in
-            the middle than the story card's, since the description runs
-            through it. */}
-        <Box
-          position="absolute"
-          inset="0"
-          bgGradient="to-b"
-          gradientFrom="blackAlpha.700"
-          gradientVia="blackAlpha.600"
-          gradientTo="blackAlpha.800"
+        {/* The story card's cover and scrim: the title has to read on a
+            bright picture and the bottom row on a dark one, and the
+            description runs through the darkened middle. */}
+        <CoverBackdrop
+          url={coverUrl}
+          scrim="deep-gradient"
+          fallback="gray.700"
+          testId="scene-cover"
         />
 
         {/* The corner's buttons. The touch is stopped on the row rather

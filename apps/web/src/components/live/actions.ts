@@ -2,62 +2,35 @@
 
 import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import { idSchema, searchSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
-import { COVER_TAG } from "@/lib/attachments";
+import { clearCover } from "@/db/covers";
+import { spaceFor } from "@/db/scene-space";
+import { createScene } from "@/db/scenes";
+import { ownedScene, ownedStory } from "@/db/story-access";
 import { requireAccount } from "@/lib/authorize";
 import { likeContains } from "@/lib/filter-text";
-import type { RunScene } from "@/lib/run";
+import type { RunPlaySpace, RunScene } from "@/lib/run";
 import { publishLater } from "@/lib/realtime/publish";
 import { publishSceneChanged } from "@/lib/realtime/publish-scene";
-import { liveSceneTextSchema } from "@/lib/scene-schemas";
+import { liveSceneTextSchema, runSceneSchema } from "@/lib/scene-schemas";
+import { duplicateSceneTitle, type SetSceneTextResult } from "@/lib/scenes";
+import { sessionHeadingOf } from "@/lib/stories";
+import { formErrors } from "@/lib/forms";
+import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS } from "@/lib/status";
 import {
-  duplicateSceneTitle,
-  SCENE_LOCKED_STATUS,
-  SCENE_PENDING_STATUS,
-  type SetSceneTextResult,
-} from "@/lib/scenes";
-import { sessionHeading } from "@/lib/stories";
+  COMPLETE_NEEDS_SESSION,
+  NOT_THIS_STORY,
+  NOT_THIS_STORYS_SESSION,
+  SCENE_COMPLETE,
+} from "@/lib/messages";
 
-const { attachmentUses, sceneElements, stories, storyScenes, storySessions, vStoryScenes } = schema;
+const { attachmentUses, sceneElements, storyScenes, storySessions, vStoryScenes } = schema;
 
-const idSchema = z.int32();
-
-const NOT_THIS_STORY = "That scene is not part of this story.";
-const NOT_THIS_STORYS_SESSION = "That session is not part of this story.";
-const SCENE_COMPLETE = "That scene is complete, so nothing in it can change.";
-const COMPLETE_NEEDS_SESSION = "A complete scene was played in a session, so it keeps one.";
-
-/**
- * The scene's status when it is a scene of this story told by the caller,
- * or null when it is not: the check both actions here start with, as the
- * run page's ownedScene is for its own.
- */
-async function ownedSceneStatus(
-  userId: string,
-  idStory: number,
-  idStoryScene: number,
-): Promise<string | null> {
-  const [row] = await db
-    .select({ status: storyScenes.status })
-    .from(storyScenes)
-    .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
-    .where(
-      and(
-        eq(storyScenes.idStoryScene, idStoryScene),
-        eq(storyScenes.idStory, idStory),
-        eq(stories.idCreatedByUser, userId),
-      ),
-    )
-    .limit(1);
-  return row?.status ?? null;
-}
-
-/** Field errors from a failed parse, keyed by the path the form names. */
-function formErrors(issues: z.core.$ZodIssue[]): Record<string, string> {
-  const errors: Record<string, string> = {};
-  for (const issue of issues) errors[issue.path.join(".")] ??= issue.message;
-  return errors;
-}
+// The live-edit page's own writes to a scene: its text and title, the
+// sitting it is in, a copy of it, its cover, and the selector's search and
+// Create new scene. Every action here starts with requireAccount() and
+// holds the scene to a story the caller tells (ownedScene).
 
 /**
  * The panel behind the scene's title on the live-edit page: the run page's
@@ -67,7 +40,8 @@ function formErrors(issues: z.core.$ZodIssue[]): Record<string, string> {
  *
  * Refused for a scene that is not this story's or the caller is not its
  * storyteller, and for a complete one, whose panel the page shows read only
- * as the run page does; field errors come back for the form.
+ * (ownedScene's lock, which the run page's panel alone sets aside); field
+ * errors come back for the form.
  */
 export async function sa_setLiveSceneText(
   idStory: number,
@@ -78,12 +52,14 @@ export async function sa_setLiveSceneText(
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   if (!story.success || !scene.success) return { ok: false, errors: { root: NOT_THIS_STORY } };
-  const status = await ownedSceneStatus(user.id, story.data, scene.data);
-  if (status === null) return { ok: false, errors: { root: NOT_THIS_STORY } };
-  if (status === SCENE_LOCKED_STATUS) return { ok: false, errors: { root: SCENE_COMPLETE } };
+  const owned = await ownedScene(user.id, scene.data, { idStory: story.data });
+  if (!owned.ok) {
+    const root = owned.reason === "locked" ? SCENE_COMPLETE : NOT_THIS_STORY;
+    return { ok: false, errors: { root } };
+  }
 
   const parsed = liveSceneTextSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error.issues) };
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
   const text = { description: parsed.data.description || null, notes: parsed.data.notes || null };
 
   await db
@@ -110,7 +86,9 @@ export type SetLiveSceneSessionResult =
  *
  * Refused for a scene that is not this story's or the caller is not its
  * storyteller, for a session of another story, and for no session on a
- * complete scene, which was played somewhere.
+ * complete scene, which was played somewhere. A complete scene's sitting
+ * may otherwise be changed: where it was played is a fact about the record,
+ * not the record itself.
  */
 export async function sa_setLiveSceneSession(
   idStory: number,
@@ -124,9 +102,9 @@ export async function sa_setLiveSceneSession(
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
   if (!session.success) return { ok: false, error: NOT_THIS_STORYS_SESSION };
 
-  const status = await ownedSceneStatus(user.id, story.data, scene.data);
-  if (status === null) return { ok: false, error: NOT_THIS_STORY };
-  if (session.data === null && status === SCENE_LOCKED_STATUS) {
+  const owned = await ownedScene(user.id, scene.data, { idStory: story.data, allowLocked: true });
+  if (!owned.ok) return { ok: false, error: NOT_THIS_STORY };
+  if (session.data === null && owned.scene.status === SCENE_LOCKED_STATUS) {
     return { ok: false, error: COMPLETE_NEEDS_SESSION };
   }
 
@@ -162,14 +140,14 @@ export type DuplicateLiveSceneResult =
  * building the second by hand is the work this saves. The copy is pending
  * whatever the original's status, said outright rather than left to the
  * column's default, since it is a scene still to be played, and it is in
- * the original's sitting, except that a
- * complete original's sitting is history, so its copy waits in no session
- * for the storyteller to place. One transaction, so the copy is whole or
- * not there. Nothing is published: no table is on a scene that did not
- * exist a moment ago.
+ * the original's sitting, except that a complete original's sitting is
+ * history, so its copy waits in no session for the storyteller to place.
+ * One transaction, so the copy is whole or not there. Nothing is
+ * published: no table is on a scene that did not exist a moment ago.
  *
  * Refused for a scene that is not this story's or the caller is not its
- * storyteller.
+ * storyteller. A complete scene may be copied: the copy is new, the
+ * original untouched.
  */
 export async function sa_duplicateLiveScene(
   idStory: number,
@@ -179,37 +157,31 @@ export async function sa_duplicateLiveScene(
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  const status = await ownedSceneStatus(user.id, story.data, scene.data);
-  if (status === null) return { ok: false, error: NOT_THIS_STORY };
+  const owned = await ownedScene(user.id, scene.data, { idStory: story.data, allowLocked: true });
+  if (!owned.ok) return { ok: false, error: NOT_THIS_STORY };
+  const source = owned.scene;
 
   const created = await db.transaction(async (tx) => {
-    const [source] = await tx
-      .select({
-        title: storyScenes.sceneTitle,
-        description: storyScenes.sceneDescription,
-        notes: storyScenes.notes,
-        tags: storyScenes.tags,
-        idStorySession: storyScenes.idStorySession,
-      })
+    const [notes] = await tx
+      .select({ notes: storyScenes.notes })
       .from(storyScenes)
       .where(eq(storyScenes.idStoryScene, scene.data))
       .limit(1);
     // The tags are written out even when empty: the standard-tags trigger
     // fills an empty array with the story's, and a copy keeps its original's.
-    const [copy] = await tx
-      .insert(storyScenes)
-      .values({
+    const copy = await createScene(
+      {
         idStory: story.data,
         status: SCENE_PENDING_STATUS,
-        idStorySession: status === SCENE_LOCKED_STATUS ? null : source.idStorySession,
-        sceneTitle: duplicateSceneTitle(source.title),
-        sceneDescription: source.description,
-        notes: source.notes,
+        idStorySession: source.status === SCENE_LOCKED_STATUS ? null : source.idStorySession,
+        title: duplicateSceneTitle(source.title),
+        description: source.description,
+        notes: notes?.notes ?? null,
         tags: source.tags,
-        idCreatedByUser: user.id,
-        idUpdatedByUser: user.id,
-      })
-      .returning({ idStoryScene: storyScenes.idStoryScene });
+        userId: user.id,
+      },
+      tx,
+    );
 
     const links = await tx
       .select({
@@ -239,7 +211,7 @@ export async function sa_duplicateLiveScene(
         .insert(sceneElements)
         .values({
           ...link,
-          idStoryScene: copy.idStoryScene,
+          idStoryScene: copy,
           idCreatedByUser: user.id,
           idUpdatedByUser: user.id,
         })
@@ -273,7 +245,7 @@ export async function sa_duplicateLiveScene(
         uses.map((use) => ({
           idAttachment: use.idAttachment,
           kind: use.kind,
-          idExternal: use.kind === "STORY_SCENE" ? copy.idStoryScene : copied.get(use.idExternal)!,
+          idExternal: use.kind === "STORY_SCENE" ? copy : copied.get(use.idExternal)!,
           sortOrder: use.sortOrder,
           tags: use.tags,
           idCreatedByUser: user.id,
@@ -281,7 +253,7 @@ export async function sa_duplicateLiveScene(
         })),
       );
     }
-    return copy.idStoryScene;
+    return copy;
   });
 
   return { ok: true, idStoryScene: created };
@@ -291,15 +263,17 @@ export type ClearLiveSceneCoverResult = { ok: true } | { ok: false; error: strin
 
 /**
  * The cover icon in the corner of the live-edit page's play space: takes the
- * cover off the scene. The picture stays among the scene's pictures, only
- * its use loses the cover tag, as the Cover button on its card would take it
- * off (sa_setAttachmentCover), so nothing is lost that was not asked for; it
- * can be made the cover again from the scene's Pictures. A scene with no
- * cover is left as it is. Nothing is published: the cover behind a players'
- * table is read with the scene, and this page is not at a table.
+ * cover off the scene (clearCover). The picture stays among the scene's
+ * pictures, only its use loses the cover tag, as the Cover button on its
+ * card would take it off (sa_setAttachmentCover), so nothing is lost that
+ * was not asked for; it can be made the cover again from the scene's
+ * Pictures. A scene with no cover is left as it is. Every table is told the
+ * scene changed, since the players' table draws the scene behind its cover
+ * and the scene may be the one being played.
  *
  * Refused for a scene that is not this story's or the caller is not its
- * storyteller.
+ * storyteller; a complete scene's cover may still be taken off, as it could
+ * from its Pictures.
  */
 export async function sa_clearLiveSceneCover(
   idStory: number,
@@ -309,23 +283,47 @@ export async function sa_clearLiveSceneCover(
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  const status = await ownedSceneStatus(user.id, story.data, scene.data);
-  if (status === null) return { ok: false, error: NOT_THIS_STORY };
+  const owned = await ownedScene(user.id, scene.data, { idStory: story.data, allowLocked: true });
+  if (!owned.ok) return { ok: false, error: NOT_THIS_STORY };
 
-  await db
-    .update(attachmentUses)
-    .set({
-      tags: sql`array_remove(${attachmentUses.tags}, ${COVER_TAG})`,
-      idUpdatedByUser: user.id,
-    })
-    .where(
-      and(
-        eq(attachmentUses.kind, "STORY_SCENE"),
-        eq(attachmentUses.idExternal, scene.data),
-        sql`${COVER_TAG} = ANY(${attachmentUses.tags})`,
-      ),
-    );
+  await clearCover({ kind: "STORY_SCENE", idExternal: scene.data }, user.id);
+  publishLater(() => publishSceneChanged(story.data));
   return { ok: true };
+}
+
+export type CreateLiveSceneResult =
+  { ok: true; space: RunPlaySpace } | { ok: false; errors: Record<string, string> };
+
+/**
+ * The live-edit page's selector's Create new scene, which makes the scene
+ * to be prepared rather than played: in the workflow's default and in no
+ * sitting, whether or not a session is being played, and with the session
+ * left on whatever scene it was on, unlike the run table's sa_createRunScene.
+ * The page then goes to the new scene's own live-edit page.
+ *
+ * Field errors come back for the form, and a story the caller does not tell
+ * as `root`.
+ */
+export async function sa_createLiveScene(
+  idStory: number,
+  input: unknown,
+): Promise<CreateLiveSceneResult> {
+  const user = await requireAccount();
+  const id = idSchema.safeParse(idStory);
+  if (!id.success || (await ownedStory(user.id, id.data)) === null) {
+    return { ok: false, errors: { root: NOT_THIS_STORY } };
+  }
+
+  const parsed = runSceneSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
+
+  const idStoryScene = await createScene({
+    idStory: id.data,
+    title: parsed.data.title,
+    description: parsed.data.description,
+    userId: user.id,
+  });
+  return { ok: true, space: await spaceFor(id.data, idStoryScene) };
 }
 
 // How many scenes the header's selector lists for one search.
@@ -334,7 +332,7 @@ const LIVE_SCENES_LIST_SIZE = 20;
 // What the selector narrows by, bounded as the board's searches are: words,
 // the statuses still switched on, and the sittings chosen.
 const liveSceneSearchSchema = z.object({
-  query: z.string().max(200),
+  query: searchSchema,
   statuses: z.array(z.string().min(1).max(64)).max(50),
   sessions: z.array(idSchema).max(500),
 });
@@ -361,13 +359,7 @@ export async function sa_searchLiveScenes(
   const story = idSchema.safeParse(idStory);
   const parsed = liveSceneSearchSchema.safeParse(search);
   if (!story.success || !parsed.success) return [];
-
-  const [owned] = await db
-    .select({ owner: stories.idCreatedByUser })
-    .from(stories)
-    .where(eq(stories.idStory, story.data))
-    .limit(1);
-  if (owned?.owner !== user.id) return [];
+  if ((await ownedStory(user.id, story.data)) === null) return [];
 
   const { query, statuses, sessions } = parsed.data;
   const needle = query.trim();
@@ -407,9 +399,6 @@ export async function sa_searchLiveScenes(
     idStoryScene: row.idStoryScene!,
     title: row.title!,
     status: row.status!,
-    sessionHeading:
-      row.idStorySession === null || row.sessionNumber === null
-        ? null
-        : sessionHeading({ number: row.sessionNumber, title: row.sessionTitle }),
+    sessionHeading: sessionHeadingOf(row),
   }));
 }

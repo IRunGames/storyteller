@@ -2,9 +2,13 @@
 
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
+import { SCENE_LOCKED_STATUS, SESSION_STATUS } from "@/lib/status";
 import { db, schema } from "@/db";
 import { listStatusOptions } from "@/db/status-options";
 import { requireAccount } from "@/lib/authorize";
+import { isTransitionRefusal } from "@/lib/db-errors";
+import { SCENE_COMPLETE } from "@/lib/messages";
 import { removeGuestsFrom } from "@/lib/guests";
 import { publishLater } from "@/lib/realtime/publish";
 import {
@@ -31,8 +35,6 @@ const { stories, storyScenes, storySessions, elements, sceneElements } = schema;
 // else is not a table with a workflow, it is someone trying their luck.
 const tableSchema = z.enum(STATUS_TABLES);
 
-const idSchema = z.int32();
-
 // A status key is only ever compared against the workflow's own list, never
 // interpolated, but a bound on the length keeps a runaway string out of the
 // query altogether.
@@ -49,19 +51,29 @@ const statusSchema = z.string().min(1).max(64);
  */
 export async function sa_listStatusOptions(table: StatusTable): Promise<StatusOption[]> {
   await requireAccount();
-  return listStatusOptions(tableSchema.parse(table));
+  const name = tableSchema.safeParse(table);
+  return name.success ? listStatusOptions(name.data) : [];
 }
 
 export type SetStatusResult = { ok: true; status: string } | { ok: false; error: string };
 
+// What the pill asks for, held to the tables and lengths above before any
+// of it reaches a query.
+const moveSchema = z.object({ table: tableSchema, id: idSchema, status: statusSchema });
+
 /**
  * Move one row to a new status, taking effect at once. Only the storyteller
- * who owns the story the row belongs to may do it (currentStatus).
+ * who owns the story the row belongs to may do it (currentStatus), and a
+ * scene element's pill is held to its scene's lock: a complete scene is the
+ * record of what was played, so the standing of what is in it does not
+ * change either (SCENE_LOCKED_STATUS, as every other write to a link is
+ * held by db/story-access.ts).
  *
  * The transition is checked against the workflow here and again by the
  * database's own trigger, which is the one that counts. A refusal comes back
  * as `ok: false` with something the pill can say, because there is nothing
- * the caller can fix by trying differently and nothing worth a thrown error.
+ * the caller can fix by trying differently and nothing worth a thrown error;
+ * a request that is not one at all answers the same way.
  */
 export async function sa_setRowStatus(
   table: StatusTable,
@@ -69,11 +81,11 @@ export async function sa_setRowStatus(
   status: string,
 ): Promise<SetStatusResult> {
   const user = await requireAccount();
-  const name = tableSchema.parse(table);
-  const rowId = idSchema.parse(id);
-  const next = statusSchema.parse(status);
+  const asked = moveSchema.safeParse({ table, id, status });
+  if (!asked.success) return { ok: false, error: "That is not yours to change." };
+  const { table: name, id: rowId, status: next } = asked.data;
 
-  const options = await sa_listStatusOptions(name);
+  const options = await listStatusOptions(name);
   if (!options.some((option) => option.key === next)) {
     return { ok: false, error: `${statusLabel(next)} is not a status of this workflow.` };
   }
@@ -87,6 +99,7 @@ export async function sa_setRowStatus(
   if (!row || row.owner !== user.id) {
     return { ok: false, error: "That is not yours to change." };
   }
+  if (row.sceneStatus === SCENE_LOCKED_STATUS) return { ok: false, error: SCENE_COMPLETE };
   if (row.status === next) return { ok: true, status: next };
 
   if (!transitionsFrom(row.status, options).some((option) => option.key === next)) {
@@ -112,17 +125,19 @@ export async function sa_setRowStatus(
     // session has ended either way, so a failure here is logged rather than
     // reported as the move failing; the daily sweep (api/cron/guest-sweep)
     // takes the guests once their sessions run out.
-    if (name === "story_sessions" && next === "DONE") {
+    if (name === "story_sessions" && next === SESSION_STATUS.DONE) {
       await removeGuestsFrom(row.idStory).catch((error: unknown) =>
         console.error("Could not remove the guests of a finished session", rowId, error),
       );
     }
     publishLater(() => publishStatusChange(name, rowId, row));
     return { ok: true, status: updated[0].status };
-  } catch {
+  } catch (error) {
     // The transition trigger raises rather than returns. Whatever it objected
     // to, the row is as it was, and the message it raises names database
-    // internals, so the pill says the plain thing instead.
+    // internals, so the pill says the plain thing instead. Only that refusal
+    // is answered for: a lost connection or a bug is still an error.
+    if (!isTransitionRefusal(error)) throw error;
     return { ok: false, error: "The database refused that change." };
   }
 }
@@ -132,9 +147,10 @@ type StatusRow = {
   status: string;
   owner: string | null;
   idStory: number;
-  /** A scene element's link: the scene and the element, for telling the players. */
+  /** A scene element's scene, for telling the players which scene's pill moved. */
   idStoryScene?: number;
-  idElement?: number;
+  /** A scene element's scene's status, which locks the link once the scene is complete. */
+  sceneStatus?: string;
 };
 
 /**
@@ -191,7 +207,7 @@ async function currentStatus(name: StatusTable, rowId: number): Promise<StatusRo
             owner: stories.idCreatedByUser,
             idStory: stories.idStory,
             idStoryScene: sceneElements.idStoryScene,
-            idElement: sceneElements.idElement,
+            sceneStatus: storyScenes.status,
           })
           .from(sceneElements)
           .innerJoin(storyScenes, eq(storyScenes.idStoryScene, sceneElements.idStoryScene))
@@ -216,8 +232,10 @@ async function publishStatusChange(name: StatusTable, rowId: number, row: Status
     case "elements":
       return publishElementChanged(row.idStory, rowId);
     case "scene_elements":
-      if (row.idStoryScene === undefined || row.idElement === undefined) return;
-      return publishSceneElement(row.idStory, row.idStoryScene, row.idElement);
+      // The link by its own id, rowId, which is what the table draws a pill
+      // by; an element may be in the scene more than once.
+      if (row.idStoryScene === undefined) return;
+      return publishSceneElement(row.idStory, row.idStoryScene, rowId);
   }
 }
 

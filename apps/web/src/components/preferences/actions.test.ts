@@ -4,27 +4,19 @@
 // It must never be the seed user: that is a real person's account in the
 // dev database, and deleting its row wiped their theme, profile colour and
 // picture on every run.
-import { after, before, beforeEach, describe, it, mock } from "node:test";
+import { after, before, beforeEach, it } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-
-loadEnvConfig(process.cwd());
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
 const FIXTURE_EMAIL = "preferences-fixture@example.test";
-const hasDb = Boolean(process.env.DATABASE_URL);
 
 let fixtureUser = "";
-const getSession = mock.fn(async () => ({ user: { id: fixtureUser } }));
 
 let actions: typeof import("./actions");
 
-// `@/db` opens its pool at import time, so it has to be pulled in from inside
-// `before` — a static import is evaluated before loadEnvConfig() above runs,
-// and the pool would be built without a connection string.
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 async function fixtureRow() {
   const rows = await db
@@ -46,17 +38,13 @@ async function removeFixture() {
   await db.delete(tables.user).where(inArray(tables.user.id, ids));
 }
 
-describe("preferences actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("preferences actions", {}, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
+    ({ db, tables } = suite);
     actions = await import("./actions");
     await removeFixture();
-    const [created] = await db
-      .insert(tables.user)
-      .values({ name: "Preferences Fixture", email: FIXTURE_EMAIL })
-      .returning({ id: tables.user.id });
-    fixtureUser = created.id;
+    fixtureUser = await suite.makeUser(FIXTURE_EMAIL, { name: "Preferences Fixture" });
+    suite.caller = fixtureUser;
   });
 
   // Every case starts from "no row yet", which is also what a run that died
@@ -68,8 +56,6 @@ describe("preferences actions", { skip: !hasDb && "DATABASE_URL is not set" }, (
   after(async () => {
     if (!db) return;
     await removeFixture();
-    // Otherwise the process lingers until the pool's idle timeout.
-    await db.$client.end();
   });
 
   it("reads an empty map for a user with no row yet", async () => {

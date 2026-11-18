@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import NextLink from "next/link";
 import { Button, Portal, Tooltip } from "@chakra-ui/react";
 import { Play } from "lucide-react";
-import type { StoryCardData } from "@/lib/stories";
+import { formatPlayerCount, type StoryCardData } from "@/lib/stories";
 import { StoryPlayPopover } from "./story-play-popover";
 
 /** What Play needs to know about a story: whose it is, and who is at its table. */
@@ -26,13 +26,12 @@ export function playState(story: PlayButtonStory): {
   label: string;
   tooltip: string;
 } {
-  const players = (n: number) => `${n} ${n === 1 ? "player" : "players"}`;
   if (story.hasOpenSession) {
     const n = story.presentCount;
     return {
       count: n,
       live: true,
-      label: `Play, ${players(n)} at the table`,
+      label: `Play, ${formatPlayerCount(n)} at the table`,
       tooltip: `Session in progress · ${n} at the table`,
     };
   }
@@ -41,7 +40,7 @@ export function playState(story: PlayButtonStory): {
     return {
       count: n,
       live: true,
-      label: `Play, ${players(n)} waiting`,
+      label: `Play, ${formatPlayerCount(n)} waiting`,
       tooltip: story.isOwner ? `Start playing · ${n} waiting` : `${n} waiting for the storyteller`,
     };
   }

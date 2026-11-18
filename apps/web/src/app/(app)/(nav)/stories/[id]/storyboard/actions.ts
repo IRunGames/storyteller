@@ -2,6 +2,7 @@
 
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
+import { idSchema, offsetSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { attachmentOrFirstUrl, attachmentUrl } from "@/db/attachment-url";
 import { sceneItems } from "@/db/scene-items";
@@ -10,8 +11,7 @@ import { requireAccount } from "@/lib/authorize";
 import type { PlayScene } from "@/lib/play-scene";
 import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
 import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
-import { SCENE_LOCKED_STATUS } from "@/lib/scenes";
-import { SESSION_DONE_STATUS } from "@/lib/stories";
+import { SCENE_LOCKED_STATUS, SESSION_DONE_STATUS } from "@/lib/status";
 import {
   STORYBOARD_SESSIONS_PAGE,
   STORYBOARD_UNPLAYED_PAGE,
@@ -25,9 +25,7 @@ import {
 
 const { stories, storyScenes, storySessions, vStoryScenes, vStorySessions } = schema;
 
-const idSchema = z.int32();
 const cursorSchema = z.object({ number: z.number().int(), idStorySession: idSchema });
-const offsetSchema = z.number().int().min(0);
 
 /**
  * The story and what the caller may see of it, or null when there is no
@@ -47,6 +45,8 @@ async function openBoard(userId: string, idStory: number) {
       title: stories.title,
       idCreatedByUser: stories.idCreatedByUser,
       isPublic: stories.isPublic,
+      isLookingForPlayers: stories.isLookingForPlayers,
+      isActive: stories.isActive,
       imageUrl: attachmentUrl("STORY", "stories", "id_story"),
     })
     .from(stories)
@@ -304,6 +304,8 @@ export async function sa_getStoryboardScene(idStoryScene: number): Promise<PlayS
       idStory: stories.idStory,
       idCreatedByUser: stories.idCreatedByUser,
       isPublic: stories.isPublic,
+      isLookingForPlayers: stories.isLookingForPlayers,
+      isActive: stories.isActive,
       idStoryScene: storyScenes.idStoryScene,
       title: storyScenes.sceneTitle,
       status: storyScenes.status,

@@ -18,7 +18,8 @@ import {
 } from "@chakra-ui/react";
 import { ChevronsLeft, ChevronsRight, Info } from "lucide-react";
 import type { StatusOption } from "@/lib/status";
-import { SESSION_DONE_STATUS, cssUrlValue, sessionHeading, sessionStatusText } from "@/lib/stories";
+import { sessionHeading, sessionStatusText } from "@/lib/stories";
+import { SESSION_DONE_STATUS } from "@/lib/status";
 import type {
   Storyboard as StoryboardData,
   StoryboardScene,
@@ -32,6 +33,7 @@ import { LocalDate } from "@/components/dates/local-date";
 import { StoryTitleMenu } from "@/components/stories/story-title-menu";
 import { SceneCard } from "./scene-card";
 import { SessionEditPopover } from "./session-edit-popover";
+import { CoverBackdrop } from "@/components/covers/cover-backdrop";
 
 type Props = {
   board: StoryboardData;
@@ -147,27 +149,10 @@ export function Storyboard({ board, sceneStatusOptions }: Props) {
     // flex="1" fills the nav layout's column so the backdrop reaches the foot
     // of the viewport, not just the bottom of the cards.
     <Box position="relative" flex="1" display="flex" flexDirection="column">
+      {/* The cards' scrim, so the bands and the text never meet a bright
+          cover directly and the page reads the same in every theme. */}
       {board.imageUrl && (
-        <>
-          <Box
-            data-testid="storyboard-backdrop"
-            position="absolute"
-            inset="0"
-            bgSize="cover"
-            bgPos="center"
-            style={{ backgroundImage: `url("${cssUrlValue(board.imageUrl)}")` }}
-          />
-          {/* The cards' scrim, so the bands and the text never meet a bright
-              cover directly and the page reads the same in every theme. */}
-          <Box
-            position="absolute"
-            inset="0"
-            bgGradient="to-b"
-            gradientFrom="blackAlpha.700"
-            gradientVia="blackAlpha.400"
-            gradientTo="blackAlpha.800"
-          />
-        </>
+        <CoverBackdrop url={board.imageUrl} scrim="gradient" testId="storyboard-backdrop" />
       )}
 
       <Stack

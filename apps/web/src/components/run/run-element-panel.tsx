@@ -12,15 +12,14 @@ import {
   type SceneLink,
 } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
+import { sa_getElementDetail, sa_updateStoryElement } from "@/components/elements/actions";
 import {
-  sa_getElementDetail,
   sa_moveSceneElement,
   sa_unlinkSceneElement,
   sa_updateSceneElement,
-  sa_updateStoryElement,
-} from "@/components/run/actions";
+} from "@/components/scene-elements/actions";
 import { toaster } from "@/components/ui/toaster";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { DeleteButton } from "@/components/confirm/delete-button";
 import { ElementHistory } from "@/components/elements/element-history";
 import { sa_getStatBlocks, type ElementStatBlock } from "@/components/stat-blocks/actions";
@@ -245,9 +244,13 @@ export function RunElementPanel({
         {loaded && !editing && (
           <HStack gap="1" flexShrink="0">
             {canEdit && (
-              <PrepIconButton label={`Edit ${name}`} onClick={() => setEditing(true)} outlined>
+              <IconButtonWithTooltip
+                label={`Edit ${name}`}
+                onClick={() => setEditing(true)}
+                outlined
+              >
                 <Pencil />
-              </PrepIconButton>
+              </IconButtonWithTooltip>
             )}
             {inScene && !locked && (
               <DeleteButton

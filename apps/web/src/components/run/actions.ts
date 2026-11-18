@@ -1,106 +1,51 @@
 "use server";
 
-import { randomBytes } from "node:crypto";
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  ilike,
-  inArray,
-  isNull,
-  ne,
-  notInArray,
-  sql,
-} from "drizzle-orm";
-import { z } from "zod";
+import { and, desc, eq, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
-import { statBlockSystems } from "@/db/stat-block-systems";
-import { rollTotal } from "@/lib/dice";
-import { readStatBlocks } from "@/lib/stat-block-schemas";
-import { rollStartingBlocks } from "@/lib/stat-blocks";
-import { attachmentUrl, sceneElementImageUrl } from "@/db/attachment-url";
-import { elementOrderBy } from "@/db/element-order";
-import { COVER_TAG } from "@/lib/attachments";
+import { insertChat } from "@/db/chats";
+import { spaceFor } from "@/db/scene-space";
+import { createScene } from "@/db/scenes";
+import { ownedScene, ownedStory, playingSession, shownSession } from "@/db/story-access";
 import { requireAccount } from "@/lib/authorize";
+import { sceneEntryText } from "@/lib/chat";
+import { formErrors } from "@/lib/forms";
 import {
-  elementTagsSchema,
-  runElementSchema,
-  runStoryElementSchema,
-  type RunElementValues,
-} from "@/lib/element-schemas";
-import { sa_listStatusOptions } from "@/components/status/actions";
+  CHANGE_FAILED,
+  NOT_THIS_STORY,
+  NO_SESSION_FOR_SCENE,
+  NO_SUCH_STACK,
+  SCENE_COMPLETE,
+} from "@/lib/messages";
+import type { PublicChat } from "@/lib/realtime/chat-events";
+import { publishChat, publishLater } from "@/lib/realtime/publish";
+import { publishSceneChanged } from "@/lib/realtime/publish-scene";
 import {
-  ELEMENT_KINDS,
-  ELEMENT_SORT_KEYS,
-  isElementKind,
-  type ElementKind,
-  type ElementSort,
-  type StoryElement,
-} from "@/lib/elements";
-import { likeContains } from "@/lib/filter-text";
-import {
-  DEFAULT_ELEMENT_SHOWING,
   EMPTY_PLAY_SPACE,
-  isElementShowing,
-  pillLink,
-  pillText,
-  playItemKey,
-  RUN_LIST_SIZE,
   RUN_SCENES_LIST_SIZE,
-  isSceneElementStatus,
-  SCENE_ELEMENT_HIDDEN,
-  SCENE_ELEMENT_STATUSES,
-  type PlayItem,
+  stackKey,
+  withStackWide,
   type RunPlaySpace,
   type RunScene,
-  type ElementDetail,
-  type ElementShowing,
-  type ElementPanelDetail,
 } from "@/lib/run";
-import { isScenePulse, scenePulseSchema } from "@/lib/realtime/events";
-import { publishChat, publishLater } from "@/lib/realtime/publish";
-import type { PublicChat } from "@/lib/realtime/chat-events";
-import { insertChat } from "@/db/chats";
-import { sceneEntryText } from "@/lib/chat";
-import {
-  publishElementChanged,
-  publishSceneChanged,
-  publishSceneElement,
-  publishSceneElementPulse,
-  publishSceneElementRemoved,
-  publishSessionUpdated,
-} from "@/lib/realtime/publish-scene";
 import { runSceneSchema, sceneTextWithTitleSchema } from "@/lib/scene-schemas";
-import { SCENE_LOCKED_STATUS, type SetSceneTextResult } from "@/lib/scenes";
-import { sessionTitleSchema } from "@/lib/session-schemas";
-import { sceneStacksSchema, stacksSchema } from "@/lib/stack-schemas";
-import { sessionHeading } from "@/lib/stories";
-import { joinCap } from "@/lib/join";
-import { recountTable, removeGuestsFrom } from "@/lib/guests";
-import { WAITING_STALE_SECONDS } from "@/lib/play";
+import { type SetSceneTextResult } from "@/lib/scenes";
+import { sceneStacksSchema, stackWideSchema } from "@/lib/stack-schemas";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
+import { sessionHeadingOf } from "@/lib/stories";
 
-const {
-  attachments,
-  attachmentUses,
-  elements,
-  sceneElements,
-  sessionPlayers,
-  stories,
-  storyPlayers,
-  storyScenes,
-  storySessions,
-  user: users,
-  vSceneElements,
-  vStoryScenes,
-} = schema;
+const { sceneElements, stories, storyScenes, storySessions, vStoryScenes } = schema;
 
-const idSchema = z.int32();
+// The storyteller's table and the scene it is on: opening the play space,
+// choosing and making scenes, and writing up the scene itself (its text and
+// its stacks). What is in the scene is components/scene-elements/actions.ts,
+// the element library components/elements/actions.ts, the session's
+// controls components/sessions/actions.ts, and the join link
+// components/join-links/actions.ts. Every action here starts with
+// requireAccount() and answers only the story's storyteller.
 
-// The session statuses in which a session is being played, the same two
-// hasOpenSession reads; see db/open-session.ts for why they are named here.
-const PLAYING = ["OPEN", "RESUMED"];
+/** The executor inside db.transaction, for a helper that may run within a caller's transaction. */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // The scene status a scene is in while it is being played. The table moves
 // a scene to it when the storyteller chooses it; the workflow lets every
@@ -109,176 +54,13 @@ const ACTIVE = "ACTIVE";
 
 const EMPTY = EMPTY_PLAY_SPACE;
 
-const NO_SESSION = "Start a session before choosing a scene.";
-const NOT_THIS_STORY = "That scene is not part of this story.";
-const NOT_THIS_STORYS_ELEMENT = "That element is not part of this story.";
-const NOT_IN_THIS_SCENE = "That element is not in this scene.";
-const NO_SUCH_STACK = "That stack is no longer one of the scene's tags.";
-const NOT_THIS_STORYS_SESSION = "That session is not part of this story.";
-const SCENE_COMPLETE = "That scene is complete, so nothing in it can change.";
-
-// A stack's tag as the + form sends it: one of the scene's tags, or null
-// for the Default stack of a scene with none.
-const stackTagSchema = z.string().trim().min(1).max(200).nullable();
-
-/**
- * The session being played at a story the caller tells, or null: when the
- * story is someone else's, when it has no current session, or when that
- * session is paused or finished.
- */
-async function playingSession(userId: string, idStory: number): Promise<number | null> {
-  const [row] = await db
-    .select({ idStorySession: storySessions.idStorySession })
-    .from(stories)
-    .innerJoin(storySessions, eq(storySessions.idStorySession, stories.idStorySession))
-    .where(
-      and(
-        eq(stories.idStory, idStory),
-        eq(stories.idCreatedByUser, userId),
-        inArray(storySessions.status, PLAYING),
-      ),
-    )
-    .limit(1);
-  return row?.idStorySession ?? null;
-}
-
-/**
- * The story's current session as the table shows it: being played or paused,
- * at a story the caller tells. Null when the story is someone else's, has no
- * current session, or that session has ended. Only for reading what the
- * table shows: a write checks playingSession, since nothing changes at a
- * paused table.
- */
-async function shownSession(
-  userId: string,
-  idStory: number,
-): Promise<{ idStorySession: number; isPlaying: boolean } | null> {
-  const [row] = await db
-    .select({ idStorySession: storySessions.idStorySession, status: storySessions.status })
-    .from(stories)
-    .innerJoin(storySessions, eq(storySessions.idStorySession, stories.idStorySession))
-    .where(
-      and(
-        eq(stories.idStory, idStory),
-        eq(stories.idCreatedByUser, userId),
-        inArray(storySessions.status, [...PLAYING, "SUSPENDED"]),
-      ),
-    )
-    .limit(1);
-  return row
-    ? { idStorySession: row.idStorySession, isPlaying: PLAYING.includes(row.status) }
-    : null;
-}
-
-/** Whether the caller is the storyteller who created the story. */
-async function ownsStory(userId: string, idStory: number): Promise<boolean> {
-  const [row] = await db
-    .select({ owner: stories.idCreatedByUser })
-    .from(stories)
-    .where(eq(stories.idStory, idStory))
-    .limit(1);
-  return row?.owner === userId;
-}
-
-/**
- * The play space for one scene of the story: its tags and cover, and the
- * elements brought into it (scene_elements) in the kinds' order, People to
- * Ephemera, as the library tabs list them, and by name within a kind. The
- * elements' keys are the library's own, so one already here cannot be added
- * again from the library.
- */
-async function spaceFor(idStory: number, idStoryScene: number): Promise<RunPlaySpace> {
-  const [scene] = await db
-    .select({
-      idStoryScene: storyScenes.idStoryScene,
-      title: storyScenes.sceneTitle,
-      status: storyScenes.status,
-      tags: storyScenes.tags,
-      coverUrl: attachmentUrl("STORY_SCENE", "story_scenes", "id_story_scene"),
-      description: storyScenes.sceneDescription,
-      notes: storyScenes.notes,
-    })
-    .from(storyScenes)
-    .where(and(eq(storyScenes.idStoryScene, idStoryScene), eq(storyScenes.idStory, idStory)))
-    .limit(1);
-  if (!scene) return EMPTY;
-
-  const rows = await db
-    .select({
-      idElement: vSceneElements.idElement,
-      kind: vSceneElements.kind,
-      name: vSceneElements.name,
-      initialName: vSceneElements.initialName,
-      title: vSceneElements.title,
-      tags: vSceneElements.tags,
-      status: vSceneElements.status,
-      showing: vSceneElements.elementShowing,
-      showInfo: vSceneElements.showInfo,
-      imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
-      url: vSceneElements.elementUrl,
-      urlText: vSceneElements.elementUrlText,
-      sceneUrl: vSceneElements.url,
-      sceneUrlText: vSceneElements.urlText,
-      idSceneElement: vSceneElements.idSceneElement,
-      hasStatBlocks: linkHasStatBlocks("v_scene_elements"),
-      label: vSceneElements.label,
-    })
-    .from(vSceneElements)
-    .where(
-      and(
-        eq(vSceneElements.idStoryScene, scene.idStoryScene),
-        // Nothing in the database holds a link's element to the scene's
-        // story, so a link to another story's element is not this scene's.
-        eq(vSceneElements.idStory, idStory),
-      ),
-    )
-    .orderBy(asc(vSceneElements.name), asc(vSceneElements.idElement));
-
-  const order = (kind: string) => ELEMENT_KINDS.indexOf(kind as (typeof ELEMENT_KINDS)[number]);
-  const linked = rows
-    .filter((row) => isElementKind(row.kind) && row.idElement !== null && row.name !== null)
-    .sort((a, b) => order(a.kind!) - order(b.kind!))
-    .map((row) =>
-      linkedItem({
-        idElement: row.idElement!,
-        kind: row.kind!,
-        name: row.name!,
-        initialName: row.initialName,
-        title: row.title,
-        tags: row.tags ?? [],
-        status: row.status ?? "",
-        showing: row.showing,
-        showInfo: row.showInfo,
-        idSceneElement: row.idSceneElement,
-        hasStatBlocks: row.hasStatBlocks,
-        label: row.label,
-        imageUrl: row.imageUrl,
-        url: row.url,
-        urlText: row.urlText,
-        sceneUrl: row.sceneUrl,
-        sceneUrlText: row.sceneUrlText,
-      }),
-    );
-
-  return {
-    scene: {
-      idStoryScene: scene.idStoryScene,
-      title: scene.title,
-      status: scene.status,
-      text: { description: scene.description, notes: scene.notes },
-    },
-    tags: scene.tags,
-    coverUrl: scene.coverUrl,
-    inPlay: linked,
-  };
-}
-
 /**
  * The panel behind the scene's title: the scene's description and notes,
  * written as it is played, and the title too when the panel renames the
  * scene, as the storyboard's card does. A complete scene takes it all: the
  * notes on a scene are often written once it is done, and its name is
- * settled on the board where the whole story is read. The tables' panels
+ * settled on the board where the whole story is read, so this is the one
+ * panel that asks ownedScene to allow a locked scene. The tables' panels
  * send text alone and the name stays. The players' table hears the scene
  * changed and reads it afresh, the new title included.
  *
@@ -294,11 +76,11 @@ export async function sa_setSceneText(
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   if (!story.success || !scene.success) return { ok: false, errors: { root: NOT_THIS_STORY } };
-  const owned = await ownedScene(user.id, story.data, scene.data);
-  if (owned === null) return { ok: false, errors: { root: NOT_THIS_STORY } };
+  const owned = await ownedScene(user.id, scene.data, { idStory: story.data, allowLocked: true });
+  if (!owned.ok) return { ok: false, errors: { root: NOT_THIS_STORY } };
 
   const parsed = sceneTextWithTitleSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error.issues) };
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
   const { title } = parsed.data;
   const text = { description: parsed.data.description || null, notes: parsed.data.notes || null };
 
@@ -313,113 +95,6 @@ export async function sa_setSceneText(
     .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.data)));
   publishLater(() => publishSceneChanged(story.data));
   return title === undefined ? { ok: true, text } : { ok: true, text, title };
-}
-
-/**
- * Whether a link carries any stat block: its jsonb has a key. Read beside
- * the view's columns, which do not carry the blocks themselves; the view's
- * row is named by its table, as attachmentUrl names its source, since the
- * select list leaves columns bare.
- */
-function linkHasStatBlocks(source: string) {
-  return sql<boolean>`(
-    select link.stat_blocks <> '{}'::jsonb
-    from ${sceneElements} link
-    where link.id_scene_element = ${sql.identifier(source)}.id_scene_element
-  )`;
-}
-
-/**
- * An element linked to the scene, as the play space holds it. The pill is
- * labelled with whichever field the link's element_showing names, the
- * element's initial name for a new link and the link's own label for a copy,
- * falling back to the name when that field is empty (pillText).
- * `showing` is null or unknown only for a row read before the column
- * existed, and shows the default. Keyed by the link as well as the element
- * (playItemKey), since an element may be in the scene more than once.
- */
-function linkedItem(row: {
-  idElement: number;
-  kind: string;
-  name: string;
-  initialName: string | null;
-  title: string | null;
-  tags: string[];
-  status: string;
-  showing?: string | null;
-  /** Whether the players see its description; the column's default when not read. */
-  showInfo?: boolean | null;
-  /** The picture the pill shows: the link's own cover in this scene, else the element's. */
-  imageUrl?: string | null;
-  /** The element's external link, and the link's own for this scene (pillLink). */
-  url?: string | null;
-  urlText?: string | null;
-  sceneUrl?: string | null;
-  sceneUrlText?: string | null;
-  /** The link's own id and whether it carries a stat block, when the read had them. */
-  idSceneElement?: number | null;
-  hasStatBlocks?: boolean | null;
-  /** The link's own label (scene_elements.label), one of the fields the pill may show; null or absent for none. */
-  label?: string | null;
-}): PlayItem {
-  const fields = {
-    initial_name: row.initialName,
-    name: row.name,
-    title: row.title,
-    label: row.label ?? null,
-  };
-  const showing = isElementShowing(row.showing) ? row.showing : DEFAULT_ELEMENT_SHOWING;
-  const { label, detail } = pillText(fields, showing);
-  return {
-    key: playItemKey(row.kind, row.idElement, row.idSceneElement),
-    kind: row.kind as PlayItem["kind"],
-    label,
-    detail,
-    imageUrl: row.imageUrl ?? null,
-    sceneTags: row.tags,
-    sceneStatus: row.status,
-    showInfo: row.showInfo ?? true,
-    ...(row.idSceneElement == null ? {} : { idSceneElement: row.idSceneElement }),
-    hasStatBlocks: row.hasStatBlocks ?? false,
-    link: pillLink(
-      { url: row.sceneUrl ?? null, urlText: row.sceneUrlText ?? null },
-      { url: row.url ?? null, urlText: row.urlText ?? null },
-    ),
-    fields,
-    showing,
-  };
-}
-
-/**
- * The scene's tags and status when it is a scene of this story told by the
- * caller, or null when it is not: the one check every read and write of a
- * scene's play space starts with. A write then refuses a scene whose status
- * is SCENE_LOCKED_STATUS (lockedScene), since a complete scene is the record
- * of what was played.
- */
-async function ownedScene(
-  userId: string,
-  idStory: number,
-  idStoryScene: number,
-): Promise<{ tags: string[]; status: string } | null> {
-  const [row] = await db
-    .select({ tags: storyScenes.tags, status: storyScenes.status })
-    .from(storyScenes)
-    .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
-    .where(
-      and(
-        eq(storyScenes.idStoryScene, idStoryScene),
-        eq(storyScenes.idStory, idStory),
-        eq(stories.idCreatedByUser, userId),
-      ),
-    )
-    .limit(1);
-  return row ?? null;
-}
-
-/** Whether a scene ownedScene found is complete, so its play space takes no change. */
-function lockedScene(scene: { status: string }): boolean {
-  return scene.status === SCENE_LOCKED_STATUS;
 }
 
 /**
@@ -440,13 +115,18 @@ function lockedScene(scene: { status: string }): boolean {
  * scene in the same transaction and answered for the caller to publish once
  * its own answer has gone. Null when the session was already on this scene,
  * so loading it again adds no second divider.
+ *
+ * Given a caller's transaction it runs inside it, so a scene made at the table
+ * (sa_createRunScene) is inserted and moved onto as one write; on its own it
+ * opens a transaction of its own.
  */
 async function putSessionOn(
   userId: string,
   idStorySession: number,
   idStoryScene: number,
+  tx?: Tx,
 ): Promise<PublicChat | null> {
-  return db.transaction(async (tx) => {
+  const body = async (tx: Tx): Promise<PublicChat | null> => {
     const [before] = await tx
       .select({ idStoryScene: storySessions.idStoryScene, idStory: storySessions.idStory })
       .from(storySessions)
@@ -492,7 +172,8 @@ async function putSessionOn(
       },
       tx,
     );
-  });
+  };
+  return tx ? body(tx) : db.transaction(body);
 }
 
 /** The divider putSessionOn saved, sent to every table; nothing when there was none. */
@@ -500,131 +181,29 @@ function publishEntry(idStory: number, entry: PublicChat | null): void {
   if (entry) publishLater(() => publishChat(idStory, entry));
 }
 
-export type SetSessionTitleResult =
-  { ok: true; title: string | null } | { ok: false; error: string };
-
-/**
- * The header's session title, renamed in place: trimmed, and cleared to null
- * when left empty, so the header goes back to "Session 3". Any session of
- * the story can be renamed, being played or not; the header only offers the
- * one at the table. The title as saved comes back.
- *
- * Refused when the title is too long, and when the session is not one of
- * this story's or the caller is not its storyteller.
- */
-export async function sa_setSessionTitle(
-  idStory: number,
-  idStorySession: number,
-  title: string,
-): Promise<SetSessionTitleResult> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const session = idSchema.safeParse(idStorySession);
-  if (!story.success || !session.success) return { ok: false, error: NOT_THIS_STORYS_SESSION };
-  const parsed = sessionTitleSchema.safeParse(title);
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message };
-  if (!(await ownsStory(user.id, story.data))) return { ok: false, error: NOT_THIS_STORYS_SESSION };
-
-  const updated = await db
-    .update(storySessions)
-    .set({ title: parsed.data, idUpdatedByUser: user.id })
-    .where(
-      and(eq(storySessions.idStorySession, session.data), eq(storySessions.idStory, story.data)),
-    )
-    .returning({ title: storySessions.title });
-  if (updated.length === 0) return { ok: false, error: NOT_THIS_STORYS_SESSION };
-  // Every write at the table tells the players' table over MQTT once the
-  // answer has gone out; see lib/realtime/publish-scene.ts.
-  publishLater(() => publishSessionUpdated(story.data, session.data, updated[0].title));
-  return { ok: true, title: updated[0].title };
-}
-
-export type SuspendInactiveSessionResult =
-  { ok: true; status: string } | { ok: false; error: string };
-
-const NOT_BEING_PLAYED = "That session is not being played.";
-
-/**
- * The run table's inactivity check: the storyteller left the table untouched
- * for long enough, then said they are not playing or did not answer, so the
- * session being played is suspended, as the session chip would suspend it.
- *
- * The status trigger logs the move on the session's activity_log itself, but
- * says nothing of why, so the action appends its own `inactivity_log` entry
- * through _append_activity_log, in one transaction with the move, saying it
- * was suspended for inactivity and whether the storyteller answered. The
- * players' table is then told, as for any session status change.
- *
- * Only the story's current session, and only while it is being played: the
- * WHERE repeats both, so a session suspended or ended meanwhile (from another
- * window, say) matches nothing and is refused rather than moved again.
- */
-export async function sa_suspendInactiveSession(
-  idStory: number,
-  idStorySession: number,
-  answered: boolean,
-): Promise<SuspendInactiveSessionResult> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const session = idSchema.safeParse(idStorySession);
-  if (!story.success || !session.success) return { ok: false, error: NOT_THIS_STORYS_SESSION };
-  if ((await playingSession(user.id, story.data)) !== session.data) {
-    return { ok: false, error: NOT_BEING_PLAYED };
-  }
-
-  const moved = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(storySessions)
-      .set({ status: "SUSPENDED", idUpdatedByUser: user.id })
-      .where(
-        and(
-          eq(storySessions.idStorySession, session.data),
-          eq(storySessions.idStory, story.data),
-          inArray(storySessions.status, PLAYING),
-        ),
-      )
-      .returning({ status: storySessions.status });
-    if (!row) return null;
-    await tx.execute(sql`
-      select _append_activity_log(
-        table_name := 'story_sessions',
-        field_name := 'activity_log',
-        record_id := ${String(session.data)},
-        activity_category := 'inactivity_log',
-        activity_details := 'suspended for inactivity',
-        activity_source := 'run table',
-        user_id := ${user.id},
-        activity_data := ${JSON.stringify({ answered })}::jsonb
-      )
-    `);
-    return row;
-  });
-  if (!moved) return { ok: false, error: NOT_BEING_PLAYED };
-  publishLater(() => publishSceneChanged(story.data));
-  return { ok: true, status: moved.status };
-}
-
 /**
  * What the storyteller's play space opens with: the scene the table is on,
- * its tags and cover, and the elements brought into it, so the storyteller starts from what
- * they prepared for this moment rather than an empty space.
+ * its tags and cover, and the elements brought into it, so the storyteller
+ * starts from what they prepared for this moment rather than an empty space.
+ * Named for what it may do: opening the table can put the session on a
+ * scene, which is a write, so it is not a plain get.
  *
  * The scene is the current session's id_story_scene, reached through the
  * story's pointer to that session, while the session is being played or
  * paused: a pause is a break at the table, which stays on its scene. A
  * finished session, or none, starts the space empty.
  *
- * A session being played on no scene is put on the story's ACTIVE scene, if it has one,
- * the way choosing it from the header would (putSessionOn), so a table
- * opened on a story with a scene in play lands on that scene rather than
- * on nothing. With more than one, the most recently touched is taken, which
- * is the first the header's selector lists. Without one the space starts
- * empty: nothing is made active behind the storyteller's back.
+ * A session being played on no scene is put on the story's ACTIVE scene, if
+ * it has one, the way choosing it from the header would (putSessionOn), so a
+ * table opened on a story with a scene in play lands on that scene rather
+ * than on nothing. With more than one, the most recently touched is taken,
+ * which is the first the header's selector lists. Without one the space
+ * starts empty: nothing is made active behind the storyteller's back.
  *
  * Empty for anyone but the story's storyteller, as for a story that is not
  * there: the scene and its elements are their preparation.
  */
-export async function sa_getRunPlaySpace(idStory: number): Promise<RunPlaySpace> {
+export async function sa_openRunPlaySpace(idStory: number): Promise<RunPlaySpace> {
   const user = await requireAccount();
 
   const id = idSchema.safeParse(idStory);
@@ -636,15 +215,10 @@ export async function sa_getRunPlaySpace(idStory: number): Promise<RunPlaySpace>
   if (shown === null) return EMPTY;
   const session = shown.idStorySession;
 
-  const [row] = await db
-    .select({ idStoryScene: storySessions.idStoryScene })
-    .from(storySessions)
-    .where(eq(storySessions.idStorySession, session))
-    .limit(1);
-  if (row?.idStoryScene != null) {
+  if (shown.idStoryScene !== null) {
     // spaceFor holds the scene to this story, which nothing in the database
     // does for a session's scene.
-    return spaceFor(id.data, row.idStoryScene);
+    return spaceFor(id.data, shown.idStoryScene);
   }
   // Putting the session on the active scene below is a write, which a
   // paused session does not take.
@@ -677,7 +251,7 @@ export async function sa_listRunScenes(idStory: number): Promise<RunScene[]> {
 
   const id = idSchema.safeParse(idStory);
   if (!id.success) return [];
-  if (!(await ownsStory(user.id, id.data))) return [];
+  if ((await ownedStory(user.id, id.data)) === null) return [];
 
   // The view, for the sitting each scene was played in as the Timeline
   // numbers it, which the selector shows under the title.
@@ -698,10 +272,7 @@ export async function sa_listRunScenes(idStory: number): Promise<RunScene[]> {
     idStoryScene: row.idStoryScene!,
     title: row.title!,
     status: row.status!,
-    sessionHeading:
-      row.idStorySession === null || row.sessionNumber === null
-        ? null
-        : sessionHeading({ number: row.sessionNumber, title: row.sessionTitle }),
+    sessionHeading: sessionHeadingOf(row),
   }));
 }
 
@@ -712,7 +283,7 @@ export async function sa_listRunScenes(idStory: number): Promise<RunScene[]> {
  * nothing, since editing a scene is preparation, not playing it.
  *
  * Empty for a scene that is not this story's or a caller who is not its
- * storyteller, which are one answer, as sa_getRunPlaySpace gives.
+ * storyteller, which are one answer, as sa_openRunPlaySpace gives.
  */
 export async function sa_getScenePlaySpace(
   idStory: number,
@@ -723,7 +294,8 @@ export async function sa_getScenePlaySpace(
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   if (!story.success || !scene.success) return EMPTY;
-  if ((await ownedScene(user.id, story.data, scene.data)) === null) return EMPTY;
+  const owned = await ownedScene(user.id, scene.data, { idStory: story.data, allowLocked: true });
+  if (!owned.ok) return EMPTY;
 
   return spaceFor(story.data, scene.data);
 }
@@ -749,23 +321,11 @@ export async function sa_loadRunScene(
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-
-  const [owned] = await db
-    .select({ idStoryScene: storyScenes.idStoryScene })
-    .from(storyScenes)
-    .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
-    .where(
-      and(
-        eq(storyScenes.idStoryScene, scene.data),
-        eq(storyScenes.idStory, story.data),
-        eq(stories.idCreatedByUser, user.id),
-      ),
-    )
-    .limit(1);
-  if (!owned) return { ok: false, error: NOT_THIS_STORY };
+  const owned = await ownedScene(user.id, scene.data, { idStory: story.data, allowLocked: true });
+  if (!owned.ok) return { ok: false, error: NOT_THIS_STORY };
 
   const session = await playingSession(user.id, story.data);
-  if (session === null) return { ok: false, error: NO_SESSION };
+  if (session === null) return { ok: false, error: NO_SESSION_FOR_SCENE };
 
   const entry = await putSessionOn(user.id, session, scene.data);
   publishLater(() => publishSceneChanged(story.data));
@@ -785,1088 +345,49 @@ export type CreateRunSceneResult =
  * workflow's default and in no sitting, as the board's New scene makes one,
  * and the table shows it to be prepared; nothing is made active.
  *
- * Field errors come back for the form.
- * Throws for a story the caller does not tell, as sa_createStoryScene does:
- * the page never offers the form to anyone else.
+ * Field errors come back for the form, and a story the caller does not tell
+ * as `root`.
  */
 export async function sa_createRunScene(
   idStory: number,
   input: unknown,
 ): Promise<CreateRunSceneResult> {
   const user = await requireAccount();
-  const id = idSchema.parse(idStory);
-  if (!(await ownsStory(user.id, id))) {
-    throw new Error("Only the storyteller who created a story can add scenes to it");
+  const id = idSchema.safeParse(idStory);
+  if (!id.success || (await ownedStory(user.id, id.data)) === null) {
+    return { ok: false, errors: { root: NOT_THIS_STORY } };
   }
 
   const parsed = runSceneSchema.safeParse(input);
   if (!parsed.success) {
-    const errors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) errors[issue.path.join(".")] ??= issue.message;
-    return { ok: false, errors };
+    return { ok: false, errors: formErrors(parsed.error) };
   }
 
-  const session = await playingSession(user.id, id);
+  const session = await playingSession(user.id, id.data);
 
-  const [created] = await db
-    .insert(storyScenes)
-    .values({
-      idStory: id,
-      sceneTitle: parsed.data.title,
-      sceneDescription: parsed.data.description || null,
-      idStorySession: session,
-      idCreatedByUser: user.id,
-      idUpdatedByUser: user.id,
-    })
-    .returning({ idStoryScene: storyScenes.idStoryScene });
+  // The insert and the move onto the scene land together: a move the
+  // workflow trigger refuses leaves no scene behind that the table never
+  // went to.
+  const { idStoryScene, entry } = await db.transaction(async (tx) => {
+    const idStoryScene = await createScene(
+      {
+        idStory: id.data,
+        title: parsed.data.title,
+        description: parsed.data.description,
+        idStorySession: session,
+        userId: user.id,
+      },
+      tx,
+    );
+    const entry = session !== null ? await putSessionOn(user.id, session, idStoryScene, tx) : null;
+    return { idStoryScene, entry };
+  });
 
   if (session !== null) {
-    const entry = await putSessionOn(user.id, session, created.idStoryScene);
-    publishLater(() => publishSceneChanged(id));
-    publishEntry(id, entry);
+    publishLater(() => publishSceneChanged(id.data));
+    publishEntry(id.data, entry);
   }
-  return { ok: true, space: await spaceFor(id, created.idStoryScene) };
-}
-
-/**
- * The same Create new scene from the live-edit page's selector, which makes
- * the scene to be prepared rather than played: in the workflow's default
- * and in no sitting, whether or not a session is being played, and with
- * the session left on whatever scene it was on. The page then goes to the
- * new scene's own live-edit page.
- *
- * Field errors come back for the form. Throws for a story the caller does
- * not tell, as sa_createRunScene does.
- */
-export async function sa_createLiveScene(
-  idStory: number,
-  input: unknown,
-): Promise<CreateRunSceneResult> {
-  const user = await requireAccount();
-  const id = idSchema.parse(idStory);
-  if (!(await ownsStory(user.id, id))) {
-    throw new Error("Only the storyteller who created a story can add scenes to it");
-  }
-
-  const parsed = runSceneSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error.issues) };
-
-  const [created] = await db
-    .insert(storyScenes)
-    .values({
-      idStory: id,
-      sceneTitle: parsed.data.title,
-      sceneDescription: parsed.data.description || null,
-      idCreatedByUser: user.id,
-      idUpdatedByUser: user.id,
-    })
-    .returning({ idStoryScene: storyScenes.idStoryScene });
-
-  return { ok: true, space: await spaceFor(id, created.idStoryScene) };
-}
-
-export type SceneElementFormResult =
-  { ok: true; item: PlayItem } | { ok: false; errors: Record<string, string> };
-
-/** Field errors from a failed parse, keyed by the path the form names. */
-function formErrors(issues: z.core.$ZodIssue[]): Record<string, string> {
-  const errors: Record<string, string> = {};
-  for (const issue of issues) errors[issue.path.join(".")] ??= issue.message;
-  return errors;
-}
-
-// What the new-element form sends beside its fields: the pictures its two
-// Add pictures chose, the element's own and the link's for this scene, and
-// whether the players see the description (the library's Add showing info
-// switch). The form's schema carries none of them, since the edit form
-// sends none.
-const newElementExtrasSchema = z.object({
-  idAttachment: idSchema.nullable().default(null),
-  idSceneAttachment: idSchema.nullable().default(null),
-  showInfo: z.boolean().default(true),
-});
-
-/**
- * The address of one of the story's finished attachments, or null when it
- * is not one: id_story on attachments is the story that owns the file,
- * whichever of its parts use it, so this covers the story's pool whole.
- */
-async function storyPictureUrl(idStory: number, idAttachment: number): Promise<string | null> {
-  const [row] = await db
-    .select({ url: attachments.url })
-    .from(attachments)
-    .where(
-      and(
-        eq(attachments.idAttachment, idAttachment),
-        eq(attachments.idStory, idStory),
-        eq(attachments.status, "READY"),
-      ),
-    )
-    .limit(1);
-  return row?.url ?? null;
-}
-
-/**
- * The run page's element form, parsed, with both statuses held to their
- * workflows (sa_listStatusOptions reads them from the database, as the
- * pills do): a status not in the workflow comes back as the field's error.
- */
-async function parseElementForm(
-  input: unknown,
-): Promise<{ ok: true; values: RunElementValues } | { ok: false; errors: Record<string, string> }> {
-  const parsed = runElementSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error.issues) };
-  const [elementOptions, sceneOptions] = await Promise.all([
-    sa_listStatusOptions("elements"),
-    sa_listStatusOptions("scene_elements"),
-  ]);
-  const errors: Record<string, string> = {};
-  if (!elementOptions.some((option) => option.key === parsed.data.status)) {
-    errors.status = "Choose one of the element's statuses.";
-  }
-  if (!sceneOptions.some((option) => option.key === parsed.data.sceneStatus)) {
-    errors.sceneStatus = "Choose one of the scene's statuses.";
-  }
-  return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: true, values: parsed.data };
-}
-
-/** The element columns the run page's form writes. */
-function elementColumns(
-  values: Omit<RunElementValues, "sceneStatus" | "sceneUrl" | "sceneUrlText" | "sceneLabel">,
-) {
-  return {
-    kind: values.kind,
-    name: values.name,
-    initialName: values.initialName || null,
-    title: values.title || null,
-    description: values.description || null,
-    notes: values.notes || null,
-    url: values.url || null,
-    urlText: values.urlText || null,
-    status: values.status,
-  };
-}
-
-/** The link's own columns from the run form: its external link for this scene. */
-function sceneLinkColumns(
-  values: Pick<RunElementValues, "sceneUrl" | "sceneUrlText" | "sceneLabel">,
-) {
-  return {
-    url: values.sceneUrl || null,
-    urlText: values.sceneUrlText || null,
-    label: values.sceneLabel || null,
-  };
-}
-
-/**
- * Writes a new element into the story from a stack's + and links it to the
- * scene under that stack's tag, each in the status the form chose, in one
- * transaction so an element is never left made but unlinked. Inserted
- * straight into its statuses: a new row has no transition to check, and the
- * status triggers still stamp each one's timestamp. An `idAttachment` beside
- * the fields, from the form's Add picture, is the new element's picture, and
- * an `idSceneAttachment` the link's own picture for this scene, which the
- * pill shows over the element's; each must be one of the story's finished
- * attachments. With no tag (null) the
- * link takes the scene's first tag, the first stack's, as the library's
- * arrow does: that is what the library's + sends. The Default stack of a
- * scene with no tags sends null too, and its link carries none.
- *
- * Field errors come back for the form; a tag the scene does not carry comes
- * back as `root`, since the stacks it was drawn from are out of date. Throws
- * for a scene the caller does not tell, as sa_createRunScene does for a
- * story: the page never offers the form to anyone else.
- */
-export async function sa_createSceneElement(
-  idStory: number,
-  idStoryScene: number,
-  tag: string | null,
-  input: unknown,
-): Promise<SceneElementFormResult> {
-  const user = await requireAccount();
-  const story = idSchema.parse(idStory);
-  const scene = idSchema.parse(idStoryScene);
-  const stackTag = stackTagSchema.parse(tag);
-
-  const owned = await ownedScene(user.id, story, scene);
-  if (owned === null) throw new Error(NOT_THIS_STORY);
-  if (lockedScene(owned)) return { ok: false, errors: { root: SCENE_COMPLETE } };
-  const sceneTags = owned.tags;
-  if (stackTag !== null && !sceneTags.includes(stackTag)) {
-    return { ok: false, errors: { root: NO_SUCH_STACK } };
-  }
-
-  const form = await parseElementForm(input);
-  if (!form.ok) return form;
-  const values = form.values;
-  const tags = stackTag === null ? sceneTags.slice(0, 1) : [stackTag];
-
-  // The pictures the form's Add pictures chose, if any: each held to the
-  // story's finished attachments as sa_setElementImage holds it.
-  const extras = newElementExtrasSchema.safeParse(input);
-  if (!extras.success) return { ok: false, errors: { root: NOT_THIS_STORYS_PICTURE } };
-  const { idAttachment, idSceneAttachment, showInfo } = extras.data;
-  let imageUrl: string | null = null;
-  if (idAttachment !== null) {
-    imageUrl = await storyPictureUrl(story, idAttachment);
-    if (imageUrl === null) return { ok: false, errors: { root: NOT_THIS_STORYS_PICTURE } };
-  }
-  let sceneImageUrl: string | null = null;
-  if (idSceneAttachment !== null) {
-    sceneImageUrl = await storyPictureUrl(story, idSceneAttachment);
-    if (sceneImageUrl === null) return { ok: false, errors: { root: NOT_THIS_STORYS_PICTURE } };
-  }
-
-  const { idElement, idSceneElement } = await db.transaction(async (tx) => {
-    const [created] = await tx
-      .insert(elements)
-      .values({
-        idStory: story,
-        ...elementColumns(values),
-        idCreatedByUser: user.id,
-        idUpdatedByUser: user.id,
-      })
-      .returning({ idElement: elements.idElement });
-    // The link's stat blocks copy the element's at this moment, which for an
-    // element just made here is none: this form posts no blocks.
-    const [link] = await tx
-      .insert(sceneElements)
-      .values({
-        idStoryScene: scene,
-        idElement: created.idElement,
-        statBlocks: {},
-        tags,
-        status: values.sceneStatus,
-        showInfo,
-        ...sceneLinkColumns(values),
-        idCreatedByUser: user.id,
-        idUpdatedByUser: user.id,
-      })
-      .returning({ idSceneElement: sceneElements.idSceneElement });
-    // Its pictures: the element's use of the one attachment, and the
-    // link's of the other, each tagged cover.
-    if (idAttachment !== null) {
-      await tx.insert(attachmentUses).values({
-        idAttachment,
-        kind: "ELEMENT",
-        idExternal: created.idElement,
-        tags: [COVER_TAG],
-        idCreatedByUser: user.id,
-        idUpdatedByUser: user.id,
-      });
-    }
-    if (idSceneAttachment !== null) {
-      await tx.insert(attachmentUses).values({
-        idAttachment: idSceneAttachment,
-        kind: "SCENE_ELEMENT",
-        idExternal: link.idSceneElement,
-        tags: [COVER_TAG],
-        idCreatedByUser: user.id,
-        idUpdatedByUser: user.id,
-      });
-    }
-    return { idElement: created.idElement, idSceneElement: link.idSceneElement };
-  });
-  publishLater(() => publishSceneElement(story, scene, idElement));
-
-  return {
-    ok: true,
-    item: linkedItem({
-      idElement,
-      kind: values.kind,
-      name: values.name,
-      initialName: values.initialName || null,
-      title: values.title || null,
-      tags,
-      status: values.sceneStatus,
-      showInfo,
-      idSceneElement,
-      // This form posts no blocks, so the link starts with none.
-      hasStatBlocks: false,
-      label: values.sceneLabel || null,
-      // The link's picture stands in front of the element's, as the pill shows them.
-      imageUrl: sceneImageUrl ?? imageUrl,
-      url: values.url || null,
-      urlText: values.urlText || null,
-      sceneUrl: values.sceneUrl || null,
-      sceneUrlText: values.sceneUrlText || null,
-    }),
-  };
-}
-
-/**
- * Saves the info popover's edit form: the element's fields and status, and
- * its link's status in this scene, in one transaction. A status that has not
- * changed is not written, since a move to the status a row holds is not a
- * transition; one that has goes through the database's transition trigger,
- * whose refusal comes back as `root`. The pill comes back as it now is.
- *
- * Throws for a scene the caller does not tell, as the create does; a link
- * that is not the scene's comes back as `root`. The link is named by its own
- * id, since an element may be in the scene more than once; the element's
- * fields are the element's, so every copy shows them.
- */
-export async function sa_updateSceneElement(
-  idStory: number,
-  idStoryScene: number,
-  idSceneElement: number,
-  input: unknown,
-): Promise<SceneElementFormResult> {
-  const user = await requireAccount();
-  const story = idSchema.parse(idStory);
-  const scene = idSchema.parse(idStoryScene);
-  const link = idSchema.parse(idSceneElement);
-  const owned = await ownedScene(user.id, story, scene);
-  if (owned === null) throw new Error(NOT_THIS_STORY);
-  if (lockedScene(owned)) return { ok: false, errors: { root: SCENE_COMPLETE } };
-
-  const form = await parseElementForm(input);
-  if (!form.ok) return form;
-  const values = form.values;
-
-  const [current] = await db
-    .select({
-      idElement: vSceneElements.idElement,
-      status: vSceneElements.status,
-      elementStatus: vSceneElements.elementStatus,
-      tags: vSceneElements.tags,
-      showing: vSceneElements.elementShowing,
-      showInfo: vSceneElements.showInfo,
-      imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
-      hasStatBlocks: linkHasStatBlocks("v_scene_elements"),
-    })
-    .from(vSceneElements)
-    .where(
-      and(
-        eq(vSceneElements.idStoryScene, scene),
-        eq(vSceneElements.idSceneElement, link),
-        eq(vSceneElements.idStory, story),
-      ),
-    )
-    .limit(1);
-  if (!current || current.idElement === null) {
-    return { ok: false, errors: { root: NOT_IN_THIS_SCENE } };
-  }
-  const element = current.idElement;
-
-  const { status, ...fields } = elementColumns(values);
-  try {
-    await db.transaction(async (tx) => {
-      await tx
-        .update(elements)
-        .set({
-          ...fields,
-          ...(status !== current.elementStatus ? { status } : {}),
-          idUpdatedByUser: user.id,
-        })
-        .where(and(eq(elements.idElement, element), eq(elements.idStory, story)));
-      // The link's own link always; its status only when it moved, since a
-      // move to the status a row holds is not a transition.
-      await tx
-        .update(sceneElements)
-        .set({
-          ...sceneLinkColumns(values),
-          ...(values.sceneStatus !== current.status ? { status: values.sceneStatus } : {}),
-          idUpdatedByUser: user.id,
-        })
-        .where(and(eq(sceneElements.idStoryScene, scene), eq(sceneElements.idSceneElement, link)));
-    });
-  } catch {
-    // The transition trigger raises rather than returns, naming database
-    // internals, so the form says the plain thing instead.
-    return { ok: false, errors: { root: "The database refused that change of status." } };
-  }
-  publishLater(() => publishSceneElement(story, scene, link));
-
-  return {
-    ok: true,
-    item: linkedItem({
-      idElement: element,
-      kind: values.kind,
-      name: values.name,
-      initialName: values.initialName || null,
-      title: values.title || null,
-      tags: current.tags ?? [],
-      status: values.sceneStatus,
-      showing: current.showing,
-      showInfo: current.showInfo,
-      idSceneElement: link,
-      hasStatBlocks: current.hasStatBlocks,
-      label: values.sceneLabel || null,
-      imageUrl: current.imageUrl,
-      url: values.url || null,
-      urlText: values.urlText || null,
-      sceneUrl: values.sceneUrl || null,
-      sceneUrlText: values.sceneUrlText || null,
-    }),
-  };
-}
-
-export type LinkSceneElementResult =
-  | {
-      ok: true;
-      item: PlayItem;
-      /** Whether the element was in the scene already, so this link is a copy of it. */
-      duplicate: boolean;
-    }
-  | { ok: false; error: string };
-
-/**
- * Links one of the story's elements to the scene, from the library's arrow,
- * under `tag`, the stack the library's In select names, or with none under
- * the scene's first tag, the first stack's: every link carries the tag of
- * the stack it is in, so where it is filed is in the database and not only
- * on the page. Only a scene with no tags, whose one stack is the page's
- * Default, links with none. It is still there after a reload. The options
- * are the library's switches: with `hidden` (Add as invisible) the link
- * starts INVISIBLE rather than in the workflow's default, and `showInfo`
- * (Add showing info) is whether the players see the element's description,
- * the column's default when left out. An element already in the scene is
- * linked again rather than refused, a copy with its own status, stack,
- * pictures and stat blocks, its pill showing a label of the element's name
- * with a counter ("Goblin 1" for the first copy, "Goblin 2" for the next);
- * `duplicate` says so, for the table to warn the storyteller. Every link
- * rolls its own Initialized as (rollStartingBlocks), so no two goblins
- * share the hit points rolled for the element.
- *
- * Refused when the scene or the element is not this story's, or the caller
- * is not its storyteller; nothing in the database holds a link's element to
- * the scene's story, so this does. Refused too for a tag the scene does not
- * carry, since the stacks it was chosen from are out of date.
- */
-export async function sa_linkSceneElement(
-  idStory: number,
-  idStoryScene: number,
-  idElement: number,
-  options: { hidden?: boolean; tag?: string | null; showInfo?: boolean } = {},
-): Promise<LinkSceneElementResult> {
-  const { hidden = false, tag = null, showInfo } = options;
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const scene = idSchema.safeParse(idStoryScene);
-  const element = idSchema.safeParse(idElement);
-  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!element.success) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
-
-  const stackTag = stackTagSchema.safeParse(tag);
-  if (!stackTag.success) return { ok: false, error: NO_SUCH_STACK };
-
-  const owned = await ownedScene(user.id, story.data, scene.data);
-  if (owned === null) return { ok: false, error: NOT_THIS_STORY };
-  if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
-  const sceneTags = owned.tags;
-  if (stackTag.data !== null && !sceneTags.includes(stackTag.data)) {
-    return { ok: false, error: NO_SUCH_STACK };
-  }
-  const tags = stackTag.data === null ? sceneTags.slice(0, 1) : [stackTag.data];
-  const [row] = await db
-    .select({
-      idElement: elements.idElement,
-      kind: elements.kind,
-      name: elements.name,
-      initialName: elements.initialName,
-      title: elements.title,
-      imageUrl: attachmentUrl("ELEMENT", "elements", "id_element"),
-      url: elements.url,
-      urlText: elements.urlText,
-      statBlocks: elements.statBlocks,
-    })
-    .from(elements)
-    .where(and(eq(elements.idElement, element.data), eq(elements.idStory, story.data)))
-    .limit(1);
-  if (!row) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
-
-  // How many times the element is in the scene already: a copy is numbered
-  // after them, so the first copy of Goblin is Goblin 1.
-  const [{ copies }] = await db
-    .select({ copies: count() })
-    .from(sceneElements)
-    .where(
-      and(eq(sceneElements.idStoryScene, scene.data), eq(sceneElements.idElement, row.idElement)),
-    );
-  const label = copies > 0 ? `${row.name} ${copies}` : null;
-
-  // The link takes a copy of the element's stat blocks, to be changed in
-  // play while the element keeps its baseline; a copy of the element takes
-  // its own copy, so each is played apart. Every stat with an Initialized as
-  // is rolled afresh for it, from the element's own dice for one rolled from
-  // a Dice stat, so each scene element of a creature has its own hit points;
-  // the rest is the element's as it stands.
-  const statBlocks = rollStartingBlocks(
-    await statBlockSystems(story.data),
-    readStatBlocks(row.statBlocks),
-    rollTotal,
-  );
-  const [made] = await db
-    .insert(sceneElements)
-    .values({
-      idStoryScene: scene.data,
-      idElement: row.idElement,
-      statBlocks,
-      tags,
-      label,
-      // A copy's pill shows its label, so two goblins are told apart at once.
-      ...(label === null ? {} : { elementShowing: "label" }),
-      ...(hidden === true ? { status: SCENE_ELEMENT_HIDDEN } : {}),
-      ...(showInfo === undefined ? {} : { showInfo: showInfo === true }),
-      idCreatedByUser: user.id,
-      idUpdatedByUser: user.id,
-    })
-    .returning({ idSceneElement: sceneElements.idSceneElement });
-  const [link] = await db
-    .select({
-      tags: sceneElements.tags,
-      status: sceneElements.status,
-      showing: sceneElements.elementShowing,
-      showInfo: sceneElements.showInfo,
-      sceneUrl: sceneElements.url,
-      sceneUrlText: sceneElements.urlText,
-      hasStatBlocks: sql<boolean>`${sceneElements.statBlocks} <> '{}'::jsonb`,
-    })
-    .from(sceneElements)
-    .where(eq(sceneElements.idSceneElement, made.idSceneElement))
-    .limit(1);
-  publishLater(() => publishSceneElement(story.data, scene.data, made.idSceneElement));
-
-  return {
-    ok: true,
-    duplicate: copies > 0,
-    item: linkedItem({
-      ...row,
-      sceneUrl: link?.sceneUrl,
-      sceneUrlText: link?.sceneUrlText,
-      tags: link?.tags ?? tags,
-      status: link?.status ?? "",
-      showing: link?.showing,
-      showInfo: link?.showInfo,
-      idSceneElement: made.idSceneElement,
-      hasStatBlocks: link?.hasStatBlocks,
-      label,
-    }),
-  };
-}
-
-export type SetSceneElementStatusResult =
-  { ok: true; status: string } | { ok: false; error: string };
-
-const NO_SUCH_SCENE_STATUS = `Choose one of ${SCENE_ELEMENT_STATUSES.join(", ")}.`;
-
-/**
- * The pill's status menu: moves an element's link to the scene to any of the
- * workflow's four statuses (SCENE_ELEMENT_STATUSES), which the workflow lets
- * every status reach. A link already in the status asked for is left alone,
- * since a move to the status it holds is not a transition. The status it
- * ends in comes back for the pill.
- *
- * Refused for a status off the workflow, when the scene is not this story's
- * or the caller is not its storyteller, and when the link is not the
- * scene's. Links are named by their own id throughout these actions, since
- * an element may be in the scene more than once.
- */
-export async function sa_setSceneElementStatus(
-  idStory: number,
-  idStoryScene: number,
-  idSceneElement: number,
-  status: string,
-): Promise<SetSceneElementStatusResult> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const scene = idSchema.safeParse(idStoryScene);
-  const link = idSchema.safeParse(idSceneElement);
-  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
-  if (!isSceneElementStatus(status)) return { ok: false, error: NO_SUCH_SCENE_STATUS };
-  const owned = await ownedScene(user.id, story.data, scene.data);
-  if (owned === null) return { ok: false, error: NOT_THIS_STORY };
-  if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
-
-  const where = linkIn(scene.data, link.data);
-  const [row] = await db
-    .select({ status: sceneElements.status })
-    .from(sceneElements)
-    .where(where)
-    .limit(1);
-  if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
-  if (row.status === status) return { ok: true, status };
-
-  await db.update(sceneElements).set({ status, idUpdatedByUser: user.id }).where(where);
-  publishLater(() => publishSceneElement(story.data, scene.data, link.data));
-  return { ok: true, status };
-}
-
-/** One link of the scene: the link's id, held to the scene the caller named. */
-function linkIn(idStoryScene: number, idSceneElement: number) {
-  return and(
-    eq(sceneElements.idStoryScene, idStoryScene),
-    eq(sceneElements.idSceneElement, idSceneElement),
-  );
-}
-
-export type SetSceneElementShowInfoResult =
-  { ok: true; showInfo: boolean } | { ok: false; error: string };
-
-/**
- * The pill's info toggle: whether the players' table shows the element's
- * description in this scene (scene_elements.show_info). Only the link
- * changes; the element and its other scenes are untouched.
- *
- * Refused when the scene is not this story's or the caller is not its
- * storyteller, and when the link is not the scene's.
- */
-export async function sa_setSceneElementShowInfo(
-  idStory: number,
-  idStoryScene: number,
-  idSceneElement: number,
-  showInfo: boolean,
-): Promise<SetSceneElementShowInfoResult> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const scene = idSchema.safeParse(idStoryScene);
-  const link = idSchema.safeParse(idSceneElement);
-  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
-  const owned = await ownedScene(user.id, story.data, scene.data);
-  if (owned === null) return { ok: false, error: NOT_THIS_STORY };
-  if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
-
-  const updated = await db
-    .update(sceneElements)
-    .set({ showInfo: showInfo === true, idUpdatedByUser: user.id })
-    .where(linkIn(scene.data, link.data))
-    .returning({ showInfo: sceneElements.showInfo });
-  if (updated.length === 0) return { ok: false, error: NOT_IN_THIS_SCENE };
-  publishLater(() => publishSceneElement(story.data, scene.data, link.data));
-  return { ok: true, showInfo: updated[0].showInfo };
-}
-
-export type PulseSceneElementResult = { ok: true } | { ok: false; error: string };
-
-const NOT_A_PULSE = "That is not something the players' table answers.";
-
-/**
- * The tack over a pill's thumbnail: a pulse about one element of the scene
- * to every players' table (publishSceneElementPulse), such as opening its
- * picture full size and closing it again. Nothing is written: a pulse is
- * something that happens at the table, not how the scene stands, so a
- * players' table that joins later never hears of it and the storyteller's
- * page keeps for itself which picture it last put up. The guards are the
- * ones a write has, so a pulse cannot say anything a write could not.
- *
- * Refused for an action the players' table does not answer
- * (SCENE_ELEMENT_PULSES), when the scene is not this story's or the caller
- * is not its storyteller, and when the link is not the scene's.
- */
-export async function sa_pulseSceneElement(
-  idStory: number,
-  idStoryScene: number,
-  idSceneElement: number,
-  custom: { action: string },
-): Promise<PulseSceneElementResult> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const scene = idSchema.safeParse(idStoryScene);
-  const link = idSchema.safeParse(idSceneElement);
-  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
-  const parsed = scenePulseSchema.safeParse(custom);
-  if (!parsed.success || !isScenePulse(parsed.data.action)) {
-    return { ok: false, error: NOT_A_PULSE };
-  }
-  const owned = await ownedScene(user.id, story.data, scene.data);
-  if (owned === null) return { ok: false, error: NOT_THIS_STORY };
-  if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
-
-  const [row] = await db
-    .select({ idSceneElement: sceneElements.idSceneElement })
-    .from(sceneElements)
-    .where(linkIn(scene.data, link.data))
-    .limit(1);
-  if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
-
-  publishLater(() => publishSceneElementPulse(story.data, scene.data, link.data, parsed.data));
-  return { ok: true };
-}
-
-export type SetSceneElementShowingResult =
-  { ok: true; showing: ElementShowing } | { ok: false; error: string };
-
-const NO_SUCH_FIELD = "Choose the initial name, the name, the title or the label.";
-
-/**
- * The pill's name dropdown: which of the element's fields its pill shows in
- * this scene. Only the link's element_showing changes; the element and its
- * other scenes are untouched. A field the element has left empty is still
- * accepted, and the pill shows the name until it is filled in.
- *
- * Refused when the field is not one of the three, when the scene is not this
- * story's or the caller is not its storyteller, and when the link is not the
- * scene's.
- */
-export async function sa_setSceneElementShowing(
-  idStory: number,
-  idStoryScene: number,
-  idSceneElement: number,
-  showing: string,
-): Promise<SetSceneElementShowingResult> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const scene = idSchema.safeParse(idStoryScene);
-  const link = idSchema.safeParse(idSceneElement);
-  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
-  if (!isElementShowing(showing)) return { ok: false, error: NO_SUCH_FIELD };
-  const owned = await ownedScene(user.id, story.data, scene.data);
-  if (owned === null) return { ok: false, error: NOT_THIS_STORY };
-  if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
-
-  const updated = await db
-    .update(sceneElements)
-    .set({ elementShowing: showing, idUpdatedByUser: user.id })
-    .where(linkIn(scene.data, link.data))
-    .returning({ showing: sceneElements.elementShowing });
-  if (updated.length === 0) return { ok: false, error: NOT_IN_THIS_SCENE };
-  publishLater(() => publishSceneElement(story.data, scene.data, link.data));
-  return { ok: true, showing };
-}
-
-/**
- * The scene's elements of one kind, for the library's Scene only: the first
- * RUN_LIST_SIZE that match the search box, in the sort the library's menu
- * asks for (elementOrderBy), by name unless told otherwise. The view holds
- * the element's columns but not every one the sorts need, so the elements
- * table is joined for the order.
- */
-export async function sa_listSceneLibraryElements(
-  idStory: number,
-  idStoryScene: number,
-  kind: ElementKind,
-  query: string = "",
-  sort: ElementSort = "name",
-): Promise<StoryElement[]> {
-  const user = await requireAccount();
-  // The same bound as sa_listStoryElements' search, refused the same way.
-  const needle = z.string().max(200).parse(query).trim();
-  const order = z.enum(ELEMENT_SORT_KEYS).parse(sort);
-  const story = idSchema.safeParse(idStory);
-  const scene = idSchema.safeParse(idStoryScene);
-  if (!story.success || !scene.success || !isElementKind(kind)) return [];
-  if ((await ownedScene(user.id, story.data, scene.data)) === null) return [];
-
-  const rows = await db
-    .select({
-      idElement: vSceneElements.idElement,
-      status: vSceneElements.elementStatus,
-      name: vSceneElements.name,
-      title: vSceneElements.title,
-      description: vSceneElements.description,
-    })
-    .from(vSceneElements)
-    .innerJoin(elements, eq(elements.idElement, vSceneElements.idElement))
-    .where(
-      and(
-        eq(vSceneElements.idStoryScene, scene.data),
-        eq(vSceneElements.idStory, story.data),
-        eq(vSceneElements.kind, kind),
-        needle === "" ? undefined : ilike(vSceneElements.elementSearchText, likeContains(needle)),
-      ),
-    )
-    .orderBy(...elementOrderBy(order))
-    .limit(RUN_LIST_SIZE);
-  // The view's columns are all nullable to Drizzle; a link always has its
-  // element. An element in the scene more than once is one row per link
-  // here, and listed once.
-  const seen = new Set<number>();
-  return rows
-    .filter((row) => (seen.has(row.idElement!) ? false : (seen.add(row.idElement!), true)))
-    .map((row) => ({
-      idElement: row.idElement!,
-      status: row.status ?? "",
-      name: row.name ?? "",
-      title: row.title,
-      description: row.description,
-    }));
-}
-
-export type UpdateStoryElementResult =
-  { ok: true; element: ElementDetail } | { ok: false; errors: Record<string, string> };
-
-/**
- * The library info popover's edit: the element's own fields and its status
- * in the story, whether or not it is in any scene, so nothing about a scene
- * is read or written. A status that has not changed is not written, as
- * sa_updateSceneElement does not, and one off the workflow comes back as
- * the field's error. The element comes back as it now is.
- *
- * Throws for a story the caller does not tell, as the scene's edit does;
- * an element not in the story comes back as `root`.
- */
-export async function sa_updateStoryElement(
-  idStory: number,
-  idElement: number,
-  input: unknown,
-): Promise<UpdateStoryElementResult> {
-  const user = await requireAccount();
-  const story = idSchema.parse(idStory);
-  const element = idSchema.parse(idElement);
-  if (!(await ownsStory(user.id, story))) throw new Error(NOT_THIS_STORY);
-
-  const parsed = runStoryElementSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error.issues) };
-  const values = parsed.data;
-  const options = await sa_listStatusOptions("elements");
-  if (!options.some((option) => option.key === values.status)) {
-    return { ok: false, errors: { status: "Choose one of the element's statuses." } };
-  }
-
-  const [current] = await db
-    .select({ status: elements.status })
-    .from(elements)
-    .where(and(eq(elements.idElement, element), eq(elements.idStory, story)))
-    .limit(1);
-  if (!current) return { ok: false, errors: { root: NOT_THIS_STORYS_ELEMENT } };
-
-  const { status, ...fields } = elementColumns(values);
-  try {
-    await db
-      .update(elements)
-      .set({
-        ...fields,
-        ...(status !== current.status ? { status } : {}),
-        idUpdatedByUser: user.id,
-      })
-      .where(and(eq(elements.idElement, element), eq(elements.idStory, story)));
-  } catch {
-    // The transition trigger raises rather than returns; see sa_updateSceneElement.
-    return { ok: false, errors: { root: "The database refused that change of status." } };
-  }
-
-  publishLater(() => publishElementChanged(story, element));
-
-  const detail = await sa_getElementDetail(story, element);
-  if (!detail) return { ok: false, errors: { root: NOT_THIS_STORYS_ELEMENT } };
-  return { ok: true, element: detail.element };
-}
-
-/**
- * Everything the element panel shows, from a pill or from the library: the
- * element as the story holds it, whether or not it is in a scene, and its
- * link to the scene the table is on (`idStoryScene`, null for none), or null
- * when it is not in that scene. The link decides whether the panel shows
- * the scene's part: its status, its stack tags and Remove from scene.
- * Asked for as the panel opens, so the play space and the library stay
- * light and the panel shows what is stored now, the status menu's last
- * choice included. The link is the one named (a pill's), or, from the
- * library, the element's first link to the scene, since an element may be
- * in a scene more than once. Null when the story is not the caller's or the
- * element is not the story's.
- */
-export async function sa_getElementDetail(
-  idStory: number,
-  idElement: number,
-  idStoryScene: number | null = null,
-  idSceneElement: number | null = null,
-): Promise<ElementPanelDetail | null> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const element = idSchema.safeParse(idElement);
-  const scene = idSchema.nullable().safeParse(idStoryScene);
-  const named = idSchema.nullable().safeParse(idSceneElement);
-  if (!story.success || !element.success || !scene.success || !named.success) return null;
-  if (!(await ownsStory(user.id, story.data))) return null;
-
-  const [row] = await db
-    .select({
-      idElement: elements.idElement,
-      kind: elements.kind,
-      name: elements.name,
-      initialName: elements.initialName,
-      title: elements.title,
-      description: elements.description,
-      notes: elements.notes,
-      imageUrl: attachmentUrl("ELEMENT", "elements", "id_element"),
-      status: elements.status,
-      tags: elements.tags,
-      url: elements.url,
-      urlText: elements.urlText,
-    })
-    .from(elements)
-    .where(and(eq(elements.idElement, element.data), eq(elements.idStory, story.data)))
-    .limit(1);
-  if (!row) return null;
-
-  // The scene comes from the page, so it only counts when it is this
-  // story's: nothing in the database holds a link's two halves to one story.
-  const [link] =
-    scene.data === null
-      ? []
-      : await db
-          .select({
-            idSceneElement: sceneElements.idSceneElement,
-            status: sceneElements.status,
-            tags: sceneElements.tags,
-            showInfo: sceneElements.showInfo,
-            url: sceneElements.url,
-            urlText: sceneElements.urlText,
-            label: sceneElements.label,
-            createdAt: sceneElements.createdAt,
-          })
-          .from(sceneElements)
-          .innerJoin(storyScenes, eq(storyScenes.idStoryScene, sceneElements.idStoryScene))
-          .where(
-            and(
-              eq(sceneElements.idStoryScene, scene.data),
-              eq(sceneElements.idElement, row.idElement),
-              eq(storyScenes.idStory, story.data),
-              named.data === null ? undefined : eq(sceneElements.idSceneElement, named.data),
-            ),
-          )
-          .orderBy(asc(sceneElements.idSceneElement))
-          .limit(1);
-  return { element: row, link: link ?? null };
-}
-
-export type UnlinkSceneElementResult = { ok: true } | { ok: false; error: string };
-
-/**
- * The element panel's Remove from scene: deletes one link of the element to
- * the scene, so its pill leaves the play space; the element itself stays in
- * the story, its other links to this scene (its copies) and to other scenes
- * stay too. The link's status, stack tags, showing field, label and
- * activity log go with it, so adding it back starts a new link from the
- * defaults.
- *
- * Refused when the scene is not this story's or the caller is not its
- * storyteller, and when the link is not the scene's.
- */
-export async function sa_unlinkSceneElement(
-  idStory: number,
-  idStoryScene: number,
-  idSceneElement: number,
-): Promise<UnlinkSceneElementResult> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const scene = idSchema.safeParse(idStoryScene);
-  const link = idSchema.safeParse(idSceneElement);
-  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
-  const owned = await ownedScene(user.id, story.data, scene.data);
-  if (owned === null) return { ok: false, error: NOT_THIS_STORY };
-  if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
-
-  const removed = await db
-    .delete(sceneElements)
-    .where(linkIn(scene.data, link.data))
-    .returning({ idElement: sceneElements.idElement });
-  if (removed.length === 0) return { ok: false, error: NOT_IN_THIS_SCENE };
-  publishLater(() =>
-    publishSceneElementRemoved(story.data, scene.data, removed[0].idElement, link.data),
-  );
-  return { ok: true };
-}
-
-export type SetElementImageResult =
-  { ok: true; imageUrl: string | null } | { ok: false; error: string };
-
-const NOT_THIS_STORYS_PICTURE = "That attachment is not a picture in this story.";
-
-/**
- * A pill's + for a picture, and the info panel's Add picture and −: makes
- * one of the story's attachments the element's picture, its ELEMENT use in
- * attachment_uses tagged cover, picked from the story's pool or a scene's
- * pictures, or with null takes the picture away. An element shows one
- * picture, so whatever use it had goes first; the attachment is only used,
- * not moved, so it stays in its lists either way. The picture is the
- * element's, in every scene, and not part of what a scene holds, so a
- * complete scene does not refuse it.
- *
- * Refused when the story is not the caller's, the element is not the
- * story's, or the attachment is not one of the story's finished ones.
- */
-export async function sa_setElementImage(
-  idStory: number,
-  idElement: number,
-  idAttachment: number | null,
-): Promise<SetElementImageResult> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const element = idSchema.safeParse(idElement);
-  const attachment = idSchema.nullable().safeParse(idAttachment);
-  if (!story.success || !(await ownsStory(user.id, story.data))) {
-    return { ok: false, error: NOT_THIS_STORY };
-  }
-  if (!element.success) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
-  if (!attachment.success) return { ok: false, error: NOT_THIS_STORYS_PICTURE };
-
-  const [owned] = await db
-    .select({ idElement: elements.idElement })
-    .from(elements)
-    .where(and(eq(elements.idElement, element.data), eq(elements.idStory, story.data)))
-    .limit(1);
-  if (!owned) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
-
-  const url = attachment.data === null ? null : await storyPictureUrl(story.data, attachment.data);
-  if (attachment.data !== null && url === null) {
-    return { ok: false, error: NOT_THIS_STORYS_PICTURE };
-  }
-
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(attachmentUses)
-      .where(and(eq(attachmentUses.kind, "ELEMENT"), eq(attachmentUses.idExternal, element.data)));
-    if (attachment.data !== null) {
-      await tx.insert(attachmentUses).values({
-        idAttachment: attachment.data,
-        kind: "ELEMENT",
-        idExternal: element.data,
-        tags: [COVER_TAG],
-        idCreatedByUser: user.id,
-        idUpdatedByUser: user.id,
-      });
-    }
-  });
-  publishLater(() => publishElementChanged(story.data, element.data));
-  return { ok: true, imageUrl: url };
-}
-
-export type SetElementTagsResult = { ok: true; tags: string[] } | { ok: false; error: string };
-
-/**
- * The element panel's Tags editor: the element's own tags (elements.tags),
- * replaced whole with what the editor now holds, trimmed, lower-cased and
- * deduplicated (elementTagsSchema). The tags as saved come back for the
- * row. The players' table is told, since the element went out whole.
- *
- * Refused when the story is not the caller's, when the element is not the
- * story's, and for a tag the schema will not take, with its message.
- */
-export async function sa_setElementTags(
-  idStory: number,
-  idElement: number,
-  tags: unknown,
-): Promise<SetElementTagsResult> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const element = idSchema.safeParse(idElement);
-  if (!story.success || !(await ownsStory(user.id, story.data))) {
-    return { ok: false, error: NOT_THIS_STORY };
-  }
-  if (!element.success) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
-  const parsed = elementTagsSchema.safeParse(tags);
-  if (!parsed.success) {
-    return {
-      ok: false,
-      error: parsed.error.issues[0]?.message ?? "Those tags could not be saved.",
-    };
-  }
-
-  const updated = await db
-    .update(elements)
-    .set({ tags: parsed.data, idUpdatedByUser: user.id })
-    .where(and(eq(elements.idElement, element.data), eq(elements.idStory, story.data)))
-    .returning({ tags: elements.tags });
-  if (updated.length === 0) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
-  publishLater(() => publishElementChanged(story.data, element.data));
-  return { ok: true, tags: updated[0].tags };
+  return { ok: true, space: await spaceFor(id.data, idStoryScene) };
 }
 
 export type SetSceneStacksResult =
@@ -1883,8 +404,9 @@ export type SetSceneStacksResult =
  * that is taken away keep that tag: the play space shows them in the first
  * stack, and putting the stack back puts them back in it.
  *
- * Errors come back keyed by the field, as a form's do. Throws for a scene
- * the caller does not tell: the page never offers this to anyone else.
+ * Errors come back keyed by the field, as a form's do; a scene the caller
+ * does not tell comes back as `root`, and a complete one on `tags`, where
+ * the dialog shows it.
  */
 export async function sa_setSceneStacks(
   idStory: number,
@@ -1892,27 +414,39 @@ export async function sa_setSceneStacks(
   input: unknown,
 ): Promise<SetSceneStacksResult> {
   const user = await requireAccount();
-  const story = idSchema.parse(idStory);
-  const scene = idSchema.parse(idStoryScene);
-  const owned = await ownedScene(user.id, story, scene);
-  if (owned === null) throw new Error(NOT_THIS_STORY);
-  if (lockedScene(owned)) return { ok: false, errors: { tags: SCENE_COMPLETE } };
+  const story = idSchema.safeParse(idStory);
+  const scene = idSchema.safeParse(idStoryScene);
+  if (!story.success || !scene.success) return { ok: false, errors: { root: NOT_THIS_STORY } };
+  const owned = await ownedScene(user.id, scene.data, { idStory: story.data });
+  if (!owned.ok) {
+    return owned.reason === "locked"
+      ? { ok: false, errors: { tags: SCENE_COMPLETE } }
+      : { ok: false, errors: { root: NOT_THIS_STORY } };
+  }
 
   const parsed = sceneStacksSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error.issues) };
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
   const { tags, renames, saveForStory } = parsed.data;
   // A rename is of a stack the scene has; one it lacks means the dialog's
   // list is out of date.
   const moves = renames.filter((rename) => rename.from !== rename.to);
-  if (moves.some((rename) => !owned.tags.includes(rename.from))) {
+  if (moves.some((rename) => !owned.scene.tags.includes(rename.from))) {
     return { ok: false, errors: { tags: NO_SUCH_STACK } };
   }
+
+  // The widened stacks follow the stacks: a renamed one stays wide under its
+  // new name, one taken away is forgotten, and the Default stack's "" is no
+  // tag, so it stays whatever the tags become.
+  const renamed = new Map(moves.map((rename) => [rename.from, rename.to]));
+  const wideTags = owned.scene.wideTags
+    .map((key) => renamed.get(key) ?? key)
+    .filter((key) => key === stackKey(null) || tags.includes(key));
 
   await db.transaction(async (tx) => {
     await tx
       .update(storyScenes)
-      .set({ tags, idUpdatedByUser: user.id })
-      .where(and(eq(storyScenes.idStoryScene, scene), eq(storyScenes.idStory, story)));
+      .set({ tags, wideTags, idUpdatedByUser: user.id })
+      .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.data)));
     // The scene's links filed under a renamed stack follow it. In two
     // passes, through a placeholder no stack can be called (stackNameSchema
     // refuses control characters, and these start with one), so a swap (a
@@ -1922,366 +456,55 @@ export async function sa_setSceneStacks(
       await tx
         .update(sceneElements)
         .set({ tags: sql`array_replace(${sceneElements.tags}, ${rename.from}, ${held[index]})` })
-        .where(eq(sceneElements.idStoryScene, scene));
+        .where(eq(sceneElements.idStoryScene, scene.data));
     }
     for (const [index, rename] of moves.entries()) {
       await tx
         .update(sceneElements)
         .set({ tags: sql`array_replace(${sceneElements.tags}, ${held[index]}, ${rename.to})` })
-        .where(eq(sceneElements.idStoryScene, scene));
+        .where(eq(sceneElements.idStoryScene, scene.data));
     }
     if (saveForStory) {
       await tx
         .update(stories)
         .set({ standardTags: tags, idUpdatedByUser: user.id })
-        .where(and(eq(stories.idStory, story), eq(stories.idCreatedByUser, user.id)));
+        .where(and(eq(stories.idStory, story.data), eq(stories.idCreatedByUser, user.id)));
     }
   });
-  publishLater(() => publishSceneChanged(story));
+  publishLater(() => publishSceneChanged(story.data));
   return { ok: true, tags };
 }
 
-export type MoveSceneElementResult = { ok: true; item: PlayItem } | { ok: false; error: string };
+export type SetStackWideResult = { ok: true; wideTags: string[] } | { ok: false; error: string };
 
 /**
- * The info popover's Move to: files an element under another of the scene's
- * stacks by swapping the tag of the stack it was opened from for the
- * target's. Its other tags stay, so a pill in two stacks leaves only the one
- * it was moved from. `from` is null, or a tag the link lacks, for a pill in
- * the first stack only because nothing else claimed it; the target's tag is
- * then simply added. The pill comes back as it now is.
- *
- * Refused when the target is not one of the scene's tags, when the link is
- * not the scene's, and for a scene the caller does not tell.
+ * The expand button on a stack's heading: the stack is widened to the whole
+ * play space, or narrowed back, on every table at once. The wide stacks are
+ * the scene's (story_scenes.wide_tags), so the players' table and the
+ * display table draw them as the storyteller's does, a table opened later
+ * too, and the scene comes back as it was left. A complete scene takes it:
+ * how its stacks are shown is not what is in them. The players' table hears
+ * the scene changed and reads it afresh.
  */
-export async function sa_moveSceneElement(
+export async function sa_setStackWide(
   idStory: number,
   idStoryScene: number,
-  idSceneElement: number,
-  from: string | null,
-  to: string,
-): Promise<MoveSceneElementResult> {
+  input: unknown,
+): Promise<SetStackWideResult> {
   const user = await requireAccount();
   const story = idSchema.safeParse(idStory);
   const scene = idSchema.safeParse(idStoryScene);
-  const link = idSchema.safeParse(idSceneElement);
-  const fromTag = stackTagSchema.safeParse(from);
-  const toTag = stackTagSchema.safeParse(to);
   if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
-  if (!fromTag.success || !toTag.success || toTag.data === null) {
-    return { ok: false, error: NO_SUCH_STACK };
-  }
+  const parsed = stackWideSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: CHANGE_FAILED };
+  const owned = await ownedScene(user.id, scene.data, { idStory: story.data, allowLocked: true });
+  if (!owned.ok) return { ok: false, error: NOT_THIS_STORY };
 
-  const owned = await ownedScene(user.id, story.data, scene.data);
-  if (owned === null) return { ok: false, error: NOT_THIS_STORY };
-  if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
-  if (!owned.tags.includes(toTag.data)) return { ok: false, error: NO_SUCH_STACK };
-
-  const row = await linkedRow(story.data, scene.data, link.data);
-  if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
-
-  const kept = row.tags.filter((tag) => tag !== fromTag.data && tag !== toTag.data);
-  const tags = [...kept, toTag.data];
+  const wideTags = withStackWide(owned.scene.wideTags, parsed.data.tag, parsed.data.wide);
   await db
-    .update(sceneElements)
-    .set({ tags, idUpdatedByUser: user.id })
-    .where(linkIn(scene.data, link.data));
-  publishLater(() => publishSceneElement(story.data, scene.data, link.data));
-
-  return { ok: true, item: linkedItem({ ...row, tags }) };
-}
-
-export type SetSceneElementTagsResult = { ok: true; item: PlayItem } | { ok: false; error: string };
-
-/**
- * The element panel's stacks dialog: which of the scene's stacks the element
- * is filed under, the link's tags replaced with the ones ticked, kept in the
- * scene's order whatever order they were ticked in. A tag the link carried
- * that is no longer one of the scene's goes with the rest, since the dialog
- * could not offer it. No stacks at all is allowed: the pill then shows in
- * the first stack, where playStacks files anything with none of the scene's
- * tags. Only the link changes. The pill comes back as it now is.
- *
- * Refused for a stack that is not one of the scene's tags, since the stacks
- * it was ticked from are out of date; when the link is not the scene's; and
- * for a scene the caller does not tell or that is complete.
- */
-export async function sa_setSceneElementTags(
-  idStory: number,
-  idStoryScene: number,
-  idSceneElement: number,
-  tags: string[],
-): Promise<SetSceneElementTagsResult> {
-  const user = await requireAccount();
-  const story = idSchema.safeParse(idStory);
-  const scene = idSchema.safeParse(idStoryScene);
-  const link = idSchema.safeParse(idSceneElement);
-  const ticked = stacksSchema.safeParse(tags);
-  if (!story.success || !scene.success) return { ok: false, error: NOT_THIS_STORY };
-  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
-  if (!ticked.success) return { ok: false, error: NO_SUCH_STACK };
-
-  const owned = await ownedScene(user.id, story.data, scene.data);
-  if (owned === null) return { ok: false, error: NOT_THIS_STORY };
-  if (lockedScene(owned)) return { ok: false, error: SCENE_COMPLETE };
-  if (ticked.data.some((tag) => !owned.tags.includes(tag))) {
-    return { ok: false, error: NO_SUCH_STACK };
-  }
-
-  const row = await linkedRow(story.data, scene.data, link.data);
-  if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
-
-  const ordered = owned.tags.filter((tag) => ticked.data.includes(tag));
-  await db
-    .update(sceneElements)
-    .set({ tags: ordered, idUpdatedByUser: user.id })
-    .where(linkIn(scene.data, link.data));
-  publishLater(() => publishSceneElement(story.data, scene.data, link.data));
-
-  return { ok: true, item: linkedItem({ ...row, tags: ordered }) };
-}
-
-/**
- * One link of a scene of the story with everything its pill shows, read for
- * a write that hands the pill back (Move to, the stacks dialog), or null
- * when the link is not the scene's. The story is checked because nothing in
- * the database holds a link's element to the scene's story.
- */
-async function linkedRow(
-  idStory: number,
-  idStoryScene: number,
-  idSceneElement: number,
-): Promise<Parameters<typeof linkedItem>[0] | null> {
-  const [row] = await db
-    .select({
-      idElement: vSceneElements.idElement,
-      kind: vSceneElements.kind,
-      name: vSceneElements.name,
-      initialName: vSceneElements.initialName,
-      title: vSceneElements.title,
-      tags: vSceneElements.tags,
-      status: vSceneElements.status,
-      showing: vSceneElements.elementShowing,
-      showInfo: vSceneElements.showInfo,
-      imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
-      url: vSceneElements.elementUrl,
-      urlText: vSceneElements.elementUrlText,
-      sceneUrl: vSceneElements.url,
-      sceneUrlText: vSceneElements.urlText,
-      hasStatBlocks: linkHasStatBlocks("v_scene_elements"),
-      label: vSceneElements.label,
-    })
-    .from(vSceneElements)
-    .where(
-      and(
-        eq(vSceneElements.idStoryScene, idStoryScene),
-        eq(vSceneElements.idSceneElement, idSceneElement),
-        eq(vSceneElements.idStory, idStory),
-      ),
-    )
-    .limit(1);
-  if (!row || row.kind === null || row.name === null || row.idElement === null) return null;
-  return {
-    idElement: row.idElement,
-    kind: row.kind,
-    name: row.name,
-    initialName: row.initialName,
-    title: row.title,
-    tags: row.tags ?? [],
-    status: row.status ?? "",
-    showing: row.showing,
-    showInfo: row.showInfo,
-    idSceneElement,
-    hasStatBlocks: row.hasStatBlocks,
-    label: row.label,
-    imageUrl: row.imageUrl,
-    url: row.url,
-    urlText: row.urlText,
-    sceneUrl: row.sceneUrl,
-    sceneUrlText: row.sceneUrlText,
-  };
-}
-
-export type JoinLink = {
-  /** The code in /join/<code>; the page builds the link from its own origin. */
-  code: string;
-  /** Seats the link has given out so far. */
-  joined: number;
-  /** How many it may give out, by the storyteller's plan (lib/join.ts). */
-  cap: number;
-};
-
-/**
- * The story's join link, for the storyteller to hand to people without an
- * account. The code is made the first time it is asked for and kept after
- * that, so a link already sent keeps working: coalesce in the UPDATE leaves
- * one that is there alone, and two tabs asking at once get the same code.
- * Nine random bytes make a 12-character base64url code, too many to guess.
- * Null for anyone but the story's storyteller.
- */
-export async function sa_getJoinLink(idStory: number): Promise<JoinLink | null> {
-  const user = await requireAccount();
-  const id = idSchema.safeParse(idStory);
-  if (!id.success) return null;
-
-  const fresh = randomBytes(9).toString("base64url");
-  const [story] = await db
-    .update(stories)
-    .set({ joinCode: sql`coalesce(${stories.joinCode}, ${fresh})` })
-    .where(and(eq(stories.idStory, id.data), eq(stories.idCreatedByUser, user.id)))
-    .returning({ code: stories.joinCode });
-  if (!story?.code) return null;
-
-  const [taken] = await db
-    .select({ n: count() })
-    .from(storyPlayers)
-    .where(and(eq(storyPlayers.idStory, id.data), eq(storyPlayers.isFromLink, true)));
-  return { code: story.code, joined: taken.n, cap: joinCap(user.idUserType) };
-}
-
-/**
- * How many seats the story's link has given out and how many it may, for
- * the chip on the storyteller's link button. Unlike sa_getJoinLink it makes
- * no code, so the table can ask on every load. Null for anyone but the
- * story's storyteller.
- */
-export async function sa_getJoinCount(
-  idStory: number,
-): Promise<Pick<JoinLink, "joined" | "cap"> | null> {
-  const user = await requireAccount();
-  const id = idSchema.safeParse(idStory);
-  if (!id.success) return null;
-
-  const [owned] = await db
-    .select({ id: stories.idStory })
-    .from(stories)
-    .where(and(eq(stories.idStory, id.data), eq(stories.idCreatedByUser, user.id)))
-    .limit(1);
-  if (!owned) return null;
-
-  const [taken] = await db
-    .select({ n: count() })
-    .from(storyPlayers)
-    .where(and(eq(storyPlayers.idStory, id.data), eq(storyPlayers.isFromLink, true)));
-  return { joined: taken.n, cap: joinCap(user.idUserType) };
-}
-
-/** Where someone who came in by the link is: their presence row's status, or null for nowhere. */
-export type LinkPlayerStatus = "PRESENT" | "AWAY" | "WAITING" | "LEFT" | null;
-
-export type LinkPlayer = {
-  idUser: string;
-  name: string;
-  /** Came in with no account (is_anonymous); removing them deletes them. */
-  isGuest: boolean;
-  status: LinkPlayerStatus;
-};
-
-/**
- * Everyone seated at the story by its join link, guests and accounts alike,
- * with where each is now: their row at the session being played, or failing
- * that their waiting-room row, as long as its heartbeat is fresh
- * (WAITING_STALE_SECONDS), since a closed waiting room leaves its row
- * WAITING. Loaded only when the storyteller asks, from the link button.
- * Empty for anyone but the story's storyteller.
- */
-export async function sa_listLinkPlayers(idStory: number): Promise<LinkPlayer[]> {
-  const user = await requireAccount();
-  const id = idSchema.safeParse(idStory);
-  if (!id.success) return [];
-
-  const atSession = sql<string | null>`(
-    select sp.status from session_players sp
-    where sp.id_story_session = ${stories.idStorySession}
-      and sp.id_created_by_user = ${storyPlayers.idUser}
-    limit 1
-  )`;
-  const waiting = sql<string | null>`(
-    select sp.status from session_players sp
-    where sp.id_story = ${stories.idStory}
-      and sp.id_story_session is null
-      and sp.id_created_by_user = ${storyPlayers.idUser}
-      and (sp.status <> 'WAITING'
-        or sp.updated_at > now() - make_interval(secs => ${WAITING_STALE_SECONDS}))
-    limit 1
-  )`;
-  const rows = await db
-    .select({
-      idUser: users.id,
-      name: sql<string>`coalesce(${users.nickName}, ${users.name})`,
-      isGuest: users.isAnonymous,
-      status: sql<string | null>`coalesce(${atSession}, ${waiting})`,
-    })
-    .from(storyPlayers)
-    .innerJoin(stories, eq(stories.idStory, storyPlayers.idStory))
-    .innerJoin(users, eq(users.id, storyPlayers.idUser))
-    .where(
-      and(
-        eq(storyPlayers.idStory, id.data),
-        eq(storyPlayers.isFromLink, true),
-        eq(stories.idCreatedByUser, user.id),
-      ),
-    )
-    .orderBy(asc(storyPlayers.idStoryPlayer));
-  return rows.map((row) => ({ ...row, status: row.status as LinkPlayerStatus }));
-}
-
-export type RemoveLinkPlayerResult = { ok: true } | { ok: false; error: string };
-
-/**
- * Takes someone who came in by the link out of the story: their seat and
- * their presence at its sessions and waiting room. A guest seated nowhere
- * else is deleted as well (lib/guests.ts), so their cookie stops working;
- * someone with an account keeps it and simply has no seat here. Every
- * table is told the scene changed, so the removed person's table reloads
- * and finds it is no longer theirs, and the head count is published again.
- * Only seats from the link: the storyteller removes invited players from
- * the story's page.
- */
-export async function sa_removeLinkPlayer(
-  idStory: number,
-  idUser: string,
-): Promise<RemoveLinkPlayerResult> {
-  const user = await requireAccount();
-  const id = idSchema.safeParse(idStory);
-  const who = z.string().uuid().safeParse(idUser);
-  const notHere = { ok: false, error: "That is not someone who joined by the link." } as const;
-  if (!id.success || !who.success) return notHere;
-
-  const [seat] = await db
-    .select({ isGuest: users.isAnonymous })
-    .from(storyPlayers)
-    .innerJoin(stories, eq(stories.idStory, storyPlayers.idStory))
-    .innerJoin(users, eq(users.id, storyPlayers.idUser))
-    .where(
-      and(
-        eq(storyPlayers.idStory, id.data),
-        eq(storyPlayers.idUser, who.data),
-        eq(storyPlayers.isFromLink, true),
-        eq(stories.idCreatedByUser, user.id),
-      ),
-    )
-    .limit(1);
-  if (!seat) return notHere;
-
-  if (seat.isGuest) {
-    await removeGuestsFrom(id.data, [who.data]);
-  } else {
-    const wasPresent = await db.transaction(async (tx) => {
-      const gone = await tx
-        .delete(sessionPlayers)
-        .where(
-          and(eq(sessionPlayers.idStory, id.data), eq(sessionPlayers.idCreatedByUser, who.data)),
-        )
-        .returning({ status: sessionPlayers.status });
-      await tx
-        .delete(storyPlayers)
-        .where(and(eq(storyPlayers.idStory, id.data), eq(storyPlayers.idUser, who.data)));
-      return gone.some((row) => row.status === "PRESENT");
-    });
-    if (wasPresent) recountTable(id.data);
-  }
-  publishLater(() => publishSceneChanged(id.data));
-  return { ok: true };
+    .update(storyScenes)
+    .set({ wideTags, idUpdatedByUser: user.id })
+    .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.data)));
+  publishLater(() => publishSceneChanged(story.data));
+  return { ok: true, wideTags };
 }

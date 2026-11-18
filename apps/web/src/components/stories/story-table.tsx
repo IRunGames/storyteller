@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Badge, Button, IconButton, Portal, Stack, Table, Text, Tooltip } from "@chakra-ui/react";
+import { Badge, Button, Stack, Table, Text } from "@chakra-ui/react";
 import {
   createColumnHelper,
   rowSortingFeature,
@@ -10,7 +10,7 @@ import {
   type SortingState,
   type Updater,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ArrowUpDown, Heart } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import {
   formatPlayerCount,
   formatSessionCount,
@@ -19,6 +19,7 @@ import {
   type StoryCardData,
 } from "@/lib/stories";
 import { StoryTitleMenu } from "./story-title-menu";
+import { StoryFavoriteButton } from "./story-favorite-button";
 
 // Sorting alone, with no sorted row model: the rows arrive sorted and paged
 // from the server (sa_listMyStoryPage), so the table keeps the sort state and
@@ -99,10 +100,12 @@ export function StoryTable({
         id: "favorite",
         header: "Favorite",
         cell: (info) => (
-          <FavoriteButton
-            story={info.row.original}
+          <StoryFavoriteButton
+            idStory={info.row.original.idStory}
+            isFavorite={info.row.original.isFavorite}
+            size="xs"
             pending={pendingFavorites.has(info.row.original.idStory)}
-            onToggle={onToggleFavorite}
+            onToggle={(isFavorite) => onToggleFavorite(info.row.original, isFavorite)}
           />
         ),
       }),
@@ -210,50 +213,5 @@ export function StoryTable({
         </Table.Body>
       </Table.Root>
     </Table.ScrollArea>
-  );
-}
-
-/**
- * The card's heart on a row: aria-disabled rather than disabled while its
- * toggle is in flight, so a keyboard user keeps their place.
- */
-function FavoriteButton({
-  story,
-  pending,
-  onToggle,
-}: {
-  story: StoryCardData;
-  pending: boolean;
-  onToggle: (story: StoryCardData, isFavorite: boolean) => void;
-}) {
-  const label = story.isFavorite ? "Remove from Favorites" : "Add to Favorites";
-  return (
-    <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-      <Tooltip.Trigger asChild>
-        <IconButton
-          type="button"
-          aria-label={label}
-          aria-pressed={story.isFavorite}
-          variant="ghost"
-          size="xs"
-          rounded="full"
-          color={story.isFavorite ? "red.fg" : "fg.muted"}
-          aria-disabled={pending}
-          opacity={pending ? "0.6" : undefined}
-          cursor={pending ? "not-allowed" : undefined}
-          onClick={() => {
-            if (pending) return;
-            onToggle(story, !story.isFavorite);
-          }}
-        >
-          <Heart fill={story.isFavorite ? "currentColor" : "none"} />
-        </IconButton>
-      </Tooltip.Trigger>
-      <Portal>
-        <Tooltip.Positioner>
-          <Tooltip.Content>{label}</Tooltip.Content>
-        </Tooltip.Positioner>
-      </Portal>
-    </Tooltip.Root>
   );
 }

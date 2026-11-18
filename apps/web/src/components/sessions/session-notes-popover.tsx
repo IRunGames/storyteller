@@ -1,24 +1,14 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  Alert,
-  Button,
-  Field,
-  HStack,
-  IconButton,
-  Popover,
-  Portal,
-  Skeleton,
-  Stack,
-  Textarea,
-  Tooltip,
-} from "@chakra-ui/react";
-import { Info } from "lucide-react";
+import { Button, Field, HStack, Skeleton, Stack, Textarea } from "@chakra-ui/react";
 import { sessionNotesSchema, type SessionNotesValues } from "@/lib/session-schemas";
+import { applyActionErrors } from "@/lib/forms";
+import { InfoPopoverShell } from "@/components/popovers/info-popover-shell";
 import { toaster } from "@/components/ui/toaster";
+import { FormError } from "@/components/forms/form-error";
 import { sa_getSessionNotes, sa_setSessionNotes } from "./actions";
 
 type Props = {
@@ -37,70 +27,32 @@ const FIELDS = [
  * panel it opens: the session's notes and lingering questions in a form,
  * for the storyteller at /stories/[id]/run and the players at
  * /stories/[id]/play alike, so what is being kept about the sitting can be
- * written up as it is played. The form is only drawn while the panel is
- * open and reads the session as it opens, so each opening starts from what
- * is stored now, whoever last saved it.
+ * written up as it is played. The shell (InfoPopoverShell) draws the form
+ * only while the panel is open, and it reads the session as it opens, so
+ * each opening starts from what is stored now, whoever last saved it. The
+ * first field takes focus as the panel opens.
  */
 export function SessionNotesPopover({ idStorySession, heading }: Props) {
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
-  const triggerId = useId();
-  const [open, setOpen] = useState(false);
-  // The first field takes focus once the panel has loaded: zag would
-  // otherwise settle focus on the panel itself a moment after opening.
-  const content = useRef<HTMLDivElement>(null);
-
   return (
-    <Popover.Root
-      ids={{ trigger: triggerId }}
-      open={open}
-      onOpenChange={(details) => setOpen(details.open)}
-      positioning={{ placement: "bottom-start" }}
-      initialFocusEl={() => content.current?.querySelector("textarea") ?? null}
+    <InfoPopoverShell
+      label="Session notes"
+      tooltip="Notes and lingering questions"
+      heading={heading}
+      placement="bottom-start"
+      width="md"
+      initialFocus="textarea"
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label="Session notes"
-              aria-expanded={open}
-              size="xs"
-              variant="ghost"
-              rounded="full"
-            >
-              <Info />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Notes and lingering questions</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
-      <Portal>
-        <Popover.Positioner>
-          <Popover.Content ref={content} w="md" maxH="80vh" overflowY="auto">
-            <Popover.Arrow />
-            <Popover.Header>
-              <Popover.Title fontWeight="semibold">{heading}</Popover.Title>
-            </Popover.Header>
-            <Popover.Body>
-              {open && (
-                <SessionNotesForm
-                  idStorySession={idStorySession}
-                  onSaved={() => {
-                    setOpen(false);
-                    toaster.create({ title: "Session saved", type: "success" });
-                  }}
-                  onCancel={() => setOpen(false)}
-                />
-              )}
-            </Popover.Body>
-          </Popover.Content>
-        </Popover.Positioner>
-      </Portal>
-    </Popover.Root>
+      {(close) => (
+        <SessionNotesForm
+          idStorySession={idStorySession}
+          onSaved={() => {
+            close();
+            toaster.create({ title: "Session saved", type: "success" });
+          }}
+          onCancel={close}
+        />
+      )}
+    </InfoPopoverShell>
   );
 }
 
@@ -151,9 +103,11 @@ function SessionNotesForm({ idStorySession, onSaved, onCancel }: FormProps) {
       onSaved();
       return;
     }
-    for (const [field, message] of Object.entries(result.errors)) {
-      setError(field === "root" ? "root" : (field as keyof SessionNotesValues), { message });
-    }
+    applyActionErrors(
+      { setError },
+      result.errors,
+      FIELDS.map((field) => field.name),
+    );
   }
 
   if (loaded === "loading") {
@@ -164,29 +118,14 @@ function SessionNotesForm({ idStorySession, onSaved, onCancel }: FormProps) {
       </Stack>
     );
   }
-  // role="alert" on both, which Chakra's Alert does not set itself.
   if (loaded === "refused") {
-    return (
-      <Alert.Root role="alert" status="error">
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Description>This session is not at a table of yours.</Alert.Description>
-        </Alert.Content>
-      </Alert.Root>
-    );
+    return <FormError message="This session is not at a table of yours." />;
   }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
       <Stack gap="3">
-        {errors.root && (
-          <Alert.Root role="alert" status="error">
-            <Alert.Indicator />
-            <Alert.Content>
-              <Alert.Description>{errors.root.message}</Alert.Description>
-            </Alert.Content>
-          </Alert.Root>
-        )}
+        <FormError message={errors.root?.message} />
         {FIELDS.map((field) => (
           <Field.Root key={field.name} invalid={!!errors[field.name]}>
             <Field.Label>{field.label}</Field.Label>

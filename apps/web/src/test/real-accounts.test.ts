@@ -22,10 +22,12 @@ const REAL_USER_ID =
   /["'`](?!00000000-)[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}["'`]/;
 
 describe("database tests and real accounts", () => {
+  // A database test runs under describeWithDb (db-suite.ts) or, where its
+  // setup is its own, reads DATABASE_URL itself; this file names both.
   const files = testFiles("src").filter(
     (file) =>
       !file.endsWith("real-accounts.test.ts") &&
-      readFileSync(file, "utf8").includes("process.env.DATABASE_URL"),
+      /process\.env\.DATABASE_URL|describeWithDb\(/.test(readFileSync(file, "utf8")),
   );
 
   it("finds the database tests", () => {

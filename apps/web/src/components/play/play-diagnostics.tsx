@@ -15,6 +15,7 @@ import {
 } from "@chakra-ui/react";
 import { ChevronRight } from "lucide-react";
 import type { ChannelState, ChannelStatus } from "./use-story-channel";
+import { plural } from "@/lib/plural";
 
 type Props = {
   /** The panel's id, which the header's Diagnostics toggle points at. */
@@ -97,7 +98,7 @@ export function PlayDiagnostics({ id, channel }: Props) {
 
       <HStack justify="space-between" gap="2" px="4" py="2">
         <Text fontSize="sm" color="fg.muted">
-          {channel.messages.length === 1 ? "1 message" : `${channel.messages.length} messages`}
+          {plural(channel.messages.length, "message")}
         </Text>
         <Button size="xs" variant="ghost" onClick={channel.clear}>
           Clear
@@ -128,8 +129,8 @@ export function PlayDiagnostics({ id, channel }: Props) {
                 >
                   <Box
                     as="span"
-                    flexShrink="0"
                     display="inline-flex"
+                    flexShrink="0"
                     css={{ "[data-state=open] > &": { transform: "rotate(90deg)" } }}
                     aria-hidden
                   >

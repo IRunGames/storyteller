@@ -1,11 +1,12 @@
 "use client";
 
-import { Box, ClientOnly, IconButton, Menu, Portal, Skeleton, Tooltip } from "@chakra-ui/react";
+import { Box, ClientOnly, Menu, Portal, Skeleton } from "@chakra-ui/react";
 import { useId, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
 import { THEMES, type Theme } from "@/lib/themes";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import {
   BerryIcon,
   FlameIcon,
@@ -35,10 +36,8 @@ const ICONS: Record<Theme, ReactNode> = {
 // A selector rather than a toggle so a new theme is one more entry in THEMES.
 // It reads next-themes directly rather than through the color-mode snippet,
 // whose ColorMode type only knows light and dark.
-// Tooltip and menu each stamp an id on the one button and look their trigger
-// up by that id when positioning. Left to their own ids, the tooltip's wins
-// and the menu anchors to nothing, opening at the page corner. Handing both
-// the same trigger id keeps them pointed at the same element.
+// The button is the menu's trigger and carries a tooltip; both roots share
+// the trigger id for the reason WithTooltip gives.
 export function NavThemeMenu() {
   const { resolvedTheme, setTheme } = useTheme();
   const theme = (resolvedTheme ?? "dark") as Theme;
@@ -59,30 +58,17 @@ export function NavThemeMenu() {
     // chosen on the client — same reason ColorModeButton does this.
     <ClientOnly fallback={<Skeleton boxSize="11" rounded="10px" />}>
       <Menu.Root positioning={{ placement: "bottom-end" }} ids={{ trigger: triggerId }}>
-        {/* Both triggers use asChild, so their props merge onto the one
-            button: hover shows the tooltip, click opens the menu. */}
-        <Tooltip.Root
-          openDelay={200}
-          positioning={{ placement: "top" }}
-          ids={{ trigger: triggerId }}
+        <IconButtonWithTooltip
+          label="Choose theme"
+          tooltip="Set your theme"
+          boxSize="11"
+          rounded="10px"
+          color="nav.icon"
+          menuTrigger={triggerId}
+          portalled={false}
         >
-          <Tooltip.Trigger asChild>
-            <Menu.Trigger asChild>
-              <IconButton
-                aria-label="Choose theme"
-                variant="ghost"
-                boxSize="11"
-                rounded="10px"
-                color="nav.icon"
-              >
-                {ICONS[theme] ?? <Moon />}
-              </IconButton>
-            </Menu.Trigger>
-          </Tooltip.Trigger>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Set your theme</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Tooltip.Root>
+          {ICONS[theme] ?? <Moon />}
+        </IconButtonWithTooltip>
         <Portal>
           <Menu.Positioner>
             <Menu.Content>

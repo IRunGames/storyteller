@@ -1,6 +1,7 @@
 import { and, eq, inArray, lt, notExists, sql } from "drizzle-orm";
 
 import { db } from "./index";
+import { removeSeat } from "./seats";
 import {
   session,
   sessionPlayers,
@@ -137,17 +138,15 @@ export async function removeGuestsFromStory(
   const guests = seated.map((row) => row.id);
   if (guests.length === 0) return { wasPresent: false, deleted: [] };
 
+  // Each seat whole (removeSeat), the same way a storyteller's Remove takes
+  // one; one transaction for all of them.
   const present = await db.transaction(async (tx) => {
-    const gone = await tx
-      .delete(sessionPlayers)
-      .where(
-        and(eq(sessionPlayers.idStory, idStory), inArray(sessionPlayers.idCreatedByUser, guests)),
-      )
-      .returning({ status: sessionPlayers.status });
-    await tx
-      .delete(storyPlayers)
-      .where(and(eq(storyPlayers.idStory, idStory), inArray(storyPlayers.idUser, guests)));
-    return gone.some((row) => row.status === "PRESENT");
+    let wasPresent = false;
+    for (const guest of guests) {
+      const removed = await removeSeat(idStory, guest, tx);
+      wasPresent ||= removed.wasPresent;
+    }
+    return wasPresent;
   });
 
   const stillSeated = new Set(

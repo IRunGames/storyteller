@@ -1,10 +1,11 @@
 "use client";
 
 import { useId, useState } from "react";
-import { HStack, IconButton, Popover, Portal, Tooltip } from "@chakra-ui/react";
+import { HStack, Popover, Portal } from "@chakra-ui/react";
 import { Pencil } from "lucide-react";
 import { DeleteSessionButton } from "@/components/stories/delete-session-button";
 import { SessionEditPanel, type SessionSaved } from "@/components/stories/session-edit-panel";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
 type Props = {
   idStorySession: number;
@@ -30,8 +31,6 @@ type Props = {
  * is wanted. Deleting takes the lane away, popover and all.
  */
 export function SessionEditPopover({ idStorySession, heading, onSaved, onDeleted }: Props) {
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [open, setOpen] = useState(false);
   const label = `Edit ${heading}`;
@@ -43,28 +42,15 @@ export function SessionEditPopover({ idStorySession, heading, onSaved, onDeleted
       onOpenChange={(details) => setOpen(details.open)}
       positioning={{ placement: "bottom-start" }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label={label}
-              aria-expanded={open}
-              size="xs"
-              variant="ghost"
-              rounded="full"
-              color="inherit"
-              _hover={{ bg: "blackAlpha.200" }}
-            >
-              <Pencil size={16} />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>{label}</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      <IconButtonWithTooltip
+        label={label}
+        aria-expanded={open}
+        color="inherit"
+        _hover={{ bg: "blackAlpha.200" }}
+        popoverTrigger={triggerId}
+      >
+        <Pencil size={16} />
+      </IconButtonWithTooltip>
       <Portal>
         <Popover.Positioner>
           {/* The panel runs long with its pictures and scenes, so it

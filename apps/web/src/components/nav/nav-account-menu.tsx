@@ -3,6 +3,7 @@
 import { useCallback, useId, useState, type ReactNode } from "react";
 import { Avatar, Menu, Portal, Tooltip, chakra } from "@chakra-ui/react";
 import { CircleAlert, House, Wrench } from "lucide-react";
+import { WithTooltip } from "@/components/buttons/with-tooltip";
 import { useSignOut } from "@/components/auth/sign-out-button";
 import { useUser } from "@/components/auth/user-provider";
 import { UserTypeVisibility } from "@/components/auth/user-type-visibility";
@@ -41,10 +42,8 @@ function ItemTooltip({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-// Tooltip and menu each stamp an id on the one button and look their trigger
-// up by that id when positioning. Left to their own ids, the tooltip's wins
-// and the menu anchors to nothing, opening at the page corner. Handing both
-// the same trigger id keeps them pointed at the same element.
+// The avatar is the menu's trigger and carries a tooltip; both roots share
+// the trigger id for the reason WithTooltip gives.
 export function NavAccountMenu() {
   const user = useUser();
   const { signOut, isSigningOut } = useSignOut();
@@ -85,45 +84,32 @@ export function NavAccountMenu() {
           if (details.value === "profile") setProfileOpen(true);
         }}
       >
-        {/* Both triggers use asChild, so their props merge onto the one
-          button: hover shows the tooltip, click opens the menu. */}
-        <Tooltip.Root
-          openDelay={200}
-          positioning={{ placement: "top" }}
-          ids={{ trigger: triggerId }}
-        >
-          <Tooltip.Trigger asChild>
-            <Menu.Trigger asChild>
-              <chakra.button
-                type="button"
-                aria-label="Account menu"
-                display="inline-flex"
-                rounded="full"
-                cursor="pointer"
-                _focusVisible={{
-                  outline: "2px solid",
-                  outlineColor: "nav.accent",
-                  outlineOffset: "2px",
-                }}
-              >
-                <Avatar.Root
-                  boxSize="11"
-                  bg="nav.avatarBg"
-                  color="nav.avatarFg"
-                  fontSize="15px"
-                  fontWeight="semibold"
-                  letterSpacing="0.02em"
-                >
-                  <Avatar.Fallback name={user.name} />
-                  {picture && <Avatar.Image src={picture} />}
-                </Avatar.Root>
-              </chakra.button>
-            </Menu.Trigger>
-          </Tooltip.Trigger>
-          <Tooltip.Positioner>
-            <Tooltip.Content>{displayName}</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Tooltip.Root>
+        <WithTooltip tooltip={displayName} menuTrigger={triggerId} portalled={false}>
+          <chakra.button
+            type="button"
+            aria-label="Account menu"
+            display="inline-flex"
+            rounded="full"
+            cursor="pointer"
+            _focusVisible={{
+              outline: "2px solid",
+              outlineColor: "nav.accent",
+              outlineOffset: "2px",
+            }}
+          >
+            <Avatar.Root
+              boxSize="11"
+              bg="nav.avatarBg"
+              color="nav.avatarFg"
+              fontSize="15px"
+              fontWeight="semibold"
+              letterSpacing="0.02em"
+            >
+              <Avatar.Fallback name={user.name} />
+              {picture && <Avatar.Image src={picture} />}
+            </Avatar.Root>
+          </chakra.button>
+        </WithTooltip>
         <Portal>
           <Menu.Positioner>
             <Menu.Content>

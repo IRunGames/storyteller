@@ -74,5 +74,44 @@ describe("POST /api/blob/upload", () => {
     const response = await POST(tokenRequest(`uploads/${other}/cat.jpg`));
 
     expect(response.status).toBe(400);
+    // The refusal is the one message the route composes itself, so the field
+    // can show the user why.
+    expect(await response.json()).toEqual({ error: "That upload path does not belong to you." });
+  });
+
+  // Anything else that goes wrong is the route's business, not the user's: a
+  // driver or SDK message could name internals, so a fixed line stands in.
+  it("hides an unexpected failure behind a fixed message", async () => {
+    requireAccount.mock.mockImplementation(async () => {
+      throw new Error("relation s_users does not exist");
+    });
+    const warned = mock.method(console, "error", () => {});
+    try {
+      const response = await POST(tokenRequest(`uploads/${USER}/cat.jpg`));
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "Upload could not be authorised." });
+      expect(warned.mock.callCount()).toBe(1);
+    } finally {
+      warned.mock.restore();
+    }
+  });
+
+  it("answers a body that is not JSON with the same 400, not a crash", async () => {
+    const warned = mock.method(console, "error", () => {});
+    try {
+      const response = await POST(
+        new Request("http://localhost/api/blob/upload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "not json",
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "Upload could not be authorised." });
+    } finally {
+      warned.mock.restore();
+    }
   });
 });

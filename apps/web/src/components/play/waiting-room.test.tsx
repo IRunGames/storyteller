@@ -8,16 +8,9 @@ import { UserProvider } from "@/components/auth/user-provider";
 import type { CurrentUser } from "@/lib/current-user";
 import type { WaitingRoomState } from "@/lib/play";
 import type { StorySession } from "@/lib/stories";
+import { currentUser, mockHeader, mockNavigation, mockRouter } from "@/test/mocks";
 
-const user: CurrentUser = {
-  id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
-  name: "Paul Stafford",
-  email: "storyteller@irun.games",
-  image: null,
-  nickName: null,
-  idUserType: -10,
-  isAnonymous: false,
-};
+const user = currentUser();
 
 const initial: WaitingRoomState = {
   waitingSince: new Date(Date.now() - 65_000),
@@ -43,8 +36,8 @@ const sa_waitForSession = mock.fn<(idStory: number) => Promise<WaitingRoomState 
 );
 const sa_leaveWaitingRoom = mock.fn(async () => {});
 const sa_leaveAsGuest = mock.fn(async (_idStory: number) => {});
-const replace = mock.fn();
-const push = mock.fn();
+const replace = mock.fn<(href: string) => void>();
+const push = mock.fn<(href: string) => void>();
 
 let WaitingRoom: typeof import("./waiting-room").WaitingRoom;
 type PreferencesModule = typeof import("@/components/preferences/user-preferences-provider");
@@ -52,19 +45,11 @@ let UserPreferencesProvider: PreferencesModule["UserPreferencesProvider"];
 
 describe("WaitingRoom", () => {
   before(async () => {
-    mock.module("next/navigation", {
-      namedExports: {
-        useRouter: () => ({ push, replace, refresh: mock.fn() }),
-        usePathname: () => "/stories/7/play/waiting",
-      },
+    mockNavigation({
+      router: { ...mockRouter(), push, replace },
+      pathname: "/stories/7/play/waiting",
     });
-    mock.module("@/lib/auth-client", { namedExports: { signOut: mock.fn() } });
-    mock.module("@/components/feedback/actions", {
-      namedExports: { sa_submitFeedback: mock.fn() },
-    });
-    mock.module("@/components/preferences/actions", {
-      namedExports: { sa_setUserPreference: mock.fn() },
-    });
+    mockHeader();
     mock.module("@/app/(app)/(nav)/stories/actions", {
       namedExports: {
         sa_listStorySessions: mock.fn(async () => []),

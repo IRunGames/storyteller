@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
 import type { AdminSystemDetail, UpdateSystemResult } from "../actions";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
 const system: AdminSystemDetail = {
   idSystem: -90,
@@ -19,14 +20,14 @@ const system: AdminSystemDetail = {
 const sa_updateSystem = mock.fn<(idSystem: number, input: unknown) => Promise<UpdateSystemResult>>(
   async () => ({ ok: true, label: "Palladium Fantasy Role-Playing Game (3e)" }),
 );
-const refresh = mock.fn();
+const refresh = mock.fn<() => void>();
 
 let SystemDetailsForm: typeof import("./system-details-form").SystemDetailsForm;
 
 describe("SystemDetailsForm", () => {
   before(async () => {
     mock.module("../actions", { namedExports: { sa_updateSystem } });
-    mock.module("next/navigation", { namedExports: { useRouter: () => ({ refresh }) } });
+    mockNavigation({ router: { ...mockRouter(), refresh } });
     ({ SystemDetailsForm } = await import("./system-details-form"));
   });
 

@@ -3,18 +3,18 @@
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Alert, Button, Card, Field, Heading, HStack, Input, Stack } from "@chakra-ui/react";
+import { Button, Card, Field, Heading, HStack, Input, Stack } from "@chakra-ui/react";
 import { toaster } from "@/components/ui/toaster";
+import { FormError } from "@/components/forms/form-error";
 import {
   systemFieldsSchema,
   type SystemFieldsInput,
   type SystemFieldsValues,
 } from "@/lib/system-schemas";
 import { sa_updateSystem, type AdminSystemDetail } from "../actions";
+import { applyActionErrors } from "@/lib/forms";
 
 const FIELDS = ["systemName", "systemVersion", "variant"] as const;
-type FieldName = (typeof FIELDS)[number];
-const isField = (name: string): name is FieldName => (FIELDS as readonly string[]).includes(name);
 
 /**
  * The editor page's card for a system's own fields: name, version and
@@ -43,9 +43,7 @@ export function SystemDetailsForm({ system }: { system: AdminSystemDetail }) {
     try {
       const result = await sa_updateSystem(system.idSystem, values);
       if (!result.ok) {
-        for (const [field, message] of Object.entries(result.errors)) {
-          setError(isField(field) ? field : "root", { message });
-        }
+        applyActionErrors({ setError }, result.errors, FIELDS);
         return;
       }
       reset({
@@ -68,14 +66,7 @@ export function SystemDetailsForm({ system }: { system: AdminSystemDetail }) {
       <Card.Body>
         <form onSubmit={handleSubmit(save)} noValidate>
           <Stack gap="4">
-            {errors.root && (
-              <Alert.Root role="alert" status="error" size="sm">
-                <Alert.Indicator />
-                <Alert.Content>
-                  <Alert.Description>{errors.root.message}</Alert.Description>
-                </Alert.Content>
-              </Alert.Root>
-            )}
+            <FormError message={errors.root?.message} size="sm" />
             <HStack gap="4" align="flex-start" wrap="wrap">
               <Field.Root required invalid={!!errors.systemName} flex="2" minW="64">
                 <Field.Label>Name</Field.Label>

@@ -4,26 +4,18 @@
 // archived, and a stranger's that the test user plays in. Fixture ids are
 // positive and left to the database default, so they never collide with the
 // seed's negative ids.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it } from "node:test";
 import { expect } from "expect";
-import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { inArray } from "drizzle-orm";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "library-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 const TITLE_OWNS = "Library fixture — test user's own story";
 const TITLE_OWNS_ARCHIVED = "Library fixture — test user's own archived story";
@@ -35,18 +27,15 @@ let ownsArchived = 0;
 let playsIn = 0;
 let fixtureStoryIds: number[] = [];
 
-describe("library actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("library actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
     actions = await import("./actions");
 
-    const [otherUser] = await db
-      .insert(tables.user)
-      .values({ name: "Library Fixture Other", email: "library-fixture-other@example.test" })
-      .returning({ id: tables.user.id });
-    otherUserId = otherUser.id;
+    otherUserId = await suite.makeUser("library-fixture-other@example.test", {
+      name: "Library Fixture Other",
+    });
 
     const inserted = await db
       .insert(tables.stories)
@@ -78,9 +67,6 @@ describe("library actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         .where(inArray(tables.storyPlayers.idStory, fixtureStoryIds));
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, fixtureStoryIds));
     }
-    if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("lists every story the caller is the storyteller of, archived ones included", async () => {

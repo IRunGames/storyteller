@@ -6,11 +6,12 @@ import { PlayCover } from "@/components/play/play-cover";
 import { StoryUnavailableDialog } from "@/components/play/story-unavailable-dialog";
 import { RunTable } from "@/components/run/run-table";
 import { PREP_SESSIONS_PAGE_SIZE } from "@/lib/stories";
+import { SESSION_STATUS } from "@/lib/status";
 import { sa_getStorySession, sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getPlayStory } from "@/components/play/actions";
 import { sa_startPlaying } from "@/app/(app)/(nav)/play/actions";
-import { sa_getRunPlaySpace } from "@/components/run/actions";
+import { sa_openRunPlaySpace } from "@/components/run/actions";
 
 // The storyteller's table for one story, where Start and Resume land and
 // where /stories/[id]/play sends the story's owner. Outside (nav) because
@@ -54,12 +55,12 @@ export default async function RunTablePage({ params }: { params: Promise<{ id: s
   const [currentSession, initialSpace, sceneStatusOptions, sessionStatusOptions, sessions] =
     await Promise.all([
       story.idStorySession !== null ? sa_getStorySession(story.idStorySession) : null,
-      sa_getRunPlaySpace(story.idStory),
+      sa_openRunPlaySpace(story.idStory),
       sa_listStatusOptions("story_scenes"),
       sa_listStatusOptions("story_sessions"),
       sa_listStorySessions(story.idStory, 0, PREP_SESSIONS_PAGE_SIZE),
     ]);
-  const session = currentSession?.status === "DONE" ? null : currentSession;
+  const session = currentSession?.status === SESSION_STATUS.DONE ? null : currentSession;
 
   // A table with no session is a table nothing can be said at, so arriving
   // without one starts a new session here and now, as the Play button's

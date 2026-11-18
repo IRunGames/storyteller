@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { useLatest } from "@/hooks/use-latest";
 import { applyStoryEvent, type PlayScene } from "@/lib/play-scene";
 import type { SceneText } from "@/lib/scenes";
 import type { StoryEvent } from "@/lib/realtime/events";
@@ -43,22 +44,14 @@ export function usePlayScene(
     setScene(initial);
   }
   // The latest scene for the message handler, which the channel holds
-  // across renders and would otherwise apply events to a stale one. Kept
-  // current in an effect, as the hooks rule asks; a message always arrives
-  // after the render that changed it.
-  const sceneRef = useRef(scene);
-  useEffect(() => {
-    sceneRef.current = scene;
-  });
+  // across renders and would otherwise apply events to a stale one.
+  const sceneRef = useLatest(scene);
   // Only the newest reload's answer is kept, so two in flight cannot land
   // out of order and leave the older scene showing.
   const reloads = useRef(0);
 
   // The latest onReloadFailed, held as onPulse is below.
-  const onReloadFailedRef = useRef(options?.onReloadFailed);
-  useEffect(() => {
-    onReloadFailedRef.current = options?.onReloadFailed;
-  });
+  const onReloadFailedRef = useLatest(options?.onReloadFailed);
 
   const reload = useCallback(async () => {
     const number = ++reloads.current;
@@ -70,14 +63,11 @@ export function usePlayScene(
       return;
     }
     if (next && number === reloads.current) setScene(next);
-  }, [idStory]);
+  }, [idStory, onReloadFailedRef]);
 
   // The latest onPulse, held the way the scene is, so the channel's handler
   // never calls a stale one.
-  const onPulseRef = useRef(onPulse);
-  useEffect(() => {
-    onPulseRef.current = onPulse;
-  });
+  const onPulseRef = useLatest(onPulse);
 
   const onEvent = useCallback(
     (event: StoryEvent) => {
@@ -94,7 +84,7 @@ export function usePlayScene(
         onPulseRef.current?.(event);
       }
     },
-    [reload],
+    [reload, sceneRef, onPulseRef],
   );
 
   // The chat rides on the same connection (useStoryChannel): its lines go

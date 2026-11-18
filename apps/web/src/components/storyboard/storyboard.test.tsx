@@ -5,23 +5,15 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
-import type { CurrentUser } from "@/lib/current-user";
 import type { PlayScene } from "@/lib/play-scene";
 import type {
   Storyboard as StoryboardData,
   StoryboardScenesPage,
   StoryboardSessionsPage,
 } from "@/lib/storyboard";
+import { currentUser, mockNavigation } from "@/test/mocks";
 
-const user: CurrentUser = {
-  id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
-  name: "Paul Stafford",
-  email: "storyteller@irun.games",
-  image: null,
-  nickName: null,
-  idUserType: -10,
-  isAnonymous: false,
-};
+const user = currentUser();
 
 const docks: PlayScene = {
   idStorySession: null,
@@ -234,21 +226,18 @@ describe("Storyboard", () => {
       },
     });
     mock.module("@/components/elements/actions", {
-      namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
+      namedExports: {
+        sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })),
+      },
     });
+    mock.module("@/components/run/actions", { namedExports: { sa_setSceneText } });
     // The storyteller's two pencils: the band's opens the Timeline's session
     // panel, the card's the table's scene panel, each over its own action.
     mock.module("@/app/(app)/(nav)/stories/actions", {
       namedExports: { sa_getSessionForEdit, sa_updateStorySession, sa_deleteStorySession },
     });
-    mock.module("@/components/run/actions", { namedExports: { sa_setSceneText } });
     // The title's menu reads the page's path and holds the Play popover.
-    mock.module("next/navigation", {
-      namedExports: {
-        usePathname: () => "/stories/7/storyboard",
-        useRouter: () => ({ push: () => {}, refresh: () => {} }),
-      },
-    });
+    mockNavigation({ pathname: "/stories/7/storyboard" });
     mock.module("@/app/(app)/(nav)/play/actions", {
       namedExports: {
         sa_listUnfinishedSessions: async () => [],

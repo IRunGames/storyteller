@@ -1,15 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Box, Button, HStack, List, Stack, Text } from "@chakra-ui/react";
 import { ChevronsRight, Pencil } from "lucide-react";
-import {
-  ELEMENT_SEARCH_DELAY_MS,
-  ELEMENTS_PAGE_SIZE,
-  type ElementKind,
-  type StoryElement,
-} from "@/lib/elements";
+import { ELEMENTS_PAGE_SIZE, type ElementKind, type StoryElement } from "@/lib/elements";
+import { SEARCH_DELAY_MS } from "@/lib/search";
 import type { StatusOption } from "@/lib/status";
+import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 import { sa_listStoryElements } from "@/components/prep/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { IconLink } from "@/components/links/icon-link";
@@ -54,67 +51,40 @@ export function PrepElements({
   const [elements, setElements] = useState(initial);
   const [hasMore, setHasMore] = useState(initial.length === ELEMENTS_PAGE_SIZE);
   const [isLoadingMore, setLoadingMore] = useState(false);
-  const [isSearching, setSearching] = useState(false);
   const [, startTransition] = useTransition();
 
-  // The latest search, so a slow reply to an earlier query does not land on
-  // top of the results for what the box says now.
-  const searchSeq = useRef(0);
-  // The page already loaded the first page narrowed to what the board opened
-  // with (the storyteller's last filter, or none), so until the box or the
-  // pills move away from that, the column asks for nothing. Every later
-  // change does, including one back to where it started.
-  const searched = useRef(false);
-  const openedWith = useRef(`${filter.trim()}|${shownStatuses.join(",")}`);
-
-  // The statuses as a string, so the effect re-runs when the set changes
+  const needle = filter.trim();
+  // The statuses as a string, so the search re-runs when the set changes
   // rather than on every render that rebuilds the array.
   const statusKey = shownStatuses.join(",");
   const everyStatus = statusOptions.length > 0 && shownStatuses.length === statusOptions.length;
-
-  useEffect(() => {
-    const needle = filter.trim();
-    if (!searched.current && `${needle}|${statusKey}` === openedWith.current && reloadKey === 0) {
-      return;
-    }
-    searched.current = true;
-
-    const seq = ++searchSeq.current;
-    setSearching(true);
-    const timer = setTimeout(async () => {
-      try {
-        const found = await sa_listStoryElements(idStory, kind, 0, needle, shownStatuses);
-        if (seq !== searchSeq.current) return;
+  // As the Scenes column: nothing is asked until the box, the pills or the
+  // board's + move away from what the page opened with.
+  const key = `${needle}|${statusKey}|${reloadKey}`;
+  const [openedWith] = useState(key);
+  const search = useDebouncedSearch(
+    () => sa_listStoryElements(idStory, kind, 0, needle, shownStatuses),
+    {
+      key: `${idStory}|${kind}|${key}`,
+      delay: SEARCH_DELAY_MS,
+      enabled: key !== openedWith,
+      onResult: (found) => {
         setElements(found);
         setHasMore(found.length === ELEMENTS_PAGE_SIZE);
-      } catch {
-        // Leave the last results in place; the next keystroke tries again.
-      } finally {
-        if (seq === searchSeq.current) setSearching(false);
-      }
-    }, ELEMENT_SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
-    // shownStatuses is rebuilt on every render; statusKey is what actually
-    // changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idStory, kind, filter, statusKey, reloadKey]);
+      },
+    },
+  );
 
   function onMore() {
     const offset = elements.length;
-    const seq = searchSeq.current;
+    const asked = search.count();
     setLoadingMore(true);
     startTransition(async () => {
       try {
-        const page = await sa_listStoryElements(
-          idStory,
-          kind,
-          offset,
-          filter.trim(),
-          shownStatuses,
-        );
+        const page = await sa_listStoryElements(idStory, kind, offset, needle, shownStatuses);
         // The box moved on while this was in flight; its own search will
         // replace the list.
-        if (seq !== searchSeq.current) return;
+        if (asked !== search.count()) return;
         setElements((current) => [...current, ...page]);
         setHasMore(page.length === ELEMENTS_PAGE_SIZE);
       } catch {
@@ -136,10 +106,10 @@ export function PrepElements({
   }
 
   if (elements.length === 0) {
-    const untouched = filter.trim() === "" && everyStatus;
+    const untouched = needle === "" && everyStatus;
     return (
       <Text color="fg.muted">
-        {untouched ? "Nothing here yet." : isSearching ? "Searching…" : "No matches."}
+        {untouched ? "Nothing here yet." : search.isSearching ? "Searching…" : "No matches."}
       </Text>
     );
   }

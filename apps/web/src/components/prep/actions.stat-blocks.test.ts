@@ -5,28 +5,21 @@
 // per system. Kept apart from actions.test.ts, whose fixtures are the
 // board's; these are two systems of this file's own, a story run in one of
 // them, and a story of someone else's, all removed in `after`.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
 
 import type { StatBlockDefinition } from "@/lib/stat-blocks";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
-
-loadEnvConfig(process.cwd());
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
 const TEST_USER_EMAIL = "libraries-stat-blocks@example.test";
 const OTHER_EMAIL = "libraries-stat-blocks-other@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let otherUserId = "";
 let myStory = 0;
@@ -142,12 +135,11 @@ async function storedBlocks(idElement: number): Promise<unknown> {
   return row.statBlocks;
 }
 
-describe("libraries stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("libraries stat block actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
-    otherUserId = await makeTestUser(db, tables, OTHER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
+    otherUserId = await suite.makeUser(OTHER_EMAIL);
     actions = await import("./actions");
 
     const systems = await db
@@ -203,9 +195,6 @@ describe("libraries stat block actions", { skip: !hasDb && "DATABASE_URL is not 
     await db
       .delete(tables.systems)
       .where(inArray(tables.systems.idSystem, [withStats, emptyGroup, bare]));
-    await removeTestUser(db, tables, OTHER_EMAIL);
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("lists the systems with stats to fill in, and the story's own system to its storyteller", async () => {

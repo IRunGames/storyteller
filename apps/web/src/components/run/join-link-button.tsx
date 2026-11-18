@@ -2,7 +2,6 @@
 
 import { useEffect, useId, useState } from "react";
 import {
-  Alert,
   Badge,
   Box,
   Clipboard,
@@ -16,10 +15,15 @@ import {
   Spinner,
   Stack,
   Text,
-  Tooltip,
 } from "@chakra-ui/react";
 import { Link2 } from "lucide-react";
-import { sa_getJoinCount, sa_getJoinLink, type JoinLink } from "@/components/run/actions";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
+import { FormError } from "@/components/forms/form-error";
+import {
+  sa_getJoinCount,
+  sa_getOrCreateJoinLink,
+  type JoinLink,
+} from "@/components/join-links/actions";
 import { LinkPlayers } from "./link-players";
 
 /**
@@ -29,7 +33,7 @@ import { LinkPlayers } from "./link-players";
  * sits at the story, as a guest if they have no account (/join/[code]).
  *
  * The link is fetched each time the popover opens rather than with the
- * page: the code is made the first time it is asked for (sa_getJoinLink),
+ * page: the code is made the first time it is asked for (sa_getOrCreateJoinLink),
  * so a storyteller who never opens this never has one, and the count is
  * fresh. The link is built on this page's origin, so it points at wherever
  * the table is being run.
@@ -75,7 +79,7 @@ export function JoinLinkButton({ idStory, atTable = 0 }: { idStory: number; atTa
     setLink("loading");
     setFailed(false);
     try {
-      const next = await sa_getJoinLink(idStory);
+      const next = await sa_getOrCreateJoinLink(idStory);
       setLink(next);
       if (next) setJoined({ joined: next.joined, cap: next.cap });
     } catch {
@@ -103,23 +107,19 @@ export function JoinLinkButton({ idStory, atTable = 0 }: { idStory: number; atTa
         if (details.open) void load();
       }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton aria-label={name} size="xs" variant="ghost" rounded="full">
-              <Link2 />
-              {chip && (
-                <Float placement="top-end" offset="1">
-                  <Box aria-hidden="true">{chip}</Box>
-                </Float>
-              )}
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Tooltip.Positioner>
-          <Tooltip.Content>Join link</Tooltip.Content>
-        </Tooltip.Positioner>
-      </Tooltip.Root>
+      <IconButtonWithTooltip
+        label={name}
+        tooltip="Join link"
+        popoverTrigger={triggerId}
+        portalled={false}
+      >
+        <Link2 />
+        {chip && (
+          <Float placement="top-end" offset="1">
+            <Box aria-hidden="true">{chip}</Box>
+          </Float>
+        )}
+      </IconButtonWithTooltip>
       <Portal>
         <Popover.Positioner>
           <Popover.Content w="sm">
@@ -131,12 +131,7 @@ export function JoinLinkButton({ idStory, atTable = 0 }: { idStory: number; atTa
               {link === "loading" ? (
                 <Spinner size="sm" aria-label="Getting the link" />
               ) : failed || link === null ? (
-                <Alert.Root status="error">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Description>The link could not be made. Try again.</Alert.Description>
-                  </Alert.Content>
-                </Alert.Root>
+                <FormError message="The link could not be made. Try again." />
               ) : (
                 <Stack gap="3">
                   <Text textStyle="sm" color="fg.muted">

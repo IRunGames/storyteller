@@ -1,5 +1,6 @@
 import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
+import type { AddPlayersResult } from "@/app/(app)/(nav)/stories/actions";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -25,8 +26,8 @@ const harry: PlayerMatch = {
 const sa_searchPlayers = mock.fn<(idStory: number, query: string) => Promise<PlayerMatch[]>>(
   async () => [],
 );
-const sa_addStoryPlayers = mock.fn<(idStory: number, ids: string[]) => Promise<StoryPlayer[]>>(
-  async () => [],
+const sa_addStoryPlayers = mock.fn<(idStory: number, ids: string[]) => Promise<AddPlayersResult>>(
+  async () => ({ ok: true, players: [] }),
 );
 
 let InvitePlayersPopover: typeof import("./invite-players-popover").InvitePlayersPopover;
@@ -60,7 +61,7 @@ describe("InvitePlayersPopover", () => {
     sa_searchPlayers.mock.resetCalls();
     sa_searchPlayers.mock.mockImplementation(async () => []);
     sa_addStoryPlayers.mock.resetCalls();
-    sa_addStoryPlayers.mock.mockImplementation(async () => []);
+    sa_addStoryPlayers.mock.mockImplementation(async () => ({ ok: true, players: [] }));
   });
 
   afterEach(() => {
@@ -123,10 +124,13 @@ describe("InvitePlayersPopover", () => {
     sa_searchPlayers.mock.mockImplementation(async (_idStory, query) =>
       query === "her" ? [hermione] : [harry],
     );
-    sa_addStoryPlayers.mock.mockImplementation(async () => [
-      { idUser: hermione.idUser, name: hermione.name, image: null },
-      { idUser: harry.idUser, name: harry.name, image: null },
-    ]);
+    sa_addStoryPlayers.mock.mockImplementation(async () => ({
+      ok: true,
+      players: [
+        { idUser: hermione.idUser, name: hermione.name, image: null },
+        { idUser: harry.idUser, name: harry.name, image: null },
+      ],
+    }));
     const { u, dialog, onInvited } = await openPopover();
     const box = within(dialog).getByRole("searchbox", { name: "Search players" });
 

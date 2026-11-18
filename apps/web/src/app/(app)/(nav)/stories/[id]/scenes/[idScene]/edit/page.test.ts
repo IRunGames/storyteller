@@ -42,7 +42,9 @@ describe("a scene's edit page", () => {
       namedExports: { sa_getStorySceneForEdit: getSceneForEdit },
     });
     mock.module("@/components/run/actions", {
-      namedExports: { sa_getScenePlaySpace: getScenePlaySpace },
+      namedExports: {
+        sa_getScenePlaySpace: getScenePlaySpace,
+      },
     });
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions: listStatusOptions },

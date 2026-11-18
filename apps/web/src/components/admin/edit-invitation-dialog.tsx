@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  Alert,
   Box,
   Button,
   Dialog,
@@ -23,12 +22,14 @@ import {
   type AdminInvitation,
 } from "@/app/(app)/(nav)/admin/invitations/actions";
 import { toaster } from "@/components/ui/toaster";
+import { FormError } from "@/components/forms/form-error";
 import {
   INVITE_USER_TYPES,
   invitationEditSchema,
   type InvitationEditInput,
   type InvitationEditValues,
 } from "@/lib/invitation-schemas";
+import { applyActionErrors } from "@/lib/forms";
 
 /** yyyy-mm-dd of a date in the browser's zone, for a date input. */
 function dayOf(date: Date): string {
@@ -79,10 +80,7 @@ export function EditInvitationDialog({ invitation, onSaved }: Props) {
     try {
       const result = await sa_updateInvitation(invitation.idInvitation, values);
       if (!result.ok) {
-        for (const [field, message] of Object.entries(result.errors)) {
-          const known = field === "email" || field === "idUserType" || field === "expiresOn";
-          setError(known ? field : "root", { message });
-        }
+        applyActionErrors({ setError }, result.errors, ["email", "idUserType", "expiresOn"]);
         return;
       }
       onSaved(result.invitation);
@@ -142,14 +140,7 @@ export function EditInvitationDialog({ invitation, onSaved }: Props) {
               </Dialog.Header>
               <Dialog.Body>
                 <Stack gap="4">
-                  {errors.root && (
-                    <Alert.Root role="alert" status="error" size="sm">
-                      <Alert.Indicator />
-                      <Alert.Content>
-                        <Alert.Description>{errors.root.message}</Alert.Description>
-                      </Alert.Content>
-                    </Alert.Root>
-                  )}
+                  <FormError message={errors.root?.message} size="sm" />
                   <Field.Root required invalid={!!errors.email}>
                     <Field.Label>Email</Field.Label>
                     <Input type="email" autoComplete="off" {...register("email")} />

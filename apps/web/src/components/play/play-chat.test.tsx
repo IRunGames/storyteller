@@ -5,21 +5,13 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
-import type { CurrentUser } from "@/lib/current-user";
 import { toChatEntry, type ChatEntry } from "@/lib/chat";
 import type { PublicChat } from "@/lib/realtime/chat-events";
 import type { ChatResult, DeleteChatResult } from "@/components/play/actions";
 import type { StoryChat } from "./use-story-chat";
+import { currentUser } from "@/test/mocks";
 
-const user: CurrentUser = {
-  id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
-  name: "Paul Stafford",
-  email: "storyteller@irun.games",
-  image: null,
-  nickName: null,
-  idUserType: -20,
-  isAnonymous: false,
-};
+const user = currentUser({ idUserType: -20 });
 
 const now = new Date();
 const line = (overrides: Partial<PublicChat>): PublicChat => ({
@@ -234,6 +226,25 @@ describe("PlayChat", () => {
 
       expect(await screen.findByText("On my way.")).toBeInTheDocument();
       expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("");
+    });
+
+    it("takes a line off the table as soon as it is taken back", async () => {
+      const first = toChatEntry(line({ idChat: 1, text: "Said before." }));
+      const said = toChatEntry(line({ idChat: 2, text: "Oops." }));
+      const { rerender } = renderOverlay(chatOf([first]));
+      const again = (entries: ChatEntry[]) =>
+        rerender(
+          <UserProvider user={user}>
+            <UserPreferencesProvider preferences={{ "chat.layout": "overlay" }}>
+              <PlayChatOverlay id="chat" idStory={7} chat={chatOf(entries)} />
+            </UserPreferencesProvider>
+          </UserProvider>,
+        );
+
+      again([first, said]);
+      expect(await screen.findByText("Oops.")).toBeInTheDocument();
+      again([first]);
+      await waitFor(() => expect(screen.queryByText("Oops.")).not.toBeInTheDocument());
     });
 
     it("waits for the chat's first page, so what it brings is not shown", async () => {

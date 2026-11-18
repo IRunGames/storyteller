@@ -36,7 +36,7 @@ export type RunScene = {
   status: string;
   /**
    * Its description and notes, for the panel behind its title. Carried by
-   * the scene the table is on (sa_getRunPlaySpace, sa_loadRunScene); the
+   * the scene the table is on (sa_openRunPlaySpace, sa_loadRunScene); the
    * selector's list leaves them out.
    */
   text?: SceneText;
@@ -56,6 +56,12 @@ export type RunScene = {
 export type RunPlaySpace = {
   scene: RunScene | null;
   tags: string[];
+  /**
+   * The stacks widened to the whole space (story_scenes.wide_tags, by
+   * stackKey). Optional so a space built by hand, as the tests' fixtures
+   * are, need not say; the loaders always do, and absent reads as none.
+   */
+  wideTags?: string[];
   coverUrl: string | null;
   inPlay: PlayItem[];
 };
@@ -65,6 +71,31 @@ export const EMPTY_PLAY_SPACE: RunPlaySpace = { scene: null, tags: [], coverUrl:
 
 /** The stack a scene with no tags shows its elements in. */
 export const DEFAULT_STACK_TITLE = "Default";
+
+/**
+ * How a stack is named in story_scenes.wide_tags: by its tag, or by "" for
+ * the Default stack, whose tag is null. A real stack can never be called ""
+ * (stackNameSchema wants at least one character), so the two never meet.
+ */
+export function stackKey(tag: string | null): string {
+  return tag ?? "";
+}
+
+/** Whether the storyteller has widened the stack to the whole play space. */
+export function isStackWide(wideTags: readonly string[] | undefined, tag: string | null): boolean {
+  return wideTags?.includes(stackKey(tag)) ?? false;
+}
+
+/** The wide set with one stack widened or narrowed, as sa_setStackWide writes it. */
+export function withStackWide(
+  wideTags: readonly string[] | undefined,
+  tag: string | null,
+  wide: boolean,
+): string[] {
+  const key = stackKey(tag);
+  const rest = (wideTags ?? []).filter((held) => held !== key);
+  return wide ? [...rest, key] : rest;
+}
 
 /** What a tab of the library panel lists: the story's attachments, or one kind of element. */
 export type RunLibrarySource = "ATTACHMENT" | ElementKind;

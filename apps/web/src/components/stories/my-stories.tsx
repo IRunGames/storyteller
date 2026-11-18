@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import NextLink from "next/link";
 import {
-  Alert,
   Box,
   Button,
   Heading,
@@ -19,26 +18,22 @@ import {
 } from "@chakra-ui/react";
 import type { SortingState } from "@tanstack/react-table";
 import { ChevronsRight, LayoutGrid, List, Search } from "lucide-react";
+import { STORY_SEARCH_DELAY_MS } from "@/lib/search";
 import { PAGE_SIZE, SECTION_TITLES, type StoryCardData } from "@/lib/stories";
 import {
   MY_STORIES_PAGE_SIZE,
   type MyStoryListQuery,
   type StorySortKey,
 } from "@/lib/story-list-schemas";
-import {
-  sa_listFavoriteStories,
-  sa_listMyStoryPage,
-  sa_setFavorite,
-} from "@/app/(app)/(nav)/stories/actions";
+import { sa_listFavoriteStories, sa_listMyStoryPage } from "@/app/(app)/(nav)/stories/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
+import { FormError } from "@/components/forms/form-error";
 import { StoryCardGrid, StorySection } from "./story-section";
+import { useFavorites } from "./use-favorites";
 import { StoryTable } from "./story-table";
 
 /** Where the Stories page keeps its view, among the user's preferences. */
 export const STORIES_VIEW_KEY = "stories.view";
-
-/** How long the search box waits after the last keystroke before asking the server. */
-export const STORY_SEARCH_DELAY_MS = 400;
 
 type View = "cards" | "list";
 
@@ -91,7 +86,6 @@ export function MyStories({ initial, initialFavorites }: Props) {
   const [needle, setNeedle] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [pendingFavorites, setPendingFavorites] = useState<ReadonlySet<number>>(new Set());
   const [failedKey, setFailedKey] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [favorites, setFavorites] = useState<Favorites>(() => ({
@@ -188,36 +182,22 @@ export function MyStories({ initial, initialFavorites }: Props) {
     }
   }
 
-  // The heart turns at once and turns back if the save is refused. A row
-  // sorted by favorite stays where it is until the next query, while the
-  // Favorites section gains the story at its top or loses it at once.
-  const onToggleFavorite = useCallback(async (story: StoryCardData, isFavorite: boolean) => {
-    const flip = (to: boolean) => {
-      setListed((current) => ({
-        ...current,
-        stories: current.stories.map((s) =>
-          s.idStory === story.idStory ? { ...s, isFavorite: to } : s,
-        ),
-      }));
-      setFavorites((current) => {
-        const others = current.stories.filter((s) => s.idStory !== story.idStory);
-        return { ...current, stories: to ? [{ ...story, isFavorite: true }, ...others] : others };
-      });
-    };
-    setPendingFavorites((p) => new Set(p).add(story.idStory));
-    flip(isFavorite);
-    try {
-      await sa_setFavorite(story.idStory, isFavorite);
-    } catch {
-      flip(!isFavorite);
-    } finally {
-      setPendingFavorites((p) => {
-        const next = new Set(p);
-        next.delete(story.idStory);
-        return next;
-      });
-    }
-  }, []);
+  // The heart turns at once and turns back if the save is refused
+  // (useFavorites). A row sorted by favorite stays where it is until the
+  // next query, while the Favorites section gains the story at its top or
+  // loses it at once.
+  const { pending: pendingFavorites, toggle: onToggleFavorite } = useFavorites((story, to) => {
+    setListed((current) => ({
+      ...current,
+      stories: current.stories.map((s) =>
+        s.idStory === story.idStory ? { ...s, isFavorite: to } : s,
+      ),
+    }));
+    setFavorites((current) => {
+      const others = current.stories.filter((s) => s.idStory !== story.idStory);
+      return { ...current, stories: to ? [{ ...story, isFavorite: true }, ...others] : others };
+    });
+  });
 
   const toggle = (
     <HStack role="group" aria-label="View" gap="1">
@@ -303,14 +283,7 @@ export function MyStories({ initial, initialFavorites }: Props) {
         </HStack>
 
         {failedKey === key && (
-          <Alert.Root status="error">
-            <Alert.Indicator />
-            <Alert.Content>
-              <Alert.Description>
-                The stories could not be loaded. Change something to try again.
-              </Alert.Description>
-            </Alert.Content>
-          </Alert.Root>
+          <FormError message="The stories could not be loaded. Change something to try again." />
         )}
 
         <Box opacity={loading ? 0.6 : 1} transition="opacity 0.15s" aria-busy={loading}>

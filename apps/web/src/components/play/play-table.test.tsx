@@ -13,18 +13,11 @@ import { EMPTY_PLAY_SCENE, type PlayScene } from "@/lib/play-scene";
 import type { StorySession } from "@/lib/stories";
 import type { StoryEvent } from "@/lib/realtime/events";
 import type { SetElementNotesResult, UntapSceneElementResult } from "@/components/play/actions";
+import { currentUser, mockHeader, mockNavigation } from "@/test/mocks";
 
 // A storyteller (-2), so the diagnostics toggle is offered; the player test
 // overrides the type.
-const user: CurrentUser = {
-  id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
-  name: "Paul Stafford",
-  email: "storyteller@irun.games",
-  image: null,
-  nickName: null,
-  idUserType: -20,
-  isAnonymous: false,
-};
+const user = currentUser({ name: "Paul Stafford", idUserType: -20 });
 
 const sa_setUserPreference = mock.fn(async (_input: { key: string; value: unknown }) => ({
   ok: true as const,
@@ -230,19 +223,8 @@ describe("PlayTable", () => {
     // The chat scrolls its newest message into view on mount, and the test
     // DOM has no layout to scroll.
     Element.prototype.scrollIntoView = () => {};
-    mock.module("next/navigation", {
-      namedExports: {
-        useRouter: () => ({ push: mock.fn(), refresh: mock.fn() }),
-        usePathname: () => "/stories/7/play",
-      },
-    });
-    mock.module("@/lib/auth-client", { namedExports: { signOut: mock.fn() } });
-    mock.module("@/components/feedback/actions", {
-      namedExports: { sa_submitFeedback: mock.fn() },
-    });
-    mock.module("@/components/preferences/actions", {
-      namedExports: { sa_setUserPreference },
-    });
+    mockNavigation({ pathname: "/stories/7/play" });
+    mockHeader({ sa_setUserPreference });
     mock.module("@/components/elements/actions", {
       namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
@@ -423,6 +405,59 @@ describe("PlayTable", () => {
     expect(within(stack).getByText("Harbourmaster")).toBeInTheDocument();
     const elements = within(space).getByRole("region", { name: "elements" });
     expect(within(elements).getByText("Nothing here yet.")).toBeInTheDocument();
+  });
+
+  it("widens a stack from its expand button for this table alone, and shrinks it back", async () => {
+    const u = userEvent.setup();
+    renderTable();
+    const space = screen.getByRole("region", { name: "Play space" });
+    const stack = within(space).getByRole("region", { name: "scene" });
+
+    expect(stack).not.toHaveAttribute("data-wide");
+    await u.click(within(stack).getByRole("button", { name: "Expand scene" }));
+    expect(stack).toHaveAttribute("data-wide", "true");
+    expect(within(space).getByRole("region", { name: "elements" })).not.toHaveAttribute(
+      "data-wide",
+    );
+    await u.click(within(stack).getByRole("button", { name: "Shrink scene" }));
+    expect(stack).not.toHaveAttribute("data-wide");
+    // The player's own width: nothing is saved for it.
+    expect(sa_setUserPreference.mock.callCount()).toBe(0);
+  });
+
+  it("draws the stacks the storyteller widened, their word winning over the player's own", async () => {
+    const u = userEvent.setup();
+    renderTable({}, "3. Kildealg", user, { ...scene, wideTags: ["scene"] });
+    const space = screen.getByRole("region", { name: "Play space" });
+    const stack = within(space).getByRole("region", { name: "scene" });
+    expect(stack).toHaveAttribute("data-wide", "true");
+
+    // The player narrows it for themselves.
+    await u.click(within(stack).getByRole("button", { name: "Shrink scene" }));
+    expect(stack).not.toHaveAttribute("data-wide");
+
+    // The storyteller narrows it, then widens it again: the table reads the
+    // scene afresh each time, and the second change undoes the player's own.
+    const changed = {
+      v: 1,
+      at: "2026-10-13T10:01:00.000Z",
+      idStory: 7,
+      type: "scene.changed",
+      idStoryScene: 3,
+    };
+    sa_getPlayScene.mock.mockImplementation(async () => ({ ...scene, wideTags: [] }));
+    await deliver(changed);
+    await waitFor(() => expect(sa_getPlayScene.mock.callCount()).toBe(1));
+    expect(within(space).getByRole("region", { name: "scene" })).not.toHaveAttribute("data-wide");
+
+    sa_getPlayScene.mock.mockImplementation(async () => ({ ...scene, wideTags: ["scene"] }));
+    await deliver(changed);
+    await waitFor(() =>
+      expect(within(space).getByRole("region", { name: "scene" })).toHaveAttribute(
+        "data-wide",
+        "true",
+      ),
+    );
   });
 
   it("offers an element's link from its pill, the scene's own first, before the info button", async () => {

@@ -7,26 +7,28 @@
 // scenes and sessions with them.
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
+import { NOT_THIS_STORY } from "@/lib/messages";
 import { and, eq, inArray, or } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import {
+  describeWithDb,
+  makeStoryPair,
+  removeStoryPair,
+  type Db,
+  type StoryPair,
+  type Tables,
+} from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "scenes-id-live-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 const publishSceneChanged = mock.fn(async (..._args: unknown[]) => {});
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
+let pair: StoryPair;
 let otherUserId = "";
 let mine = 0;
 let theirs = 0;
@@ -36,37 +38,19 @@ let first = 0;
 let second = 0;
 let theirSession = 0;
 
-describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("live scene actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
     mock.module("@/lib/realtime/publish-scene", { namedExports: { publishSceneChanged } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
     actions = await import("./actions");
 
-    // A rerun after a crash would trip the unique email.
-    await db.delete(tables.user).where(eq(tables.user.email, "live-scene-fixture@example.test"));
-    const [otherUser] = await db
-      .insert(tables.user)
-      .values({ name: "Live Scene Fixture", email: "live-scene-fixture@example.test" })
-      .returning({ id: tables.user.id });
-    otherUserId = otherUser.id;
-
-    [{ id: mine }, { id: theirs }] = await db
-      .insert(tables.stories)
-      .values([
-        { title: "Live scene fixture — mine", idCreatedByUser: testUser },
-        { title: "Live scene fixture — theirs", idCreatedByUser: otherUserId },
-      ])
-      .returning({ id: tables.stories.idStory });
-
-    [{ id: scene }, { id: theirScene }] = await db
-      .insert(tables.storyScenes)
-      .values([
-        { idStory: mine, sceneTitle: "Fixture scene at the docks", idCreatedByUser: testUser },
-        { idStory: theirs, sceneTitle: "Fixture scene of theirs", idCreatedByUser: otherUserId },
-      ])
-      .returning({ id: tables.storyScenes.idStoryScene });
+    pair = await makeStoryPair(suite, {
+      label: "Live scene fixture",
+      otherEmail: "live-scene-fixture@example.test",
+      other: { name: "Live Scene Fixture" },
+    });
+    ({ otherUser: otherUserId, mine, theirs, myScene: scene, theirScene } = pair);
 
     [{ id: first }, { id: second }, { id: theirSession }] = await db
       .insert(tables.storySessions)
@@ -94,12 +78,7 @@ describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
   after(async () => {
     if (!db) return;
-    if (mine || theirs) {
-      await db.delete(tables.stories).where(inArray(tables.stories.idStory, [mine, theirs]));
-    }
-    if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
+    await removeStoryPair(suite, pair);
   });
 
   async function sceneRow() {
@@ -655,5 +634,48 @@ describe("live scene actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect(await actions.sa_clearLiveSceneCover(mine, theirScene)).toEqual(refused);
       expect(await sceneUses()).toEqual([{ idAttachment: picture, tags: ["cover", "night"] }]);
     });
+  });
+  it("creates a scene to prepare without moving the session, playing or not", async () => {
+    const [{ id: session }] = await db
+      .insert(tables.storySessions)
+      .values({ idStory: mine, idStoryScene: scene, idCreatedByUser: testUser })
+      .returning({ id: tables.storySessions.idStorySession });
+    await db
+      .update(tables.stories)
+      .set({ idStorySession: session })
+      .where(eq(tables.stories.idStory, mine));
+    try {
+      const result = await actions.sa_createLiveScene(mine, {
+        title: "  Fixture scene made to prepare ",
+        description: "Two guards.",
+      });
+      if (!result.ok) throw new Error(`refused: ${JSON.stringify(result)}`);
+      const created = result.space.scene!;
+      expect(created).toMatchObject({ title: "Fixture scene made to prepare", status: "PENDING" });
+      const [made] = await db
+        .select({ idStorySession: tables.storyScenes.idStorySession })
+        .from(tables.storyScenes)
+        .where(eq(tables.storyScenes.idStoryScene, created.idStoryScene));
+      expect(made.idStorySession).toBeNull();
+      // Still on the scene it was on.
+      const [current] = await db
+        .select({ idStoryScene: tables.storySessions.idStoryScene })
+        .from(tables.storySessions)
+        .where(eq(tables.storySessions.idStorySession, session));
+      expect(current.idStoryScene).toBe(scene);
+
+      expect(await actions.sa_createLiveScene(mine, { title: "", description: "" })).toEqual({
+        ok: false,
+        errors: { title: "Please give the scene a title." },
+      });
+      expect(
+        await actions.sa_createLiveScene(theirs, { title: "Theirs", description: "" }),
+      ).toEqual({
+        ok: false,
+        errors: { root: NOT_THIS_STORY },
+      });
+    } finally {
+      await db.delete(tables.storySessions).where(eq(tables.storySessions.idStorySession, session));
+    }
   });
 });

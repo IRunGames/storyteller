@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useLatest } from "@/hooks/use-latest";
 import { useTheme } from "next-themes";
 import { THEME_NAMES, type Theme } from "@/lib/themes";
 import type { JsonValue, UserPreferenceMap } from "@/lib/user-preference-schemas";
@@ -55,16 +56,13 @@ export function UserPreferencesProvider({
   // flickered between their themes. The latest setTheme is read through a
   // ref instead.
   const { setTheme } = useTheme();
-  const setThemeRef = useRef(setTheme);
-  useEffect(() => {
-    setThemeRef.current = setTheme;
-  });
+  const setThemeRef = useLatest(setTheme);
   const storedTheme = map.theme;
   useEffect(() => {
     if (typeof storedTheme === "string" && THEME_NAMES.includes(storedTheme as Theme)) {
       setThemeRef.current(storedTheme);
     }
-  }, [storedTheme]);
+  }, [storedTheme, setThemeRef]);
 
   // Rebuilt only when the map changes, so a consumer that reads nothing that
   // moved is not re-rendered by a parent's render.

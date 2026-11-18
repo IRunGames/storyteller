@@ -4,7 +4,6 @@ import { useId, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  Alert,
   Button,
   Field,
   HStack,
@@ -18,8 +17,11 @@ import {
 } from "@chakra-ui/react";
 import { sa_submitFeedback } from "./actions";
 import { feedbackSchema, type FeedbackStatus, type FeedbackValues } from "@/lib/feedback-schemas";
+import { applyActionErrors } from "@/lib/forms";
 import { Lightbulb, ThumbsDown, ThumbsUp } from "lucide-react";
 import { toaster } from "@/components/ui/toaster";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
+import { FormError } from "@/components/forms/form-error";
 
 // Self-contained: the popover and its server action live together in this
 // folder, and the popover imports it directly rather than having the layout
@@ -42,10 +44,8 @@ const RATINGS: { value: FeedbackStatus; label: string; hint: string; Icon: typeo
   { value: "IDEA", label: "Idea", hint: "I have an idea!", Icon: Lightbulb },
 ];
 
-// Tooltip and popover each stamp an id on the one button and look their trigger
-// up by that id when positioning. Left to their own ids, the tooltip's wins
-// and the popover anchors to nothing, opening at the page corner. Handing both
-// the same trigger id keeps them pointed at the same element.
+// The button is the popover's trigger and carries a tooltip; both roots
+// share the trigger id for the reason WithTooltip gives.
 export function NavFeedbackPopover({ pathname }: Props) {
   const [open, setOpen] = useState(false);
   const triggerId = useId();
@@ -93,14 +93,12 @@ export function NavFeedbackPopover({ pathname }: Props) {
 
     // Field errors the client check did not catch; anything else is a root
     // error, shown as an inline alert like the rest of the app's forms.
-    for (const [field, message] of Object.entries(result.errors)) {
-      setError(field as keyof FeedbackValues, { message });
-    }
-    if (Object.keys(result.errors).length === 0) {
-      setError("root", {
-        message: "Could not send your feedback. Please try again.",
-      });
-    }
+    applyActionErrors(
+      { setError },
+      result.errors,
+      Object.keys(feedbackSchema.shape),
+      "Could not send your feedback. Please try again.",
+    );
   }
 
   return (
@@ -110,26 +108,17 @@ export function NavFeedbackPopover({ pathname }: Props) {
       positioning={{ placement: "bottom-end" }}
       ids={{ trigger: triggerId }}
     >
-      {/* Both triggers use asChild, so their props merge onto the one button:
-          hover shows the tooltip, click opens the popover. */}
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label="Give feedback"
-              variant="ghost"
-              boxSize="11"
-              rounded="10px"
-              color="nav.icon"
-            >
-              <ThumbsUp />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Tooltip.Positioner>
-          <Tooltip.Content>How&apos;s it going?</Tooltip.Content>
-        </Tooltip.Positioner>
-      </Tooltip.Root>
+      <IconButtonWithTooltip
+        label="Give feedback"
+        tooltip="How's it going?"
+        boxSize="11"
+        rounded="10px"
+        color="nav.icon"
+        popoverTrigger={triggerId}
+        portalled={false}
+      >
+        <ThumbsUp />
+      </IconButtonWithTooltip>
       <Portal>
         <Popover.Positioner>
           <Popover.Content w="xs">
@@ -142,14 +131,7 @@ export function NavFeedbackPopover({ pathname }: Props) {
             <Popover.Body>
               <form onSubmit={handleSubmit(submit)} noValidate>
                 <Stack gap="4">
-                  {errors.root && (
-                    <Alert.Root status="error" size="sm">
-                      <Alert.Indicator />
-                      <Alert.Content>
-                        <Alert.Description>{errors.root.message}</Alert.Description>
-                      </Alert.Content>
-                    </Alert.Root>
-                  )}
+                  <FormError message={errors.root?.message} size="sm" />
 
                   <Field.Root invalid={!!errors.status}>
                     <Controller

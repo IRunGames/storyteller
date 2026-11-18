@@ -1,7 +1,7 @@
 "use server";
 
 import { and, asc, count, eq, exists, ilike, not, sql } from "drizzle-orm";
-import { z } from "zod";
+import { searchSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { cardOrder, cardQuery, notArchived } from "@/db/story-cards";
 import { requireAccount } from "@/lib/authorize";
@@ -9,6 +9,7 @@ import { likeContains } from "@/lib/filter-text";
 import type { LikedSystem, Profile } from "@/lib/profile";
 import { MAX_LIKED_SYSTEMS, profileDetailsSchema, systemIdSchema } from "@/lib/profile-schemas";
 import { systemLabel, type StoryCardData } from "@/lib/stories";
+import { formErrors } from "@/lib/forms";
 
 const { stories, storyPlayers, systems, user: users, userSystems } = schema;
 
@@ -25,8 +26,6 @@ export type LikedSystemsResult =
 
 /** How many systems one search returns; the popover lists them all. */
 const SYSTEM_SEARCH_LIMIT = 20;
-
-const querySchema = z.string().max(200);
 
 const systemColumns = {
   idSystem: systems.idSystem,
@@ -56,14 +55,6 @@ async function likedSystems(userId: string): Promise<LikedSystem[]> {
     .where(eq(userSystems.idUser, userId))
     .orderBy(...systemOrder);
   return rows.map(toLikedSystem);
-}
-
-function fieldErrors(issues: { path: PropertyKey[]; message: string }[]): Record<string, string> {
-  const errors: Record<string, string> = {};
-  for (const issue of issues) {
-    errors[issue.path.join(".")] ??= issue.message;
-  }
-  return errors;
 }
 
 /**
@@ -97,7 +88,7 @@ export async function sa_updateProfileDetails(input: unknown): Promise<ProfileRe
   const user = await requireAccount();
 
   const parsed = profileDetailsSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error.issues) };
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
 
   const { name, nickName, bio } = parsed.data;
   await db
@@ -116,7 +107,10 @@ export async function sa_updateProfileDetails(input: unknown): Promise<ProfileRe
  */
 export async function sa_searchSystems(query: string): Promise<LikedSystem[]> {
   const user = await requireAccount();
-  const needle = querySchema.parse(query).trim();
+  // A search that is out of bounds is a bad request, answered with nothing.
+  const parsed = searchSchema.safeParse(query);
+  if (!parsed.success) return [];
+  const needle = parsed.data;
 
   const alreadyLiked = exists(
     db
@@ -148,14 +142,16 @@ export async function sa_searchSystems(query: string): Promise<LikedSystem[]> {
  */
 export async function sa_addLikedSystem(idSystem: number): Promise<LikedSystemsResult> {
   const user = await requireAccount();
-  const id = systemIdSchema.parse(idSystem);
+  const gone = { ok: false as const, errors: { root: "That system is not on the list any more." } };
+  const id = systemIdSchema.safeParse(idSystem);
+  if (!id.success) return gone;
 
   const [system] = await db
     .select({ idSystem: systems.idSystem })
     .from(systems)
-    .where(eq(systems.idSystem, id))
+    .where(eq(systems.idSystem, id.data))
     .limit(1);
-  if (!system) return { ok: false, errors: { root: "That system is not on the list any more." } };
+  if (!system) return gone;
 
   const [{ liked }] = await db
     .select({ liked: count() })
@@ -167,7 +163,12 @@ export async function sa_addLikedSystem(idSystem: number): Promise<LikedSystemsR
 
   await db
     .insert(userSystems)
-    .values({ idUser: user.id, idSystem: id, idCreatedByUser: user.id, idUpdatedByUser: user.id })
+    .values({
+      idUser: user.id,
+      idSystem: id.data,
+      idCreatedByUser: user.id,
+      idUpdatedByUser: user.id,
+    })
     .onConflictDoNothing({ target: [userSystems.idUser, userSystems.idSystem] });
 
   return { ok: true, systems: await likedSystems(user.id) };
@@ -176,11 +177,12 @@ export async function sa_addLikedSystem(idSystem: number): Promise<LikedSystemsR
 /** Takes a system off the caller's liked list; removing one not on it is a no-op. */
 export async function sa_removeLikedSystem(idSystem: number): Promise<LikedSystemsResult> {
   const user = await requireAccount();
-  const id = systemIdSchema.parse(idSystem);
+  const id = systemIdSchema.safeParse(idSystem);
+  if (!id.success) return { ok: true, systems: await likedSystems(user.id) };
 
   await db
     .delete(userSystems)
-    .where(and(eq(userSystems.idUser, user.id), eq(userSystems.idSystem, id)));
+    .where(and(eq(userSystems.idUser, user.id), eq(userSystems.idSystem, id.data)));
 
   return { ok: true, systems: await likedSystems(user.id) };
 }

@@ -1,8 +1,8 @@
 "use server";
 
 import { and, eq, exists, or } from "drizzle-orm";
-import { sessionHeading } from "@/lib/stories";
-import { z } from "zod";
+import { sessionHeadingOf } from "@/lib/stories";
+import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { sceneItems } from "@/db/scene-items";
@@ -10,10 +10,9 @@ import { requireAccount } from "@/lib/authorize";
 import type { PlayScene } from "@/lib/play-scene";
 import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
 import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 
 const { stories, storyPlayers, storyScenes, vStoryScenes } = schema;
-
-const idSchema = z.int32();
 
 /** A scene of the story, for the chevrons round the title and the title's dropdown. */
 export type SceneNeighbour = {
@@ -55,9 +54,13 @@ export type ScenePreview = {
  * ones of its sitting; scenes with no sitting last, the most recently
  * played first. The chevrons step through that one list, so `previous` is
  * the entry below the scene and `next` the entry above, and the list is
- * the whole of the order. Null when there is no such scene or the caller is
- * neither the story's storyteller nor one of its players, the two cases one
- * answer for the reason loadPlayStory gives.
+ * the whole of the order. A player's list holds only the scenes played to
+ * completion, and a player asking for any other scene gets null: a scene
+ * still waiting or in play is prep, the storyteller's alone, as the prep
+ * board's reads keep it (components/prep/actions.ts), so neither the
+ * dropdown nor the chevrons may name it. Null too when there is no such
+ * scene or the caller is neither the story's storyteller nor one of its
+ * players, the cases one answer for the reason loadPlayStory gives.
  */
 export async function sa_getScenePreview(idStoryScene: number): Promise<ScenePreview | null> {
   const user = await requireAccount();
@@ -90,6 +93,7 @@ export async function sa_getScenePreview(idStoryScene: number): Promise<ScenePre
     )
     .limit(1);
   if (!row) return null;
+  if (!row.isOwner && row.status !== SCENE_LOCKED_STATUS) return null;
 
   const [rows, all] = await Promise.all([
     sceneItems(row.idStory, row.idStoryScene, [SCENE_ELEMENT_HIDDEN]),
@@ -107,7 +111,12 @@ export async function sa_getScenePreview(idStoryScene: number): Promise<ScenePre
         activeAt: vStoryScenes.activeAt,
       })
       .from(vStoryScenes)
-      .where(eq(vStoryScenes.idStory, row.idStory)),
+      .where(
+        and(
+          eq(vStoryScenes.idStory, row.idStory),
+          row.isOwner ? undefined : eq(vStoryScenes.status, SCENE_LOCKED_STATUS),
+        ),
+      ),
   ]);
   const scenes = all
     .slice()
@@ -122,10 +131,7 @@ export async function sa_getScenePreview(idStoryScene: number): Promise<ScenePre
       idStoryScene: scene.idStoryScene!,
       title: scene.title ?? "",
       status: scene.status ?? "",
-      sessionHeading:
-        scene.sessionNumber === null
-          ? null
-          : sessionHeading({ number: scene.sessionNumber, title: scene.sessionTitle }),
+      sessionHeading: sessionHeadingOf(scene),
     }));
   const at = scenes.findIndex((scene) => scene.idStoryScene === row.idStoryScene);
   return {

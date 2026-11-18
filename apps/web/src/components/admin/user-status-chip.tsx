@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Span } from "@chakra-ui/react";
 import { sa_setUserStatus } from "@/app/(app)/(nav)/admin/users/actions";
-import { pillStyle } from "@/components/status/pill-style";
+import { StatusPillSpan } from "@/components/status/pill-style";
 import { StatusMenuPill, type StatusConfirmation } from "@/components/status/status-menu-pill";
-import { toaster } from "@/components/ui/toaster";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { STATUS_CHANGE_FAILED } from "@/lib/messages";
 import { statusLabel, transitionsFrom, type StatusOption } from "@/lib/status";
 import type { UserStatus } from "@/lib/user-types";
 
@@ -45,51 +44,28 @@ const VERB: Record<string, string> = {
  * and the action would refuse the move anyway. A move out of active asks
  * first, since it signs the account out; a move back to active does not.
  *
- * The change is shown before the action answers, as StatusPill does; a
- * refusal puts the old status back and says why in a toast, there being
- * nothing on the page for the administrator to correct.
+ * The change is shown before the action answers and put back if it refuses
+ * (useOptimisticAction), as StatusPill does.
  */
 export function UserStatusChip({ idUser, status, options, readOnly = false, onChanged }: Props) {
-  const [shown, setShown] = useState<UserStatus>(status);
-  const [, startTransition] = useTransition();
-
-  // The row's own status wins when it changes underneath: a page that
-  // reloaded, say.
-  const [lastGiven, setLastGiven] = useState(status);
-  if (lastGiven !== status) {
-    setLastGiven(status);
-    setShown(status);
-  }
+  // The menu hands out workflow keys and the chip shows v_users' words, so
+  // the choice is translated before it is shown and the action gets the key.
+  const [shown, choose] = useOptimisticAction<UserStatus>(
+    status,
+    async (next) => {
+      const result = await sa_setUserStatus(idUser, next.toUpperCase());
+      if (!result.ok) return result;
+      onChanged?.(result.status);
+      return { ok: true, value: result.status };
+    },
+    { failed: STATUS_CHANGE_FAILED },
+  );
 
   const key = shown.toUpperCase();
   const label = options.find((option) => option.key === key)?.label ?? statusLabel(key);
 
   if (readOnly || shown === "guest") {
-    return (
-      <Span data-status={shown} {...pillStyle()}>
-        {label}
-      </Span>
-    );
-  }
-
-  function choose(next: string) {
-    const previous = shown;
-    setShown(next.toLowerCase() as UserStatus);
-    startTransition(async () => {
-      try {
-        const result = await sa_setUserStatus(idUser, next);
-        if (result.ok) {
-          setShown(result.status);
-          onChanged?.(result.status);
-          return;
-        }
-        setShown(previous);
-        toaster.create({ title: result.error, type: "error" });
-      } catch {
-        setShown(previous);
-        toaster.create({ title: "That status could not be changed.", type: "error" });
-      }
-    });
+    return <StatusPillSpan data-status={shown}>{label}</StatusPillSpan>;
   }
 
   function confirm(next: string): StatusConfirmation | null {
@@ -107,7 +83,7 @@ export function UserStatusChip({ idUser, status, options, readOnly = false, onCh
       label={label}
       value={shown}
       moves={transitionsFrom(key, options)}
-      onChoose={choose}
+      onChoose={(next) => choose(next.toLowerCase() as UserStatus)}
       tooltip="Change status"
       confirm={confirm}
     />

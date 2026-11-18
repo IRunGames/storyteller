@@ -8,25 +8,19 @@
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
 
 import type { StoryEvent } from "./events";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "lib-realtime-publish-scene@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
 
 const publishStoryEvent = mock.fn(async (_idStory: number, _event: StoryEvent) => {});
 
 let helpers: typeof import("./publish-scene");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let story = 0;
 let docks = 0;
@@ -39,11 +33,11 @@ let lanternLink = 0;
 
 const sent = () => publishStoryEvent.mock.calls.map((call) => call.arguments[1]);
 
-describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("publish-scene", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
     mock.module("./publish", { namedExports: { publishStoryEvent, publishLater: () => {} } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
     helpers = await import("./publish-scene");
 
     [{ id: story }] = await db
@@ -99,8 +93,6 @@ describe("publish-scene", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   after(async () => {
     if (!db) return;
     if (story) await db.delete(tables.stories).where(eq(tables.stories.idStory, story));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   async function play(idStoryScene: number | null, status = "OPEN") {

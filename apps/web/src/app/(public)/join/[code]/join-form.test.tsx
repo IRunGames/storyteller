@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import type { JoinByLinkResult } from "./actions";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
 const push = mock.fn((_href: string) => {});
 const sa_joinAsGuest = mock.fn(
@@ -27,9 +28,7 @@ const base = {
 
 describe("JoinForm", () => {
   before(async () => {
-    mock.module("next/navigation", {
-      namedExports: { useRouter: () => ({ push, refresh: mock.fn() }) },
-    });
+    mockNavigation({ router: { ...mockRouter(), push } });
     mock.module("./actions", { namedExports: { sa_joinAsGuest, sa_joinByLink } });
     ({ JoinForm } = await import("./join-form"));
   });

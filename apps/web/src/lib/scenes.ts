@@ -1,10 +1,8 @@
 import { formatSessionLength } from "./stories";
+import { plural } from "./plural";
 
 /** Scenes per fetch in the Prep Work board's Scenes column. */
 export const SCENES_PAGE_SIZE = 10;
-
-/** How long the Scenes search box waits after a keystroke before it asks, in ms. */
-export const SCENE_SEARCH_DELAY_MS = 250;
 
 /** One card in the Scenes column. */
 export type StoryScene = {
@@ -99,23 +97,6 @@ export type SessionScene = {
   status: string;
 };
 
-/**
- * The status a scene can no longer be edited in: it has been played out, so
- * what it says is the record of what happened. Named here, rather than read
- * as "the workflow's last status", because the scene workflow is a cycle and
- * has no last status the database would recognise as final; the edit action
- * checks it again.
- */
-export const SCENE_LOCKED_STATUS = "COMPLETE";
-
-/**
- * The status a scene waits in before it is played: the storyteller has not
- * opened it, or has set it back after opening it. The players' table puts up
- * a "stand by" overlay over a pending scene; the storyteller's does not, since
- * it is the storyteller who moves the scene on.
- */
-export const SCENE_PENDING_STATUS = "PENDING";
-
 /** The longest title the scene forms accept (sceneSchema in scene-schemas.ts). */
 const SCENE_TITLE_MAX = 200;
 const COPY_SUFFIX = " (copy)";
@@ -142,7 +123,7 @@ export type SceneSessionOption = {
 /** "45 minutes", "1 minute", or in hours from an hour up, as a session's length reads. */
 export function formatSceneLength(minutes: number): string {
   if (minutes >= 60) return formatSessionLength(minutes);
-  return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  return plural(minutes, "minute");
 }
 
 /**

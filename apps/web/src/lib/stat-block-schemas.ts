@@ -9,7 +9,9 @@ import {
   isRepeating,
   MULTIPLE,
   matchRackEntry,
+  numberOrText,
   rowKeyText,
+  stampDefinition,
   STAT_FORMATS,
   STAT_TYPES,
   statLabel,
@@ -22,6 +24,7 @@ import {
   type StatRow,
   type StatType,
 } from "./stat-blocks";
+import { formErrors } from "./forms";
 import { formulaReferences, parseFormula } from "./stat-formula";
 import { isRollNotation, MAX_ROLL_NOTATION, normalizeDice } from "./roll";
 
@@ -103,6 +106,21 @@ export const statGroupDefinitionSchema = z.object({
 });
 
 type Issue = { path: (string | number)[]; message: string };
+
+/**
+ * A definition as an editor posted it, checked and stamped for saving
+ * (stampDefinition), or the field errors keyed by the issue's path,
+ * "groups.1.stats.0.computedAs", which is how the editor's field arrays name
+ * their inputs. The Systems page's save and a story's copy's save are the
+ * same up to here; where each writes differs.
+ */
+export function parseDefinitionToSave(
+  input: unknown,
+): { ok: true; definition: StatBlockDefinition } | { ok: false; errors: Record<string, string> } {
+  const parsed = statBlockDefinitionSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
+  return { ok: true, definition: stampDefinition(parsed.data) };
+}
 
 /**
  * The rules a definition keeps beyond its shape, each said on the field
@@ -343,7 +361,7 @@ export function splitRack(text: string): RackEntry[] {
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry !== "")
-    .map((entry) => (/^-?\d+(\.\d+)?$/.test(entry) ? Number(entry) : entry));
+    .map(numberOrText);
 }
 
 /** A rack as the editor's field shows it. */
@@ -439,7 +457,8 @@ const asNumber = (value: unknown) => {
   if (typeof value !== "string") return value;
   const text = value.trim();
   if (text === "") return undefined;
-  return /^-?\d+(\.\d+)?$/.test(text) ? Number(text) : value;
+  const number = numberOrText(text);
+  return typeof number === "number" ? number : value;
 };
 const optionalNumberInput = z.preprocess(
   asNumber,
@@ -465,7 +484,8 @@ const displayValue = z.preprocess(
     if (typeof value !== "string") return value;
     const text = value.trim();
     if (text === "") return undefined;
-    return /^-?\d+(\.\d+)?$/.test(text) ? Number(text) : value;
+    const number = numberOrText(text);
+    return typeof number === "number" ? number : value;
   },
   z.union([z.number(), z.string().trim().max(200, "Keep it under 200 characters.")]).optional(),
 );

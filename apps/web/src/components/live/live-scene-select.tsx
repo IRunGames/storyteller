@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -11,18 +11,21 @@ import {
   Portal,
   Stack,
   Text,
-  Tooltip,
 } from "@chakra-ui/react";
 import { ChevronDown, Plus } from "lucide-react";
 import type { RunScene } from "@/lib/run";
-import { SCENE_SEARCH_DELAY_MS, type SceneSessionOption } from "@/lib/scenes";
+import type { SceneSessionOption } from "@/lib/scenes";
+import { SEARCH_DELAY_MS } from "@/lib/search";
 import type { StatusOption } from "@/lib/status";
-import { sa_createLiveScene } from "@/components/run/actions";
+import { useDebouncedSearch } from "@/hooks/use-debounced-search";
+import { sa_createLiveScene } from "@/components/live/actions";
 import { sa_searchLiveScenes } from "@/components/live/actions";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
+import { WithTooltip } from "@/components/buttons/with-tooltip";
 import { StatusPills } from "@/components/status/status-search";
 import { RunNewSceneDialog } from "@/components/run/run-new-scene-dialog";
 import { DuplicateSceneButton } from "./duplicate-scene-button";
+import { plural } from "@/lib/plural";
 
 type Props = {
   idStory: number;
@@ -59,30 +62,19 @@ export function LiveSceneSelect({ idStory, scene, sessions, statusOptions, onCho
   const [chosenSessions, setChosenSessions] = useState<number[]>([]);
   const [scenes, setScenes] = useState<RunScene[]>([]);
   const [creating, setCreating] = useState(false);
-  // Which search is the latest: a slow reply to an earlier one must not land
-  // on top of the results for what the controls say now.
-  const searchSeq = useRef(0);
-  // The Sessions button's tooltip and menu look their trigger up by id.
+  // The Sessions button's menu and tooltip share this (WithTooltip).
   const sessionsTriggerId = useId();
 
   const statusKey = statuses.join(",");
   const sessionKey = chosenSessions.join(",");
-  useEffect(() => {
-    const seq = ++searchSeq.current;
-    const timer = setTimeout(async () => {
-      try {
-        const found = await sa_searchLiveScenes(idStory, {
-          query,
-          statuses: statusKey === "" ? [] : statusKey.split(","),
-          sessions: sessionKey === "" ? [] : sessionKey.split(",").map(Number),
-        });
-        if (seq === searchSeq.current) setScenes(found);
-      } catch {
-        // Leave the last results in place; the next change tries again.
-      }
-    }, SCENE_SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [idStory, query, statusKey, sessionKey]);
+  useDebouncedSearch(
+    () => sa_searchLiveScenes(idStory, { query, statuses, sessions: chosenSessions }),
+    {
+      key: `${idStory}|${query}|${statusKey}|${sessionKey}`,
+      delay: SEARCH_DELAY_MS,
+      onResult: setScenes,
+    },
+  );
 
   const collection = useMemo(
     () =>
@@ -103,7 +95,7 @@ export function LiveSceneSelect({ idStory, scene, sessions, statusOptions, onCho
   const sessionsSummary =
     chosenCount === 0
       ? "Showing scenes in no session"
-      : `Showing scenes in no session and in ${chosenCount} ${chosenCount === 1 ? "session" : "sessions"}`;
+      : `Showing scenes in no session and in ${plural(chosenCount, "session")}`;
 
   function toggleSession(idStorySession: number, checked: boolean) {
     setChosenSessions((current) =>
@@ -132,34 +124,17 @@ export function LiveSceneSelect({ idStory, scene, sessions, statusOptions, onCho
             closeOnSelect={false}
             positioning={{ placement: "bottom-start" }}
           >
-            <Tooltip.Root
-              openDelay={200}
-              positioning={{ placement: "top" }}
-              ids={{ trigger: sessionsTriggerId }}
-            >
-              <Tooltip.Trigger asChild>
-                <Menu.Trigger asChild>
-                  {/* The count is on the button, 0 included, so how the
-                      list is narrowed shows without opening it. */}
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    aria-label={`Sessions: ${chosenCount} selected`}
-                  >
-                    Sessions
-                    <Badge size="xs" variant={chosenCount === 0 ? "outline" : "solid"}>
-                      {chosenCount}
-                    </Badge>
-                    <ChevronDown />
-                  </Button>
-                </Menu.Trigger>
-              </Tooltip.Trigger>
-              <Portal>
-                <Tooltip.Positioner>
-                  <Tooltip.Content>{sessionsSummary}</Tooltip.Content>
-                </Tooltip.Positioner>
-              </Portal>
-            </Tooltip.Root>
+            <WithTooltip tooltip={sessionsSummary} menuTrigger={sessionsTriggerId}>
+              {/* The count is on the button, 0 included, so how the list is narrowed
+                  shows without opening it. */}
+              <Button size="xs" variant="outline" aria-label={`Sessions: ${chosenCount} selected`}>
+                Sessions
+                <Badge size="xs" variant={chosenCount === 0 ? "outline" : "solid"}>
+                  {chosenCount}
+                </Badge>
+                <ChevronDown />
+              </Button>
+            </WithTooltip>
             <Portal>
               <Menu.Positioner>
                 <Menu.Content minW="xs" maxH="80vh" overflowY="auto">
@@ -242,9 +217,9 @@ export function LiveSceneSelect({ idStory, scene, sessions, statusOptions, onCho
             </Portal>
           </Combobox.Root>
 
-          <PrepIconButton label="New scene" onClick={() => setCreating(true)}>
+          <IconButtonWithTooltip label="New scene" onClick={() => setCreating(true)}>
             <Plus />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
           <DuplicateSceneButton idStory={idStory} scene={scene} onDuplicated={onChoose} />
         </HStack>
       </Stack>

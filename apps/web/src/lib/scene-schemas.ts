@@ -1,23 +1,14 @@
 import { z } from "zod";
-
-// A <select> posts "" for "not played yet" and a string for a sitting; the
-// preprocess turns both into what story_scenes.id_story_session wants.
-const idStorySession = z.preprocess(
-  (value) => (value === "" || value === null || value === undefined ? null : Number(value)),
-  z.int32().nullable(),
-);
+import { longTextSchema, selectIntSchema, titleSchema } from "@/lib/schemas";
 
 // One schema for creating and editing a scene: both forms post the same
 // fields. The status is not among them; a new scene takes the workflow's
 // default, and it moves by its pill from then on.
 export const sceneSchema = z.object({
-  title: z
-    .string()
-    .trim()
-    .min(1, "Please give the scene a title.")
-    .max(200, "Keep the title under 200 characters."),
-  description: z.string().trim().max(8000, "Keep the description under 8000 characters."),
-  idStorySession,
+  title: titleSchema("scene"),
+  description: longTextSchema("description"),
+  // The sitting <select> posts "" for "not played yet", which the column holds as null.
+  idStorySession: selectIntSchema,
 });
 
 export type SceneValues = z.infer<typeof sceneSchema>;
@@ -33,7 +24,7 @@ export type RunSceneValues = z.infer<typeof runSceneSchema>;
 // the scene forms bound it, and the notes beside it. Both may be empty.
 export const sceneTextSchema = z.object({
   description: sceneSchema.shape.description,
-  notes: z.string().trim().max(8000, "Keep the notes under 8000 characters."),
+  notes: longTextSchema("notes"),
 });
 
 export type SceneTextValues = z.infer<typeof sceneTextSchema>;

@@ -36,10 +36,11 @@ import {
   type RunScene,
 } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
-import { EMPTY_SCENE_TEXT, SCENE_LOCKED_STATUS, type SceneSessionOption } from "@/lib/scenes";
+import { EMPTY_SCENE_TEXT, type SceneSessionOption } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import type { StackRename } from "@/lib/stack-schemas";
-import { cssUrlValue } from "@/lib/stories";
-import { sa_linkSceneElement } from "@/components/run/actions";
+import { sa_linkSceneElement } from "@/components/scene-elements/actions";
+import { useWideStacks } from "@/components/run/use-wide-stacks";
 import { sa_clearLiveSceneCover, sa_setLiveSceneText } from "@/components/live/actions";
 import { DeleteButton } from "@/components/confirm/delete-button";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
@@ -52,10 +53,12 @@ import { RunLibrarySortMenu } from "@/components/run/run-library-sort-menu";
 import { RunPlayStack } from "@/components/run/run-play-stack";
 import { RunStackSelect } from "@/components/run/run-stack-select";
 import { RunManageStacksDialog } from "@/components/run/run-manage-stacks-dialog";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { StatusPill } from "@/components/status/status-pill";
 import { LiveSceneSelect } from "./live-scene-select";
 import { LiveSessionSelect } from "./live-session-select";
+import { CoverBackdrop } from "@/components/covers/cover-backdrop";
+import { glass } from "@/theme";
 
 const LIBRARY_ID = "live-panel-library";
 
@@ -69,6 +72,8 @@ type Props = {
   initialTags: string[];
   initialCoverUrl: string | null;
   initialInPlay: PlayItem[];
+  /** The stacks widened to the whole play space (story_scenes.wide_tags). */
+  initialWideTags?: string[];
   /** The story's sittings, for the header's session select. */
   sessions: SceneSessionOption[];
   /** The sitting the scene was played in, or null for none. */
@@ -106,6 +111,7 @@ export function LiveTable({
   initialTags,
   initialCoverUrl,
   initialInPlay,
+  initialWideTags,
   sessions,
   idStorySession,
   sceneStatusOptions,
@@ -124,6 +130,9 @@ export function LiveTable({
   const [picturesVersion, setPicturesVersion] = useState(0);
   const picturesChanged = () => setPicturesVersion((version) => version + 1);
   const [inPlay, setInPlay] = useState<PlayItem[]>(initialInPlay);
+  // The stacks widened to the whole space, the scene's own, so every table
+  // draws them the same (useWideStacks).
+  const wideStacks = useWideStacks(idStory, scene.idStoryScene, initialWideTags);
   // The library's In select, as on the run page.
   const [chosenStack, setChosenStack] = useState<string | null>(null);
   const inStack =
@@ -401,9 +410,12 @@ export function LiveTable({
                     onChange={setChosenStack}
                     onTagsChange={setTags}
                   />
-                  <PrepIconButton label="Manage stacks" onClick={() => setManagingStacks(true)}>
+                  <IconButtonWithTooltip
+                    label="Manage stacks"
+                    onClick={() => setManagingStacks(true)}
+                  >
                     <Settings />
-                  </PrepIconButton>
+                  </IconButtonWithTooltip>
                   <RunManageStacksDialog
                     idStory={idStory}
                     idStoryScene={scene.idStoryScene}
@@ -428,20 +440,7 @@ export function LiveTable({
           minW="0"
           minH="0"
         >
-          {coverUrl && (
-            <>
-              <Box
-                aria-hidden
-                data-testid="play-space-cover"
-                position="absolute"
-                inset="0"
-                bgSize="cover"
-                bgPos="center"
-                style={{ backgroundImage: `url("${cssUrlValue(coverUrl)}")` }}
-              />
-              <Box aria-hidden position="absolute" inset="0" bg="blackAlpha.400" />
-            </>
-          )}
+          {coverUrl && <CoverBackdrop url={coverUrl} scrim="flat" testId="play-space-cover" />}
           <Stack position="relative" h="full" overflowY="auto" gap="3" p="4">
             <Heading id="play-space-heading" srOnly>
               Play space
@@ -466,8 +465,7 @@ export function LiveTable({
                 maxW="full"
                 minW="0"
                 rounded="2xl"
-                bg="bg.panel/55"
-                backdropFilter="blur(6px)"
+                css={glass}
                 ps="3"
                 pe="1"
                 py="1"
@@ -530,8 +528,7 @@ export function LiveTable({
               </HStack>
               <Text
                 rounded="2xl"
-                bg="bg.panel/55"
-                backdropFilter="blur(6px)"
+                css={glass}
                 px="3"
                 py="1"
                 fontSize="sm"
@@ -548,13 +545,7 @@ export function LiveTable({
                   scene's pictures. On the same panel colour as the title,
                   since it sits on the very picture it removes. */}
               {coverUrl && !isComplete && (
-                <Box
-                  justifySelf="end"
-                  rounded="full"
-                  bg="bg.panel/55"
-                  backdropFilter="blur(6px)"
-                  p="0.5"
-                >
+                <Box justifySelf="end" rounded="full" css={glass} p="0.5">
                   <DeleteButton
                     thing="the cover image"
                     label="Remove cover image"
@@ -589,6 +580,8 @@ export function LiveTable({
                   onStatusChange={setStatus}
                   onItemChange={replace}
                   locked={isComplete}
+                  wide={wideStacks.isWide(stack.tag)}
+                  onWideChange={(wide) => void wideStacks.setWide(stack.tag, wide)}
                 />
               ))}
             </Flex>

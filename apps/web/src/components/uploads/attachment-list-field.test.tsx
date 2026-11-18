@@ -17,6 +17,7 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
 const requireHere = createRequire(__filename);
 
@@ -87,7 +88,7 @@ const sa_setAttachmentCover = mock.fn<
 const sa_setAttachmentTags = mock.fn<(id: number, tags: string[]) => Promise<void>>(async () => {});
 // The field re-renders the page around it after a cover change, since the
 // cover that page draws is server-rendered.
-const router = { refresh: mock.fn() };
+const router = mockRouter();
 
 let AttachmentListField: typeof import("./attachment-list-field").AttachmentListField;
 
@@ -108,7 +109,7 @@ before(async () => {
       sa_setAttachmentTags,
     },
   });
-  mock.module("next/navigation", { namedExports: { useRouter: () => router } });
+  mockNavigation({ router });
   mock.module("@/components/auth/user-provider", {
     namedExports: { useUser: () => ({ id: "u1" }) },
   });

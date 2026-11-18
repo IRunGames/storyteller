@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { Box, HStack } from "@chakra-ui/react";
 import { Minus, Plus } from "lucide-react";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 
 type Props = {
@@ -73,22 +73,22 @@ export function RunPictureCell({
           {corner}
         </Box>
         {canChange && onRemove && (
-          <PrepIconButton label={removeLabel} onClick={onRemove} outlined>
+          <IconButtonWithTooltip label={removeLabel} onClick={onRemove} outlined>
             <Minus />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         )}
       </HStack>
     );
   }
   if (!canChange) return null;
   return (
-    <PrepIconButton
+    <IconButtonWithTooltip
       label={addLabel}
       expanded={picking}
       onClick={() => onPickingChange(!picking)}
       outlined
     >
       <Plus />
-    </PrepIconButton>
+    </IconButtonWithTooltip>
   );
 }

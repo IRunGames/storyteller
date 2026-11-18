@@ -156,7 +156,7 @@ describe("SceneForm", () => {
     const user = userEvent.setup();
     sa_updateStoryScene.mock.mockImplementation(async () => ({
       ok: false,
-      errors: { "": "A completed scene can no longer be edited." },
+      errors: { root: "A completed scene can no longer be edited." },
     }));
     sa_createStoryScene.mock.mockImplementation(async () => ({
       ok: false,

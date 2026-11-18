@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { chakra, Input } from "@chakra-ui/react";
 import type { RunSession } from "@/lib/run";
 import { sessionHeading } from "@/lib/stories";
-import { sa_setSessionTitle } from "@/components/run/actions";
+import { sa_setSessionTitle } from "@/components/sessions/actions";
 import { toaster } from "@/components/ui/toaster";
 
 type Props = {

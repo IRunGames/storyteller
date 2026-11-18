@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
-  Alert,
   Avatar,
   Button,
   Checkbox,
@@ -14,9 +13,13 @@ import {
   Text,
 } from "@chakra-ui/react";
 import { UserPlus } from "lucide-react";
-import { PLAYER_SEARCH_DELAY_MS, type PlayerMatch, type StoryPlayer } from "@/lib/stories";
+import { SEARCH_DELAY_MS } from "@/lib/search";
+import type { PlayerMatch, StoryPlayer } from "@/lib/stories";
 import { sa_addStoryPlayers, sa_searchPlayers } from "@/app/(app)/(nav)/stories/actions";
+import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 import { toaster } from "@/components/ui/toaster";
+import { FormError } from "@/components/forms/form-error";
+import { plural } from "@/lib/plural";
 
 type Props = {
   idStory: number;
@@ -40,31 +43,20 @@ export function InvitePlayersPopover({ idStory, onInvited }: Props) {
   const [selected, setSelected] = useState<Map<string, PlayerMatch>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setSaving] = useState(false);
-  // Which search is the latest. A slow reply to an earlier query must not
-  // overwrite the matches for what the box says now.
-  const searchSeq = useRef(0);
 
-  // The search runs a beat after the last keystroke rather than on each one,
-  // so typing a name is one request, not one per letter. A blank box asks
-  // nothing: there is no "everyone" list. Its matches are cleared in
-  // onQueryChange, from the event, rather than here, so the effect never
-  // sets state on its own.
-  useEffect(() => {
-    const needle = query.trim();
-    const seq = ++searchSeq.current;
-    if (needle === "") return;
-    const timer = setTimeout(async () => {
-      try {
-        const found = await sa_searchPlayers(idStory, needle);
-        if (seq !== searchSeq.current) return;
-        setMatches(found);
-        setSearched(true);
-      } catch {
-        // Leave the last matches in place; the next keystroke tries again.
-      }
-    }, PLAYER_SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [idStory, query]);
+  // A blank box asks nothing: there is no "everyone" list. Its matches are
+  // cleared in onQueryChange, from the event, so nothing here sets state on
+  // its own.
+  const needle = query.trim();
+  useDebouncedSearch(() => sa_searchPlayers(idStory, needle), {
+    key: `${idStory}|${needle}`,
+    delay: SEARCH_DELAY_MS,
+    enabled: needle !== "",
+    onResult: (found) => {
+      setMatches(found);
+      setSearched(true);
+    },
+  });
 
   function onQueryChange(value: string) {
     setQuery(value);
@@ -98,11 +90,15 @@ export function InvitePlayersPopover({ idStory, onInvited }: Props) {
     setError(null);
     try {
       const added = await sa_addStoryPlayers(idStory, [...selected.keys()]);
-      onInvited(added);
+      if (!added.ok) {
+        setError(added.error);
+        return;
+      }
+      onInvited(added.players);
       const count = selected.size;
       close();
       toaster.create({
-        title: `Invited ${count} ${count === 1 ? "player" : "players"}.`,
+        title: `Invited ${plural(count, "player")}.`,
         type: "success",
       });
     } catch {
@@ -138,17 +134,7 @@ export function InvitePlayersPopover({ idStory, onInvited }: Props) {
             </Popover.Header>
             <Popover.Body>
               <Stack gap="4">
-                {error && (
-                  // role="alert", which Chakra's Alert does not set itself, so
-                  // the failure is announced where the storyteller's focus is
-                  // and the test can find it by role.
-                  <Alert.Root role="alert" status="error" size="sm">
-                    <Alert.Indicator />
-                    <Alert.Content>
-                      <Alert.Description>{error}</Alert.Description>
-                    </Alert.Content>
-                  </Alert.Root>
-                )}
+                <FormError message={error} size="sm" />
 
                 <Input
                   type="search"

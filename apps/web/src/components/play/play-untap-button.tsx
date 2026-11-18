@@ -1,8 +1,9 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Button, HStack, IconButton, Popover, Portal, Text, Tooltip } from "@chakra-ui/react";
+import { Button, HStack, Popover, Portal, Text } from "@chakra-ui/react";
 import { RotateCw } from "lucide-react";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
 type Props = {
   /** What the pill calls the element, for the button's name and the question. */
@@ -19,8 +20,6 @@ type Props = {
  * Cancel and Untap; Untap is reported, and the pill does the rest.
  */
 export function PlayUntapButton({ label, onConfirm }: Props) {
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [asking, setAsking] = useState(false);
 
@@ -31,26 +30,14 @@ export function PlayUntapButton({ label, onConfirm }: Props) {
       onOpenChange={(details) => setAsking(details.open)}
       positioning={{ placement: "bottom-start" }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label={`Tapped: untap ${label}`}
-              size="xs"
-              variant="ghost"
-              rounded="full"
-              color="fg.muted"
-            >
-              <RotateCw />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Tapped: press to untap</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      <IconButtonWithTooltip
+        label={`Tapped: untap ${label}`}
+        tooltip="Tapped: press to untap"
+        color="fg.muted"
+        popoverTrigger={triggerId}
+      >
+        <RotateCw />
+      </IconButtonWithTooltip>
       <Portal>
         <Popover.Positioner>
           <Popover.Content w="xs">

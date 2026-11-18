@@ -1,7 +1,7 @@
 "use client";
 
 import { Flex, Text } from "@chakra-ui/react";
-import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS } from "@/lib/status";
 
 /**
  * What covers a scene that is not being played, over the whole space: the

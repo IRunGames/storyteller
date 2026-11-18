@@ -36,7 +36,9 @@ describe("the scene builder page", () => {
       namedExports: { sa_getPlayStory: getPlayStory },
     });
     mock.module("@/components/run/actions", {
-      namedExports: { sa_getScenePlaySpace: getScenePlaySpace },
+      namedExports: {
+        sa_getScenePlaySpace: getScenePlaySpace,
+      },
     });
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions: listStatusOptions },

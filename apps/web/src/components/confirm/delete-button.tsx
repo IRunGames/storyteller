@@ -1,19 +1,11 @@
 "use client";
 
 import { useId, useState, type ReactNode } from "react";
-import {
-  Alert,
-  Button,
-  HStack,
-  IconButton,
-  Popover,
-  Portal,
-  Stack,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
+import { Button, HStack, IconButton, Popover, Portal, Stack, Text } from "@chakra-ui/react";
 import { Trash2 } from "lucide-react";
+import { WithTooltip } from "@/components/buttons/with-tooltip";
 import { toaster } from "@/components/ui/toaster";
+import { FormError } from "@/components/forms/form-error";
 
 /** What the caller answered: a refusal stays in the popover; nothing means it went. */
 export type DeleteOutcome = { ok: true } | { ok: false; error: string } | void;
@@ -91,8 +83,6 @@ export function DeleteButton({
   done = `${thing} has been deleted.`,
   failed = `${thing} could not be deleted. Try again.`,
 }: Props) {
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -151,20 +141,9 @@ export function DeleteButton({
       {trigger === "button" ? (
         <Popover.Trigger asChild>{button}</Popover.Trigger>
       ) : (
-        <Tooltip.Root
-          openDelay={200}
-          positioning={{ placement: "top" }}
-          ids={{ trigger: triggerId }}
-        >
-          <Tooltip.Trigger asChild>
-            <Popover.Trigger asChild>{button}</Popover.Trigger>
-          </Tooltip.Trigger>
-          <Portal>
-            <Tooltip.Positioner>
-              <Tooltip.Content>{label}</Tooltip.Content>
-            </Tooltip.Positioner>
-          </Portal>
-        </Tooltip.Root>
+        <WithTooltip tooltip={label} popoverTrigger={triggerId}>
+          {button}
+        </WithTooltip>
       )}
       <Portal>
         <Popover.Positioner>
@@ -185,15 +164,7 @@ export function DeleteButton({
                 <Text fontSize="sm">
                   {children ?? `${thing} will be deleted. This cannot be undone.`}
                 </Text>
-                {error && (
-                  // role="alert", which Chakra's Alert does not set itself.
-                  <Alert.Root role="alert" status="error" size="sm">
-                    <Alert.Indicator />
-                    <Alert.Content>
-                      <Alert.Description>{error}</Alert.Description>
-                    </Alert.Content>
-                  </Alert.Root>
-                )}
+                <FormError message={error} size="sm" />
                 <HStack justify="space-between" gap="2">
                   <Button
                     size="sm"

@@ -1,12 +1,14 @@
 "use server";
 
 import { and, eq } from "drizzle-orm";
-import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { requireAccount } from "@/lib/authorize";
-import { readStatBlockDefinition, statBlockDefinitionSchema } from "@/lib/stat-block-schemas";
+import { ownedStory } from "@/db/story-access";
+import { parseDefinitionToSave, readStatBlockDefinition } from "@/lib/stat-block-schemas";
 import { stampDefinition, type StatBlockDefinition } from "@/lib/stat-blocks";
 import { systemLabel } from "@/lib/stories";
+import { STORY_NOT_YOURS } from "@/lib/messages";
 
 const { stories, systems } = schema;
 
@@ -15,10 +17,6 @@ const { stories, systems } = schema;
 // and changes on the story alone and which is read in the system's place
 // wherever the story's elements are (db/stat-block-systems.ts). The story's
 // page shows both; the copy is edited on this route's page.
-
-const idStorySchema = z.int32();
-
-const NOT_YOURS = "That story is not yours to change.";
 
 /** What the story's page shows of its stat block. */
 export type StoryStatBlockDefinition = {
@@ -46,7 +44,7 @@ export async function sa_getStoryStatBlockDefinition(
   idStory: number,
 ): Promise<StoryStatBlockDefinition | null> {
   const user = await requireAccount();
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return null;
 
   const [row] = await db
@@ -90,16 +88,18 @@ export async function sa_copySystemStatBlockDefinition(
   idStory: number,
 ): Promise<CopyStatBlockDefinitionResult> {
   const user = await requireAccount();
-  const id = idStorySchema.parse(idStory);
+  const id = idSchema.safeParse(idStory);
+  if (!id.success || (await ownedStory(user.id, id.data)) === null) {
+    return { ok: false, error: STORY_NOT_YOURS };
+  }
 
   const [row] = await db
-    .select({ owner: stories.idCreatedByUser, definition: systems.statBlockDefinition })
+    .select({ definition: systems.statBlockDefinition })
     .from(stories)
     .leftJoin(systems, eq(systems.idSystem, stories.idSystem))
-    .where(eq(stories.idStory, id))
+    .where(eq(stories.idStory, id.data))
     .limit(1);
-  if (!row || row.owner !== user.id) return { ok: false, error: NOT_YOURS };
-  if (row.definition === null) {
+  if (!row || row.definition === null) {
     return { ok: false, error: "This story has no game system to copy from." };
   }
 
@@ -107,17 +107,17 @@ export async function sa_copySystemStatBlockDefinition(
   const updated = await db
     .update(stories)
     .set({ statBlockDefinition: copy, idUpdatedByUser: user.id })
-    .where(and(eq(stories.idStory, id), eq(stories.idCreatedByUser, user.id)))
+    .where(and(eq(stories.idStory, id.data), eq(stories.idCreatedByUser, user.id)))
     .returning({ idStory: stories.idStory });
-  if (updated.length === 0) return { ok: false, error: NOT_YOURS };
+  if (updated.length === 0) return { ok: false, error: STORY_NOT_YOURS };
   return { ok: true, copy };
 }
 
 /**
  * Saves the editor's definition over the story's copy, whole, as the
  * Systems page saves a system's (sa_setSystemStatBlockDefinition): the same
- * schema, its rules coming back as field errors keyed by the issue's path,
- * and the same stamp. The storyteller's alone, and only for a story with a
+ * parse and stamp (parseDefinitionToSave), its rules coming back as field
+ * errors keyed by the issue's path. The storyteller's alone, and only for a story with a
  * system, since the copy is read in its system's place and stands in for
  * nothing without one.
  */
@@ -126,30 +126,21 @@ export async function sa_setStoryStatBlockDefinition(
   input: unknown,
 ): Promise<SetStoryStatBlockDefinitionResult> {
   const user = await requireAccount();
-  const id = idStorySchema.parse(idStory);
-
-  const [row] = await db
-    .select({ owner: stories.idCreatedByUser, idSystem: stories.idSystem })
-    .from(stories)
-    .where(eq(stories.idStory, id))
-    .limit(1);
-  if (!row || row.owner !== user.id) return { ok: false, errors: { root: NOT_YOURS } };
-  if (row.idSystem === null) {
+  const id = idSchema.safeParse(idStory);
+  const story = id.success ? await ownedStory(user.id, id.data) : null;
+  if (!story) return { ok: false, errors: { root: STORY_NOT_YOURS } };
+  if (story.idSystem === null) {
     return { ok: false, errors: { root: "This story has no game system for a stat block." } };
   }
 
-  const parsed = statBlockDefinitionSchema.safeParse(input);
-  if (!parsed.success) {
-    const errors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) errors[issue.path.join(".")] ??= issue.message;
-    return { ok: false, errors };
-  }
+  const parsed = parseDefinitionToSave(input);
+  if (!parsed.ok) return parsed;
 
   const updated = await db
     .update(stories)
-    .set({ statBlockDefinition: stampDefinition(parsed.data), idUpdatedByUser: user.id })
-    .where(and(eq(stories.idStory, id), eq(stories.idCreatedByUser, user.id)))
+    .set({ statBlockDefinition: parsed.definition, idUpdatedByUser: user.id })
+    .where(and(eq(stories.idStory, story.idStory), eq(stories.idCreatedByUser, user.id)))
     .returning({ idStory: stories.idStory });
-  if (updated.length === 0) return { ok: false, errors: { root: NOT_YOURS } };
+  if (updated.length === 0) return { ok: false, errors: { root: STORY_NOT_YOURS } };
   return { ok: true };
 }

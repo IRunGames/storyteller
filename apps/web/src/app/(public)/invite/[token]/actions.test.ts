@@ -7,13 +7,10 @@
 // again in `after`. Mail is never sent: @/lib/email is replaced.
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
+import { STORY_NOT_YOURS } from "@/lib/messages";
 import { and, eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-const hasDb = Boolean(process.env.DATABASE_URL);
 const OWNER_EMAIL = "invite-actions-owner@example.test";
 const ADMIN_EMAIL = "invite-actions-admin@example.test";
 const PLAYER_EMAIL = "invite-actions-player@example.test";
@@ -24,8 +21,6 @@ const OTHER = "invite-actions-other@example.test";
 const EMAILS = [OWNER_EMAIL, ADMIN_EMAIL, PLAYER_EMAIL, GUEST_EMAIL, NEWCOMER, OTHER];
 
 // Who is asking; "" is a visitor with no session at all.
-let caller = "";
-const getSession = mock.fn(async () => (caller ? { user: { id: caller } } : null));
 const sendEmail = mock.fn(async () => true);
 // redirect() throws in Next to end the action; this one throws something the
 // test can read the destination from.
@@ -38,9 +33,8 @@ const redirect = (to: string) => {
   throw new Redirected(to);
 };
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 let invite: typeof import("./actions");
 let storyActions: typeof import("@/app/(app)/(nav)/stories/actions");
 let adminActions: typeof import("@/app/(app)/(nav)/admin/invitations/actions");
@@ -51,22 +45,21 @@ let player = "";
 let guest = "";
 let story = 0;
 
-describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("invitations", {}, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
     mock.module("@/lib/email", {
       namedExports: { sendEmail, appOrigin: () => "http://localhost:3000" },
     });
     mock.module("next/navigation", { namedExports: { redirect, notFound: redirect } });
-    ({ db, schema: tables } = await import("@/db"));
+    ({ db, tables } = suite);
     invite = await import("./actions");
     storyActions = await import("@/app/(app)/(nav)/stories/actions");
     adminActions = await import("@/app/(app)/(nav)/admin/invitations/actions");
 
-    owner = await makeTestUser(db, tables, OWNER_EMAIL);
-    admin = await makeTestUser(db, tables, ADMIN_EMAIL);
-    player = await makeTestUser(db, tables, PLAYER_EMAIL);
-    guest = await makeTestUser(db, tables, GUEST_EMAIL);
+    owner = await suite.makeUser(OWNER_EMAIL);
+    admin = await suite.makeUser(ADMIN_EMAIL);
+    player = await suite.makeUser(PLAYER_EMAIL);
+    guest = await suite.makeUser(GUEST_EMAIL);
     await db.update(tables.user).set({ isAnonymous: true }).where(eq(tables.user.id, guest));
     [{ id: story }] = await db
       .insert(tables.stories)
@@ -75,7 +68,7 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   });
 
   beforeEach(async () => {
-    caller = "";
+    suite.caller = "";
     sendEmail.mock.resetCalls();
     await db.delete(tables.invitations).where(inArray(tables.invitations.email, EMAILS));
     await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, story));
@@ -91,10 +84,6 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, story));
       await db.delete(tables.stories).where(eq(tables.stories.idStory, story));
     }
-    for (const email of [OWNER_EMAIL, ADMIN_EMAIL, PLAYER_EMAIL, GUEST_EMAIL]) {
-      await removeTestUser(db, tables, email);
-    }
-    await db.$client.end();
   });
 
   const seats = () =>
@@ -109,14 +98,14 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     )[0].t;
 
   async function storyInvite(email: string, send = false) {
-    caller = owner;
+    suite.caller = owner;
     const result = await storyActions.sa_inviteToStory(story, { email }, send);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
     return result;
   }
 
   async function accept(as: string, token: string) {
-    caller = as;
+    suite.caller = as;
     try {
       return await invite.sa_acceptInvitation(token);
     } catch (error) {
@@ -135,7 +124,7 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       const copied = await storyInvite(OTHER);
       expect(copied.emailed).toBe(false);
       expect(sendEmail.mock.callCount()).toBe(1);
-      caller = owner;
+      suite.caller = owner;
       expect((await storyActions.sa_listStoryInvitations(story)).map((i) => i.email)).toEqual([
         OTHER,
         NEWCOMER,
@@ -143,15 +132,16 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     });
 
     it("refuses anyone but the story's owner", async () => {
-      caller = player;
-      await expect(
-        storyActions.sa_inviteToStory(story, { email: NEWCOMER }, false),
-      ).rejects.toThrow();
+      suite.caller = player;
+      expect(await storyActions.sa_inviteToStory(story, { email: NEWCOMER }, false)).toEqual({
+        ok: false,
+        errors: { root: STORY_NOT_YOURS },
+      });
     });
 
     it("refuses an email that already has one waiting, until it expires or is withdrawn", async () => {
       const first = await storyInvite(NEWCOMER);
-      caller = owner;
+      suite.caller = owner;
       expect(await storyActions.sa_inviteToStory(story, { email: NEWCOMER }, false)).toEqual({
         ok: false,
         errors: { email: "That email already has an invitation waiting." },
@@ -163,14 +153,14 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
         .where(eq(tables.invitations.idInvitation, first.invitation.idInvitation));
       const second = await storyInvite(NEWCOMER);
 
-      caller = owner;
+      suite.caller = owner;
       await storyActions.sa_revokeStoryInvitation(story, second.invitation.idInvitation);
       expect((await storyInvite(NEWCOMER)).ok).toBe(true);
     });
 
     it("refuses someone already at the table", async () => {
       await db.insert(tables.storyPlayers).values({ idStory: story, idUser: player });
-      caller = owner;
+      suite.caller = owner;
       const seated = await storyActions.sa_inviteToStory(story, { email: PLAYER_EMAIL }, false);
       const self = await storyActions.sa_inviteToStory(story, { email: OWNER_EMAIL }, false);
       expect(seated.ok).toBe(false);
@@ -213,7 +203,7 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
 
     it("leads nowhere once withdrawn or expired", async () => {
       const withdrawn = await storyInvite(NEWCOMER);
-      caller = owner;
+      suite.caller = owner;
       await storyActions.sa_revokeStoryInvitation(story, withdrawn.invitation.idInvitation);
       expect(await invite.sa_getInvitation(withdrawn.invitation.token)).toBeNull();
 
@@ -228,14 +218,14 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
 
   describe("an administrator's invitation", () => {
     async function appInvite(email: string, idUserType: number) {
-      caller = admin;
+      suite.caller = admin;
       const result = await adminActions.sa_inviteToApp({ email, idUserType }, false);
       if (!result.ok) throw new Error(JSON.stringify(result.errors));
       return result.invitation;
     }
 
     it("is refused to anyone short of an administrator", async () => {
-      caller = owner;
+      suite.caller = owner;
       await expect(
         adminActions.sa_inviteToApp({ email: NEWCOMER, idUserType: -15 }, false),
       ).rejects.toThrow();
@@ -243,7 +233,7 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     });
 
     it("refuses a type that does not exist", async () => {
-      caller = admin;
+      suite.caller = admin;
       const result = await adminActions.sa_inviteToApp(
         { email: NEWCOMER, idUserType: -999 },
         false,
@@ -269,7 +259,7 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     it("lists every invitation with its status, and refuses a second one to the same address", async () => {
       await appInvite(NEWCOMER, -15);
       await storyInvite(NEWCOMER);
-      caller = admin;
+      suite.caller = admin;
       expect(
         (await adminActions.sa_inviteToApp({ email: NEWCOMER, idUserType: -15 }, false)).ok,
       ).toBe(false);
@@ -283,7 +273,7 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
 
     it("edits a waiting invitation but not an accepted one", async () => {
       const waiting = await appInvite(NEWCOMER, -15);
-      caller = admin;
+      suite.caller = admin;
       const edited = await adminActions.sa_updateInvitation(waiting.idInvitation, {
         email: OTHER,
         idUserType: "-25",
@@ -295,7 +285,7 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       });
 
       await accept(player, waiting.token);
-      caller = admin;
+      suite.caller = admin;
       expect(
         await adminActions.sa_updateInvitation(waiting.idInvitation, {
           email: OTHER,
@@ -307,7 +297,7 @@ describe("invitations", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
 
     it("deletes an invitation, and its link with it", async () => {
       const doomed = await appInvite(NEWCOMER, -15);
-      caller = admin;
+      suite.caller = admin;
       expect(await adminActions.sa_deleteInvitation(doomed.idInvitation)).toEqual({ ok: true });
       expect(await invite.sa_getInvitation(doomed.token)).toBeNull();
       const left = await db

@@ -2,9 +2,11 @@
 
 import { and, asc, count, desc, eq, ilike, inArray, type SQL } from "drizzle-orm";
 import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { listStatusOptions } from "@/db/status-options";
 import { requireAdmin } from "@/lib/authorize";
+import { isTransitionRefusal } from "@/lib/db-errors";
 import { likeContains } from "@/lib/filter-text";
 import { statusLabel, transitionsFrom, type StatusOption } from "@/lib/status";
 import { userListQuerySchema, type UserSortKey } from "@/lib/user-list-schemas";
@@ -61,13 +63,15 @@ const SORT_COLUMNS = {
  * accounts there are, so the page never downloads them all. The search runs
  * over s_users.search_text (name, email and nickname together); a query
  * that shows no status or no type has nothing to show and is answered
- * without asking the database. Bad input throws rather than coming back as
- * field errors: the page builds the query itself, so there is nothing for a
+ * without asking the database. Bad input is an empty page rather than field
+ * errors: the page builds the query itself, so there is nothing for a
  * person to correct.
  */
 export async function sa_listUsers(input: unknown): Promise<UserListPage> {
   await requireAdmin();
-  const query = userListQuerySchema.parse(input);
+  const parsed = userListQuerySchema.safeParse(input);
+  if (!parsed.success) return { rows: [], total: 0 };
+  const query = parsed.data;
   if (query.statuses.length === 0 || query.idUserTypes.length === 0) {
     return { rows: [], total: 0 };
   }
@@ -146,8 +150,11 @@ export async function sa_setUserStatus(
   status: string,
 ): Promise<SetUserStatusResult> {
   const admin = await requireAdmin();
-  const id = idUserSchema.parse(idUser);
-  const next = statusKeySchema.parse(status);
+  const asked = z
+    .object({ id: idUserSchema, next: statusKeySchema })
+    .safeParse({ id: idUser, next: status });
+  if (!asked.success) return { ok: false, error: "That is not an account." };
+  const { id, next } = asked.data;
 
   if (id === admin.id) return { ok: false, error: "You cannot change your own status." };
 
@@ -191,18 +198,18 @@ export async function sa_setUserStatus(
       return { ok: false, error: "That status changed while you were looking; try again." };
     }
     return { ok: true, status: shown(updated[0].status) };
-  } catch {
+  } catch (error) {
     // The transition trigger raises rather than returns. Whatever it objected
     // to, the row is as it was, and the message it raises names database
-    // internals, so the chip says the plain thing instead.
+    // internals, so the chip says the plain thing instead. Only that refusal
+    // is answered for: a lost connection or a bug is still an error.
+    if (!isTransitionRefusal(error)) throw error;
     return { ok: false, error: "The database refused that change." };
   }
 }
 
 export type SetUserTypeResult =
   { ok: true; idUserType: number; userTypeName: string } | { ok: false; error: string };
-
-const idUserTypeSchema = z.int32();
 
 /**
  * Give one account another s_user_types type, taking effect on that
@@ -220,8 +227,11 @@ export async function sa_setUserType(
   idUserType: number,
 ): Promise<SetUserTypeResult> {
   const admin = await requireAdmin();
-  const id = idUserSchema.parse(idUser);
-  const next = idUserTypeSchema.parse(idUserType);
+  const asked = z
+    .object({ id: idUserSchema, next: idSchema })
+    .safeParse({ id: idUser, next: idUserType });
+  if (!asked.success) return { ok: false, error: "That is not an account." };
+  const { id, next } = asked.data;
 
   if (id === admin.id) return { ok: false, error: "You cannot change your own type." };
 

@@ -48,7 +48,10 @@ const sa_listMyStoryPage = mock.fn(async (input: MyStoryListQuery) => {
   return [vampire, kildealg];
 });
 const sa_listFavoriteStories = mock.fn(async (_offset: number) => [story(200, "Story 200")]);
-const sa_setFavorite = mock.fn(async (_idStory: number, isFavorite: boolean) => ({ isFavorite }));
+const sa_setFavorite = mock.fn(async (_idStory: number, isFavorite: boolean) => ({
+  ok: true as const,
+  isFavorite,
+}));
 const sa_setUserPreference = mock.fn(async (_input: unknown) => ({ ok: true as const }));
 
 type PreferencesModule = typeof import("@/components/preferences/user-preferences-provider");

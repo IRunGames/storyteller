@@ -3,7 +3,6 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  Alert,
   Button,
   CloseButton,
   Dialog,
@@ -16,8 +15,10 @@ import {
 } from "@chakra-ui/react";
 import type { RunPlaySpace } from "@/lib/run";
 import { runSceneSchema, type RunSceneValues } from "@/lib/scene-schemas";
+import { applyActionErrors } from "@/lib/forms";
 import { sa_createRunScene, type CreateRunSceneResult } from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
+import { FormError } from "@/components/forms/form-error";
 
 type Props = {
   idStory: number;
@@ -105,23 +106,14 @@ function NewSceneForm({
       toaster.create({ title: "Scene created", type: "success" });
       return;
     }
-    for (const [field, message] of Object.entries(result.errors)) {
-      setError(field === "title" || field === "description" ? field : "root", { message });
-    }
+    applyActionErrors({ setError }, result.errors, Object.keys(runSceneSchema.shape));
   }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
       <Dialog.Body>
         <Stack gap="4">
-          {errors.root && (
-            <Alert.Root status="error">
-              <Alert.Indicator />
-              <Alert.Content>
-                <Alert.Description>{errors.root.message}</Alert.Description>
-              </Alert.Content>
-            </Alert.Root>
-          )}
+          <FormError message={errors.root?.message} />
           <Field.Root required invalid={!!errors.title}>
             <Field.Label>Title</Field.Label>
             <Input autoComplete="off" {...register("title")} />

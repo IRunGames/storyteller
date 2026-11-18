@@ -3,16 +3,19 @@
 import { and, asc, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { idSchema, offsetSchema, searchSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { elementOrderBy } from "@/db/element-order";
-import { storyAccess } from "@/db/story-access";
+import { createScene } from "@/db/scenes";
+import { ownedElement, ownedScene, ownedStory, storyAccess } from "@/db/story-access";
 import { currentScene, sceneItems, type SceneItemRow } from "@/db/scene-items";
 import { requireAccount } from "@/lib/authorize";
 import {
   ELEMENT_KINDS,
   ELEMENT_SORT_KEYS,
   ELEMENTS_PAGE_SIZE,
+  elementColumns,
   type ElementKind,
   type ElementSort,
   type StoryElement,
@@ -22,7 +25,6 @@ import { safeRedirect } from "@/lib/safe-redirect";
 import { elementSchema } from "@/lib/element-schemas";
 import { sceneSchema, type SceneValues } from "@/lib/scene-schemas";
 import {
-  SCENE_LOCKED_STATUS,
   SCENES_PAGE_SIZE,
   type SceneElementInfo,
   type SceneSessionOption,
@@ -40,26 +42,36 @@ import { publishElementChanged, publishSceneChanged } from "@/lib/realtime/publi
 import { statBlockSystems } from "@/db/stat-block-systems";
 import { readStatBlocks, statBlocksSchema } from "@/lib/stat-block-schemas";
 import type { StatBlocks, StatBlockSystem } from "@/lib/stat-blocks";
-import { sessionHeading } from "@/lib/stories";
+import { sessionHeading, sessionHeadingOf } from "@/lib/stories";
+import { formErrors } from "@/lib/forms";
+import { ELEMENT_NOT_YOURS, SCENE_NOT_YOURS, STORY_NOT_YOURS } from "@/lib/messages";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 
 const { elements, stories, storyScenes, storySessions, vStoryScenes } = schema;
 
-// The Prep Work board's own reads. The board is the storyteller's working
-// material, so every one of these proves the caller owns the story before it
-// answers, rather than leaning on the page having done it.
-
-const offsetSchema = z.number().int().min(0);
-const querySchema = z.string().max(200);
+// The Prep Work board's own reads and writes. The board is the storyteller's
+// working material, so every one of these proves the caller owns the story
+// (db/story-access.ts) before it answers, rather than leaning on the page
+// having done it; a refusal comes back as `root`, where the form shows it.
 
 // The statuses a column is showing. They are compared against the rows, never
 // interpolated, but a bound keeps a runaway list out of the query; a workflow
 // with more statuses than this is not a workflow.
 const statusesSchema = z.array(z.string().min(1).max(64)).max(50);
 
-const idStorySchema = z.int32();
-
 const kindSchema = z.enum(ELEMENT_KINDS);
 const elementSortSchema = z.enum(ELEMENT_SORT_KEYS);
+
+// What the Scenes column asks for, and what each kind's column adds to it.
+const sceneListQuerySchema = z.object({
+  offset: offsetSchema,
+  query: searchSchema,
+  statuses: statusesSchema.optional(),
+});
+const elementListQuerySchema = sceneListQuerySchema.extend({
+  kind: kindSchema,
+  sort: elementSortSchema,
+});
 
 /**
  * The scene /stories/<id>/scenes opens, which the title menu's Build scenes
@@ -73,7 +85,7 @@ const elementSortSchema = z.enum(ELEMENT_SORT_KEYS);
  */
 export async function sa_getOrCreateSceneToBuild(idStory: number): Promise<number | null> {
   const user = await requireAccount();
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return null;
 
   return db.transaction(async (tx) => {
@@ -96,17 +108,7 @@ export async function sa_getOrCreateSceneToBuild(idStory: number): Promise<numbe
 
     // As sa_createLiveScene makes one, so it is what the live page's + would
     // have made: a plain title to rename from the panel behind it.
-    const [created] = await tx
-      .insert(storyScenes)
-      .values({
-        idStory: id.data,
-        sceneTitle: "New scene",
-        sceneDescription: null,
-        idCreatedByUser: user.id,
-        idUpdatedByUser: user.id,
-      })
-      .returning({ idStoryScene: storyScenes.idStoryScene });
-    return created.idStoryScene;
+    return createScene({ idStory: id.data, title: "New scene", userId: user.id }, tx);
   });
 }
 
@@ -131,21 +133,6 @@ async function lastTouchedScene(tx: Transaction, idStory: number): Promise<numbe
 }
 
 /**
- * Whether the caller is the storyteller who created the story. The board and
- * everything on it is theirs alone — scenes are what the players are not
- * meant to see yet — so a story that is not there and a story that is
- * someone else's are the same answer.
- */
-async function ownsStory(userId: string, idStory: number): Promise<boolean> {
-  const [story] = await db
-    .select({ owner: stories.idCreatedByUser })
-    .from(stories)
-    .where(eq(stories.idStory, idStory))
-    .limit(1);
-  return story?.owner === userId;
-}
-
-/**
  * The sitting a scene was played in, as a card and a panel both want it: the
  * number on its own, and the heading the Timeline would give it. Null on both
  * counts for a scene still waiting on the board, and for the row of a session
@@ -156,13 +143,8 @@ function sessionOf(row: {
   sessionNumber: number | null;
   sessionTitle: string | null;
 }): { sessionNumber: number | null; sessionHeading: string | null } {
-  if (row.idStorySession === null || row.sessionNumber === null) {
-    return { sessionNumber: null, sessionHeading: null };
-  }
-  return {
-    sessionNumber: row.sessionNumber,
-    sessionHeading: sessionHeading({ number: row.sessionNumber, title: row.sessionTitle }),
-  };
+  const heading = sessionHeadingOf(row);
+  return { sessionNumber: heading === null ? null : row.sessionNumber, sessionHeading: heading };
 }
 
 /**
@@ -182,16 +164,19 @@ export async function sa_listStoryScenes(
   statuses?: string[],
 ): Promise<StoryScene[]> {
   const user = await requireAccount();
-  const skip = offsetSchema.parse(offset);
-  const needle = querySchema.parse(query).trim();
+  // A page, a search or a filter that is out of bounds is a bad request,
+  // answered as a story that is not the caller's is: with nothing.
+  const parsed = sceneListQuerySchema.safeParse({ offset, query, statuses });
+  if (!parsed.success) return [];
+  const { offset: skip, query: needle } = parsed.data;
   // Undefined is "no such filter", which is not the same as an empty list:
   // every status switched off above the search box asks for nothing, and
   // gets nothing.
-  const shown = statuses === undefined ? undefined : statusesSchema.parse(statuses);
+  const shown = parsed.data.statuses;
 
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return [];
-  if (!(await ownsStory(user.id, id.data))) return [];
+  if ((await ownedStory(user.id, id.data)) === null) return [];
   if (shown?.length === 0) return [];
 
   const matchesStory = eq(vStoryScenes.idStory, id.data);
@@ -253,9 +238,9 @@ export async function sa_listStoryScenes(
 export async function sa_countStoryScenes(idStory: number): Promise<number> {
   const user = await requireAccount();
 
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return 0;
-  if (!(await ownsStory(user.id, id.data))) return 0;
+  if ((await ownedStory(user.id, id.data)) === null) return 0;
 
   const [row] = await db
     .select({ count: sql<number>`count(*)`.mapWith(Number) })
@@ -285,16 +270,15 @@ export async function sa_listStoryElements(
   sort: ElementSort = "name",
 ): Promise<StoryElement[]> {
   const user = await requireAccount();
-  const ofKind = kindSchema.parse(kind);
-  const skip = offsetSchema.parse(offset);
-  const needle = querySchema.parse(query).trim();
-  const order = elementSortSchema.parse(sort);
+  const parsed = elementListQuerySchema.safeParse({ offset, query, statuses, kind, sort });
+  if (!parsed.success) return [];
+  const { offset: skip, query: needle, kind: ofKind, sort: order } = parsed.data;
   // As in sa_listStoryScenes: undefined is no filter, an empty list is none.
-  const shown = statuses === undefined ? undefined : statusesSchema.parse(statuses);
+  const shown = parsed.data.statuses;
 
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return [];
-  if (!(await ownsStory(user.id, id.data))) return [];
+  if ((await ownedStory(user.id, id.data)) === null) return [];
   if (shown?.length === 0) return [];
 
   return db
@@ -325,15 +309,15 @@ export async function sa_listStoryElements(
  * sa_countStoryScenes is not. A kind the story has none of counts zero.
  */
 export async function sa_countStoryElements(idStory: number): Promise<Record<ElementKind, number>> {
+  const user = await requireAccount();
   const counts = Object.fromEntries(ELEMENT_KINDS.map((kind) => [kind, 0])) as Record<
     ElementKind,
     number
   >;
-  const user = await requireAccount();
 
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return counts;
-  if (!(await ownsStory(user.id, id.data))) return counts;
+  if ((await ownedStory(user.id, id.data)) === null) return counts;
 
   const rows = await db
     .select({ kind: elements.kind, count: sql<number>`count(*)`.mapWith(Number) })
@@ -360,7 +344,7 @@ export async function sa_countStoryElements(idStory: number): Promise<Record<Ele
 export async function sa_getStoryScene(idStoryScene: number): Promise<StorySceneDetail | null> {
   const user = await requireAccount();
 
-  const id = idStorySchema.safeParse(idStoryScene);
+  const id = idSchema.safeParse(idStoryScene);
   if (!id.success) return null;
 
   const [row] = await db
@@ -382,6 +366,8 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
       sessionTitle: vStoryScenes.sessionTitle,
       owner: stories.idCreatedByUser,
       isPublic: stories.isPublic,
+      isLookingForPlayers: stories.isLookingForPlayers,
+      isActive: stories.isActive,
     })
     .from(vStoryScenes)
     .innerJoin(stories, eq(stories.idStory, vStoryScenes.idStory))
@@ -404,6 +390,8 @@ export async function sa_getStoryScene(idStoryScene: number): Promise<StoryScene
       idStory: row.idStory!,
       idCreatedByUser: row.owner,
       isPublic: row.isPublic,
+      isLookingForPlayers: row.isLookingForPlayers,
+      isActive: row.isActive,
     });
     if (access === null) return null;
   }
@@ -483,31 +471,24 @@ async function sessionOptions(idStory: number): Promise<SceneSessionOption[]> {
 export async function sa_listSceneSessionOptions(idStory: number): Promise<SceneSessionOption[]> {
   const user = await requireAccount();
 
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return [];
-  if (!(await ownsStory(user.id, id.data))) return [];
+  if ((await ownedStory(user.id, id.data)) === null) return [];
 
   return sessionOptions(id.data);
 }
 
 export type SceneFormResult = { ok: false; errors: Record<string, string> };
 
+// What the edit actions answer for a scene in SCENE_LOCKED_STATUS: there is
+// no field to put it on, so it goes on root, where the form shows it on top.
+const SCENE_LOCKED_MESSAGE = "A completed scene can no longer be edited.";
+
 /**
  * What a create action answers: ok once the row is in, so the board's dialog
  * can close and the column fetch it, or the errors for the form.
  */
 export type CreateResult = { ok: true } | SceneFormResult;
-
-// A form's answer to a submission the action refused: one message per field,
-// the first issue winning, keyed by the issue's path. The scene and element
-// forms both take it.
-function formErrors(issues: { path: PropertyKey[]; message: string }[]): SceneFormResult {
-  const errors: Record<string, string> = {};
-  for (const issue of issues) {
-    errors[issue.path.join(".")] ??= issue.message;
-  }
-  return { ok: false, errors };
-}
 
 /**
  * Parses the form, and checks that the sitting it names, if any, is one of
@@ -519,7 +500,7 @@ async function parseScene(
   input: unknown,
 ): Promise<{ values: SceneValues } | SceneFormResult> {
   const parsed = sceneSchema.safeParse(input);
-  if (!parsed.success) return formErrors(parsed.error.issues);
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
 
   const { idStorySession } = parsed.data;
   if (idStorySession !== null) {
@@ -529,9 +510,7 @@ async function parseScene(
       .where(eq(storySessions.idStorySession, idStorySession))
       .limit(1);
     if (session?.idStory !== idStory) {
-      return formErrors([
-        { path: ["idStorySession"], message: "That session is not part of this story." },
-      ]);
+      return { ok: false, errors: { idStorySession: "That session is not part of this story." } };
     }
   }
   return { values: parsed.data };
@@ -545,22 +524,21 @@ async function parseScene(
  */
 export async function sa_createStoryScene(idStory: number, input: unknown): Promise<CreateResult> {
   const user = await requireAccount();
-  const id = idStorySchema.parse(idStory);
-  if (!(await ownsStory(user.id, id))) {
-    throw new Error("Only the storyteller who created a story can add scenes to it");
+  const id = idSchema.safeParse(idStory);
+  if (!id.success || (await ownedStory(user.id, id.data)) === null) {
+    return { ok: false, errors: { root: STORY_NOT_YOURS } };
   }
 
-  const parsed = await parseScene(id, input);
+  const parsed = await parseScene(id.data, input);
   if (!("values" in parsed)) return parsed;
 
   const { values } = parsed;
-  await db.insert(storyScenes).values({
-    idStory: id,
-    sceneTitle: values.title,
-    sceneDescription: values.description || null,
+  await createScene({
+    idStory: id.data,
+    title: values.title,
+    description: values.description,
     idStorySession: values.idStorySession,
-    idCreatedByUser: user.id,
-    idUpdatedByUser: user.id,
+    userId: user.id,
   });
 
   return { ok: true };
@@ -582,23 +560,13 @@ export async function sa_getStorySceneForEdit(idStoryScene: number): Promise<{
 } | null> {
   const user = await requireAccount();
 
-  const id = idStorySchema.safeParse(idStoryScene);
+  const id = idSchema.safeParse(idStoryScene);
   if (!id.success) return null;
 
-  const [row] = await db
-    .select({
-      idStory: storyScenes.idStory,
-      status: storyScenes.status,
-      title: storyScenes.sceneTitle,
-      description: storyScenes.sceneDescription,
-      idStorySession: storyScenes.idStorySession,
-      owner: stories.idCreatedByUser,
-    })
-    .from(storyScenes)
-    .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
-    .where(eq(storyScenes.idStoryScene, id.data))
-    .limit(1);
-  if (!row || row.owner !== user.id) return null;
+  // A read: the form shows a complete scene, locked, so the lock is set aside here.
+  const owned = await ownedScene(user.id, id.data, { allowLocked: true });
+  if (!owned.ok) return null;
+  const row = owned.scene;
 
   return {
     idStory: row.idStory,
@@ -619,9 +587,11 @@ export async function sa_getStorySceneForEdit(idStoryScene: number): Promise<{
  * created, then goes back to the story's Prep Work board, or to `returnTo`
  * when the form was opened from somewhere else (a scene's preview): a path
  * of this site only, anything else being the board (safeRedirect). A scene
- * in SCENE_LOCKED_STATUS is refused: it has been played out, and the card
- * offers no edit for it. The status check is repeated in the UPDATE's WHERE,
- * so a scene completed between the read and the write is not overwritten.
+ * in SCENE_LOCKED_STATUS is refused (ownedScene): it has been played out,
+ * and the card offers no edit for it. The status check is repeated in the
+ * UPDATE's WHERE, so a scene completed between the read and the write is not
+ * overwritten. A scene that is not the caller's comes back as `root`, as
+ * the lock does. Every table is told the scene changed.
  */
 export async function sa_updateStoryScene(
   idStoryScene: number,
@@ -629,25 +599,14 @@ export async function sa_updateStoryScene(
   returnTo?: string,
 ): Promise<SceneFormResult> {
   const user = await requireAccount();
-  const id = idStorySchema.parse(idStoryScene);
-
-  const [row] = await db
-    .select({
-      idStory: storyScenes.idStory,
-      status: storyScenes.status,
-      owner: stories.idCreatedByUser,
-    })
-    .from(storyScenes)
-    .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
-    .where(eq(storyScenes.idStoryScene, id))
-    .limit(1);
-  if (!row) throw new Error("Scene not found");
-  if (row.owner !== user.id) {
-    throw new Error("Only the storyteller who created a story can edit its scenes");
+  const id = idSchema.safeParse(idStoryScene);
+  if (!id.success) return { ok: false, errors: { root: SCENE_NOT_YOURS } };
+  const owned = await ownedScene(user.id, id.data);
+  if (!owned.ok) {
+    const root = owned.reason === "locked" ? SCENE_LOCKED_MESSAGE : SCENE_NOT_YOURS;
+    return { ok: false, errors: { root } };
   }
-  if (row.status === SCENE_LOCKED_STATUS) {
-    return formErrors([{ path: [], message: "A completed scene can no longer be edited." }]);
-  }
+  const row = owned.scene;
 
   const parsed = await parseScene(row.idStory, input);
   if (!("values" in parsed)) return parsed;
@@ -662,12 +621,18 @@ export async function sa_updateStoryScene(
       idUpdatedByUser: user.id,
     })
     .where(
-      and(eq(storyScenes.idStoryScene, id), sql`${storyScenes.status} <> ${SCENE_LOCKED_STATUS}`),
+      and(
+        eq(storyScenes.idStoryScene, id.data),
+        sql`${storyScenes.status} <> ${SCENE_LOCKED_STATUS}`,
+      ),
     )
     .returning({ idStoryScene: storyScenes.idStoryScene });
   if (updated.length === 0) {
-    return formErrors([{ path: [], message: "A completed scene can no longer be edited." }]);
+    return { ok: false, errors: { root: SCENE_LOCKED_MESSAGE } };
   }
+  // The scene's text may be what a table is showing; every table reads it
+  // afresh, as it does after the panel behind the scene's title saves.
+  publishLater(() => publishSceneChanged(row.idStory));
 
   redirect(safeRedirect(returnTo, `/stories/${row.idStory}/library`));
 }
@@ -689,17 +654,13 @@ export type DeleteSceneResult = { ok: true } | { ok: false; error: string };
  */
 export async function sa_deleteStoryScene(idStoryScene: number): Promise<DeleteSceneResult> {
   const user = await requireAccount();
-  const id = idStorySchema.safeParse(idStoryScene);
-  const gone = "That scene is not one of your story's.";
-  if (!id.success) return { ok: false, error: gone };
+  const id = idSchema.safeParse(idStoryScene);
+  if (!id.success) return { ok: false, error: SCENE_NOT_YOURS };
 
-  const [row] = await db
-    .select({ idStory: storyScenes.idStory, owner: stories.idCreatedByUser })
-    .from(storyScenes)
-    .innerJoin(stories, eq(stories.idStory, storyScenes.idStory))
-    .where(eq(storyScenes.idStoryScene, id.data))
-    .limit(1);
-  if (!row || row.owner !== user.id) return { ok: false, error: gone };
+  // A complete scene is the storyteller's to take out, so the lock is set aside.
+  const owned = await ownedScene(user.id, id.data, { allowLocked: true });
+  if (!owned.ok) return { ok: false, error: SCENE_NOT_YOURS };
+  const row = owned.scene;
 
   // Asked before the delete, since afterwards the session no longer names
   // the scene: a table playing it is told to reload onto no scene, and a
@@ -723,20 +684,13 @@ export type StatBlockSystems = { storySystem: number | null; systems: StatBlockS
  */
 export async function sa_listStatBlockSystems(idStory: number): Promise<StatBlockSystems> {
   const user = await requireAccount();
-  const id = idStorySchema.safeParse(idStory);
-  const [story] = id.success
-    ? await db
-        .select({ idSystem: stories.idSystem, owner: stories.idCreatedByUser })
-        .from(stories)
-        .where(eq(stories.idStory, id.data))
-        .limit(1)
-    : [];
-  const owns = id.success && story?.owner === user.id;
+  const id = idSchema.safeParse(idStory);
+  const story = id.success ? await ownedStory(user.id, id.data) : null;
   return {
-    storySystem: owns ? story.idSystem : null,
+    storySystem: story?.idSystem ?? null,
     // The story's own copy of its system's definition, when it has one, is
     // the storyteller's to see, as the story's system is.
-    systems: await statBlockSystems(owns ? id.data : null),
+    systems: await statBlockSystems(story?.idStory ?? null),
   };
 }
 
@@ -753,9 +707,7 @@ async function parseStatBlocks(
   if (posted === undefined) return { blocks: undefined };
   const parsed = statBlocksSchema(await statBlockSystems(idStory)).safeParse(posted);
   if (!parsed.success) {
-    return formErrors(
-      parsed.error.issues.map((issue) => ({ ...issue, path: ["statBlocks", ...issue.path] })),
-    );
+    return { ok: false, errors: formErrors(parsed.error, ["statBlocks"]) };
   }
   return { blocks: parsed.data };
 }
@@ -768,27 +720,20 @@ async function parseStatBlocks(
  */
 export async function sa_createElement(idStory: number, input: unknown): Promise<CreateResult> {
   const user = await requireAccount();
-  const id = idStorySchema.parse(idStory);
-  if (!(await ownsStory(user.id, id))) {
-    throw new Error("Only the storyteller who created a story can add elements to it");
+  const id = idSchema.safeParse(idStory);
+  if (!id.success || (await ownedStory(user.id, id.data)) === null) {
+    return { ok: false, errors: { root: STORY_NOT_YOURS } };
   }
 
   const parsed = elementSchema.safeParse(input);
-  if (!parsed.success) return formErrors(parsed.error.issues);
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
   const values = parsed.data;
-  const statBlocks = await parseStatBlocks(id, values.statBlocks);
+  const statBlocks = await parseStatBlocks(id.data, values.statBlocks);
   if ("ok" in statBlocks) return statBlocks;
 
   await db.insert(elements).values({
-    idStory: id,
-    kind: values.kind,
-    name: values.name,
-    initialName: values.initialName || null,
-    title: values.title || null,
-    description: values.description || null,
-    notes: values.notes || null,
-    url: values.url || null,
-    urlText: values.urlText || null,
+    idStory: id.data,
+    ...elementColumns(values),
     statBlocks: statBlocks.blocks ?? {},
     idCreatedByUser: user.id,
     idUpdatedByUser: user.id,
@@ -820,7 +765,7 @@ export async function sa_getElementForEdit(idElement: number): Promise<{
 } | null> {
   const user = await requireAccount();
 
-  const id = idStorySchema.safeParse(idElement);
+  const id = idSchema.safeParse(idElement);
   if (!id.success) return null;
 
   const [row] = await db
@@ -875,17 +820,10 @@ export type DeleteElementResult = { ok: true; idStory: number } | { ok: false; e
  */
 export async function sa_deleteElement(idElement: number): Promise<DeleteElementResult> {
   const user = await requireAccount();
-  const id = idStorySchema.safeParse(idElement);
-  const gone = "That element is not one of your story's.";
-  if (!id.success) return { ok: false, error: gone };
-
-  const [row] = await db
-    .select({ idStory: elements.idStory, owner: stories.idCreatedByUser })
-    .from(elements)
-    .innerJoin(stories, eq(stories.idStory, elements.idStory))
-    .where(eq(elements.idElement, id.data))
-    .limit(1);
-  if (!row || row.owner !== user.id) return { ok: false, error: gone };
+  const id = idSchema.safeParse(idElement);
+  if (!id.success) return { ok: false, error: ELEMENT_NOT_YOURS };
+  const row = await ownedElement(user.id, id.data);
+  if (!row) return { ok: false, error: ELEMENT_NOT_YOURS };
 
   await db.delete(elements).where(eq(elements.idElement, id.data));
   // With the row gone, the players' table is told it is not in the current
@@ -898,28 +836,21 @@ export async function sa_deleteElement(idElement: number): Promise<DeleteElement
 /**
  * Validates and saves the edit form over an element on a story the caller
  * created, then goes back to the story's Prep Work board. The kind may
- * change, which moves the element to that kind's column.
+ * change, which moves the element to that kind's column. An element that is
+ * not the caller's comes back as `root`. Every table is sent the element.
  */
 export async function sa_updateElement(
   idElement: number,
   input: unknown,
 ): Promise<ElementFormResult> {
   const user = await requireAccount();
-  const id = idStorySchema.parse(idElement);
-
-  const [row] = await db
-    .select({ idStory: elements.idStory, owner: stories.idCreatedByUser })
-    .from(elements)
-    .innerJoin(stories, eq(stories.idStory, elements.idStory))
-    .where(eq(elements.idElement, id))
-    .limit(1);
-  if (!row) throw new Error("Element not found");
-  if (row.owner !== user.id) {
-    throw new Error("Only the storyteller who created a story can edit its elements");
-  }
+  const id = idSchema.safeParse(idElement);
+  if (!id.success) return { ok: false, errors: { root: ELEMENT_NOT_YOURS } };
+  const row = await ownedElement(user.id, id.data);
+  if (!row) return { ok: false, errors: { root: ELEMENT_NOT_YOURS } };
 
   const parsed = elementSchema.safeParse(input);
-  if (!parsed.success) return formErrors(parsed.error.issues);
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
   const values = parsed.data;
   const statBlocks = await parseStatBlocks(row.idStory, values.statBlocks);
   if ("ok" in statBlocks) return statBlocks;
@@ -940,14 +871,7 @@ export async function sa_updateElement(
   await db
     .update(elements)
     .set({
-      kind: values.kind,
-      name: values.name,
-      initialName: values.initialName || null,
-      title: values.title || null,
-      description: values.description || null,
-      notes: values.notes || null,
-      url: values.url || null,
-      urlText: values.urlText || null,
+      ...elementColumns(values),
       ...(statBlocks.blocks !== undefined
         ? {
             statBlocks: sql`(${elements.statBlocks} - ARRAY[${removed}]::text[]) || ${JSON.stringify(statBlocks.blocks)}::jsonb`,
@@ -955,7 +879,10 @@ export async function sa_updateElement(
         : {}),
       idUpdatedByUser: user.id,
     })
-    .where(eq(elements.idElement, id));
+    .where(eq(elements.idElement, id.data));
+  // The element may be in the scene being played; every table is sent it
+  // as it now is, as the run table's edit sends it.
+  publishLater(() => publishElementChanged(row.idStory, id.data));
 
   redirect(`/stories/${row.idStory}/library`);
 }

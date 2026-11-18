@@ -4,16 +4,14 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
 type Credentials = { email: string; password: string };
 
 type SignInResult =
   { data: Record<string, unknown>; error: null } | { data: null; error: { message?: string } };
 
-const router = {
-  push: mock.fn<(href: string) => void>(),
-  refresh: mock.fn<() => void>(),
-};
+const router = mockRouter();
 
 const signIn = {
   email: mock.fn<(credentials: Credentials) => Promise<SignInResult>>(async () => ({
@@ -32,9 +30,7 @@ let LoginForm: typeof import("./login-form").LoginForm;
 
 describe("LoginForm", () => {
   before(async () => {
-    mock.module("next/navigation", {
-      namedExports: { useRouter: () => router },
-    });
+    mockNavigation({ router });
     mock.module("@/lib/auth-client", { namedExports: { signIn } });
 
     ({ LoginForm } = await import("./login-form"));

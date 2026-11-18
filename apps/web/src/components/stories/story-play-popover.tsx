@@ -1,20 +1,12 @@
 "use client";
 
 import { useEffect, useId, useState, type ReactElement } from "react";
-import {
-  Alert,
-  Button,
-  Field,
-  HStack,
-  NativeSelect,
-  Popover,
-  Portal,
-  Stack,
-  Tooltip,
-} from "@chakra-ui/react";
+import { Button, Field, HStack, NativeSelect, Popover, Portal, Stack } from "@chakra-ui/react";
+import { WithTooltip } from "@/components/buttons/with-tooltip";
 import { formatDay } from "@/lib/dates";
 import { newSessionTitle } from "@/lib/play";
 import { sessionHeading, sessionStatusText } from "@/lib/stories";
+import { FormError } from "@/components/forms/form-error";
 import {
   sa_listUnfinishedSessions,
   sa_startPlaying,
@@ -146,22 +138,11 @@ export function StoryPlayPopover({
       {anchor ? (
         <Popover.Anchor asChild>{children}</Popover.Anchor>
       ) : (
-        <Tooltip.Root
-          openDelay={200}
-          positioning={{ placement: "top" }}
-          ids={{ trigger: triggerId }}
-          // The popover opens upward, where the tooltip would sit on top of it.
-          disabled={open}
-        >
-          <Tooltip.Trigger asChild>
-            <Popover.Trigger asChild>{children}</Popover.Trigger>
-          </Tooltip.Trigger>
-          <Portal>
-            <Tooltip.Positioner>
-              <Tooltip.Content>{tooltip}</Tooltip.Content>
-            </Tooltip.Positioner>
-          </Portal>
-        </Tooltip.Root>
+        // The popover opens upward, where the tooltip would sit on top of it, so
+        // the tooltip is off while it is open.
+        <WithTooltip tooltip={tooltip} popoverTrigger={triggerId} disabled={open}>
+          {children}
+        </WithTooltip>
       )}
       <Portal>
         <Popover.Positioner>
@@ -192,15 +173,7 @@ export function StoryPlayPopover({
                     <NativeSelect.Indicator />
                   </NativeSelect.Root>
                 </Field.Root>
-                {error && (
-                  // role="alert", which Chakra's Alert does not set itself.
-                  <Alert.Root role="alert" status="error" size="sm">
-                    <Alert.Indicator />
-                    <Alert.Content>
-                      <Alert.Description>{error}</Alert.Description>
-                    </Alert.Content>
-                  </Alert.Root>
-                )}
+                <FormError message={error} size="sm" />
                 {/* Cancel at the start and the action at the end, as a
                     dialog's footer lays them out. */}
                 <HStack justify="space-between" gap="2">

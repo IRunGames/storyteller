@@ -14,13 +14,13 @@ import {
   type StatBlock,
   type StatBlockDefinition,
 } from "@/lib/stat-blocks";
+import type { SetElementTagsResult } from "@/components/elements/actions";
 import type {
   PulseSceneElementResult,
-  SetElementTagsResult,
   SetSceneElementShowingResult,
   SetSceneElementShowInfoResult,
   SetSceneElementStatusResult,
-} from "@/components/run/actions";
+} from "@/components/scene-elements/actions";
 
 const sa_setSceneElementStatus = mock.fn(
   async (
@@ -324,20 +324,16 @@ describe("RunPlayPill", () => {
         sa_copyStatBlocksFromElement,
       },
     });
-    mock.module("@/components/run/actions", {
+    mock.module("@/components/scene-elements/actions", {
       namedExports: {
         sa_setSceneElementStatus,
         sa_setSceneElementShowInfo,
         sa_pulseSceneElement,
         sa_setSceneElementShowing,
-        sa_getElementDetail,
-        sa_updateStoryElement: mock.fn(),
         sa_updateSceneElement,
         sa_moveSceneElement,
-        sa_setElementImage,
         sa_unlinkSceneElement,
         sa_setSceneElementTags,
-        sa_setElementTags,
       },
     });
     // The + for a picture lists the story's and the scene's attachments;
@@ -353,7 +349,13 @@ describe("RunPlayPill", () => {
       },
     });
     mock.module("@/components/elements/actions", {
-      namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
+      namedExports: {
+        sa_getElementDetail,
+        sa_updateStoryElement: mock.fn(),
+        sa_setElementImage,
+        sa_setElementTags,
+        sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })),
+      },
     });
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions, sa_setRowStatus },
@@ -1126,10 +1128,12 @@ describe("RunPlayPill", () => {
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual(["harbour"]);
-    // Focused first, then typed: in a long run, type()'s own click has
-    // landed before the box was ready to take it.
+    // Focused first, and the focus waited for, then typed: in a long run,
+    // type()'s own click has landed before the box was ready to take it, and
+    // keys sent as the dialog settles have gone nowhere.
     const box = within(editor).getByRole("textbox", { name: "New tag" });
     await u.click(box);
+    await waitFor(() => expect(box).toHaveFocus());
     await u.keyboard("Docks{Enter}");
 
     await waitFor(() => expect(sa_setElementTags.mock.callCount()).toBe(1));

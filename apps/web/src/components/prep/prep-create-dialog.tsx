@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, CloseButton, Dialog, Portal, Skeleton, Stack } from "@chakra-ui/react";
+import { CloseButton, Dialog, Portal, Skeleton, Stack } from "@chakra-ui/react";
 import { ELEMENT_KIND_LABELS, type ElementKind } from "@/lib/elements";
 import type { SceneSessionOption } from "@/lib/scenes";
+import { FormError } from "@/components/forms/form-error";
 import {
   sa_listSceneSessionOptions,
   sa_listStatBlockSystems,
@@ -113,14 +114,7 @@ function NewScene({
   }, [idStory]);
 
   if (error) {
-    return (
-      <Alert.Root role="alert" status="error" size="sm">
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Description>Could not load the story&apos;s sessions.</Alert.Description>
-        </Alert.Content>
-      </Alert.Root>
-    );
+    return <FormError message="Could not load the story's sessions." size="sm" />;
   }
   if (sessions === null) {
     return (
@@ -168,14 +162,7 @@ function NewElement({
   }, [idStory]);
 
   if (error) {
-    return (
-      <Alert.Root role="alert" status="error" size="sm">
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Description>Could not load the systems&apos; stat blocks.</Alert.Description>
-        </Alert.Content>
-      </Alert.Root>
-    );
+    return <FormError message="Could not load the systems' stat blocks." size="sm" />;
   }
   if (systems === null) {
     return (

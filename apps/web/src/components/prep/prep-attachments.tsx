@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { SCENE_SEARCH_DELAY_MS } from "@/lib/scenes";
-import { sa_searchAttachments } from "@/components/uploads/actions";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
+import { useAttachmentSearch } from "@/components/uploads/use-attachment-search";
 
 // How many cards the column draws before its More button.
 const ATTACHMENTS_PAGE_SIZE = 10;
@@ -52,31 +50,7 @@ export function PrepAttachments({
   addId,
   onCountChange,
 }: Props) {
-  const [shownIds, setShownIds] = useState<ReadonlySet<number> | null>(null);
-  // Which search is the latest: a slow reply to an earlier query must not
-  // land on top of the results for what the box says now.
-  const searchSeq = useRef(0);
-
-  useEffect(() => {
-    const needle = filter.trim();
-    const seq = ++searchSeq.current;
-    // An empty box shows everything, with nothing to ask.
-    if (needle === "") {
-      const timer = setTimeout(() => setShownIds(null), 0);
-      return () => clearTimeout(timer);
-    }
-    // The scenes column's pause, so typing a word asks once rather than once
-    // a letter.
-    const timer = setTimeout(async () => {
-      try {
-        const ids = await sa_searchAttachments("STORY", idStory, needle);
-        if (seq === searchSeq.current) setShownIds(new Set(ids));
-      } catch {
-        // Leave the last results in place; the next keystroke tries again.
-      }
-    }, SCENE_SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [idStory, filter]);
+  const { shownIds } = useAttachmentSearch("STORY", idStory, filter);
 
   return (
     <AttachmentListField

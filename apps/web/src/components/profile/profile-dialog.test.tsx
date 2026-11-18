@@ -8,8 +8,9 @@ import { UserProvider } from "@/components/auth/user-provider";
 import type { CurrentUser } from "@/lib/current-user";
 import type { LikedSystem, Profile } from "@/lib/profile";
 import type { UserPreferenceMap } from "@/lib/user-preference-schemas";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
-const router = { push: mock.fn(), refresh: mock.fn() };
+const router = mockRouter();
 
 const user: CurrentUser = {
   id: "8f2b1c44-0000-4000-8000-000000000001",
@@ -75,9 +76,7 @@ async function openedDialog() {
 
 describe("ProfileDialog", () => {
   before(async () => {
-    mock.module("next/navigation", {
-      namedExports: { useRouter: () => router, usePathname: () => "/stories" },
-    });
+    mockNavigation({ router, pathname: "/stories" });
     mock.module("./actions", {
       namedExports: {
         sa_getProfile,

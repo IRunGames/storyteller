@@ -38,7 +38,10 @@ function stories(count: number, from = 1): StoryCardData[] {
 // The component imports its server actions itself, so the module is mocked
 // before the dynamic import below loads it.
 const sa_listFavoriteStories = mock.fn(async (_offset: number): Promise<StoryCardData[]> => []);
-const sa_setFavorite = mock.fn(async (_idStory: number, isFavorite: boolean) => ({ isFavorite }));
+const sa_setFavorite = mock.fn(async (_idStory: number, isFavorite: boolean) => ({
+  ok: true as const,
+  isFavorite,
+}));
 
 let HomeFavorites: typeof import("./home-favorites").HomeFavorites;
 
@@ -78,7 +81,10 @@ describe("HomeFavorites", () => {
     sa_listFavoriteStories.mock.resetCalls();
     sa_listFavoriteStories.mock.mockImplementation(async () => []);
     sa_setFavorite.mock.resetCalls();
-    sa_setFavorite.mock.mockImplementation(async (_id, isFavorite) => ({ isFavorite }));
+    sa_setFavorite.mock.mockImplementation(async (_id, isFavorite) => ({
+      ok: true as const,
+      isFavorite,
+    }));
   });
 
   it("shows the favorites it was given as a titled section", () => {

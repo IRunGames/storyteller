@@ -7,19 +7,13 @@
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 import { makeTestUser, removeTestUser } from "@/test/test-user";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "play-id-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
 
 // Who the actions think is asking; each test that changes it sets it back.
-let caller = "";
-const getSession = mock.fn(async () => ({ user: { id: caller } }));
 // Writing a scene up tells every table it changed, and notes on an element
 // send the element again; mocked so the tests see them reached for, and so
 // nothing publishes after the pool has closed.
@@ -51,9 +45,8 @@ async function waitForCall(fn: { mock: { callCount(): number } }, count = 1) {
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let otherUserId = "";
 let secondPlayerId = "";
@@ -63,9 +56,8 @@ let ownsArchived = 0;
 let stranger = 0;
 let fixtureStoryIds: number[] = [];
 
-describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("play table actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
     mock.module("@/lib/realtime/publish-scene", {
       namedExports: { publishSceneChanged, publishElementChanged, publishSceneElement },
     });
@@ -74,32 +66,18 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     });
     mock.module("@/lib/auth", { namedExports: { auth: { api: { signOut } } } });
     mock.module("next/headers", { namedExports: { headers: async () => new Headers() } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
-    caller = testUser;
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
+    suite.caller = testUser;
     actions = await import("./actions");
 
-    // A rerun after a crash would trip the unique email.
-    await db
-      .delete(tables.user)
-      .where(
-        inArray(tables.user.email, [
-          "play-table-fixture@example.test",
-          "play-table-fixture-2@example.test",
-        ]),
-      );
+    otherUserId = await suite.makeUser("play-table-fixture@example.test", {
+      name: "Play Table Fixture",
+    });
 
-    const [otherUser] = await db
-      .insert(tables.user)
-      .values({ name: "Play Table Fixture", email: "play-table-fixture@example.test" })
-      .returning({ id: tables.user.id });
-    otherUserId = otherUser.id;
-
-    const [secondPlayer] = await db
-      .insert(tables.user)
-      .values({ name: "Play Table Fixture Two", email: "play-table-fixture-2@example.test" })
-      .returning({ id: tables.user.id });
-    secondPlayerId = secondPlayer.id;
+    secondPlayerId = await suite.makeUser("play-table-fixture-2@example.test", {
+      name: "Play Table Fixture Two",
+    });
 
     const inserted = await db
       .insert(tables.stories)
@@ -120,7 +98,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
   });
 
   beforeEach(async () => {
-    caller = testUser;
+    suite.caller = testUser;
     // Deleting the sessions clears the story's pointer (ON DELETE SET NULL)
     // and their session_players rows (CASCADE); waiting rows have no
     // session, so they go by story.
@@ -140,11 +118,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         .where(inArray(tables.storyPlayers.idStory, fixtureStoryIds));
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, fixtureStoryIds));
     }
-    if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
-    if (secondPlayerId) await db.delete(tables.user).where(eq(tables.user.id, secondPlayerId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
     await removeTestUser(db, tables, GUEST_EMAIL);
-    await db.$client.end();
   });
 
   async function openSession(idStory: number, status: string): Promise<number> {
@@ -279,11 +253,11 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         .where(eq(tables.sessionPlayers.idStory, playsIn));
 
       // A second player's beat counts only themselves, and moves nobody.
-      caller = secondPlayerId;
+      suite.caller = secondPlayerId;
       expect((await actions.sa_waitForSession(playsIn))?.waitingCount).toBe(1);
       expect((await myRows())[0].status).toBe("WAITING");
 
-      caller = testUser;
+      suite.caller = testUser;
       const back = await actions.sa_waitForSession(playsIn);
       expect(Date.now() - back!.waitingSince.getTime()).toBeLessThan(60_000);
       expect(back!.waitingCount).toBe(2);
@@ -335,7 +309,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect(publishTableCount.mock.calls[0].arguments).toEqual([playsIn, 2]);
       expect((await actions.sa_listChats(playsIn)).atTable).toBe(2);
 
-      caller = secondPlayerId;
+      suite.caller = secondPlayerId;
       await actions.sa_joinSession(playsIn);
       await waitForCall(publishTableCount, 2);
       expect(publishTableCount.mock.calls[1].arguments).toEqual([playsIn, 3]);
@@ -390,7 +364,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
     it("does nothing while no session is being played, or for the storyteller", async () => {
       await actions.sa_joinSession(playsIn);
-      caller = otherUserId;
+      suite.caller = otherUserId;
       await openSession(playsIn, "OPEN");
       await actions.sa_joinSession(playsIn);
 
@@ -467,54 +441,93 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       return id;
     }
 
-    it("lets a player write up the scene's description and notes, and no one else", async () => {
-      publishSceneChanged.mock.resetCalls();
+    it("lets a player write up the scene being played, and no one else, and the storyteller any scene", async () => {
       const textOf = async () =>
         (
           await db
             .select({
               description: tables.storyScenes.sceneDescription,
               notes: tables.storyScenes.notes,
+              status: tables.storyScenes.status,
             })
             .from(tables.storyScenes)
             .where(eq(tables.storyScenes.idStoryScene, docks))
         )[0];
+      const { status: was } = await textOf();
+      const line = { description: " Fog on the water. ", notes: "The ferryman was already dead." };
 
-      // The test user plays in the story.
-      expect(
-        await actions.sa_setPlaySceneText(playsIn, docks, {
-          description: " Fog on the water. ",
+      try {
+        // The test user plays in the story, but nothing is being played: the
+        // scene is prep, which is the storyteller's alone.
+        await db
+          .update(tables.stories)
+          .set({ idStorySession: null })
+          .where(eq(tables.stories.idStory, playsIn));
+        expect(await actions.sa_setPlaySceneText(playsIn, docks, line)).toEqual({
+          ok: false,
+          errors: { root: "That scene is not being played." },
+        });
+        expect(await textOf()).toMatchObject({ description: null, notes: null });
+
+        // On the table, it is theirs to write up.
+        await onScene(docks);
+        publishSceneChanged.mock.resetCalls();
+        expect(await actions.sa_setPlaySceneText(playsIn, docks, line)).toEqual({
+          ok: true,
+          text: { description: "Fog on the water.", notes: "The ferryman was already dead." },
+        });
+        expect(await textOf()).toMatchObject({
+          description: "Fog on the water.",
           notes: "The ferryman was already dead.",
-        }),
-      ).toEqual({
-        ok: true,
-        text: { description: "Fog on the water.", notes: "The ferryman was already dead." },
-      });
-      expect(await textOf()).toEqual({
-        description: "Fog on the water.",
-        notes: "The ferryman was already dead.",
-      });
-      expect(publishSceneChanged.mock.calls.map((call) => call.arguments)).toEqual([[playsIn]]);
+        });
+        expect(publishSceneChanged.mock.calls.map((call) => call.arguments)).toEqual([[playsIn]]);
 
-      expect(
-        await actions.sa_setPlaySceneText(playsIn, docks, {
-          description: "x".repeat(8001),
-          notes: "",
-        }),
-      ).toEqual({
-        ok: false,
-        errors: { description: "Keep the description under 8000 characters." },
-      });
-      // A scene of a story the caller is not seated at, under either story's id.
-      expect(
-        await actions.sa_setPlaySceneText(stranger, docks, { description: "Mine", notes: "" }),
-      ).toEqual({ ok: false, errors: { root: "You are not at this story's table." } });
-      expect(await textOf()).toMatchObject({ description: "Fog on the water." });
+        expect(
+          await actions.sa_setPlaySceneText(playsIn, docks, {
+            description: "x".repeat(8001),
+            notes: "",
+          }),
+        ).toEqual({
+          ok: false,
+          errors: { description: "Keep the description under 8000 characters." },
+        });
+        // A scene of a story the caller is not seated at, under either story's id.
+        expect(
+          await actions.sa_setPlaySceneText(stranger, docks, { description: "Mine", notes: "" }),
+        ).toEqual({ ok: false, errors: { root: "You are not at this story's table." } });
+        expect(await textOf()).toMatchObject({ description: "Fog on the water." });
 
-      await db
-        .update(tables.storyScenes)
-        .set({ sceneDescription: null, notes: null })
-        .where(eq(tables.storyScenes.idStoryScene, docks));
+        // Finished, the scene is closed to the players even while the table
+        // is still on it.
+        await db
+          .update(tables.storyScenes)
+          .set({ status: "COMPLETE" })
+          .where(eq(tables.storyScenes.idStoryScene, docks));
+        expect(
+          await actions.sa_setPlaySceneText(playsIn, docks, { description: "Late", notes: "" }),
+        ).toEqual({
+          ok: false,
+          errors: { root: "That scene is complete, so nothing in it can change." },
+        });
+        expect(await textOf()).toMatchObject({ description: "Fog on the water." });
+
+        // The storyteller writes any scene of the story, played or not, as
+        // from the storyboard.
+        await db
+          .update(tables.stories)
+          .set({ idStorySession: null })
+          .where(eq(tables.stories.idStory, playsIn));
+        suite.caller = otherUserId;
+        expect(
+          await actions.sa_setPlaySceneText(playsIn, docks, { description: "Prep.", notes: "" }),
+        ).toEqual({ ok: true, text: { description: "Prep.", notes: null } });
+      } finally {
+        suite.caller = testUser;
+        await db
+          .update(tables.storyScenes)
+          .set({ sceneDescription: null, notes: null, status: was })
+          .where(eq(tables.storyScenes.idStoryScene, docks));
+      }
     });
 
     it("lets a player untap a tapped card whose info is showing, logging who did it", async () => {
@@ -650,7 +663,19 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         idStorySession: session,
         scene: { idStoryScene: docks, title: "Play fixture docks" },
         tags: ["scene", "elements"],
+        wideTags: [],
       });
+      // The stacks the storyteller widened come with the scene, so every
+      // table draws them wide, a late comer's too.
+      await db
+        .update(tables.storyScenes)
+        .set({ wideTags: ["elements"] })
+        .where(eq(tables.storyScenes.idStoryScene, docks));
+      expect((await actions.sa_getPlayScene(playsIn))?.wideTags).toEqual(["elements"]);
+      await db
+        .update(tables.storyScenes)
+        .set({ wideTags: [] })
+        .where(eq(tables.storyScenes.idStoryScene, docks));
       expect(scene!.items.map((item) => item.element.name)).toEqual(["Play fixture Zed"]);
       expect(scene!.items[0].element.notes).toBe("The villain");
       expect(scene!.items[0].sceneElement).toMatchObject({ idStoryScene: docks, tags: ["scene"] });
@@ -737,13 +762,13 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         expect(((await stored()).log as Entry[]).length).toBe(before + 2);
 
         // The storyteller sees every element, the hidden ghost included.
-        caller = otherUserId;
+        suite.caller = otherUserId;
         expect(await actions.sa_setPlayElementNotes(playsIn, ghost, "Drowned, 1842")).toEqual({
           ok: true,
           notes: "Drowned, 1842",
         });
       } finally {
-        caller = testUser;
+        suite.caller = testUser;
         await db
           .update(tables.elements)
           .set({ notes: "The villain" })
@@ -851,7 +876,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         expect(result.chat.from).not.toBe("Storyteller");
         expect(publishChat.mock.calls[0].arguments).toEqual([playsIn, result.chat]);
 
-        caller = otherUserId;
+        suite.caller = otherUserId;
         const told = await actions.sa_postChat(playsIn, "The ferry is late.");
         expect(told).toMatchObject({
           ok: true,
@@ -871,13 +896,13 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         });
         try {
           await onScene(docks);
-          caller = secondPlayerId;
+          suite.caller = secondPlayerId;
           expect(await actions.sa_postChat(playsIn, "Over here.")).toMatchObject({
             ok: true,
             chat: { color: "#46A758", picture: "https://example.test/second.png" },
           });
           // No preferences and no provider picture: the chat's own fallbacks.
-          caller = otherUserId;
+          suite.caller = otherUserId;
           expect(await actions.sa_postChat(playsIn, "Noted.")).toMatchObject({
             ok: true,
             chat: { color: null, picture: null },
@@ -1013,9 +1038,9 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         publishChatDeleted.mock.resetCalls();
         const notYours = { ok: false, error: "That is not a line of yours." };
 
-        caller = secondPlayerId;
+        suite.caller = secondPlayerId;
         expect(await actions.sa_deleteChat(playsIn, said.chat.idChat)).toEqual(notYours);
-        caller = testUser;
+        suite.caller = testUser;
         // A roll stands: its dice are what was rolled.
         expect(await actions.sa_deleteChat(playsIn, rolled.chat.idChat)).toEqual(notYours);
         expect(await actions.sa_deleteChat(stranger, said.chat.idChat)).toEqual({
@@ -1054,9 +1079,9 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         expect(publishChat.mock.calls[0].arguments.slice(2)).toEqual(["chat.edited"]);
 
         const notYours = { ok: false, error: "That is not a line of yours." };
-        caller = secondPlayerId;
+        suite.caller = secondPlayerId;
         expect(await actions.sa_editChat(playsIn, id, "Mine now")).toEqual(notYours);
-        caller = testUser;
+        suite.caller = testUser;
         const [system] = await db
           .insert(tables.chats)
           .values({
@@ -1106,7 +1131,7 @@ describe("play table actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       await db
         .insert(tables.storyPlayers)
         .values({ idStory: playsIn, idUser: id, isFromLink: true });
-      caller = id;
+      suite.caller = id;
       await actions.sa_joinSession(playsIn);
       return id;
     }

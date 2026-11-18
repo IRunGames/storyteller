@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Input, InputGroup, Stack, Text } from "@chakra-ui/react";
 import { Eye } from "lucide-react";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { rollDice } from "@/lib/dice";
 
 type Props = {
@@ -33,14 +33,14 @@ export function DiceInput({ label, value, onChange, onBlur, placeholder = "2d6" 
     <Stack gap="1">
       <InputGroup
         endElement={
-          <PrepIconButton
+          <IconButtonWithTooltip
             label={`Try ${label}`}
             size="2xs"
             disabled={value.trim() === ""}
             onClick={tryIt}
           >
             <Eye />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         }
         endElementProps={{ pointerEvents: "auto" }}
       >

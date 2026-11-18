@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  Alert,
   Button,
   Field,
   HStack,
@@ -29,11 +28,13 @@ import {
   CopyInviteLinkButton,
 } from "@/components/invitations/copy-invite-link-button";
 import { toaster } from "@/components/ui/toaster";
+import { FormError } from "@/components/forms/form-error";
 import {
   storyInviteSchema,
   type StoryInviteInput,
   type StoryInviteValues,
 } from "@/lib/invitation-schemas";
+import { applyActionErrors } from "@/lib/forms";
 
 /**
  * The Invite by email button beside Invite Players, for someone who may not
@@ -78,9 +79,7 @@ export function EmailInvitePopover({ idStory }: { idStory: number }) {
       try {
         const result = await sa_inviteToStory(idStory, values, send);
         if (!result.ok) {
-          for (const [field, message] of Object.entries(result.errors)) {
-            setError(field === "email" ? "email" : "root", { message });
-          }
+          applyActionErrors({ setError }, result.errors, ["email"]);
           return;
         }
         reset();
@@ -146,14 +145,7 @@ export function EmailInvitePopover({ idStory }: { idStory: number }) {
                   They make an account, or log in, and accept to take a seat.
                 </Text>
 
-                {errors.root && (
-                  <Alert.Root role="alert" status="error" size="sm">
-                    <Alert.Indicator />
-                    <Alert.Content>
-                      <Alert.Description>{errors.root.message}</Alert.Description>
-                    </Alert.Content>
-                  </Alert.Root>
-                )}
+                <FormError message={errors.root?.message} size="sm" />
 
                 <form onSubmit={invite(true)} noValidate>
                   <Stack gap="3">

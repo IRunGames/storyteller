@@ -1,22 +1,14 @@
 "use client";
 
 import { useId, useState } from "react";
-import {
-  Alert,
-  Button,
-  HStack,
-  IconButton,
-  Popover,
-  Portal,
-  Stack,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
+import { Button, HStack, Popover, Portal, Stack, Text } from "@chakra-ui/react";
 import { Copy } from "lucide-react";
 import type { RunScene } from "@/lib/run";
 import { duplicateSceneTitle } from "@/lib/scenes";
 import { sa_duplicateLiveScene } from "@/components/live/actions";
 import { toaster } from "@/components/ui/toaster";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
+import { FormError } from "@/components/forms/form-error";
 
 type Props = {
   idStory: number;
@@ -38,8 +30,6 @@ type Props = {
  * words fit.
  */
 export function DuplicateSceneButton({ idStory, scene, onDuplicated }: Props) {
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,27 +66,14 @@ export function DuplicateSceneButton({ idStory, scene, onDuplicated }: Props) {
       ids={{ trigger: triggerId }}
       positioning={{ placement: "bottom-end" }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              type="button"
-              aria-label={label}
-              aria-expanded={open}
-              variant="ghost"
-              size="xs"
-              rounded="full"
-            >
-              <Copy />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>{label}</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      <IconButtonWithTooltip
+        label={label}
+        type="button"
+        aria-expanded={open}
+        popoverTrigger={triggerId}
+      >
+        <Copy />
+      </IconButtonWithTooltip>
       <Portal>
         <Popover.Positioner>
           <Popover.Content w="sm">
@@ -110,15 +87,7 @@ export function DuplicateSceneButton({ idStory, scene, onDuplicated }: Props) {
                   A new scene, {copyTitle}, will be made with this scene&apos;s description, notes,
                   stacks, pictures and elements, waiting to be played. You will be taken to it.
                 </Text>
-                {error && (
-                  // role="alert", which Chakra's Alert does not set itself.
-                  <Alert.Root role="alert" status="error" size="sm">
-                    <Alert.Indicator />
-                    <Alert.Content>
-                      <Alert.Description>{error}</Alert.Description>
-                    </Alert.Content>
-                  </Alert.Root>
-                )}
+                <FormError message={error} size="sm" />
                 <HStack justify="space-between" gap="2">
                   <Button
                     size="sm"

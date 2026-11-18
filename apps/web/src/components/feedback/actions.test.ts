@@ -1,20 +1,13 @@
 // Integration test against the real database, skipped when DATABASE_URL is
 // unset so `just test` stays green offline. Writes rows for the test user and
 // removes them again in `after`; the negative-id seed data is never touched.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "components-feedback-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 // A server action reads the request headers for the caller's IP. There is no
 // request here, so hand it an empty set and expect the column to stay null.
@@ -22,19 +15,14 @@ const headers = mock.fn(async () => new Headers());
 
 let actions: typeof import("./actions");
 
-// `@/db` opens its pool at import time, so it has to be pulled in from inside
-// `before` — a static import is evaluated before loadEnvConfig() above runs,
-// and the pool would be built without a connection string.
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
-describe("feedback actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("feedback actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
     mock.module("next/headers", { namedExports: { headers } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
     actions = await import("./actions");
 
     // A run that died before `after` leaves rows behind, and the first case
@@ -45,9 +33,6 @@ describe("feedback actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =
   after(async () => {
     if (!db) return;
     await db.delete(tables.feedback).where(eq(tables.feedback.idCreatedByUser, testUser));
-    // Otherwise the process lingers until the pool's idle timeout.
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("stores a rating with its text, page and submitter", async () => {

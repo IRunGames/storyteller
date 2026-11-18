@@ -8,11 +8,9 @@ import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
 import type { CurrentUser } from "@/lib/current-user";
 import { Toaster, toaster } from "@/components/ui/toaster";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
-const router = {
-  push: mock.fn<(href: string) => void>(),
-  refresh: mock.fn<() => void>(),
-};
+const router = mockRouter();
 
 let pathname = "/stories";
 
@@ -79,9 +77,7 @@ function renderHeader(who: CurrentUser = user) {
 
 describe("AppHeader", () => {
   before(async () => {
-    mock.module("next/navigation", {
-      namedExports: { useRouter: () => router, usePathname: () => pathname },
-    });
+    mockNavigation({ router, pathname: () => pathname });
     mock.module("@/lib/auth-client", { namedExports: { signOut } });
     mock.module("@/components/feedback/actions", { namedExports: { sa_submitFeedback } });
     mock.module("@/components/preferences/actions", { namedExports: { sa_setUserPreference } });

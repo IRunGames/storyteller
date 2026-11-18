@@ -2,12 +2,14 @@
 
 import { and, eq, exists, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { headers } from "next/headers";
-import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { hasOpenSession } from "@/db/open-session";
 import { atTableCount, waitingCount } from "@/db/session-player-counts";
 import { currentScene, sceneItems } from "@/db/scene-items";
+import { appendActivityLog } from "@/db/activity-log";
+import { writableScene } from "@/db/story-access";
 import { chatById, insertChat, listChats, type ChatPage } from "@/db/chats";
 import { auth } from "@/lib/auth";
 import { requireAccount, requireUser } from "@/lib/authorize";
@@ -32,7 +34,8 @@ import {
 } from "@/lib/realtime/publish-scene";
 import { elementSchema } from "@/lib/element-schemas";
 import { sceneTextSchema } from "@/lib/scene-schemas";
-import { SCENE_LOCKED_STATUS, type SetSceneTextResult } from "@/lib/scenes";
+import { type SetSceneTextResult } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
 import { storyChatTopic, storyStateTopic } from "@/lib/realtime/topics";
 import type { PublicChat } from "@/lib/realtime/chat-events";
@@ -41,11 +44,21 @@ import { parseChatCommand } from "@/lib/chat-commands";
 import { rollDice } from "@/lib/dice";
 import { rollText } from "@/lib/roll";
 import { SCENE_ELEMENT_HIDDEN, SCENE_ELEMENT_SHOWN, SCENE_ELEMENT_TAPPED } from "@/lib/run";
+import { formErrors } from "@/lib/forms";
+import {
+  INFO_NOT_SHOWING,
+  NOT_AT_THIS_TABLE,
+  NOT_IN_THIS_SCENE,
+  NOT_TAPPED,
+  NOT_THIS_STORYS_ELEMENT,
+  NOT_YOUR_LINE,
+  NO_TABLE_TO_TALK_AT,
+  SCENE_COMPLETE,
+  SCENE_NOT_BEING_PLAYED,
+} from "@/lib/messages";
 
 const { stories, storyPlayers, sessionPlayers, storyScenes, elements, sceneElements, chats } =
   schema;
-
-const idStorySchema = z.int32();
 
 /**
  * The story as the table and the waiting room see it, or null when there is
@@ -54,7 +67,7 @@ const idStorySchema = z.int32();
  * not-found page as a bad id, not a hint that the story is there.
  */
 async function loadPlayStory(userId: string, idStory: number): Promise<PlayStory | null> {
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return null;
 
   // A correlated EXISTS, as the play picker uses, so a storyteller who also
@@ -108,7 +121,7 @@ export type ActivateStoryResult = { ok: true } | { ok: false; error: string };
  */
 export async function sa_activateStory(idStory: number): Promise<ActivateStoryResult> {
   const user = await requireAccount();
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return { ok: false, error: "That story could not be found." };
 
   const updated = await db
@@ -209,7 +222,7 @@ export async function sa_waitForSession(idStory: number): Promise<WaitingRoomSta
  */
 export async function sa_leaveWaitingRoom(idStory: number): Promise<void> {
   const user = await requireUser();
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!id.success) return;
 
   await db.delete(sessionPlayers).where(waitingRow(id.data, user.id));
@@ -225,7 +238,7 @@ export async function sa_leaveWaitingRoom(idStory: number): Promise<void> {
  */
 export async function sa_leaveAsGuest(idStory: number): Promise<void> {
   const user = await requireUser();
-  const id = idStorySchema.safeParse(idStory);
+  const id = idSchema.safeParse(idStory);
   if (!user.isAnonymous || !id.success) return;
   const deleted = await removeGuestsFrom(id.data, [user.id]);
   // The session row went with the user; signing out still clears the
@@ -337,6 +350,7 @@ export async function sa_getPlayScene(idStory: number): Promise<PlayScene | null
       title: storyScenes.sceneTitle,
       status: storyScenes.status,
       tags: storyScenes.tags,
+      wideTags: storyScenes.wideTags,
       coverUrl: attachmentUrl("STORY_SCENE", "story_scenes", "id_story_scene"),
       description: storyScenes.sceneDescription,
       notes: storyScenes.notes,
@@ -361,6 +375,7 @@ export async function sa_getPlayScene(idStory: number): Promise<PlayScene | null
       text: { description: scene.description, notes: scene.notes },
     },
     tags: scene.tags,
+    wideTags: scene.wideTags,
     coverUrl: scene.coverUrl,
     items: rows.map((row) => ({
       element: toPublicElement(row.element, row.imageUrl, row.link.showInfo),
@@ -369,14 +384,16 @@ export async function sa_getPlayScene(idStory: number): Promise<PlayScene | null
   };
 }
 
-const NOT_AT_THIS_TABLE = "You are not at this story's table.";
-
 /**
  * The panel behind the scene's title on the players' table: a player, or
  * the storyteller looking on, writes up the scene's description and notes
- * as it is played. Anyone the story seats may (loadPlayStory), for any scene
- * of the story; every table hears the scene changed and reads it afresh.
- * Field errors come back for the form.
+ * as it is played. Who may is writableScene's rule (db/story-access.ts): a
+ * player only the scene the session is on while it is not complete, which
+ * is the one scene their table shows them, by the rule
+ * sa_untapPlaySceneElement holds a player to; the storyteller any scene of
+ * the story, a complete one included, as from the run table. Every table
+ * hears the scene changed and reads it afresh. Field errors come back for
+ * the form.
  */
 export async function sa_setPlaySceneText(
   idStory: number,
@@ -384,36 +401,35 @@ export async function sa_setPlaySceneText(
   input: unknown,
 ): Promise<SetSceneTextResult> {
   const user = await requireAccount();
-  const story = await loadPlayStory(user.id, idStory);
-  const scene = idStorySchema.safeParse(idStoryScene);
-  if (!story || !scene.success) return { ok: false, errors: { root: NOT_AT_THIS_TABLE } };
+  const story = idSchema.safeParse(idStory);
+  const scene = idSchema.safeParse(idStoryScene);
+  if (!story.success || !scene.success) return { ok: false, errors: { root: NOT_AT_THIS_TABLE } };
+  const writable = await writableScene(user.id, story.data, scene.data, { allowLocked: true });
+  if (!writable.ok) {
+    const root = {
+      "not-yours": NOT_AT_THIS_TABLE,
+      "not-being-played": SCENE_NOT_BEING_PLAYED,
+      locked: SCENE_COMPLETE,
+    }[writable.reason];
+    return { ok: false, errors: { root } };
+  }
 
   const parsed = sceneTextSchema.safeParse(input);
   if (!parsed.success) {
-    return {
-      ok: false,
-      errors: Object.fromEntries(
-        parsed.error.issues.map((issue) => [issue.path.join(".") || "root", issue.message]),
-      ),
-    };
+    return { ok: false, errors: formErrors(parsed.error) };
   }
   const text = { description: parsed.data.description || null, notes: parsed.data.notes || null };
 
-  const updated = await db
+  await db
     .update(storyScenes)
     .set({ sceneDescription: text.description, notes: text.notes, idUpdatedByUser: user.id })
-    .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.idStory)))
-    .returning({ idStoryScene: storyScenes.idStoryScene });
-  if (updated.length === 0) return { ok: false, errors: { root: NOT_AT_THIS_TABLE } };
-  publishLater(() => publishSceneChanged(story.idStory));
+    .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.data)));
+  publishLater(() => publishSceneChanged(story.data));
   return { ok: true, text };
 }
 
 export type SetElementNotesResult =
   { ok: true; notes: string | null } | { ok: false; error: string };
-
-const NOT_THIS_STORYS_ELEMENT = "That element is not part of this story.";
-const NOT_IN_THIS_SCENE = "That element is not in this scene.";
 
 /**
  * The Notes field in a pill's info popover on the players' table: the
@@ -426,7 +442,7 @@ const NOT_IN_THIS_SCENE = "That element is not in this scene.";
  * column holds it.
  *
  * Every change is appended to the element's activity_log through the
- * database's own _append_activity_log, as a `notes_change_log` entry with
+ * database's own _append_activity_log (appendActivityLog), as a `notes_change_log` entry with
  * the caller's id as its userId and, by the function's own lookup, their
  * name, and the notes before and after under activityData. Notes the same
  * as those stored write nothing, log nothing and send nothing, so the log
@@ -444,7 +460,7 @@ export async function sa_setPlayElementNotes(
 ): Promise<SetElementNotesResult> {
   const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
-  const element = idStorySchema.safeParse(idElement);
+  const element = idSchema.safeParse(idElement);
   if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
   if (!element.success) return { ok: false, error: NOT_THIS_STORYS_ELEMENT };
   const parsed = elementSchema.shape.notes.safeParse(input);
@@ -470,29 +486,24 @@ export async function sa_setPlayElementNotes(
       .update(elements)
       .set({ notes, idUpdatedByUser: user.id })
       .where(eq(elements.idElement, element.data));
-    await tx.execute(sql`
-      select _append_activity_log(
-        table_name := 'elements',
-        field_name := 'activity_log',
-        record_id := ${String(element.data)},
-        activity_category := 'notes_change_log',
-        activity_details := 'notes',
-        activity_source := 'play element info',
-        user_id := ${user.id},
-        activity_data := ${JSON.stringify({ previousNotes: current.notes, notes })}::jsonb
-      )
-    `);
+    await appendActivityLog(
+      {
+        table: "elements",
+        recordId: element.data,
+        category: "notes_change_log",
+        details: "notes",
+        source: "play element info",
+        userId: user.id,
+        data: { previousNotes: current.notes, notes },
+      },
+      tx,
+    );
   });
   publishLater(() => publishElementChanged(story.idStory, element.data));
   return { ok: true, notes };
 }
 
 export type UntapSceneElementResult = { ok: true; status: string } | { ok: false; error: string };
-
-const NOT_BEING_PLAYED = "That scene is not being played.";
-const SCENE_COMPLETE = "That scene is complete, so nothing in it can change.";
-const NOT_TAPPED = "That element is not tapped.";
-const INFO_NOT_SHOWING = "That element's info is not showing.";
 
 /**
  * The turned arrow at the start of a tapped player pill: a player readies
@@ -515,21 +526,21 @@ export async function sa_untapPlaySceneElement(
 ): Promise<UntapSceneElementResult> {
   const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
-  const scene = idStorySchema.safeParse(idStoryScene);
-  const link = idStorySchema.safeParse(idSceneElement);
+  const scene = idSchema.safeParse(idStoryScene);
+  const link = idSchema.safeParse(idSceneElement);
   if (!story || !scene.success) return { ok: false, error: NOT_AT_THIS_TABLE };
   if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
 
   const current = await currentScene(story.idStory);
   if (current === null || current.idStoryScene !== scene.data) {
-    return { ok: false, error: NOT_BEING_PLAYED };
+    return { ok: false, error: SCENE_NOT_BEING_PLAYED };
   }
   const [played] = await db
     .select({ status: storyScenes.status })
     .from(storyScenes)
     .where(and(eq(storyScenes.idStoryScene, scene.data), eq(storyScenes.idStory, story.idStory)))
     .limit(1);
-  if (!played) return { ok: false, error: NOT_BEING_PLAYED };
+  if (!played) return { ok: false, error: SCENE_NOT_BEING_PLAYED };
   if (played.status === SCENE_LOCKED_STATUS) return { ok: false, error: SCENE_COMPLETE };
 
   // The link by its own id, since an element may be in the scene more than once.
@@ -562,21 +573,18 @@ export async function sa_untapPlaySceneElement(
       .update(sceneElements)
       .set({ status: SCENE_ELEMENT_SHOWN, idUpdatedByUser: user.id })
       .where(where);
-    await tx.execute(sql`
-      select _append_activity_log(
-        table_name := 'scene_elements',
-        field_name := 'activity_log',
-        record_id := ${String(row.idSceneElement)},
-        activity_category := 'untap_log',
-        activity_details := 'untapped',
-        activity_source := 'play pill',
-        user_id := ${user.id},
-        activity_data := ${JSON.stringify({
-          previousStatus: SCENE_ELEMENT_TAPPED,
-          status: SCENE_ELEMENT_SHOWN,
-        })}::jsonb
-      )
-    `);
+    await appendActivityLog(
+      {
+        table: "scene_elements",
+        recordId: row.idSceneElement,
+        category: "untap_log",
+        details: "untapped",
+        source: "play pill",
+        userId: user.id,
+        data: { previousStatus: SCENE_ELEMENT_TAPPED, status: SCENE_ELEMENT_SHOWN },
+      },
+      tx,
+    );
     // The table says so in the chat, named as the chat names the sender.
     const who = story.isOwner ? "Storyteller" : user.nickName || user.name;
     return insertChat(
@@ -679,7 +687,7 @@ export async function sa_listChats(idStory: number, before?: number): Promise<Ch
   const user = await requireUser();
   const story = await loadPlayStory(user.id, idStory);
   if (!story) return EMPTY_CHAT_PAGE;
-  const cursor = before === undefined ? undefined : idStorySchema.safeParse(before);
+  const cursor = before === undefined ? undefined : idSchema.safeParse(before);
   if (cursor && !cursor.success) return EMPTY_CHAT_PAGE;
 
   const current = await currentScene(story.idStory);
@@ -692,9 +700,6 @@ export async function sa_listChats(idStory: number, before?: number): Promise<Ch
 }
 
 export type ChatResult = { ok: true; chat: PublicChat } | { ok: false; error: string };
-
-const NO_SESSION = "The story is not being played, so there is no table to talk at.";
-const NOT_YOUR_LINE = "That is not a line of yours.";
 
 /**
  * One line said at the table, by the story's storyteller or one of its
@@ -722,7 +727,7 @@ export async function sa_postChat(idStory: number, text: unknown): Promise<ChatR
   if (rolled && !rolled.ok) return { ok: false, error: rolled.error };
 
   const current = await currentScene(story.idStory);
-  if (current === null) return { ok: false, error: NO_SESSION };
+  if (current === null) return { ok: false, error: NO_TABLE_TO_TALK_AT };
 
   const chat = await insertChat({
     idStory: story.idStory,
@@ -752,7 +757,7 @@ export async function sa_editChat(
   const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
   if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
-  const id = idStorySchema.safeParse(idChat);
+  const id = idSchema.safeParse(idChat);
   if (!id.success) return { ok: false, error: NOT_YOUR_LINE };
 
   const parsed = chatTextSchema.safeParse(text);
@@ -794,7 +799,7 @@ export async function sa_deleteChat(idStory: number, idChat: number): Promise<De
   const user = await requireAccount();
   const story = await loadPlayStory(user.id, idStory);
   if (!story) return { ok: false, error: NOT_AT_THIS_TABLE };
-  const id = idStorySchema.safeParse(idChat);
+  const id = idSchema.safeParse(idChat);
   if (!id.success) return { ok: false, error: NOT_YOUR_LINE };
 
   const deleted = await db

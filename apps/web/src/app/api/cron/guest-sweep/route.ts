@@ -1,4 +1,5 @@
 import { lapsedGuests } from "@/db/guests";
+import { isCronRequest } from "@/lib/cron";
 import { removeGuests } from "@/lib/guests";
 
 /**
@@ -8,10 +9,7 @@ import { removeGuests } from "@/lib/guests";
  * and there; this catches the rest.
  */
 export async function GET(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  if (!isCronRequest(request)) return new Response("Unauthorized", { status: 401 });
 
   const ids = await lapsedGuests();
   await removeGuests(ids);

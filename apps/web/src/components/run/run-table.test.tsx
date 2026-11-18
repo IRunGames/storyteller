@@ -19,16 +19,9 @@ import {
 } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import type { StorySession } from "@/lib/stories";
+import { currentUser, mockHeader, mockNavigation, mockRouter } from "@/test/mocks";
 
-const user: CurrentUser = {
-  id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
-  name: "Paul Stafford",
-  email: "storyteller@irun.games",
-  image: null,
-  nickName: null,
-  idUserType: -10,
-  isAnonymous: false,
-};
+const user = currentUser();
 
 const people: StoryElement[] = [
   { idElement: 5, status: "ACTIVE", name: "Dafydd", title: "Shell seller", description: null },
@@ -37,7 +30,7 @@ const people: StoryElement[] = [
 const scene = { idStoryScene: -15, title: "Strangers in the morning", status: "ACTIVE" };
 
 // The reload button reads the space afresh; what it answers is set per test.
-const sa_getRunPlaySpace = mock.fn(async (_idStory: number): Promise<RunPlaySpace> => ({
+const sa_openRunPlaySpace = mock.fn(async (_idStory: number): Promise<RunPlaySpace> => ({
   ...EMPTY_PLAY_SPACE,
 }));
 
@@ -110,6 +103,16 @@ const sa_setSceneStacks = mock.fn(
   async (_story: number, _scene: number, input: { tags: string[]; saveForStory: boolean }) => ({
     ok: true as const,
     tags: input.tags,
+  }),
+);
+const sa_setStackWide = mock.fn(
+  async (
+    _story: number,
+    _scene: number,
+    input: { tag: string | null; wide: boolean },
+  ): Promise<{ ok: true; wideTags: string[] } | { ok: false; error: string }> => ({
+    ok: true,
+    wideTags: input.wide ? [input.tag ?? ""] : [],
   }),
 );
 const sa_createSceneElement = mock.fn(
@@ -297,19 +300,8 @@ describe("RunTable", () => {
         sa_startPlaying: async () => ({ error: "Not in this test." }),
       },
     });
-    mock.module("next/navigation", {
-      namedExports: {
-        useRouter: () => ({ push, refresh: mock.fn() }),
-        usePathname: () => "/stories/-4/run",
-      },
-    });
-    mock.module("@/lib/auth-client", { namedExports: { signOut: mock.fn() } });
-    mock.module("@/components/feedback/actions", {
-      namedExports: { sa_submitFeedback: mock.fn() },
-    });
-    mock.module("@/components/preferences/actions", {
-      namedExports: { sa_setUserPreference },
-    });
+    mockNavigation({ router: { ...mockRouter(), push }, pathname: "/stories/-4/run" });
+    mockHeader({ sa_setUserPreference });
     mock.module("@/components/uploads/actions", {
       namedExports: {
         sa_listAttachments: async (kind: string) => (kind === "STORY" ? storyAttachments : []),
@@ -320,33 +312,8 @@ describe("RunTable", () => {
       },
     });
     mock.module("@/components/elements/actions", {
-      namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
-    });
-    // The element panel's rows load the element's stat blocks as they mount.
-    mock.module("@/components/stat-blocks/actions", {
       namedExports: {
-        sa_getStatBlocks: async () => [],
-        sa_getSceneStatBlocks: async () => [],
-        sa_setElementStat: mock.fn(),
-      },
-    });
-    mock.module("@/components/run/actions", {
-      namedExports: {
-        sa_suspendInactiveSession: mock.fn(),
-        sa_getJoinCount: mock.fn(async () => ({ joined: 0, cap: 3 })),
-        sa_listLinkPlayers: mock.fn(async () => []),
-        sa_removeLinkPlayer: mock.fn(),
-        sa_listRunScenes: async () => [],
-        sa_loadRunScene: mock.fn(),
-        sa_createRunScene: mock.fn(),
-        sa_linkSceneElement,
-        sa_createSceneElement,
-        sa_setSceneElementShown: mock.fn(),
-        sa_setSceneElementShowing: mock.fn(),
-        sa_pulseSceneElement,
-        sa_setSceneText,
-        sa_getRunPlaySpace,
-
+        sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })),
         sa_getElementDetail,
         sa_updateStoryElement: mock.fn(
           async (_story: number, _element: number, values: Record<string, string>) => ({
@@ -358,24 +325,59 @@ describe("RunTable", () => {
             },
           }),
         ),
-        sa_unlinkSceneElement: mock.fn(async () => ({ ok: true as const })),
         sa_listSceneLibraryElements: mock.fn(async () => []),
+        sa_setElementTags: mock.fn(),
+      },
+    });
+    mock.module("@/components/sessions/actions", {
+      namedExports: {
+        sa_suspendInactiveSession: mock.fn(),
+        sa_getSessionNotes: mock.fn(async () => ({ notes: null, lingeringQuestions: null })),
+        sa_setSessionNotes: mock.fn(),
+      },
+    });
+    mock.module("@/components/join-links/actions", {
+      namedExports: {
+        sa_getJoinCount: mock.fn(async () => ({ joined: 0, cap: 3 })),
+        sa_listLinkPlayers: mock.fn(async () => []),
+        sa_removeLinkPlayer: mock.fn(),
+      },
+    });
+    mock.module("@/components/run/actions", {
+      namedExports: {
+        sa_listRunScenes: async () => [],
+        sa_loadRunScene: mock.fn(),
+        sa_createRunScene: mock.fn(),
+        sa_setSceneText,
+        sa_openRunPlaySpace,
         sa_setSceneStacks,
+        sa_setStackWide,
+      },
+    });
+    mock.module("@/components/scene-elements/actions", {
+      namedExports: {
+        sa_linkSceneElement,
+        sa_createSceneElement,
+        sa_setSceneElementShown: mock.fn(),
+        sa_setSceneElementShowing: mock.fn(),
+        sa_pulseSceneElement,
+        sa_unlinkSceneElement: mock.fn(async () => ({ ok: true as const })),
         sa_updateSceneElement,
         sa_moveSceneElement: mock.fn(),
-        sa_setElementTags: mock.fn(),
+      },
+    });
+    // The element panel's rows load the element's stat blocks as they mount.
+    mock.module("@/components/stat-blocks/actions", {
+      namedExports: {
+        sa_getStatBlocks: async () => [],
+        sa_getSceneStatBlocks: async () => [],
+        sa_setElementStat: mock.fn(),
       },
     });
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions, sa_setRowStatus },
     });
     // The diagnostics panel's channel: the broker is never reached from here.
-    mock.module("@/components/sessions/actions", {
-      namedExports: {
-        sa_getSessionNotes: mock.fn(async () => ({ notes: null, lingeringQuestions: null })),
-        sa_setSessionNotes: mock.fn(),
-      },
-    });
     mock.module("@/components/play/actions", {
       namedExports: {
         sa_getStoryChannel,
@@ -738,8 +740,8 @@ describe("RunTable", () => {
 
   it("reloads the scene from the button at the left of its title", async () => {
     const u = userEvent.setup();
-    sa_getRunPlaySpace.mock.resetCalls();
-    sa_getRunPlaySpace.mock.mockImplementationOnce(async () => ({
+    sa_openRunPlaySpace.mock.resetCalls();
+    sa_openRunPlaySpace.mock.mockImplementationOnce(async () => ({
       scene: { ...scene, title: "Strangers at noon" },
       tags: ["scene"],
       coverUrl: null,
@@ -771,8 +773,8 @@ describe("RunTable", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Reload the scene");
     await u.click(reload);
 
-    await waitFor(() => expect(sa_getRunPlaySpace.mock.callCount()).toBe(1));
-    expect(sa_getRunPlaySpace.mock.calls[0].arguments).toEqual([-4]);
+    await waitFor(() => expect(sa_openRunPlaySpace.mock.callCount()).toBe(1));
+    expect(sa_openRunPlaySpace.mock.calls[0].arguments).toEqual([-4]);
     // The space is what the database holds now: the scene's title and its
     // elements as read.
     expect(await within(space).findByText("Dafydd")).toBeInTheDocument();
@@ -781,7 +783,7 @@ describe("RunTable", () => {
 
   it("says so and keeps the space when the scene cannot be reloaded", async () => {
     const u = userEvent.setup();
-    sa_getRunPlaySpace.mock.mockImplementationOnce(async () => {
+    sa_openRunPlaySpace.mock.mockImplementationOnce(async () => {
       throw new Error("offline");
     });
     renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay: [] });
@@ -1240,17 +1242,47 @@ describe("RunTable", () => {
     await waitFor(() => expect(within(sceneStack).queryByText("Dafydd")).not.toBeInTheDocument());
   });
 
-  it("widens a stack from its expand button and shrinks it back, telling nobody", async () => {
+  it("widens a stack from its expand button for every table, and shrinks it back", async () => {
     const u = userEvent.setup();
+    sa_setStackWide.mock.resetCalls();
     renderTable({}, kildealg, { scene, tags: ["scene"], coverUrl: null, inPlay: [] });
     const stack = screen.getByRole("region", { name: "scene" });
 
     expect(stack).not.toHaveAttribute("data-wide");
     await u.click(within(stack).getByRole("button", { name: "Expand scene" }));
     expect(stack).toHaveAttribute("data-wide", "true");
+    // Written on the scene, so the players' and the display table draw it
+    // wide too; not a preference of this storyteller's.
+    expect(sa_setStackWide.mock.calls[0].arguments).toEqual([
+      -4,
+      scene.idStoryScene,
+      { tag: "scene", wide: true },
+    ]);
     await u.click(within(stack).getByRole("button", { name: "Shrink scene" }));
     expect(stack).not.toHaveAttribute("data-wide");
+    expect(sa_setStackWide.mock.calls[1].arguments[2]).toEqual({ tag: "scene", wide: false });
     expect(sa_setUserPreference.mock.callCount()).toBe(0);
+  });
+
+  it("opens with the stacks the scene holds wide, and puts one back when the save is refused", async () => {
+    const u = userEvent.setup();
+    sa_setStackWide.mock.mockImplementationOnce(async () => ({
+      ok: false as const,
+      error: "That could not be changed. Try again.",
+    }));
+    renderTable({}, kildealg, {
+      scene,
+      tags: ["scene", "elements"],
+      wideTags: ["elements"],
+      coverUrl: null,
+      inPlay: [],
+    });
+    expect(screen.getByRole("region", { name: "elements" })).toHaveAttribute("data-wide", "true");
+    const stack = screen.getByRole("region", { name: "scene" });
+
+    await u.click(within(stack).getByRole("button", { name: "Expand scene" }));
+    await waitFor(() => expect(stack).not.toHaveAttribute("data-wide"));
+    expect(await screen.findByText("That could not be changed. Try again.")).toBeInTheDocument();
   });
 
   it("offers no stack controls with no scene at the table", () => {

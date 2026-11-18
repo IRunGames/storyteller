@@ -1,18 +1,7 @@
 "use client";
 
-import { useId } from "react";
-import {
-  Box,
-  chakra,
-  HStack,
-  IconButton,
-  Popover,
-  Portal,
-  Stack,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
-import { Ban, ExternalLink, Info, RotateCw } from "lucide-react";
+import { Box, chakra, HStack, IconButton, Portal, Stack, Text, Tooltip } from "@chakra-ui/react";
+import { Ban, ExternalLink, RotateCw } from "lucide-react";
 import {
   elementIdOf,
   SCENE_ELEMENT_DISABLED,
@@ -21,9 +10,10 @@ import {
   type PlayItem,
 } from "@/lib/run";
 import { sa_untapPlaySceneElement } from "@/components/play/actions";
-import { toaster } from "@/components/ui/toaster";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { ElementHistory } from "@/components/elements/element-history";
+import { InfoPopoverShell } from "@/components/popovers/info-popover-shell";
 import { OverflowTooltip } from "@/components/popovers/overflow-tooltip";
 import { PlayElementNotesField } from "./play-element-notes-field";
 import { PlayUntapButton } from "./play-untap-button";
@@ -95,21 +85,20 @@ export function PlayPill({
   // in the scene more than once. A pill always has one here; -1 is never sent.
   const idSceneElement = item.idSceneElement ?? -1;
 
-  async function untap() {
-    onStatusChange(idSceneElement, SCENE_ELEMENT_SHOWN);
-    try {
+  // The untap readies the card at once and puts it back tapped if the
+  // action refuses (useOptimisticAction); the table owns the item's status.
+  const [, chooseStatus] = useOptimisticAction<string>(
+    item.sceneStatus ?? SCENE_ELEMENT_TAPPED,
+    async () => {
       const result = await sa_untapPlaySceneElement(idStory, idStoryScene, idSceneElement);
-      if (result.ok) {
-        onStatusChange(idSceneElement, result.status);
-        return;
-      }
-      onStatusChange(idSceneElement, SCENE_ELEMENT_TAPPED);
-      toaster.create({ title: result.error, type: "error" });
-    } catch {
-      onStatusChange(idSceneElement, SCENE_ELEMENT_TAPPED);
-      toaster.create({ title: "The card could not be untapped. Try again.", type: "error" });
-    }
-  }
+      return result.ok ? { ok: true, value: result.status } : result;
+    },
+    {
+      onShow: (next) => onStatusChange(idSceneElement, next),
+      failed: "The card could not be untapped. Try again.",
+    },
+  );
+  const untap = () => chooseStatus(SCENE_ELEMENT_SHOWN);
 
   // Tapped or switched off, the pill steps back: more see-through, so the
   // cover shows through it, and its text a shade dimmer, rather than
@@ -158,7 +147,7 @@ export function PlayPill({
           it is the button that readies the card; without, a marker alone. */}
       {isTapped &&
         (showInfo && !readOnly ? (
-          <PlayUntapButton label={item.label} onConfirm={() => void untap()} />
+          <PlayUntapButton label={item.label} onConfirm={untap} />
         ) : (
           <chakra.span
             display="inline-flex"
@@ -260,13 +249,14 @@ function PlayLinkButton({ label, link }: { label: string; link: NonNullable<Play
 }
 
 /**
- * The pill's info button: a popover with what the storyteller lets the
- * players know of the element, under the name the pill shows. The display
- * table's pill (PassivePill) offers it too, to someone with an account. The title
- * and the description, each only when the element has one, and then the
- * players' notes field. The field is drawn afresh each opening, with the
- * popover, so it starts from the notes as the table holds them now. Read
- * only, the notes are shown as they are, when there are any.
+ * The pill's info button: a popover (InfoPopoverShell) with what the
+ * storyteller lets the players know of the element, under the name the pill
+ * shows. The display table's pill (PassivePill) offers it too, to someone
+ * with an account. The title and the description, each only when the
+ * element has one, and then the players' notes field. The shell draws the
+ * body afresh each opening, so the field starts from the notes as the table
+ * holds them now. Read only, the notes are shown as they are, when there
+ * are any.
  */
 export function PlayInfoPopover({
   label,
@@ -290,83 +280,51 @@ export function PlayInfoPopover({
   /** Given, the popover ends with the element's History, less the scene named. */
   history: { idStoryScene: number } | null;
 }) {
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
-  const triggerId = useId();
-
   return (
-    // Mounted only while open, so a table of pills does not hold a hidden
-    // copy of every name. Zag then cannot link the dialog to its title as
-    // the machine starts (attachment-tags-popover.tsx), so the content is
-    // named outright.
-    <Popover.Root
-      ids={{ trigger: triggerId }}
-      positioning={{ placement: "bottom-end" }}
-      lazyMount
-      unmountOnExit
+    <InfoPopoverShell
+      label={`About ${label}`}
+      heading={label}
+      subheading={
+        title && (
+          <Text fontSize="sm" color="fg.muted">
+            {title}
+          </Text>
+        )
+      }
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton aria-label={`About ${label}`} size="xs" variant="ghost" rounded="full">
-              <Info />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>About {label}</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
-      <Portal>
-        <Popover.Positioner>
-          <Popover.Content aria-label={label} w="sm" maxH="70vh" overflowY="auto">
-            <Popover.Arrow />
-            <Popover.Header>
-              <Popover.Title fontWeight="semibold">{label}</Popover.Title>
-              {title && (
-                <Text fontSize="sm" color="fg.muted">
-                  {title}
+      {() => (
+        <Stack gap="3">
+          {info ? (
+            <Text whiteSpace="pre-wrap">{info}</Text>
+          ) : (
+            <Text color="fg.muted">Nothing more is known yet.</Text>
+          )}
+          {readOnly ? (
+            notes && (
+              <Stack gap="1">
+                <Text fontSize="sm" fontWeight="medium">
+                  Notes
                 </Text>
-              )}
-            </Popover.Header>
-            <Popover.Body>
-              <Stack gap="3">
-                {info ? (
-                  <Text whiteSpace="pre-wrap">{info}</Text>
-                ) : (
-                  <Text color="fg.muted">Nothing more is known yet.</Text>
-                )}
-                {readOnly ? (
-                  notes && (
-                    <Stack gap="1">
-                      <Text fontSize="sm" fontWeight="medium">
-                        Notes
-                      </Text>
-                      <Text whiteSpace="pre-wrap">{notes}</Text>
-                    </Stack>
-                  )
-                ) : (
-                  <PlayElementNotesField
-                    idStory={idStory}
-                    idElement={idElement}
-                    notes={notes}
-                    onSaved={(saved) => onNotesChange(idElement, saved)}
-                  />
-                )}
-                {history && (
-                  <ElementHistory
-                    idStory={idStory}
-                    idElement={idElement}
-                    idStoryScene={history.idStoryScene}
-                  />
-                )}
+                <Text whiteSpace="pre-wrap">{notes}</Text>
               </Stack>
-            </Popover.Body>
-          </Popover.Content>
-        </Popover.Positioner>
-      </Portal>
-    </Popover.Root>
+            )
+          ) : (
+            <PlayElementNotesField
+              idStory={idStory}
+              idElement={idElement}
+              notes={notes}
+              onSaved={(saved) => onNotesChange(idElement, saved)}
+            />
+          )}
+          {history && (
+            <ElementHistory
+              idStory={idStory}
+              idElement={idElement}
+              idStoryScene={history.idStoryScene}
+            />
+          )}
+        </Stack>
+      )}
+    </InfoPopoverShell>
   );
 }

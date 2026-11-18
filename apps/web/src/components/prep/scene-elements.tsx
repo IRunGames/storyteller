@@ -7,7 +7,7 @@ import { elementIdOf, playStacks, type PlayItem } from "@/lib/run";
 import type { StackRename } from "@/lib/stack-schemas";
 import { RunManageStacksDialog } from "@/components/run/run-manage-stacks-dialog";
 import { RunPlayStack } from "@/components/run/run-play-stack";
-import { PrepIconButton } from "./prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
 type Props = {
   idStory: number;
@@ -119,9 +119,9 @@ export function SceneElements({
               bg={onCover ? "bg.panel/55" : undefined}
               backdropFilter={onCover ? "blur(6px)" : undefined}
             >
-              <PrepIconButton label="Manage stacks" onClick={() => setManagingStacks(true)}>
+              <IconButtonWithTooltip label="Manage stacks" onClick={() => setManagingStacks(true)}>
                 <Settings />
-              </PrepIconButton>
+              </IconButtonWithTooltip>
             </Box>
             <RunManageStacksDialog
               idStory={idStory}

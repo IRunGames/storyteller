@@ -10,27 +10,21 @@
 // column default and any move is found in the workflow (src/test/workflow.ts).
 import { after, before, describe, it, mock } from "node:test";
 import { expect } from "expect";
+import { ELEMENT_NOT_YOURS, SCENE_NOT_YOURS, STORY_NOT_YOURS } from "@/lib/messages";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
 
-import { SCENE_LOCKED_STATUS, SCENES_PAGE_SIZE } from "@/lib/scenes";
+import { SCENES_PAGE_SIZE } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import { transitionsFrom } from "@/lib/status";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "libraries-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 const MINE = "Fixture library — the test user's own story";
 const THEIRS = "Fixture library — somebody else's story";
@@ -53,22 +47,25 @@ async function redirectOf(promise: Promise<unknown>): Promise<string | null> {
   return digest.startsWith("NEXT_REDIRECT") ? digest.split(";")[2] : null;
 }
 
-describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+// What each write tells the players' table, mocked so the tests see which
+// helper an action reached for; what the helpers send is their own test's
+// business (lib/realtime/publish-scene.test.ts).
+const published = {
+  publishElementChanged: mock.fn(async (..._args: unknown[]) => {}),
+  publishSceneChanged: mock.fn(async (..._args: unknown[]) => {}),
+};
+
+describeWithDb("libraries actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
+    mock.module("@/lib/realtime/publish-scene", { namedExports: published });
     actions = await import("./actions");
 
-    const [otherUser] = await db
-      .insert(tables.user)
-      .values({
-        name: "Fixture Library Other",
-        nickName: "LibOther",
-        email: "fixture-library-other@example.test",
-      })
-      .returning({ id: tables.user.id });
-    otherUserId = otherUser.id;
+    otherUserId = await suite.makeUser("fixture-library-other@example.test", {
+      name: "Fixture Library Other",
+      nickName: "LibOther",
+    });
 
     const stories = await db
       .insert(tables.stories)
@@ -134,9 +131,6 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       .delete(tables.storyScenes)
       .where(inArray(tables.storyScenes.idStory, [myStory, theirStory]));
     await db.delete(tables.stories).where(inArray(tables.stories.idStory, [myStory, theirStory]));
-    await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("lists a story's scenes newest first, ten at a time", async () => {
@@ -263,9 +257,10 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       expect(await names("updated")).toEqual(["Fixture Zara", "Fixture Aldric"]);
       // Both were made in one statement, so the later id counts as newer.
       expect(await names("created")).toEqual(["Fixture Aldric", "Fixture Zara"]);
-      await expect(
-        actions.sa_listStoryElements(myStory, "PERSON", 0, "", undefined, "colour" as never),
-      ).rejects.toThrow();
+      // A sort it does not know is a bad request, answered with nothing.
+      expect(
+        await actions.sa_listStoryElements(myStory, "PERSON", 0, "", undefined, "colour" as never),
+      ).toEqual([]);
     } finally {
       await db
         .update(tables.elements)
@@ -429,13 +424,13 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
     });
 
     it("makes nothing for anyone but the storyteller", async () => {
-      getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
+      suite.getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
       try {
         expect(await actions.sa_getOrCreateSceneToBuild(visited)).toBeNull();
         // A story that has scenes does not give one up to a stranger either.
         expect(await actions.sa_getOrCreateSceneToBuild(withScenes)).toBeNull();
       } finally {
-        getSession.mock.restore();
+        suite.getSession.mock.restore();
       }
       expect(await scenesOf(visited)).toEqual([]);
     });
@@ -969,13 +964,13 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         ok: false,
         errors: { idStorySession: "That session is not part of this story." },
       });
-      await expect(
-        actions.sa_createStoryScene(theirStory, {
+      expect(
+        await actions.sa_createStoryScene(theirStory, {
           title: "Fixture never written",
           description: "",
           idStorySession: "",
         }),
-      ).rejects.toThrow(/storyteller/);
+      ).toEqual({ ok: false, errors: { root: STORY_NOT_YOURS } });
     });
 
     it("loads a scene for editing, and saves it back to the board", async () => {
@@ -1032,7 +1027,7 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
           description: "",
           idStorySession: "",
         }),
-      ).toEqual({ ok: false, errors: { "": "A completed scene can no longer be edited." } });
+      ).toEqual({ ok: false, errors: { root: "A completed scene can no longer be edited." } });
       expect((await written())[0].description).toBe("Two guards at the door.");
     });
 
@@ -1042,13 +1037,13 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         .from(tables.storyScenes)
         .where(eq(tables.storyScenes.idStory, theirStory));
       expect(await actions.sa_getStorySceneForEdit(theirs.id)).toBeNull();
-      await expect(
-        actions.sa_updateStoryScene(theirs.id, {
+      expect(
+        await actions.sa_updateStoryScene(theirs.id, {
           title: "Fixture never written",
           description: "",
           idStorySession: "",
         }),
-      ).rejects.toThrow(/storyteller/);
+      ).toEqual({ ok: false, errors: { root: SCENE_NOT_YOURS } });
     });
   });
 
@@ -1098,9 +1093,9 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
       expect(
         await actions.sa_createElement(myStory, { ...blank, kind: "PERSON", name: " " }),
       ).toEqual({ ok: false, errors: { name: "Please give the element a name." } });
-      await expect(
-        actions.sa_createElement(theirStory, { ...blank, kind: "PERSON", name: "Nobody" }),
-      ).rejects.toThrow(/storyteller/);
+      expect(
+        await actions.sa_createElement(theirStory, { ...blank, kind: "PERSON", name: "Nobody" }),
+      ).toEqual({ ok: false, errors: { root: STORY_NOT_YOURS } });
     });
 
     it("loads an element for editing, and saves it back to the board, kind and all", async () => {
@@ -1137,9 +1132,9 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         .returning({ id: tables.elements.idElement });
 
       expect(await actions.sa_getElementForEdit(theirs.id)).toBeNull();
-      await expect(
-        actions.sa_updateElement(theirs.id, { ...blank, kind: "PERSON", name: NAME }),
-      ).rejects.toThrow(/storyteller/);
+      expect(
+        await actions.sa_updateElement(theirs.id, { ...blank, kind: "PERSON", name: NAME }),
+      ).toEqual({ ok: false, errors: { root: ELEMENT_NOT_YOURS } });
     });
 
     it("deletes an element, taking its scene links and leaving its picture", async () => {
@@ -1362,5 +1357,55 @@ describe("libraries actions", { skip: !hasDb && "DATABASE_URL is not set" }, () 
         { from_table: "story_sessions", col: "id_story_scene", on_delete: "n" },
       ]);
     });
+  });
+
+  it("tells the tables when a scene or an element is edited from the board", async () => {
+    const [{ id: scene }] = await db
+      .insert(tables.storyScenes)
+      .values({ idStory: myStory, sceneTitle: "Fixture told scene", idCreatedByUser: testUser })
+      .returning({ id: tables.storyScenes.idStoryScene });
+    const [{ id: element }] = await db
+      .insert(tables.elements)
+      .values({
+        idStory: myStory,
+        kind: "THING",
+        name: "Fixture told thing",
+        idCreatedByUser: testUser,
+      })
+      .returning({ id: tables.elements.idElement });
+    published.publishSceneChanged.mock.resetCalls();
+    published.publishElementChanged.mock.resetCalls();
+    try {
+      // Each save redirects, which Next implements by throwing; the publish
+      // has gone before it does.
+      await redirectOf(
+        actions.sa_updateStoryScene(scene, {
+          title: "Fixture told scene, renamed",
+          description: "",
+          idStorySession: "",
+        }),
+      );
+      expect(published.publishSceneChanged.mock.calls.map((call) => call.arguments)).toEqual([
+        [myStory],
+      ]);
+      await redirectOf(
+        actions.sa_updateElement(element, {
+          kind: "THING",
+          name: "Fixture told thing, renamed",
+          initialName: "",
+          title: "",
+          description: "",
+          notes: "",
+          url: "",
+          urlText: "",
+        }),
+      );
+      expect(published.publishElementChanged.mock.calls.map((call) => call.arguments)).toEqual([
+        [myStory, element],
+      ]);
+    } finally {
+      await db.delete(tables.elements).where(eq(tables.elements.idElement, element));
+      await db.delete(tables.storyScenes).where(eq(tables.storyScenes.idStoryScene, scene));
+    }
   });
 });

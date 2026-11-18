@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
 import type { ElementValues } from "@/lib/element-schemas";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
 type Result = { ok: true } | { ok: false; errors: Record<string, string> };
 
@@ -31,9 +32,7 @@ describe("ElementForm", () => {
       namedExports: { sa_createElement, sa_updateElement, sa_deleteElement },
     });
     // Delete goes back to the board once the element is gone.
-    mock.module("next/navigation", {
-      namedExports: { useRouter: () => ({ push, refresh: mock.fn() }) },
-    });
+    mockNavigation({ router: { ...mockRouter(), push } });
     ({ ElementForm } = await import("./element-form"));
   });
 

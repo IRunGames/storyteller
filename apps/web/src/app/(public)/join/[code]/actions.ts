@@ -11,14 +11,13 @@ import { requireUser } from "@/lib/authorize";
 import { getSession } from "@/lib/require-session";
 import { joinCap, TABLE_FULL } from "@/lib/join";
 import { nicknameSchema } from "@/lib/join-schemas";
+import { LINK_GONE } from "@/lib/messages";
 
 const { stories, storyPlayers, user: users } = schema;
 
-// The codes sa_getJoinLink makes are 12 base64url characters; anything that
+// The codes sa_getOrCreateJoinLink makes are 12 base64url characters; anything that
 // could not be one is turned away before it reaches the query.
 const codeSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
-
-const GONE = "This link does not lead to a table any more.";
 
 // The seats a story's link has given out, which its cap is counted against.
 const fromLink = (idStory: number) =>
@@ -44,6 +43,11 @@ export type JoinStory = {
  * Archived stories have no table, so their links lead nowhere.
  */
 export async function sa_getJoinStory(code: string): Promise<JoinStory | null> {
+  return joinStory(code);
+}
+
+/** The story a join link names, as sa_getJoinStory answers it; the read both the page and the join share. */
+async function joinStory(code: string): Promise<JoinStory | null> {
   const parsed = codeSchema.safeParse(code);
   if (!parsed.success) return null;
 
@@ -112,18 +116,31 @@ export async function sa_joinByLink(code: string, nickname: string): Promise<Joi
  */
 export async function sa_joinAsGuest(code: string, nickname: string): Promise<JoinByLinkResult> {
   const held = await getSession();
-  if (held) return sa_joinByLink(code, nickname);
+  // A session already held is seated as sa_joinByLink seats it, through the
+  // same helper rather than the action, which would look the session up again.
+  if (held) {
+    const user = await requireUser();
+    return takeSeat(user, code, nickname);
+  }
 
   const name = nicknameSchema.safeParse(nickname);
   if (!name.success) return { ok: false, error: name.error.issues[0].message };
-  const story = await sa_getJoinStory(code);
-  if (!story) return { ok: false, error: GONE };
+  const story = await joinStory(code);
+  if (!story) return { ok: false, error: LINK_GONE };
   if (story.isFull) return { ok: false, error: TABLE_FULL };
 
   const made = await auth.api.signInAnonymous({ headers: await headers() });
   if (!made) return { ok: false, error: "Could not let you in. Please try again." };
-  const joined = await takeSeat({ id: made.user.id, isAnonymous: true }, code, name.data);
-  // The guest's session goes with their row, so the cookie just set is dead.
+  // A guest who was not seated is deleted again, whether the seat was refused
+  // or the seating itself failed: either way nothing holds the row, and the
+  // guest's session goes with it, so the cookie just set is dead.
+  let joined: JoinByLinkResult;
+  try {
+    joined = await takeSeat({ id: made.user.id, isAnonymous: true }, code, name.data);
+  } catch (error) {
+    await deleteGuests([made.user.id]);
+    throw error;
+  }
   if (!joined.ok) await deleteGuests([made.user.id]);
   return joined;
 }
@@ -142,7 +159,7 @@ async function takeSeat(
   nickname: string,
 ): Promise<JoinByLinkResult> {
   const parsedCode = codeSchema.safeParse(code);
-  if (!parsedCode.success) return { ok: false, error: GONE };
+  if (!parsedCode.success) return { ok: false, error: LINK_GONE };
   const name = nicknameSchema.safeParse(nickname);
   if (user.isAnonymous && !name.success) {
     return { ok: false, error: name.error.issues[0].message };
@@ -155,7 +172,7 @@ async function takeSeat(
       .where(and(eq(stories.joinCode, parsedCode.data), eq(stories.isArchived, false)))
       .for("update")
       .limit(1);
-    if (!story) return { ok: false, error: GONE } as const;
+    if (!story) return { ok: false, error: LINK_GONE } as const;
 
     if (user.isAnonymous && name.success) {
       await tx

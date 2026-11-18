@@ -2,6 +2,7 @@ import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { del, list } from "@vercel/blob";
 import { db, schema } from "@/db";
 import { staleBlobs, unclaimedAttachmentIds } from "@/lib/blob-sweep";
+import { isCronRequest } from "@/lib/cron";
 import { isUploadedBlobUrl } from "@/lib/image-uploads";
 import { PROFILE_PREFERENCE_KEYS } from "@/lib/profile";
 
@@ -21,17 +22,14 @@ const { attachments, userPreferences } = schema;
  *    that is not an attachment.
  *    `list()` then walks the whole store and anything not in that set, past
  *    the grace period, is deleted.
- * 2. Attachments — rows with a null `external_id` past the grace period were
+ * 2. Attachments — rows with a null `id_story` past the grace period were
  *    never claimed by anything. Their blob (if any) is deleted with them.
  *
  * Daily rather than hourly because `list()` is an advanced operation and
  * `del()` is free, so the cost of this job is almost entirely in the listing.
  */
 export async function GET(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  if (!isCronRequest(request)) return new Response("Unauthorized", { status: 401 });
 
   const now = new Date();
   let deletedBlobs = 0;
@@ -99,13 +97,19 @@ export async function GET(request: Request): Promise<Response> {
           isUploadedBlobUrl(row.url),
       )
       .map((row) => row.url as string);
+
+    // The rows go before Blob is asked, the order sa_deleteAttachment keeps
+    // for the same reason: if del() ran first and the row delete then failed,
+    // the rows would be left pointing at a 404. Deleting the rows first and
+    // having the blob call fail instead leaves orphaned blobs, which the next
+    // sweep's first pass collects.
+    await db.delete(attachments).where(inArray(attachments.idAttachment, staleIds));
+    deletedAttachments = staleIds.length;
+
     if (blobUrls.length > 0) {
       await del(blobUrls);
       deletedBlobs += blobUrls.length;
     }
-
-    await db.delete(attachments).where(inArray(attachments.idAttachment, staleIds));
-    deletedAttachments = staleIds.length;
   }
 
   return Response.json({ deletedBlobs, deletedAttachments });

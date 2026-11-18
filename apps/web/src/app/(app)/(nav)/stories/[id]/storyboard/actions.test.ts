@@ -3,27 +3,18 @@
 // user tells and the test user plays in, with a done sitting, an open one and
 // an unplayed scene; a public story the test user has no seat in; and a
 // stranger's private story.
-import { after, before, beforeEach, describe, it, mock } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "storyboard-actions@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-let caller = "";
-const getSession = mock.fn(async () => ({ user: { id: caller } }));
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let tellerId = "";
 let playsIn = 0;
@@ -44,20 +35,16 @@ let zed = 0;
 let lantern = 0;
 const pictures: number[] = [];
 
-describe("storyboard actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("storyboard actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
-    caller = testUser;
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
+    suite.caller = testUser;
     actions = await import("./actions");
 
-    await db.delete(tables.user).where(eq(tables.user.email, "storyboard-fixture@example.test"));
-    const [teller] = await db
-      .insert(tables.user)
-      .values({ name: "Storyboard Fixture", email: "storyboard-fixture@example.test" })
-      .returning({ id: tables.user.id });
-    tellerId = teller.id;
+    tellerId = await suite.makeUser("storyboard-fixture@example.test", {
+      name: "Storyboard Fixture",
+    });
 
     [{ id: playsIn }, { id: openBook }, { id: strangers }] = await db
       .insert(tables.stories)
@@ -253,7 +240,7 @@ describe("storyboard actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
   });
 
   beforeEach(() => {
-    caller = testUser;
+    suite.caller = testUser;
   });
 
   after(async () => {
@@ -268,9 +255,6 @@ describe("storyboard actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       await db.delete(tables.storyPlayers).where(inArray(tables.storyPlayers.idStory, storyIds));
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, storyIds));
     }
-    if (tellerId) await db.delete(tables.user).where(eq(tables.user.id, tellerId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   describe("sa_getStoryboard", () => {
@@ -320,7 +304,7 @@ describe("storyboard actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     });
 
     it("shows the storyteller every sitting with every scene, the never-run ones last, and the unplayed grid", async () => {
-      caller = tellerId;
+      suite.caller = tellerId;
       const board = await actions.sa_getStoryboard(playsIn);
       expect(board?.isStoryteller).toBe(true);
       expect(board?.sessions.map((session) => session.title)).toEqual([
@@ -344,7 +328,7 @@ describe("storyboard actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     });
 
     it("pages the sittings before the oldest on the board, by number and then id, until there are none", async () => {
-      caller = tellerId;
+      suite.caller = tellerId;
       const board = await actions.sa_getStoryboard(playsIn);
       const oldest = board!.sessions[0];
       const earlier = await actions.sa_getStoryboardSessions(playsIn, {
@@ -355,7 +339,7 @@ describe("storyboard actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       expect(earlier?.more).toBe(false);
 
       // A player's pages hold the done sittings only.
-      caller = testUser;
+      suite.caller = testUser;
       const players = await actions.sa_getStoryboard(playsIn);
       const first = players!.sessions[0];
       const playersEarlier = await actions.sa_getStoryboardSessions(playsIn, {
@@ -367,7 +351,7 @@ describe("storyboard actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     });
 
     it("pages the unplayed scenes for the storyteller alone", async () => {
-      caller = tellerId;
+      suite.caller = tellerId;
       const rest = await actions.sa_getStoryboardUnplayed(playsIn, 10);
       expect(rest?.scenes.map((scene) => scene.title)).toEqual([
         "Fixture backlog 10",
@@ -375,7 +359,7 @@ describe("storyboard actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       ]);
       expect(rest?.more).toBe(false);
 
-      caller = testUser;
+      suite.caller = testUser;
       expect(await actions.sa_getStoryboardUnplayed(playsIn, 0)).toEqual({
         scenes: [],
         more: false,
@@ -435,7 +419,7 @@ describe("storyboard actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     });
 
     it("shows the storyteller any scene of theirs", async () => {
-      caller = tellerId;
+      suite.caller = tellerId;
       expect((await actions.sa_getStoryboardScene(ford))?.scene?.title).toBe("Fixture ford");
       expect((await actions.sa_getStoryboardScene(crossing))?.scene?.title).toBe(
         "Fixture crossing",

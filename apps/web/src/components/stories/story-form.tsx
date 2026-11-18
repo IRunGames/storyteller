@@ -19,7 +19,21 @@ import {
 import { Archive, ArchiveRestore } from "lucide-react";
 import type { z } from "zod";
 import { storySchema, type StoryValues } from "@/lib/story-schemas";
+import { applyActionErrors } from "@/lib/forms";
+
+// The fields the form registers, which an action's refusal may name; the
+// schema is a transform, so its shape is not there to read them from.
+const STORY_FIELDS = [
+  "title",
+  "idSystem",
+  "summary",
+  "isLookingForPlayers",
+  "isActive",
+  "isArchived",
+  "isPublic",
+] as const;
 import { sa_createStory, sa_updateStory } from "@/app/(app)/(nav)/stories/actions";
+import { FormError } from "@/components/forms/form-error";
 
 // What the form fields hold before the schema runs: the System <select> keeps
 // its raw string, and storySchema's preprocess turns it into a number or
@@ -102,16 +116,14 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
 
     // On success the action redirects and this never runs. Anything that
     // comes back is a field error the client check did not catch.
-    for (const [field, message] of Object.entries(result.errors)) {
-      setError(field as keyof StoryInput, { message });
-    }
-    if (Object.keys(result.errors).length === 0) {
-      setError("root", {
-        message: story
-          ? "Could not save the story. Please try again."
-          : "Could not create the story. Please try again.",
-      });
-    }
+    applyActionErrors(
+      { setError },
+      result.errors,
+      STORY_FIELDS,
+      story
+        ? "Could not save the story. Please try again."
+        : "Could not create the story. Please try again.",
+    );
   }
 
   // Controller rather than register() for every checkbox: Chakra's hidden
@@ -169,14 +181,7 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
         )}
       </HStack>
 
-      {errors.root && (
-        <Alert.Root status="error">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Description>{errors.root.message}</Alert.Description>
-          </Alert.Content>
-        </Alert.Root>
-      )}
+      <FormError message={errors.root?.message} />
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <Stack gap="4">
@@ -203,8 +208,6 @@ export function StoryForm({ systems, story, afterCreate }: Props) {
           </Field.Root>
 
           {dropsStatBlock && (
-            // role="alert", which Chakra's Alert does not set itself, so the
-            // warning is read out as it appears rather than only when found.
             <Alert.Root role="alert" status="warning">
               <Alert.Indicator />
               <Alert.Content>

@@ -18,7 +18,7 @@ import { sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { PlayerCount } from "./player-count";
 import { LocalDate } from "@/components/dates/local-date";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { DeleteSessionButton } from "./delete-session-button";
 import { SessionEditPanel } from "./session-edit-panel";
 import { SessionInfoPopover } from "./session-info-popover";
@@ -245,7 +245,7 @@ export function StorySessions({
                 />
                 {canManage && (
                   <HStack gap="0" flex="none">
-                    <PrepIconButton
+                    <IconButtonWithTooltip
                       label={`Edit ${sessionHeading(session)}`}
                       expanded={editing === session.idStorySession}
                       onClick={() =>
@@ -255,7 +255,7 @@ export function StorySessions({
                       }
                     >
                       <Pencil />
-                    </PrepIconButton>
+                    </IconButtonWithTooltip>
                     <DeleteSessionButton
                       idStorySession={session.idStorySession}
                       heading={sessionHeading(session)}

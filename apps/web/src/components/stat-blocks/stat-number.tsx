@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, type KeyboardEvent } from "react";
-import { HStack, Stack, Text } from "@chakra-ui/react";
+import { HStack, NumberInput, Stack, Text } from "@chakra-ui/react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
-import { NumberOnlyInput } from "./number-only-input";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
+import { numberOnly } from "@/lib/stat-blocks";
 
 type Props = {
   /** The accessible name of the box; the clickers are "<label> up" and "<label> down". */
@@ -24,15 +24,24 @@ type Props = {
 };
 
 /**
- * A number at the table: an entry box with an up/down clicker beside it
- * where the template asks for one. The arrow keys in the box step the value
- * the same way, and a step keeps to the min and max given, so a pool is not
- * stepped past its ceiling only to come back clamped. A click or a step
- * commits at once, from the value shown; typing commits when the box
- * is left or Enter is pressed, and anything that is not a number by then
- * is dropped and the value shown comes back. What is shown is the value
- * given until something is typed, so a value that comes back clamped from
- * the action replaces the typing rather than fighting it.
+ * A number at the table: Chakra's NumberInput as the entry box, with an
+ * up/down clicker beside it where the template asks for one. The box
+ * announces itself as a spinbutton with its bounds, and keeps what is typed
+ * to a number: zag refuses any other character as it is typed, from the
+ * beforeinput event, and numberOnly cuts it again from the change, since
+ * jsdom delivers no beforeinput data and a paste's is only partly checked.
+ *
+ * The steps are this component's own rather than the NumberInput's
+ * triggers and arrow keys: the table commits every step at once, from the
+ * value stored, and holds it to the min and max given, where zag steps a
+ * value that is only committed on blur or Enter. So the clicker is a pair
+ * of plain buttons, and the arrow keys are taken before zag sees them (it
+ * leaves a key whose default is already prevented alone). Typing commits
+ * through zag's own commit, when the box is left or Enter is pressed;
+ * anything that is not a number by then is dropped and the value shown
+ * comes back, and Escape drops the typing at once. What is shown is the
+ * value given until something is typed, so a value that comes back clamped
+ * from the action replaces the typing rather than fighting it.
  */
 export function StatNumber({
   label,
@@ -58,22 +67,19 @@ export function StatNumber({
     if (next !== current) onCommit(next);
   }
 
-  function commitTyped() {
-    if (typed === null) return;
-    const number = Number(typed);
+  function commit(text: string) {
+    const number = Number(text);
     setTyped(null);
-    if (typed.trim() !== "" && Number.isFinite(number) && number !== value) onCommit(number);
+    if (text.trim() !== "" && Number.isFinite(number) && number !== value) onCommit(number);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      commitTyped();
-    } else if (event.key === "Escape") {
+    if (event.key === "Escape") {
       setTyped(null);
-    } else if (canEdit && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+    } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       // The arrows step the value as the clicker does, whatever is half typed.
       event.preventDefault();
+      if (!canEdit) return;
       setTyped(null);
       step(event.key === "ArrowUp" ? 1 : -1);
     }
@@ -86,27 +92,36 @@ export function StatNumber({
           {sign}
         </Text>
       )}
-      <NumberOnlyInput
+      <NumberInput.Root
         size="xs"
         // Room for three digits and no more, so a line holds more stats.
         w="12"
-        textAlign="right"
-        aria-label={label}
         value={shown}
+        onValueChange={(details) => setTyped(numberOnly(details.value))}
+        onValueCommit={(details) => commit(details.value)}
+        min={min}
+        max={typeof max === "number" ? max : undefined}
+        // The box shows what the action answers, clamped or not; a step
+        // never goes past the bounds, and typing is the user's to correct.
+        allowOverflow
+        allowMouseWheel={false}
         readOnly={!canEdit}
-        data-testid={testId}
-        onChange={(event) => setTyped(event.target.value)}
-        onBlur={commitTyped}
-        onKeyDown={onKeyDown}
-      />
+      >
+        <NumberInput.Input
+          textAlign="right"
+          aria-label={label}
+          data-testid={testId}
+          onKeyDown={onKeyDown}
+        />
+      </NumberInput.Root>
       {canEdit && clicker && (
         <Stack gap="0">
-          <PrepIconButton label={`${label} up`} size="2xs" onClick={() => step(1)}>
+          <IconButtonWithTooltip label={`${label} up`} size="2xs" onClick={() => step(1)}>
             <ChevronUp />
-          </PrepIconButton>
-          <PrepIconButton label={`${label} down`} size="2xs" onClick={() => step(-1)}>
+          </IconButtonWithTooltip>
+          <IconButtonWithTooltip label={`${label} down`} size="2xs" onClick={() => step(-1)}>
             <ChevronDown />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         </Stack>
       )}
     </HStack>

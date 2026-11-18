@@ -3,13 +3,11 @@
 // test users under @example.test, and two stories: one only the guest sits
 // at, one both do. Everything is removed again in `after`; the tests that
 // delete guests delete only guests this file made.
-import { after, before, describe, it } from "node:test";
+import { after, before, it } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 import { makeTestUser, removeTestUser } from "@/test/test-user";
-
-loadEnvConfig(process.cwd());
 
 const OWNER_EMAIL = "guests-owner@example.test";
 const GUEST_EMAIL = "guests-guest@example.test";
@@ -23,11 +21,9 @@ const SEATED_EMAILS = [
   "guests-fresh@example.test",
   "guests-elsewhere@example.test",
 ];
-const hasDb = Boolean(process.env.DATABASE_URL);
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 let guests: typeof import("./guests");
 
 let owner = "";
@@ -36,13 +32,13 @@ let account = "";
 let onlyGuest = 0;
 let both = 0;
 
-describe("guests", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("guests", {}, (suite) => {
   before(async () => {
-    ({ db, schema: tables } = await import("@/db"));
+    ({ db, tables } = suite);
     guests = await import("./guests");
-    owner = await makeTestUser(db, tables, OWNER_EMAIL);
-    guest = await makeTestUser(db, tables, GUEST_EMAIL);
-    account = await makeTestUser(db, tables, ACCOUNT_EMAIL);
+    owner = await suite.makeUser(OWNER_EMAIL);
+    guest = await suite.makeUser(GUEST_EMAIL);
+    account = await suite.makeUser(ACCOUNT_EMAIL);
     await db.update(tables.user).set({ isAnonymous: true }).where(eq(tables.user.id, guest));
 
     [{ id: onlyGuest }, { id: both }] = await db
@@ -63,10 +59,9 @@ describe("guests", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
       await db.delete(tables.storyPlayers).where(inArray(tables.storyPlayers.idStory, ids));
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, ids));
     }
-    for (const email of [...SEATED_EMAILS, GUEST_EMAIL, ACCOUNT_EMAIL, OWNER_EMAIL]) {
+    for (const email of SEATED_EMAILS) {
       await removeTestUser(db, tables, email);
     }
-    await db.$client.end();
   });
 
   it("hands the guest's seats, presence and lines to the account, so the guest can be deleted", async () => {

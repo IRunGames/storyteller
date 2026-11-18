@@ -5,11 +5,12 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
 const sa_activateStory = mock.fn<(idStory: number) => Promise<{ ok: boolean; error?: string }>>(
   async () => ({ ok: true }),
 );
-const refresh = mock.fn();
+const refresh = mock.fn<() => void>();
 
 let StoryUnavailableDialog: typeof import("./story-unavailable-dialog").StoryUnavailableDialog;
 
@@ -17,9 +18,7 @@ const base = { idStory: 7, title: "Kildealg", isOwner: true, isActive: true, isA
 
 describe("StoryUnavailableDialog", () => {
   before(async () => {
-    mock.module("next/navigation", {
-      namedExports: { useRouter: () => ({ push: mock.fn(), replace: mock.fn(), refresh }) },
-    });
+    mockNavigation({ router: { ...mockRouter(), refresh } });
     mock.module("@/components/play/actions", { namedExports: { sa_activateStory } });
     ({ StoryUnavailableDialog } = await import("./story-unavailable-dialog"));
   });

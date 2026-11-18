@@ -4,7 +4,7 @@ import { Maximize2, Minimize, Minimize2, Plus } from "lucide-react";
 import type { StatusOption } from "@/lib/status";
 import { StatusSearch, type StatusSearchValue } from "@/components/status/status-search";
 import type { PrepColumnMode } from "./prep-columns";
-import { PrepIconButton } from "./prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
 type Props = {
   title: string;
@@ -42,7 +42,7 @@ type Props = {
   onFilterChange: (next: StatusSearchValue) => void;
   /**
    * For a column whose + opens a form in place rather than acting at once:
-   * whether that form is showing. See PrepIconButton's expanded.
+   * whether that form is showing. See IconButtonWithTooltip's expanded.
    */
   creating?: boolean;
   /**
@@ -127,28 +127,28 @@ export function PrepColumn({
             holds; the layout buttons are about the column itself and keep
             to the far edge, so the two are not mistaken for each other. */}
         {creatable && (
-          <PrepIconButton label={`New ${singular}`} onClick={onCreate} expanded={creating}>
+          <IconButtonWithTooltip label={`New ${singular}`} onClick={onCreate} expanded={creating}>
             <Plus />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         )}
         <Spacer />
         {expandable && mode === "normal" && (
-          <PrepIconButton label={`Expand ${title}`} onClick={onExpand}>
+          <IconButtonWithTooltip label={`Expand ${title}`} onClick={onExpand}>
             <Maximize2 />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         )}
         {/* Expanded, the column offers both ways down: back to its usual
             width, drawn as Expand's arrows pointing back in, or straight out
             of the way into a button above the board. At its usual width only
             the second is a move. */}
         {mode === "expanded" && (
-          <PrepIconButton label={`Shrink ${title}`} onClick={onShrink}>
+          <IconButtonWithTooltip label={`Shrink ${title}`} onClick={onShrink}>
             <Minimize2 />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         )}
-        <PrepIconButton label={`Hide ${title}`} onClick={onHide}>
+        <IconButtonWithTooltip label={`Hide ${title}`} onClick={onHide}>
           <Minimize />
-        </PrepIconButton>
+        </IconButtonWithTooltip>
       </HStack>
       {aboveFilters}
       <StatusSearch

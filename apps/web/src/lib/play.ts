@@ -1,3 +1,5 @@
+import { plural } from "./plural";
+
 /**
  * What /stories/[id]/play and its waiting room need to know about a story
  * before deciding which of them to show: whether it can be played at all,
@@ -79,7 +81,7 @@ export function formatWaited(seconds: number): string {
 
 /** "1 person waiting", "3 people waiting". */
 export function formatWaitingCount(count: number): string {
-  return count === 1 ? "1 person waiting" : `${count} people waiting`;
+  return `${plural(count, "person", "people")} waiting`;
 }
 
 /**

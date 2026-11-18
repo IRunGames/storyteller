@@ -17,13 +17,15 @@ import {
   Text,
   Tooltip,
 } from "@chakra-ui/react";
-import { SUMMARY_PREVIEW_CHARS, cssUrlValue, systemLabel, type StoryCardData } from "@/lib/stories";
+import { SUMMARY_PREVIEW_CHARS, systemLabel, type StoryCardData } from "@/lib/stories";
 import { storyboardPath } from "@/lib/storyboard";
-import { BookOpen, GalleryHorizontalEnd, Heart } from "lucide-react";
+import { GalleryHorizontalEnd } from "lucide-react";
 import { LocalDate } from "@/components/dates/local-date";
 import { PlayerCount } from "./player-count";
+import { StoryFavoriteButton } from "./story-favorite-button";
 import { PlayButton } from "./story-play-button";
 import { StoryTitleMenu } from "./story-title-menu";
+import { CoverBackdrop } from "@/components/covers/cover-backdrop";
 
 type Props = {
   story: StoryCardData;
@@ -43,7 +45,6 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
   const isLong = summary.length > SUMMARY_PREVIEW_CHARS;
 
   // One string for the accessible name and the tooltip, so they never drift.
-  const favoriteLabel = story.isFavorite ? "Remove from Favorites" : "Add to Favorites";
 
   // Players in the waiting room, as the storyteller sees them: as the
   // outline round the card (Play counts them itself; see PlayButton). Only
@@ -93,26 +94,13 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
           pointerEvents="none"
         />
       )}
-      <Box
-        data-testid="story-cover"
-        position="absolute"
-        inset="0"
-        bg="gray.700"
-        bgSize="cover"
-        bgPos="center"
-        style={
-          story.imageUrl ? { backgroundImage: `url("${cssUrlValue(story.imageUrl)}")` } : undefined
-        }
-      />
-      {/* Scrim: dark at the bottom for the date, lighter but present at the top
-          so the title reads on a bright cover. */}
-      <Box
-        position="absolute"
-        inset="0"
-        bgGradient="to-b"
-        gradientFrom="blackAlpha.700"
-        gradientVia="blackAlpha.400"
-        gradientTo="blackAlpha.800"
+      {/* Deeper in the middle than the pages' scrim: the summary is white
+          text and runs through it, and a pale cover would wash it out. */}
+      <CoverBackdrop
+        url={story.imageUrl}
+        scrim="deep-gradient"
+        fallback="gray.700"
+        testId="story-cover"
       />
 
       <Stack position="relative" h="full" p="4" gap="2">
@@ -123,17 +111,26 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
           <LinkOverlay asChild>
             <NextLink href={`/stories/${story.idStory}`} aria-label={`Open ${story.title}`} />
           </LinkOverlay>
-          <Box position="relative" zIndex="1" minW="0">
-            <StoryTitleMenu
-              idStory={story.idStory}
-              title={story.title}
-              isStoryteller={story.isOwner}
-              as="h3"
-              size="md"
-              fontWeight="semibold"
-              onImage
-            />
-          </Box>
+          {/* The title's line, with the Storyboard door at its right for
+              everyone: the board shows each reader what they may see of the
+              story's scenes. The title keeps minW 0 so a long one wraps
+              rather than pushing the door out. */}
+          <HStack gap="1" alignItems="center">
+            <Box position="relative" zIndex="1" minW="0">
+              <StoryTitleMenu
+                idStory={story.idStory}
+                title={story.title}
+                isStoryteller={story.isOwner}
+                as="h3"
+                size="md"
+                fontWeight="semibold"
+                onImage
+              />
+            </Box>
+            <Door label="Storyboard" href={storyboardPath(story.idStory)}>
+              <GalleryHorizontalEnd size={18} />
+            </Door>
+          </HStack>
           {system && (
             <Text textStyle="xs" color="whiteAlpha.800">
               {system}
@@ -192,16 +189,13 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         )}
 
         {/* Bottom row: on the left an Inactive pill for a retired story,
-            else Play for everyone (PlayButton), with the Storyboard door
-            beside either for everyone and the Library's after it for the
-            owner; the player count in the middle; the date on the right.
-            A grid with equal outer
-            columns keeps the count centred whatever the sides hold, and
-            justifyItems start stops the round Play button being stretched to
-            its column's width. In the flow rather than floated like the
-            heart, so it can never fall outside the card. The buttons sit
-            above the LinkOverlay's ::before so the click is their own, like
-            "more". */}
+            else Play for everyone (PlayButton); the player count in the
+            middle; the date on the right. A grid with equal outer columns
+            keeps the count centred whatever the sides hold, and justifyItems
+            start stops the round Play button being stretched to its column's
+            width. In the flow rather than floated like the heart, so it can
+            never fall outside the card. The button sits above the
+            LinkOverlay's ::before so the click is its own, like "more". */}
         <Grid
           templateColumns="1fr auto 1fr"
           alignItems="center"
@@ -209,34 +203,15 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
           gap="2"
           mt="auto"
         >
-          {/* The doors ride beside whatever sits here, the Inactive pill
-              included: the story page offers them whatever the story's
-              state, and a retired story's board and library are still
-              worth opening. In the story page's order: the Storyboard,
-              which shows each reader what they may see of the story's
-              scenes, then the storyteller's Library. */}
-          <HStack gap="1">
-            {!story.isActive ? (
-              <Badge size="sm" variant="solid" colorPalette="gray">
-                Inactive
-              </Badge>
-            ) : (
-              // Play, as everywhere: the storyteller's opens the session
-              // popover, a player's goes to the table.
-              <PlayButton story={story} />
-            )}
-            <Door label="Storyboard" href={storyboardPath(story.idStory)}>
-              <GalleryHorizontalEnd size={18} />
-            </Door>
-            {story.isOwner && (
-              <Door
-                label="Library: Full Story Resources"
-                href={`/stories/${story.idStory}/library`}
-              >
-                <BookOpen size={18} />
-              </Door>
-            )}
-          </HStack>
+          {!story.isActive ? (
+            <Badge size="sm" variant="solid" colorPalette="gray">
+              Inactive
+            </Badge>
+          ) : (
+            // Play, as everywhere: the storyteller's opens the session
+            // popover, a player's goes to the table.
+            <PlayButton story={story} />
+          )}
           {/* The card's own dressing over the cover: a dark pill so the
               count reads against whatever the image is doing under it. */}
           <PlayerCount
@@ -261,44 +236,17 @@ export function StoryCard({ story, onToggleFavorite, favoritePending = false }: 
         // Last in the DOM so a screen reader reaches the title first, and
         // positioned above the LinkOverlay's ::before (z-index 0) so the click
         // is the button's and never the card link's — same technique as "more".
-        //
-        // aria-disabled rather than disabled: a disabled button drops out of
-        // the tab order, so a keyboard user loses their place mid-toggle. The
-        // click handler enforces it instead.
-        <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
-          <Tooltip.Trigger asChild>
-            <IconButton
-              type="button"
-              aria-label={favoriteLabel}
-              aria-pressed={story.isFavorite}
-              variant="ghost"
-              size="sm"
-              rounded="full"
-              position="absolute"
-              top="2"
-              right="2"
-              zIndex="1"
-              color={story.isFavorite ? "red.300" : "whiteAlpha.900"}
-              bg="blackAlpha.400"
-              _hover={{ bg: "blackAlpha.600" }}
-              aria-disabled={favoritePending}
-              opacity={favoritePending ? "0.6" : undefined}
-              cursor={favoritePending ? "not-allowed" : undefined}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (favoritePending) return;
-                onToggleFavorite(story, !story.isFavorite);
-              }}
-            >
-              <Heart size={22} fill={story.isFavorite ? "currentColor" : "none"} />
-            </IconButton>
-          </Tooltip.Trigger>
-          <Portal>
-            <Tooltip.Positioner>
-              <Tooltip.Content>{favoriteLabel}</Tooltip.Content>
-            </Tooltip.Positioner>
-          </Portal>
-        </Tooltip.Root>
+        <StoryFavoriteButton
+          idStory={story.idStory}
+          isFavorite={story.isFavorite}
+          onImage
+          pending={favoritePending}
+          onToggle={(isFavorite) => onToggleFavorite(story, isFavorite)}
+          position="absolute"
+          top="2"
+          right="2"
+          zIndex="1"
+        />
       )}
     </LinkBox>
   );

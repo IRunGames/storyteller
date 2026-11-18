@@ -1,8 +1,8 @@
 "use client";
 
-import { chakra, Menu, Portal } from "@chakra-ui/react";
+import { Menu, Portal } from "@chakra-ui/react";
 import { statusLabel, type StatusOption } from "@/lib/status";
-import { pillStyle } from "./pill-style";
+import { StatusPillButton } from "./pill-style";
 
 type Props = {
   /** The status chosen so far. */
@@ -13,9 +13,6 @@ type Props = {
   /** Names the button for a screen reader, which hears the status after it. */
   label: string;
 };
-
-// A real button, as StatusPill's is, so it never submits the form it sits in.
-const PillButton = chakra("button");
 
 /**
  * A status pill inside a form: it looks like StatusPill and opens the same
@@ -29,16 +26,15 @@ export function StatusChoicePill({ value, options, onChange, label }: Props) {
   return (
     <Menu.Root onSelect={(details) => onChange(details.value)}>
       <Menu.Trigger asChild>
-        <PillButton
+        <StatusPillButton
           type="button"
           aria-label={`${label}: ${shown}`}
           data-status={value}
           cursor="pointer"
-          {...pillStyle()}
           _hover={{ borderColor: "status.contrast" }}
         >
           {shown}
-        </PillButton>
+        </StatusPillButton>
       </Menu.Trigger>
       <Portal>
         <Menu.Positioner>

@@ -1,9 +1,10 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Button, chakra, HStack, Menu, Popover, Portal, Text, Tooltip } from "@chakra-ui/react";
+import { Button, HStack, Menu, Popover, Portal, Text } from "@chakra-ui/react";
+import { WithTooltip } from "@/components/buttons/with-tooltip";
 import type { StatusOption } from "@/lib/status";
-import { pillStyle } from "./pill-style";
+import { StatusPillButton } from "./pill-style";
 
 /** What the pill's confirmation popover says before a move. */
 export type StatusConfirmation = { title: string; body: string; confirmLabel: string };
@@ -27,11 +28,6 @@ type Props = {
   confirm?: (next: string) => StatusConfirmation | null;
 };
 
-// The interactive pill is a real button: Span polymorphed with `as` keeps
-// the span's own prop types, which have no `type`, and a trigger inside a
-// form must not default to submitting it.
-const PillButton = chakra("button");
-
 /**
  * The menu half of a status pill, with no idea what it is moving: the pill
  * that is pressed, the menu of moves out of the status it shows, the note it
@@ -44,8 +40,6 @@ const PillButton = chakra("button");
 export function StatusMenuPill({ label, value, moves, onChoose, tooltip, confirm }: Props) {
   // The status waiting on the confirmation popover, and what it says.
   const [pending, setPending] = useState<{ next: string; ask: StatusConfirmation } | null>(null);
-  // Tooltip and menu each look their trigger up by id; sharing one keeps the
-  // menu from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
 
   // Pressing a status the workflow leads nowhere out of would otherwise get
@@ -55,15 +49,14 @@ export function StatusMenuPill({ label, value, moves, onChoose, tooltip, confirm
     return (
       <Popover.Root positioning={{ placement: "bottom-start" }}>
         <Popover.Trigger asChild>
-          <PillButton
+          <StatusPillButton
             type="button"
             data-status={value}
             cursor="pointer"
-            {...pillStyle()}
             _hover={{ borderColor: "status.contrast" }}
           >
             {label}
-          </PillButton>
+          </StatusPillButton>
         </Popover.Trigger>
         <Portal>
           <Popover.Positioner>
@@ -84,17 +77,16 @@ export function StatusMenuPill({ label, value, moves, onChoose, tooltip, confirm
   }
 
   const trigger = (
-    <PillButton
+    <StatusPillButton
       type="button"
       data-status={value}
       cursor="pointer"
-      {...pillStyle()}
       // The only thing that changes on hover is the edge, since the fill
       // is already the highlight at full strength.
       _hover={{ borderColor: "status.contrast" }}
     >
       {label}
-    </PillButton>
+    </StatusPillButton>
   );
 
   const menu = (
@@ -107,20 +99,9 @@ export function StatusMenuPill({ label, value, moves, onChoose, tooltip, confirm
       }}
     >
       {tooltip ? (
-        <Tooltip.Root
-          openDelay={200}
-          positioning={{ placement: "top" }}
-          ids={{ trigger: triggerId }}
-        >
-          <Tooltip.Trigger asChild>
-            <Menu.Trigger asChild>{trigger}</Menu.Trigger>
-          </Tooltip.Trigger>
-          <Portal>
-            <Tooltip.Positioner>
-              <Tooltip.Content>{tooltip}</Tooltip.Content>
-            </Tooltip.Positioner>
-          </Portal>
-        </Tooltip.Root>
+        <WithTooltip tooltip={tooltip} menuTrigger={triggerId}>
+          {trigger}
+        </WithTooltip>
       ) : (
         <Menu.Trigger asChild>{trigger}</Menu.Trigger>
       )}

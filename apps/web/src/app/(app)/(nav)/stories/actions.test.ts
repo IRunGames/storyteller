@@ -8,25 +8,17 @@
 // PLAYS in, a story it merely favorites, and a flagged-but-inactive story — and
 // `after` deletes them again. Every fixture id is positive and left to the
 // database default, so it can never collide with the seed's negative ids.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it, mock } from "node:test";
 import { expect } from "expect";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
-import { loadEnvConfig } from "@next/env";
 
 import { initialStatus, pausePair, terminalStatus } from "@/test/workflow";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
+import { STORY_NOT_FOUND, STORY_NOT_YOURS } from "@/lib/messages";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
 const TEST_USER_EMAIL = "stories-actions@example.test";
 let testUser = "";
-// A seeded story, only ever read here: the id fetches its own story.
-const SEEDED_STORY = -3;
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
 
 let actions: typeof import("./actions");
 
@@ -38,34 +30,50 @@ let statusDone = "";
 let statusPause = "";
 let statusResume = "";
 
-// `@/db` opens its pool at import time, so it has to be pulled in from inside
-// `before` — a static import is evaluated before loadEnvConfig() above runs,
-// and the pool would be built without a connection string.
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 const TITLE_A = "Fixture A — other's story, test user plays in it, LFP, active";
 const TITLE_B = "Fixture B — other's story, test user only favorites it";
 const TITLE_C = "Fixture C — other's story, LFP but inactive";
 const TITLE_D = "Fixture D — test user's own story, inactive";
 const TITLE_E = "Fixture E — test user's own story, archived, and favorited by them";
+const TITLE_F = "Fixture F — other's story, public, run in Numenera";
 
 let otherUserId = "";
 let storyA = 0;
 let storyB = 0;
 let storyC = 0;
 let storyD = 0;
+let storyF = 0;
 let storyE = 0;
 let openSessionId = 0;
+let doneSessionId = 0;
 let pastSessionIds: number[] = [];
 let fixtureStoryIds: number[] = [];
 
-describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+// What each write tells the players' table, mocked so the tests see which
+// helper an action reached for; what the helpers send is their own test's
+// business (lib/realtime/publish-scene.test.ts).
+// The table's head count goes out through lib/guests, caught here.
+const recountTable = mock.fn((_idStory: number) => {});
+const published = {
+  publishSceneChanged: mock.fn(async (..._args: unknown[]) => {}),
+  publishSessionUpdated: mock.fn(async (..._args: unknown[]) => {}),
+};
+
+describeWithDb("stories actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
+    mock.module("@/lib/realtime/publish-scene", { namedExports: published });
+    mock.module("@/lib/guests", {
+      namedExports: {
+        recountTable,
+        removeGuests: async () => {},
+        removeGuestsFrom: async () => [],
+      },
+    });
     actions = await import("./actions");
 
     const workflow = await (
@@ -75,15 +83,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     statusDone = terminalStatus(workflow);
     ({ pause: statusPause, resume: statusResume } = pausePair(workflow));
 
-    const [otherUser] = await db
-      .insert(tables.user)
-      .values({
-        name: "Fixture Other",
-        nickName: "Other",
-        email: "stories-fixture-other@example.test",
-      })
-      .returning({ id: tables.user.id });
-    otherUserId = otherUser.id;
+    otherUserId = await suite.makeUser("stories-fixture-other@example.test", {
+      name: "Fixture Other",
+      nickName: "Other",
+    });
 
     // RETURNING order for a multi-row INSERT is not promised, so map by title.
     const inserted = await db
@@ -110,6 +113,9 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
           isArchived: true,
           idArchivedByUser: testUser,
         },
+        // Public, so the test user may read it with no seat; -26 is Cypher
+        // System · Numenera · Revised in seeds/seed_systems.sql.
+        { title: TITLE_F, idCreatedByUser: otherUserId, isPublic: true, idSystem: -26 },
       ])
       .returning({ idStory: tables.stories.idStory, title: tables.stories.title });
 
@@ -123,10 +129,11 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     storyC = idFor(TITLE_C);
     storyD = idFor(TITLE_D);
     storyE = idFor(TITLE_E);
-    fixtureStoryIds = [storyA, storyB, storyC, storyD, storyE];
+    storyF = idFor(TITLE_F);
+    fixtureStoryIds = [storyA, storyB, storyC, storyD, storyE, storyF];
 
     // The test user plays in A but does not own it: this is the only row that
-    // exercises the exists(plays-in) branch of sa_listMyStories.
+    // exercises the exists(plays-in) branch of sa_listMyStoryPage.
     await db.insert(tables.storyPlayers).values({ idStory: storyA, idUser: testUser });
 
     // The test user favorites B; the OTHER user favorites A. A must never
@@ -151,6 +158,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       .insert(tables.storySessions)
       .values({ idStory: storyB })
       .returning({ id: tables.storySessions.idStorySession });
+    doneSessionId = doneSession.id;
     await db
       .update(tables.storySessions)
       .set({ status: statusDone })
@@ -223,53 +231,6 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
         .where(inArray(tables.storyPlayers.idStory, fixtureStoryIds));
       await db.delete(tables.stories).where(inArray(tables.stories.idStory, fixtureStoryIds));
     }
-    if (otherUserId) await db.delete(tables.user).where(eq(tables.user.id, otherUserId));
-
-    // Otherwise the process lingers until the pool's idle timeout.
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
-  });
-
-  it("lists the caller's stories newest-updated first, ten at a time", async () => {
-    // Eleven more of the test user's own, on top of D (inactive, so ask for
-    // all) and A, which it plays in: thirteen, so a second page.
-    const extra = await db
-      .insert(tables.stories)
-      .values(
-        Array.from({ length: 11 }, (_, i) => ({
-          title: `Fixture page filler ${i + 1}`,
-          idCreatedByUser: testUser,
-        })),
-      )
-      .returning({ idStory: tables.stories.idStory });
-    try {
-      const first = await actions.sa_listMyStories(0, true);
-      const second = await actions.sa_listMyStories(10, true);
-
-      expect(first).toHaveLength(10);
-      expect(second).toHaveLength(3);
-      expect(first.map((s) => s.idStory)).not.toContain(second[0].idStory);
-      expect(first[0]).toMatchObject({
-        title: expect.any(String),
-        lastPlayed: expect.any(Date),
-      });
-    } finally {
-      await db.delete(tables.stories).where(
-        inArray(
-          tables.stories.idStory,
-          extra.map((row) => row.idStory),
-        ),
-      );
-    }
-  });
-
-  it("includes a story the user only plays in, and not one they neither own nor play", async () => {
-    const all = [...(await actions.sa_listMyStories(0)), ...(await actions.sa_listMyStories(10))];
-    const ids = all.map((s) => s.idStory);
-
-    expect(ids).toContain(storyA);
-    expect(ids).not.toContain(storyB);
-    expect(ids).not.toContain(storyC);
   });
 
   it("lists the user's own, played-in and favorited stories on one page, searched and sorted in the database", async () => {
@@ -346,8 +307,9 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     const byStatus = await page({ showInactive: true, sortBy: "status", sortDesc: false });
     expect(byStatus[0].isActive).toBe(false);
 
-    await expect(page({ sortBy: "nonsense" })).rejects.toThrow();
-    await expect(page({ offset: -1 })).rejects.toThrow();
+    // A query that is out of bounds is an empty page, not an error.
+    expect(await page({ sortBy: "nonsense" })).toEqual([]);
+    expect(await page({ offset: -1 })).toEqual([]);
   });
 
   it("counts who is waiting on a card, leaving out the viewer", async () => {
@@ -368,9 +330,9 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     // Read straight from sa_getStory, which builds the same card as the
     // lists, rather than by paging My Stories for it: the suites that run
     // alongside this one add and touch the test user's stories, so which
-    // page a seed story sits on can change between one page and the next.
-    // -13 is The Devil's Spine in seeds/seed_stories.sql.
-    const numenera = await actions.sa_getStory(-13);
+    // page a story sits on can change between one page and the next. F is
+    // public, so the test user may read it with no seat.
+    const numenera = await actions.sa_getStory(storyF);
 
     expect(numenera).toMatchObject({
       systemName: "Cypher System",
@@ -400,15 +362,15 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("fetches one story by id", async () => {
-    // What the seed calls the story is the seed's business and has changed
-    // once already, so the title to expect is read from the row rather than
-    // written down: the case is that the id fetches its own story.
-    const [seeded] = await db
+    // The edit tests below rename D, so the title to expect is read from the
+    // row rather than written down: the case is that the id fetches its own
+    // story.
+    const [own] = await db
       .select({ title: tables.stories.title })
       .from(tables.stories)
-      .where(eq(tables.stories.idStory, SEEDED_STORY));
-    const story = await actions.sa_getStory(SEEDED_STORY);
-    expect(story?.title).toBe(seeded.title);
+      .where(eq(tables.stories.idStory, storyD));
+    const story = await actions.sa_getStory(storyD);
+    expect(story?.title).toBe(own.title);
     expect(await actions.sa_getStory(999999)).toBeNull();
     // Beyond int4: Postgres would error on the comparison, so the id is
     // rejected before the query and the page's notFound() takes over.
@@ -434,9 +396,59 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("returns no players for a story without any, or with an unusable id", async () => {
-    // Down in Adder's Hollow: a seed story nobody is seated on.
-    expect(await actions.sa_listStoryPlayers(-2)).toEqual([]);
+    // F is public and nobody is seated on it.
+    expect(await actions.sa_listStoryPlayers(storyF)).toEqual([]);
     expect(await actions.sa_listStoryPlayers(3000000000)).toEqual([]);
+  });
+
+  it("reads a story only as its storyteller, a player, or when it is public or advertised", async () => {
+    // B is the other user's, private and not advertised, and the test user
+    // has no seat there: every read of it is empty, as for a story that is
+    // not there, and a favorite cannot be put on it. Made public, or
+    // advertised while active (the Find list shows those to everyone), the
+    // same reads answer.
+    const none = { previous: null, next: null };
+    const reads = async () => ({
+      story: (await actions.sa_getStory(storyB))?.idStory ?? null,
+      sessions: (await actions.sa_listStorySessions(storyB, 0)).length,
+      count: await actions.sa_countStorySessions(storyB),
+      players: await actions.sa_listStoryPlayers(storyB),
+      neighbours: await actions.sa_getStorySessionNeighbours(doneSessionId),
+    });
+    const flags = async (values: {
+      isPublic: boolean;
+      isLookingForPlayers: boolean;
+      isActive: boolean;
+    }) => db.update(tables.stories).set(values).where(eq(tables.stories.idStory, storyB));
+
+    try {
+      expect(await reads()).toEqual({
+        story: null,
+        sessions: 0,
+        count: 0,
+        players: [],
+        neighbours: none,
+      });
+      expect(await actions.sa_setFavorite(storyB, true)).toEqual({
+        ok: false,
+        error: STORY_NOT_FOUND,
+      });
+
+      await flags({ isPublic: true, isLookingForPlayers: false, isActive: true });
+      const asPublic = await reads();
+      expect(asPublic.story).toBe(storyB);
+      expect(asPublic.sessions).toBeGreaterThan(0);
+      expect(asPublic.count).toBe(asPublic.sessions);
+
+      await flags({ isPublic: false, isLookingForPlayers: true, isActive: true });
+      expect((await reads()).story).toBe(storyB);
+
+      // Advertised but retired is not on the Find list, so not public either.
+      await flags({ isPublic: false, isLookingForPlayers: true, isActive: false });
+      expect((await reads()).story).toBeNull();
+    } finally {
+      await flags({ isPublic: false, isLookingForPlayers: false, isActive: true });
+    }
   });
 
   it("finds players by name, nickname or email, ten at most, case blind", async () => {
@@ -478,12 +490,15 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("refuses to search for, or add to, a story the caller did not create", async () => {
-    await expect(actions.sa_searchPlayers(storyA, "her")).rejects.toThrow(/storyteller/);
-    await expect(actions.sa_addStoryPlayers(storyA, [otherUserId])).rejects.toThrow(/storyteller/);
-    // The popover is only ever shown to the owner of a story that exists,
-    // so an id that is not a story is a throw rather than a soft empty.
-    await expect(actions.sa_searchPlayers(2 ** 40, "her")).rejects.toThrow();
-    await expect(actions.sa_searchPlayers(2147483647, "her")).rejects.toThrow(/not found/);
+    expect(await actions.sa_searchPlayers(storyA, "her")).toEqual([]);
+    expect(await actions.sa_addStoryPlayers(storyA, [otherUserId])).toEqual({
+      ok: false,
+      error: STORY_NOT_YOURS,
+    });
+    // An id that is not a story's, or no story's, answers as someone else's
+    // story does: the popover is only ever shown to the owner of one that is.
+    expect(await actions.sa_searchPlayers(2 ** 40, "her")).toEqual([]);
+    expect(await actions.sa_searchPlayers(2147483647, "her")).toEqual([]);
   });
 
   it("seats the chosen users, skips anyone already seated, and returns who was added", async () => {
@@ -491,15 +506,21 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
       otherUserId,
       "00000000-0000-7000-8000-000000000009",
     ]);
-    expect(added).toEqual([
-      { idUser: "00000000-0000-7000-8000-000000000009", name: "Hermione", image: null },
-      { idUser: otherUserId, name: "Other", image: null },
-    ]);
+    expect(added).toEqual({
+      ok: true,
+      players: [
+        { idUser: "00000000-0000-7000-8000-000000000009", name: "Hermione", image: null },
+        { idUser: otherUserId, name: "Other", image: null },
+      ],
+    });
 
     // Seated players no longer match a search, and adding them again seats
     // nobody twice.
     expect(await actions.sa_searchPlayers(storyD, "Hermione")).toEqual([]);
-    expect(await actions.sa_addStoryPlayers(storyD, [otherUserId])).toEqual([]);
+    expect(await actions.sa_addStoryPlayers(storyD, [otherUserId])).toEqual({
+      ok: true,
+      players: [],
+    });
 
     const seated = await actions.sa_listStoryPlayers(storyD);
     expect(seated.map((p) => p.idUser).sort()).toEqual(
@@ -513,20 +534,22 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("will not seat the storyteller, an unknown user, or more than ten at once", async () => {
-    expect(await actions.sa_addStoryPlayers(storyD, [testUser])).toEqual([]);
+    const nobody = { ok: true, players: [] };
+    expect(await actions.sa_addStoryPlayers(storyD, [testUser])).toEqual(nobody);
     expect(
       await actions.sa_addStoryPlayers(storyD, ["00000000-0000-7000-8000-0000000000ff"]),
-    ).toEqual([]);
-    await expect(actions.sa_addStoryPlayers(storyD, ["not-a-uuid"])).rejects.toThrow();
-    await expect(
-      actions.sa_addStoryPlayers(
+    ).toEqual(nobody);
+    const refused = { ok: false, error: "Choose whom to invite." };
+    expect(await actions.sa_addStoryPlayers(storyD, ["not-a-uuid"])).toEqual(refused);
+    expect(
+      await actions.sa_addStoryPlayers(
         storyD,
         Array.from(
           { length: 11 },
           (_, i) => `00000000-0000-7000-8000-0000000000${String(i).padStart(2, "0")}`,
         ),
       ),
-    ).rejects.toThrow();
+    ).toEqual(refused);
   });
 
   it("lists a story's sessions newest first, five at a time, with their length", async () => {
@@ -553,9 +576,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("leaves the time a session sat suspended out of its length", async () => {
+    // On D, the test user's own story, so the list is theirs to read.
     const [session] = await db
       .insert(tables.storySessions)
-      .values({ idStory: storyB })
+      .values({ idStory: storyD })
       .returning({ id: tables.storySessions.idStorySession });
     // PgUpdateSetSource rather than the insert type so a value may be SQL.
     const set = (values: PgUpdateSetSource<typeof tables.storySessions>) =>
@@ -574,12 +598,13 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     await set({ status: statusResume });
     await set({ status: statusDone });
 
-    const sessions = await actions.sa_listStorySessions(storyB, 0);
+    const sessions = await actions.sa_listStorySessions(storyD, 0);
     expect(sessions.find((s) => s.idStorySession === session.id)?.length).toBe(60);
   });
 
   it("returns no sessions for a story without any, or with an unusable id", async () => {
-    expect(await actions.sa_listStorySessions(storyC, 0)).toEqual([]);
+    // F is public and has never been played.
+    expect(await actions.sa_listStorySessions(storyF, 0)).toEqual([]);
     expect(await actions.sa_listStorySessions(2 ** 40, 0)).toEqual([]);
   });
 
@@ -686,10 +711,6 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     );
   });
 
-  it("rejects a negative offset", async () => {
-    await expect(actions.sa_listMyStories(-1)).rejects.toThrow();
-  });
-
   it("returns field errors for an invalid new story", async () => {
     const result = await actions.sa_createStory({
       title: "",
@@ -743,11 +764,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
 
     // A is the other user's; the test user plays in it, which is exactly
     // what must not be enough.
-    await expect(actions.sa_updateStory(storyA, values)).rejects.toThrow(
-      "Only the storyteller who created a story can edit it",
-    );
+    const notYours = { ok: false, errors: { root: STORY_NOT_YOURS } };
+    expect(await actions.sa_updateStory(storyA, values)).toEqual(notYours);
     expect((await actions.sa_getStory(storyA))?.title).toBe(TITLE_A);
-    await expect(actions.sa_updateStory(2 ** 30, values)).rejects.toThrow("Story not found");
+    expect(await actions.sa_updateStory(2 ** 30, values)).toEqual(notYours);
 
     expect(await actions.sa_updateStory(storyD, { ...values, title: "" })).toEqual({
       ok: false,
@@ -844,8 +864,20 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     });
   });
 
+  // Every story on the caller's Stories page, read through the page's own
+  // action as the page reads it, touched last first.
+  async function myStories(showInactive = false) {
+    return actions.sa_listMyStoryPage({
+      search: "",
+      showInactive,
+      sortBy: "recent",
+      sortDesc: true,
+      offset: 0,
+    });
+  }
+
   it("marks each card with whether the caller has favorited it", async () => {
-    const mine = [...(await actions.sa_listMyStories(0)), ...(await actions.sa_listMyStories(10))];
+    const mine = await myStories();
     const cardA = mine.find((s) => s.idStory === storyA);
     expect(cardA?.isFavorite).toBe(false); // the OTHER user favorited A, not the caller
 
@@ -870,17 +902,14 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("counts each card's players", async () => {
-    const all = [
-      ...(await actions.sa_listMyStories(0, true)),
-      ...(await actions.sa_listMyStories(10, true)),
-    ];
+    const all = await myStories(true);
     // The test user is fixture A's only player.
     expect(all.find((s) => s.idStory === storyA)?.playerCount).toBe(1);
 
     // A second seat on A is counted.
     await db.insert(tables.storyPlayers).values({ idStory: storyA, idUser: otherUserId });
     try {
-      const again = await actions.sa_listMyStories(0, true);
+      const again = await myStories(true);
       expect(again.find((s) => s.idStory === storyA)?.playerCount).toBe(2);
     } finally {
       await db
@@ -892,10 +921,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("hides the caller's inactive stories unless asked to show them", async () => {
-    const all = async (showInactive: boolean) => [
-      ...(await actions.sa_listMyStories(0, showInactive)),
-      ...(await actions.sa_listMyStories(10, showInactive)),
-    ];
+    const all = async (showInactive: boolean) => await myStories(showInactive);
 
     const hidden = (await all(false)).map((s) => s.idStory);
     expect(hidden).not.toContain(storyD);
@@ -908,10 +934,7 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("leaves an archived story off My Stories, even with inactive shown, and off Favorites", async () => {
-    const mine = [
-      ...(await actions.sa_listMyStories(0, true)),
-      ...(await actions.sa_listMyStories(10, true)),
-    ];
+    const mine = await myStories(true);
     expect(mine.map((s) => s.idStory)).toContain(storyD);
     expect(mine.map((s) => s.idStory)).not.toContain(storyE);
 
@@ -924,13 +947,13 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("marks each card with whether the caller owns it", async () => {
-    const mine = await actions.sa_listMyStories(0, true);
+    const mine = await myStories(true);
     expect(mine.find((s) => s.idStory === storyD)?.isOwner).toBe(true); // created it
     expect(mine.find((s) => s.idStory === storyA)?.isOwner).toBe(false); // only plays in it
   });
 
   it("names each card's storyteller, preferring their nickname", async () => {
-    const mine = await actions.sa_listMyStories(0, true);
+    const mine = await myStories(true);
     expect(mine.find((s) => s.idStory === storyA)?.storytellerName).toBe("Other"); // nickname set
     expect(mine.find((s) => s.idStory === storyD)?.storytellerName).toBe("Test User"); // none
 
@@ -940,16 +963,17 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("adds and removes a favorite for the caller only, idempotently", async () => {
-    expect(await actions.sa_setFavorite(storyC, true)).toEqual({ isFavorite: true });
+    // F is the other user's, public, so the test user may read and favorite it.
+    expect(await actions.sa_setFavorite(storyF, true)).toEqual({ ok: true, isFavorite: true });
     // A second add must not trip the (id_story, id_user) unique constraint.
-    expect(await actions.sa_setFavorite(storyC, true)).toEqual({ isFavorite: true });
+    expect(await actions.sa_setFavorite(storyF, true)).toEqual({ ok: true, isFavorite: true });
 
     let ids = (await actions.sa_listFavoriteStories(0)).map((s) => s.idStory);
-    expect(ids).toContain(storyC);
+    expect(ids).toContain(storyF);
 
-    expect(await actions.sa_setFavorite(storyC, false)).toEqual({ isFavorite: false });
+    expect(await actions.sa_setFavorite(storyF, false)).toEqual({ ok: true, isFavorite: false });
     ids = (await actions.sa_listFavoriteStories(0)).map((s) => s.idStory);
-    expect(ids).not.toContain(storyC);
+    expect(ids).not.toContain(storyF);
 
     // The other user's favorite on A is untouched by any of the above.
     const otherRows = await db
@@ -960,7 +984,10 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
   });
 
   it("refuses to favorite a story that does not exist", async () => {
-    await expect(actions.sa_setFavorite(999999, true)).rejects.toThrow("Story not found");
+    expect(await actions.sa_setFavorite(999999, true)).toEqual({
+      ok: false,
+      error: STORY_NOT_FOUND,
+    });
   });
 
   it("gives the storyteller the sitting's scenes, in the order they were played", async () => {
@@ -1258,13 +1285,67 @@ describe("stories actions", { skip: !hasDb && "DATABASE_URL is not set" }, () =>
     }
   });
 
+  it("tells the tables when a player is taken off, and recounts the table they were at", async () => {
+    // Seated and present at D's current session, as the link button's
+    // Remove finds a player: the seat, the presence and the favorite all go,
+    // the scene is said to have changed, and the head count is published.
+    const [{ idStorySession }] = await db
+      .select({ idStorySession: tables.stories.idStorySession })
+      .from(tables.stories)
+      .where(eq(tables.stories.idStory, storyD));
+    await db.insert(tables.storyPlayers).values({ idStory: storyD, idUser: otherUserId });
+    await db.insert(tables.sessionPlayers).values({
+      idStory: storyD,
+      idStorySession,
+      status: "PRESENT",
+      idCreatedByUser: otherUserId,
+      idUpdatedByUser: otherUserId,
+    });
+    published.publishSceneChanged.mock.resetCalls();
+    recountTable.mock.resetCalls();
+    try {
+      expect(await actions.sa_removeStoryPlayer(storyD, otherUserId)).toEqual({ ok: true });
+      const presence = await db
+        .select({ id: tables.sessionPlayers.idSessionPlayer })
+        .from(tables.sessionPlayers)
+        .where(
+          and(
+            eq(tables.sessionPlayers.idStory, storyD),
+            eq(tables.sessionPlayers.idCreatedByUser, otherUserId),
+          ),
+        );
+      expect(presence).toEqual([]);
+      expect(published.publishSceneChanged.mock.calls.map((call) => call.arguments)).toEqual([
+        [storyD],
+      ]);
+      expect(recountTable.mock.calls.map((call) => call.arguments)).toEqual([[storyD]]);
+    } finally {
+      await db
+        .delete(tables.sessionPlayers)
+        .where(
+          and(
+            eq(tables.sessionPlayers.idStory, storyD),
+            eq(tables.sessionPlayers.idCreatedByUser, otherUserId),
+          ),
+        );
+      await db
+        .delete(tables.storyPlayers)
+        .where(
+          and(eq(tables.storyPlayers.idStory, storyD), eq(tables.storyPlayers.idUser, otherUserId)),
+        );
+    }
+  });
+
   it("removing someone who is not seated is not an error", async () => {
     expect(await actions.sa_removeStoryPlayer(storyD, otherUserId)).toEqual({ ok: true });
   });
 
   it("refuses a story the caller did not create, and the storyteller themselves", async () => {
     // storyA belongs to the other user, and the test user only plays in it.
-    await expect(actions.sa_removeStoryPlayer(storyA, testUser)).rejects.toThrow();
+    expect(await actions.sa_removeStoryPlayer(storyA, testUser)).toEqual({
+      ok: false,
+      error: STORY_NOT_YOURS,
+    });
 
     // The storyteller has no story_players row to take away.
     const refusal = await actions.sa_removeStoryPlayer(storyD, testUser);

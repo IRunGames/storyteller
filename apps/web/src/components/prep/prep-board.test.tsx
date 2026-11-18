@@ -10,6 +10,7 @@ import { scenePreviewPath, type StoryScene } from "@/lib/scenes";
 import type { StatusOption } from "@/lib/status";
 import type { StoryCardData, StorySession } from "@/lib/stories";
 import type { JsonValue } from "@/lib/user-preference-schemas";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
 const story: StoryCardData = {
   idStory: -15,
@@ -192,7 +193,7 @@ const COLUMNS = [
 ];
 
 // The board refreshes the page's counts once its dialog has created something.
-const router = { push: mock.fn<(href: string) => void>(), refresh: mock.fn() };
+const router = mockRouter();
 
 const createScene = mock.fn(async () => ({ ok: true as const }));
 const createElement = mock.fn(async () => ({ ok: true as const }));
@@ -274,9 +275,7 @@ describe("PrepBoard", () => {
         sa_startPlaying: async () => ({ error: "Not in this test." }),
       },
     });
-    mock.module("next/navigation", {
-      namedExports: { useRouter: () => router, usePathname: () => "/stories/-15/library" },
-    });
+    mockNavigation({ router, pathname: "/stories/-15/library" });
     // The Timeline's list imports its server action itself; mocked so the
     // board renders without a database.
     mock.module("@/app/(app)/(nav)/stories/actions", {

@@ -6,20 +6,15 @@
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 import { makeTestUser, removeTestUser } from "@/test/test-user";
-
-loadEnvConfig(process.cwd());
 
 const OWNER_EMAIL = "join-actions-owner@example.test";
 const joinerEmail = (n: number) => `join-actions-joiner-${n}@example.test`;
 const JOINERS = 12;
 const CODE = "joinActionsT";
-const hasDb = Boolean(process.env.DATABASE_URL);
 
 // Who is asking; "" is a visitor with no session at all.
-let caller = "";
-const getSession = mock.fn(async () => (caller ? { user: { id: caller } } : null));
 
 // Better Auth's anonymous sign-in, standing in for the plugin: it makes the
 // guest a test user of this file's, so the cleanup finds it. `beforeMade`
@@ -35,20 +30,18 @@ const signInAnonymous = mock.fn(async () => {
 
 let actions: typeof import("./actions");
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let owner = "";
 let joiners: string[] = [];
 let story = 0;
 
-describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("join actions", {}, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
     mock.module("@/lib/auth", { namedExports: { auth: { api: { signInAnonymous } } } });
     mock.module("next/headers", { namedExports: { headers: async () => new Headers() } });
-    ({ db, schema: tables } = await import("@/db"));
+    ({ db, tables } = suite);
     actions = await import("./actions");
 
     owner = await makeTestUser(db, tables, OWNER_EMAIL);
@@ -74,7 +67,7 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
   });
 
   beforeEach(async () => {
-    caller = "";
+    suite.caller = "";
     beforeMade = async () => {};
     signInAnonymous.mock.resetCalls();
     await db.delete(tables.storyPlayers).where(eq(tables.storyPlayers.idStory, story));
@@ -90,7 +83,6 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     for (let n = 0; n < JOINERS; n++) await removeTestUser(db, tables, joinerEmail(n));
     await removeTestUser(db, tables, GUEST_EMAIL);
     await removeTestUser(db, tables, OWNER_EMAIL);
-    await db.$client.end();
   });
 
   const seats = () =>
@@ -115,17 +107,17 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     });
 
     it("tells the storyteller and a seated player they are already at the table", async () => {
-      caller = owner;
+      suite.caller = owner;
       expect((await actions.sa_getJoinStory(CODE))?.isAtTable).toBe(true);
       await db.insert(tables.storyPlayers).values({ idStory: story, idUser: joiners[5] });
-      caller = joiners[5];
+      suite.caller = joiners[5];
       expect((await actions.sa_getJoinStory(CODE))?.isAtTable).toBe(true);
     });
   });
 
   describe("sa_joinByLink", () => {
     it("seats a guest from the link under the name they picked", async () => {
-      caller = joiners[0];
+      suite.caller = joiners[0];
       expect(await actions.sa_joinByLink(CODE, "  Sleepy Otter ")).toEqual({
         ok: true,
         idStory: story,
@@ -139,13 +131,13 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     });
 
     it("refuses a guest with no name", async () => {
-      caller = joiners[1];
+      suite.caller = joiners[1];
       expect(await actions.sa_joinByLink(CODE, "   ")).toMatchObject({ ok: false });
       expect(await seats()).toEqual([]);
     });
 
     it("leaves the name of someone with an account alone", async () => {
-      caller = joiners[2];
+      suite.caller = joiners[2];
       expect(await actions.sa_joinByLink(CODE, "Ignored Name")).toMatchObject({ ok: true });
       const [row] = await db
         .select({ name: tables.user.name })
@@ -156,19 +148,19 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
 
     it("lets the storyteller and someone already seated through without a new seat", async () => {
       await db.insert(tables.storyPlayers).values({ idStory: story, idUser: joiners[3] });
-      caller = joiners[3];
+      suite.caller = joiners[3];
       expect(await actions.sa_joinByLink(CODE, "x")).toEqual({ ok: true, idStory: story });
-      caller = owner;
+      suite.caller = owner;
       expect(await actions.sa_joinByLink(CODE, "x")).toEqual({ ok: true, idStory: story });
       expect(await seats()).toEqual([{ idUser: joiners[3], isFromLink: false }]);
     });
 
     it("seats three from the link for an unpaid storyteller, then says the table is full", async () => {
       for (const joiner of joiners.slice(2, 5)) {
-        caller = joiner;
+        suite.caller = joiner;
         expect(await actions.sa_joinByLink(CODE, "x")).toMatchObject({ ok: true });
       }
-      caller = joiners[5];
+      suite.caller = joiners[5];
       expect(await actions.sa_joinByLink(CODE, "x")).toEqual({
         ok: false,
         error: "This table is full.",
@@ -181,7 +173,7 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
         .insert(tables.storyPlayers)
         .values(joiners.slice(8, 12).map((idUser) => ({ idStory: story, idUser })));
       for (const joiner of joiners.slice(2, 5)) {
-        caller = joiner;
+        suite.caller = joiner;
         expect(await actions.sa_joinByLink(CODE, "x")).toMatchObject({ ok: true });
       }
     });
@@ -189,16 +181,16 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     it("seats ten from the link for a paid storyteller", async () => {
       await db.update(tables.user).set({ idUserType: -25 }).where(eq(tables.user.id, owner));
       for (const joiner of joiners.slice(0, 10)) {
-        caller = joiner;
+        suite.caller = joiner;
         expect(await actions.sa_joinByLink(CODE, "Brave Yak")).toMatchObject({ ok: true });
       }
-      caller = joiners[10];
+      suite.caller = joiners[10];
       expect(await actions.sa_joinByLink(CODE, "x")).toMatchObject({ ok: false });
       expect(await seats()).toHaveLength(10);
     });
 
     it("turns away a code that is not a story's", async () => {
-      caller = joiners[2];
+      suite.caller = joiners[2];
       expect(await actions.sa_joinByLink("noSuchCode00", "x")).toMatchObject({ ok: false });
     });
   });
@@ -250,7 +242,7 @@ describe("join actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
     });
 
     it("seats a visitor who already has a session as sa_joinByLink does", async () => {
-      caller = joiners[2];
+      suite.caller = joiners[2];
       expect(await actions.sa_joinAsGuest(CODE, "x")).toMatchObject({ ok: true });
       expect(signInAnonymous.mock.callCount()).toBe(0);
       expect(await seats()).toEqual([{ idUser: joiners[2], isFromLink: true }]);

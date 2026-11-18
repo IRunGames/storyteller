@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
 import { after } from "next/server";
 import { isGuestAway, markGuestAway } from "@/db/guests";
 import { requireUser, UnauthorizedError } from "@/lib/authorize";
 import { GUEST_AWAY_GRACE_MS } from "@/lib/play";
 import { recountTable, removeGuestsFrom } from "@/lib/guests";
 
-const bodySchema = z.object({ idStory: z.int32() });
+const bodySchema = z.object({ idStory: idSchema });
 
 /**
  * Where a guest's display table reports that its page is going (pagehide),

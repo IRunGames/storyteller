@@ -7,9 +7,10 @@
 // user turns up in another's search. Serialising only those files keeps the
 // rest of the suite fast.
 //
-// A test file is a database test when it mentions DATABASE_URL: each one
-// skips itself when it is unset (docs/standards.md), and nothing else has
-// reason to name it. Arguments after `npm test --` go to both passes, so
+// A test file is a database test when it runs under describeWithDb
+// (src/test/db-suite.ts) or mentions DATABASE_URL itself: either way it skips
+// itself when the variable is unset (docs/standards.md), and nothing else has
+// reason to name them. Arguments after `npm test --` go to both passes, so
 // `just test --test-name-pattern X` works as before.
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -39,7 +40,7 @@ function testFiles(dir) {
 const asLiteralGlob = (file) => file.replace(/\[/g, "[[]");
 
 const files = testFiles("src").sort();
-const usesDb = (file) => readFileSync(file, "utf8").includes("DATABASE_URL");
+const usesDb = (file) => /DATABASE_URL|describeWithDb/.test(readFileSync(file, "utf8"));
 const passes = [
   { name: "unit", files: files.filter((f) => !usesDb(f)), concurrency: [] },
   { name: "database", files: files.filter(usesDb), concurrency: ["--test-concurrency=1"] },

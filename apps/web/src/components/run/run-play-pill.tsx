@@ -4,14 +4,17 @@ import { useState } from "react";
 import { Box, chakra, Heading, HStack, Menu, Portal, Stack, Text } from "@chakra-ui/react";
 import { ChevronDown, Dices } from "lucide-react";
 import {
+  DEFAULT_ELEMENT_SHOWING,
   ELEMENT_SHOWING,
   elementIdOf,
   isElementShowing,
   pillText,
   SCENE_ELEMENT_DISABLED,
   SCENE_ELEMENT_HIDDEN,
+  SCENE_ELEMENT_SHOWN,
   SCENE_ELEMENT_TAPPED,
   withShowing,
+  type ElementShowing,
   type PlayItem,
   type SceneElementStatus,
 } from "@/lib/run";
@@ -20,10 +23,11 @@ import {
   sa_setSceneElementShowing,
   sa_setSceneElementShowInfo,
   sa_setSceneElementStatus,
-} from "@/components/run/actions";
-import { toaster } from "@/components/ui/toaster";
+} from "@/components/scene-elements/actions";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { CHANGE_FAILED } from "@/lib/messages";
 import { OverflowTooltip } from "@/components/popovers/overflow-tooltip";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { RunElementImagePopover } from "./run-element-image-popover";
 import { RunElementPanel } from "./run-element-panel";
@@ -31,6 +35,7 @@ import { ElementStatBlocks } from "@/components/stat-blocks/stat-block-view";
 import { RunInfoToggle } from "./run-info-toggle";
 import { RunPictureTack } from "./run-picture-tack";
 import { RunSceneStatusMenu } from "./run-scene-status-menu";
+import { glass } from "@/theme";
 
 type Props = {
   idStory: number;
@@ -116,79 +121,70 @@ export function RunPlayPill({
   const toggle = (which: "about" | "stats") =>
     setOpen((current) => (current === which ? null : which));
   const rolls = item.hasStatBlocks === true && item.idSceneElement !== undefined;
-  // The link the pill stands for; an element may be in the scene more than
-  // once, so its actions name the link, not the element.
-  const idSceneElement = item.idSceneElement ?? null;
+  // The link the pill stands for, with everything its actions name: an
+  // element may be in the scene more than once, so the actions name the
+  // link, not the element. Null for an element the page alone holds, whose
+  // handlers below do nothing.
+  const link =
+    status !== undefined && idStoryScene !== null && item.idSceneElement !== undefined
+      ? { idStoryScene, idSceneElement: item.idSceneElement, status }
+      : null;
+  function linkIds(): [idStoryScene: number, idSceneElement: number] {
+    if (!link) throw new Error("The element is not linked to the scene.");
+    return [link.idStoryScene, link.idSceneElement];
+  }
 
-  // The tack, the same way as the toggle: the glow at once, back if refused.
-  async function toggleImage() {
-    if (!linked || !onPictureUpChange || idSceneElement === null) return;
-    const next = !pictureUp;
-    onPictureUpChange(item.key, next);
-    try {
-      const result = await sa_pulseSceneElement(idStory, idStoryScene, idSceneElement, {
+  // Every change to the link is shown at once and goes back if the action
+  // refuses (useOptimisticAction); the table owns the item, so each tells
+  // the table what to show rather than keeping a copy here.
+  const [, chooseImage] = useOptimisticAction(
+    pictureUp,
+    (next) =>
+      sa_pulseSceneElement(idStory, ...linkIds(), {
         action: next ? "preview.open" : "preview.close",
-      });
-      if (result.ok) return;
-      onPictureUpChange(item.key, pictureUp);
-      toaster.create({ title: result.error, type: "error" });
-    } catch {
-      onPictureUpChange(item.key, pictureUp);
-      toaster.create({ title: "That could not be sent. Try again.", type: "error" });
-    }
+      }),
+    {
+      onShow: (up) => onPictureUpChange?.(item.key, up),
+      failed: "That could not be sent. Try again.",
+    },
+  );
+  function toggleImage() {
+    if (!link || !onPictureUpChange) return;
+    chooseImage(!pictureUp);
   }
 
-  // The status menu: the pill changes at once and goes back if the action
-  // refuses.
-  async function chooseStatus(next: SceneElementStatus) {
-    if (!linked || idSceneElement === null || status === undefined || next === status) return;
-    onStatusChange(item.key, next);
-    try {
-      const result = await sa_setSceneElementStatus(idStory, idStoryScene, idSceneElement, next);
-      if (result.ok) {
-        onStatusChange(item.key, result.status);
-        return;
-      }
-      onStatusChange(item.key, status);
-      toaster.create({ title: result.error, type: "error" });
-    } catch {
-      onStatusChange(item.key, status);
-      toaster.create({ title: "That could not be changed. Try again.", type: "error" });
-    }
+  const [, chooseStatus] = useOptimisticAction<string>(
+    link?.status ?? SCENE_ELEMENT_SHOWN,
+    async (next) => {
+      const result = await sa_setSceneElementStatus(idStory, ...linkIds(), next);
+      return result.ok ? { ok: true, value: result.status } : result;
+    },
+    { onShow: (next) => onStatusChange(item.key, next), failed: CHANGE_FAILED },
+  );
+  function pickStatus(next: SceneElementStatus) {
+    if (!link || next === link.status) return;
+    chooseStatus(next);
   }
 
-  // The info toggle, the same way: pressed at once, back if refused.
-  async function toggleInfo() {
-    if (!linked || idSceneElement === null) return;
-    const next = !showInfo;
-    onItemChange({ ...item, showInfo: next });
-    try {
-      const result = await sa_setSceneElementShowInfo(idStory, idStoryScene, idSceneElement, next);
-      if (result.ok) return;
-      onItemChange({ ...item, showInfo });
-      toaster.create({ title: result.error, type: "error" });
-    } catch {
-      onItemChange({ ...item, showInfo });
-      toaster.create({ title: "That could not be changed. Try again.", type: "error" });
-    }
+  const [, chooseInfo] = useOptimisticAction(
+    showInfo,
+    (next) => sa_setSceneElementShowInfo(idStory, ...linkIds(), next),
+    { onShow: (next) => onItemChange({ ...item, showInfo: next }), failed: CHANGE_FAILED },
+  );
+  function toggleInfo() {
+    if (!link) return;
+    chooseInfo(!showInfo);
   }
 
-  // The name's dropdown: the pill shows the chosen field at once and goes
-  // back if the action refuses, as the status menu does.
-  async function chooseShowing(next: string) {
-    if (!linked || idSceneElement === null || !isElementShowing(next) || next === item.showing) {
-      return;
-    }
-    onItemChange(withShowing(item, next));
-    try {
-      const result = await sa_setSceneElementShowing(idStory, idStoryScene, idSceneElement, next);
-      if (result.ok) return;
-      onItemChange(item);
-      toaster.create({ title: result.error, type: "error" });
-    } catch {
-      onItemChange(item);
-      toaster.create({ title: "That could not be changed. Try again.", type: "error" });
-    }
+  // The name's dropdown: which of the element's fields the pill shows.
+  const [, chooseShowing] = useOptimisticAction<ElementShowing>(
+    item.showing ?? DEFAULT_ELEMENT_SHOWING,
+    (next) => sa_setSceneElementShowing(idStory, ...linkIds(), next),
+    { onShow: (next) => onItemChange(withShowing(item, next)), failed: CHANGE_FAILED },
+  );
+  function pickShowing(next: string) {
+    if (!link || !isElementShowing(next) || next === item.showing) return;
+    chooseShowing(next);
   }
 
   const fields = item.fields;
@@ -201,8 +197,7 @@ export function RunPlayPill({
       borderColor={isHidden ? "run.hidden" : undefined}
       boxShadow={isHidden ? "0 0 10px 1px var(--chakra-colors-run-hidden)" : undefined}
       rounded="2xl"
-      bg="bg.panel/55"
-      backdropFilter="blur(6px)"
+      css={glass}
       data-scene-status={status}
     >
       <HStack gap="2" p="2" ps={linked ? "1" : "3"}>
@@ -213,16 +208,9 @@ export function RunPlayPill({
             read as a hole. */}
         {linked && (
           <HStack gap="0" flexShrink="0" me="-1.5">
-            <RunInfoToggle
-              showInfo={showInfo}
-              onToggle={live ? () => void toggleInfo() : undefined}
-            />
+            <RunInfoToggle showInfo={showInfo} onToggle={live ? toggleInfo : undefined} />
             {live && (
-              <RunSceneStatusMenu
-                label={item.label}
-                status={status}
-                onChange={(next) => void chooseStatus(next)}
-              />
+              <RunSceneStatusMenu label={item.label} status={status} onChange={pickStatus} />
             )}
           </HStack>
         )}
@@ -250,11 +238,7 @@ export function RunPlayPill({
               />
             </Box>
             {live && onPictureUpChange && (
-              <RunPictureTack
-                label={item.label}
-                pictureUp={pictureUp}
-                onToggle={() => void toggleImage()}
-              />
+              <RunPictureTack label={item.label} pictureUp={pictureUp} onToggle={toggleImage} />
             )}
           </Box>
         ) : (
@@ -329,7 +313,7 @@ export function RunPlayPill({
                   <Menu.Content>
                     <Menu.RadioItemGroup
                       value={item.showing}
-                      onValueChange={(e) => void chooseShowing(e.value)}
+                      onValueChange={(e) => pickShowing(e.value)}
                     >
                       {ELEMENT_SHOWING.map((field) => (
                         // A field the element has left empty cannot be shown,
@@ -359,18 +343,18 @@ export function RunPlayPill({
         </Stack>
         {/* The die opens the stat blocks alone under the pill. */}
         {linked && rolls && (
-          <PrepIconButton
+          <IconButtonWithTooltip
             label={`Stat blocks for ${item.label}`}
             expanded={open === "stats"}
             onClick={() => toggle("stats")}
           >
             <Dices />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         )}
         {/* The chevron at the end opens the panel under the pill, and turns
             over while it is open. */}
         {linked && (
-          <PrepIconButton
+          <IconButtonWithTooltip
             label={`About ${item.label}`}
             expanded={open === "about"}
             onClick={() => toggle("about")}
@@ -382,7 +366,7 @@ export function RunPlayPill({
             >
               <ChevronDown />
             </chakra.span>
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         )}
       </HStack>
       {/* Mounted only while open, so each opening loads the blocks afresh.
@@ -420,7 +404,7 @@ export function RunPlayPill({
             idStory={idStory}
             idStoryScene={idStoryScene}
             idElement={elementIdOf(item)}
-            idSceneElement={idSceneElement}
+            idSceneElement={item.idSceneElement ?? null}
             label={item.label}
             locked={locked}
             canEdit={!locked}

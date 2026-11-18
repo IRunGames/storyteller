@@ -2,21 +2,22 @@
 
 import { redirect } from "next/navigation";
 import { and, desc, eq, exists, ne, or, sql } from "drizzle-orm";
-import { z } from "zod";
+import { idSchema, titleSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { hasOpenSession } from "@/db/open-session";
 import { presentCount, waitingCount } from "@/db/session-player-counts";
 import { requireAccount } from "@/lib/authorize";
 import { formatDayUtc } from "@/lib/dates";
 import { newSessionTitle } from "@/lib/play";
+import { publishLater } from "@/lib/realtime/publish";
+import { publishSceneChanged } from "@/lib/realtime/publish-scene";
+import { SESSION_STATUS } from "@/lib/status";
 
 const { stories, storyPlayers, storySessions, vStorySessions } = schema;
 
-const idSchema = z.int32();
-
 // The title the picker sends for a new session. Only its length is held to
 // anything: it is the storyteller's own text, renamed freely afterwards.
-const titleSchema = z.string().trim().min(1).max(200);
+const sessionTitleSchema = titleSchema("session");
 
 /** What the Play page's picker shows per story: the id to link and a label. */
 export type PlayableStory = {
@@ -107,7 +108,7 @@ export async function sa_listUnfinishedSessions(idStory: number): Promise<Unfini
         and(
           eq(vStorySessions.idStory, id.data),
           eq(stories.idCreatedByUser, user.id),
-          ne(vStorySessions.status, "DONE"),
+          ne(vStorySessions.status, SESSION_STATUS.DONE),
         ),
       )
       // Sessions opened in one statement share an updated_at, so the id
@@ -129,7 +130,8 @@ export type StartPlayingResult = { ok: false; error: string };
  * which is what the table and the waiting room read.
  *
  * Any other session still open is left as it was: moving the pointer does
- * not close it, and it stays in the picker until it is marked DONE.
+ * not close it, and it stays in the picker until it is marked DONE. Every
+ * table of the story is told the scene changed.
  */
 export async function sa_startPlaying(
   idStory: number,
@@ -165,7 +167,8 @@ export async function sa_startPlaying(
         .insert(storySessions)
         .values({
           idStory: story.data,
-          title: titleSchema.safeParse(title).data ?? newSessionTitle(formatDayUtc(new Date())),
+          title:
+            sessionTitleSchema.safeParse(title).data ?? newSessionTitle(formatDayUtc(new Date())),
           idCreatedByUser: user.id,
           idUpdatedByUser: user.id,
         })
@@ -182,13 +185,13 @@ export async function sa_startPlaying(
           ),
         )
         .limit(1);
-      if (!existing || existing.status === "DONE") {
+      if (!existing || existing.status === SESSION_STATUS.DONE) {
         return { ok: false, error: "That session has ended. Choose another or create a new one." };
       }
-      if (existing.status === "SUSPENDED") {
+      if (existing.status === SESSION_STATUS.SUSPENDED) {
         await tx
           .update(storySessions)
-          .set({ status: "RESUMED", idUpdatedByUser: user.id })
+          .set({ status: SESSION_STATUS.RESUMED, idUpdatedByUser: user.id })
           .where(eq(storySessions.idStorySession, session.data));
       }
       id = session.data;
@@ -201,6 +204,10 @@ export async function sa_startPlaying(
     return null;
   });
   if (result) return result;
+  // The players' waiting rooms and tables follow the story's pointer: a
+  // table open on the session that was current before, or waiting for one,
+  // hears the story is being played and reads the scene afresh.
+  publishLater(() => publishSceneChanged(story.data));
 
   // Outside the transaction: redirect() throws to navigate, which would
   // otherwise roll it back. Straight to the storyteller's own table rather

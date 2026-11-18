@@ -22,7 +22,8 @@ import type {
   SetElementStatResult,
   SetStatBlocksResult,
   StatBlockHolder,
-  StatPatch,
+  StatChange,
+  StatRoll,
 } from "./actions";
 
 const stat = (
@@ -125,11 +126,7 @@ const sa_getStatBlocks = mock.fn(async (_holder: StatBlockHolder) => [blockOf()]
 const sa_setStat = mock.fn(
   async (
     _holder: StatBlockHolder,
-    _system: number,
-    group: string,
-    stat: string,
-    patch: StatPatch,
-    rowKey?: string,
+    { group, stat, patch, rowKey }: StatChange,
   ): Promise<SetElementStatResult> => {
     // Rows are found by their weapon, and uses is held between 0 and 3.
     if (rowKey !== undefined) {
@@ -219,14 +216,7 @@ const sa_setStatBlocks = mock.fn(
 );
 
 const sa_rollStat = mock.fn(
-  async (
-    _holder: StatBlockHolder,
-    _idSystem: number,
-    _group: string,
-    _stat: string,
-    _as: RollAs,
-    _rowKey?: string,
-  ): Promise<RollStatResult> => ({
+  async (_holder: StatBlockHolder, _roll: StatRoll): Promise<RollStatResult> => ({
     ok: true,
     posted: true,
     roll: {
@@ -303,7 +293,9 @@ describe("ElementStatBlocks", () => {
     expect(within(rageLine as HTMLElement).getByText("Die")).toBeInTheDocument();
     // Signed and static formats: HP's sign beside its box, Bonus as words with
     // no box, the computed Mod dim as words, the roll said on its die.
-    expect(within(screen.getByTestId("stat-hp").parentElement!).getByText("+")).toBeInTheDocument();
+    // The sign sits beside the box, which is inside the NumberInput's own root.
+    const hpLine = screen.getByTestId("stat-hp").parentElement!.parentElement!;
+    expect(within(hpLine).getByText("+")).toBeInTheDocument();
     expect(screen.getByTestId("stat-bonus")).toHaveTextContent("−2");
     expect(screen.queryByRole("textbox", { name: "Bonus" })).not.toBeInTheDocument();
     expect(screen.getByTestId("stat-mod")).toHaveTextContent("2");
@@ -323,12 +315,9 @@ describe("ElementStatBlocks", () => {
     const hp = await screen.findByTestId("stat-hp");
     await user.click(screen.getByRole("button", { name: "HP up" }));
     await waitFor(() => expect(hp).toHaveValue("14"));
-    expect(sa_setStat.mock.calls[0].arguments.slice(0, 5)).toEqual([
+    expect(sa_setStat.mock.calls[0].arguments).toEqual([
       holder,
-      -90,
-      "combat",
-      "hp",
-      { value: 14 },
+      { idSystem: -90, group: "combat", stat: "hp", patch: { value: 14 }, rowKey: undefined },
     ]);
     // At the max the clicker has nothing to commit, and the box stays there.
     await user.click(screen.getByRole("button", { name: "HP up" }));
@@ -347,7 +336,9 @@ describe("ElementStatBlocks", () => {
 
     await user.clear(hp);
     await user.type(hp, "9x{Enter}");
-    await waitFor(() => expect(sa_setStat.mock.calls.at(-1)!.arguments[4]).toEqual({ value: 9 }));
+    await waitFor(() =>
+      expect(sa_setStat.mock.calls.at(-1)!.arguments[1].patch).toEqual({ value: 9 }),
+    );
     expect(hp).toHaveValue("9");
 
     await user.click(screen.getByRole("button", { name: "Rage down" }));
@@ -355,7 +346,7 @@ describe("ElementStatBlocks", () => {
     await user.click(screen.getByRole("button", { name: "Die up" }));
     await waitFor(() => expect(screen.getByTestId("stat-die")).toHaveTextContent("d8"));
     await user.click(screen.getByRole("button", { name: "Die up" }));
-    expect(sa_setStat.mock.calls.filter((c) => c.arguments[3] === "die")).toHaveLength(1);
+    expect(sa_setStat.mock.calls.filter((c) => c.arguments[1].stat === "die")).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "Die down" }));
     await waitFor(() => expect(screen.getByTestId("stat-die")).toHaveTextContent("d6"));
   });
@@ -369,12 +360,12 @@ describe("ElementStatBlocks", () => {
     expect(within(sword).getByTestId("stat-uses")).toHaveValue("2");
     await user.click(within(sword).getByRole("button", { name: "Uses up" }));
     await waitFor(() => expect(within(sword).getByTestId("stat-uses")).toHaveValue("3"));
-    expect(sa_setStat.mock.calls[0].arguments.slice(2)).toEqual([
-      "attack",
-      "uses",
-      { value: 3 },
-      "Sword",
-    ]);
+    expect(sa_setStat.mock.calls[0].arguments[1]).toMatchObject({
+      group: "attack",
+      stat: "uses",
+      patch: { value: 3 },
+      rowKey: "Sword",
+    });
     expect(within(screen.getByTestId("stat-row-Fist")).getByTestId("stat-uses")).toHaveValue("0");
   });
 
@@ -650,7 +641,7 @@ describe("ElementStatBlocks", () => {
     await user.click(hp);
     await user.keyboard("{ArrowUp}");
     await waitFor(() => expect(hp).toHaveValue("14"));
-    expect(sa_setStat.mock.calls.at(-1)!.arguments[4]).toEqual({ value: 14 });
+    expect(sa_setStat.mock.calls.at(-1)!.arguments[1].patch).toEqual({ value: 14 });
     // At the max, up has nothing to commit; down steps back.
     await user.keyboard("{ArrowUp}");
     expect(sa_setStat.mock.callCount()).toBe(1);
@@ -661,7 +652,7 @@ describe("ElementStatBlocks", () => {
     await user.type(hp, "x");
     await user.keyboard("{ArrowDown}");
     await waitFor(() => expect(hp).toHaveValue("12"));
-    expect(sa_setStat.mock.calls.at(-1)!.arguments[4]).toEqual({ value: 12 });
+    expect(sa_setStat.mock.calls.at(-1)!.arguments[1].patch).toEqual({ value: 12 });
     // The clicker keeps to the same ends: down at the floor commits nothing.
     const uses = within(screen.getByTestId("stat-row-Fist")).getByTestId("stat-uses");
     expect(uses).toHaveValue("0");
@@ -728,7 +719,8 @@ describe("ElementStatBlocks", () => {
     expect(await screen.findByTestId("stat-hp")).toHaveValue("13");
     expect(fold).toHaveAttribute("aria-expanded", "true");
     await user.click(fold);
-    expect(screen.queryByTestId("stat-hp")).toBeNull();
+    // The Collapsible unmounts its content once the closing is through.
+    await waitFor(() => expect(screen.queryByTestId("stat-hp")).toBeNull());
   });
 
   it("pastes the element's blocks over a scene element's from beside the pencil, asking first over the stats it has", async () => {
@@ -844,11 +836,13 @@ describe("ElementStatBlocks", () => {
     await waitFor(() => expect(sa_rollStat.mock.callCount()).toBe(1));
     expect(sa_rollStat.mock.calls[0].arguments).toEqual([
       holder,
-      -90,
-      "combat",
-      "hp",
-      { title: "Dafydd", quiet: false },
-      undefined,
+      {
+        idSystem: -90,
+        group: "combat",
+        stat: "hp",
+        as: { title: "Dafydd", quiet: false },
+        rowKey: undefined,
+      },
     ]);
     // Said in the chat: nothing to show here.
     expect(screen.queryByText("18 for Dafydd: HP")).not.toBeInTheDocument();
@@ -871,7 +865,10 @@ describe("ElementStatBlocks", () => {
     await user.click(screen.getByRole("button", { name: "Rolls 2d6" }));
     expect(await screen.findByText("7 for Dafydd: Damage")).toBeInTheDocument();
     expect(screen.getByText("2d6: [3, 4] = 7")).toBeInTheDocument();
-    expect(sa_rollStat.mock.calls[1].arguments.slice(2, 4)).toEqual(["combat", "damage"]);
+    expect(sa_rollStat.mock.calls[1].arguments[1]).toMatchObject({
+      group: "combat",
+      stat: "damage",
+    });
   });
 
   it("folds a stat block away by its heading and brings it back", async () => {

@@ -9,16 +9,9 @@ import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
 import type { CurrentUser } from "@/lib/current-user";
 import type { PlayScene } from "@/lib/play-scene";
+import { currentUser } from "@/test/mocks";
 
-const member: CurrentUser = {
-  id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
-  name: "Harry",
-  email: "harry@example.test",
-  image: null,
-  nickName: null,
-  idUserType: -10,
-  isAnonymous: false,
-};
+const member = currentUser({ name: "Harry", email: "harry@example.test" });
 const guest: CurrentUser = {
   ...member,
   id: "01a0b60c-8938-7a0d-ab2b-34e12ce28400",
@@ -192,6 +185,7 @@ describe("PassiveTable", () => {
     renderTable(guest);
 
     const stack = screen.getByRole("region", { name: "scene" });
+    expect(stack).not.toHaveAttribute("data-wide");
     expect(within(stack).getByText("Zed")).toBeInTheDocument();
     expect(within(stack).getByText("Harbourmaster")).toBeInTheDocument();
     expect(within(stack).getAllByRole("img", { name: "Has a picture" })).toHaveLength(1);
@@ -239,6 +233,28 @@ describe("PassiveTable", () => {
 
     await waitFor(() => expect(sa_setPlayElementNotes.mock.callCount()).toBe(1));
     expect(sa_setPlayElementNotes.mock.calls[0].arguments).toEqual([7, 5, "Owes us a boat."]);
+  });
+
+  it("draws a stack the storyteller has widened across the whole table, for a guest too", () => {
+    renderWithProviders(
+      <UserProvider user={guest}>
+        <UserPreferencesProvider preferences={{}}>
+          <PassiveTable
+            idStory={7}
+            title="Psychoneira"
+            session="3. Kildealg"
+            initialScene={{ ...scene, wideTags: ["scene"] }}
+            storyCoverUrl={null}
+            isOwner={false}
+          />
+        </UserPreferencesProvider>
+      </UserProvider>,
+    );
+
+    // The width is the storyteller's to set: nothing here changes it.
+    const stack = screen.getByRole("region", { name: "scene" });
+    expect(stack).toHaveAttribute("data-wide", "true");
+    expect(within(stack).queryAllByRole("button")).toEqual([]);
   });
 
   it("gives no info button for an element whose info the storyteller keeps back", () => {

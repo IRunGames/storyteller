@@ -27,6 +27,13 @@ export type PlayScene = {
   scene: { idStoryScene: number; title: string; status: string; text: SceneText } | null;
   /** The scene's tags, one stack each. */
   tags: string[];
+  /**
+   * The stacks the storyteller has widened (story_scenes.wide_tags, by
+   * stackKey), which every table draws wide. Optional so a scene built by
+   * hand, as the tests' fixtures are, need not say; sa_getPlayScene always
+   * does, and absent reads as none.
+   */
+  wideTags?: string[];
   coverUrl: string | null;
   /** The elements the players may see, in the storyteller's order. */
   items: PlaySceneItem[];

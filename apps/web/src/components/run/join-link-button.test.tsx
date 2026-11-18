@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 
-const sa_getJoinLink = mock.fn(async (_idStory: number) => ({
+const sa_getOrCreateJoinLink = mock.fn(async (_idStory: number) => ({
   code: "AbCdEfGhIjKl",
   joined: 2,
   cap: 3,
@@ -32,14 +32,19 @@ let JoinLinkButton: typeof import("./join-link-button").JoinLinkButton;
 
 describe("JoinLinkButton", () => {
   before(async () => {
-    mock.module("@/components/run/actions", {
-      namedExports: { sa_getJoinLink, sa_getJoinCount, sa_listLinkPlayers, sa_removeLinkPlayer },
+    mock.module("@/components/join-links/actions", {
+      namedExports: {
+        sa_getOrCreateJoinLink,
+        sa_getJoinCount,
+        sa_listLinkPlayers,
+        sa_removeLinkPlayer,
+      },
     });
     ({ JoinLinkButton } = await import("./join-link-button"));
   });
 
   beforeEach(() => {
-    sa_getJoinLink.mock.resetCalls();
+    sa_getOrCreateJoinLink.mock.resetCalls();
     sa_getJoinCount.mock.resetCalls();
     sa_getJoinCount.mock.mockImplementation(async () => ({ joined: 0, cap: 3 }));
     sa_listLinkPlayers.mock.resetCalls();
@@ -53,7 +58,7 @@ describe("JoinLinkButton", () => {
   it("fetches the link as it opens, ready to copy, with how many have joined by it", async () => {
     const u = userEvent.setup();
     renderWithProviders(<JoinLinkButton idStory={7} />);
-    expect(sa_getJoinLink.mock.callCount()).toBe(0);
+    expect(sa_getOrCreateJoinLink.mock.callCount()).toBe(0);
 
     await u.click(screen.getByRole("button", { name: "Join link" }));
 
@@ -61,11 +66,11 @@ describe("JoinLinkButton", () => {
     expect(field).toHaveValue(`${window.location.origin}/join/AbCdEfGhIjKl`);
     expect(screen.getByText(/2 of 3 have joined this way/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy the link" })).toBeInTheDocument();
-    expect(sa_getJoinLink.mock.calls[0].arguments).toEqual([7]);
+    expect(sa_getOrCreateJoinLink.mock.calls[0].arguments).toEqual([7]);
   });
 
   it("says so when the link cannot be had", async () => {
-    sa_getJoinLink.mock.mockImplementationOnce(async () => null as never);
+    sa_getOrCreateJoinLink.mock.mockImplementationOnce(async () => null as never);
     const u = userEvent.setup();
     renderWithProviders(<JoinLinkButton idStory={7} />);
 

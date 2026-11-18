@@ -15,7 +15,6 @@ import {
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Accordion,
-  Alert,
   Box,
   Button,
   Checkbox,
@@ -23,7 +22,6 @@ import {
   Field,
   Heading,
   HStack,
-  IconButton,
   Input,
   NativeSelect,
   Popover,
@@ -44,8 +42,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { toaster } from "@/components/ui/toaster";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { DiceInput } from "@/components/stat-blocks/dice-input";
+import { FormError } from "@/components/forms/form-error";
 import {
   joinRack,
   splitRack,
@@ -69,6 +68,7 @@ import {
   type StatFormat,
   type StatType,
 } from "@/lib/stat-blocks";
+import { applyActionErrors } from "@/lib/forms";
 
 type FormInput = StatBlockDefinitionFormInput;
 type EditorControl = Control<FormInput, unknown, StatBlockDefinition>;
@@ -247,9 +247,10 @@ export function StatBlockDefinitionEditor({
       toaster.create({ title: "Stat block saved.", type: "success" });
       return;
     }
+    applyActionErrors({ setError }, result.errors, (path) => path.startsWith("groups."));
+    // The groups holding an error open, found by the index in each path.
     const withErrors: FieldErrors<FormInput> = { groups: [] };
     for (const [path, message] of Object.entries(result.errors)) {
-      setError(path === "root" ? "root" : (path as `groups.${number}.name`), { message });
       const g = /^groups\.(\d+)\./.exec(path)?.[1];
       if (g !== undefined) (withErrors.groups as unknown[])[Number(g)] = { message };
     }
@@ -272,23 +273,9 @@ export function StatBlockDefinitionEditor({
 
       <form onSubmit={handleSubmit(onSubmit, openGroupsWithErrors)} noValidate>
         <Stack gap="4">
-          {errors.root && (
-            <Alert.Root role="alert" status="error">
-              <Alert.Indicator />
-              <Alert.Content>
-                <Alert.Description>{errors.root.message}</Alert.Description>
-              </Alert.Content>
-            </Alert.Root>
-          )}
+          <FormError message={errors.root?.message} />
           {/* The groups array's own message: too many, or too long in all. */}
-          {errors.groups?.root && (
-            <Alert.Root role="alert" status="error" size="sm">
-              <Alert.Indicator />
-              <Alert.Content>
-                <Alert.Description>{errors.groups.root.message}</Alert.Description>
-              </Alert.Content>
-            </Alert.Root>
-          )}
+          {errors.groups?.root && <FormError message={errors.groups.root.message} size="sm" />}
 
           <Tabs.Root defaultValue="groups" variant="line" lazyMount>
             <Tabs.List>
@@ -298,15 +285,15 @@ export function StatBlockDefinitionEditor({
                   the trigger rather than in it, since a button cannot hold
                   buttons. */}
               <HStack gap="0" mr="2" alignSelf="center">
-                <PrepIconButton
+                <IconButtonWithTooltip
                   label="Open all groups"
                   onClick={() => setOpen(groups.fields.map((group) => group.id))}
                 >
                   <ChevronsDown />
-                </PrepIconButton>
-                <PrepIconButton label="Close all groups" onClick={() => setOpen([])}>
+                </IconButtonWithTooltip>
+                <IconButtonWithTooltip label="Close all groups" onClick={() => setOpen([])}>
                   <ChevronsUp />
-                </PrepIconButton>
+                </IconButtonWithTooltip>
               </HStack>
               <Tabs.Trigger value="json">JSON</Tabs.Trigger>
             </Tabs.List>
@@ -419,22 +406,22 @@ function GroupItem({
             closed group is reordered from its left edge; the trashcan keeps
             to the right, away from them. */}
         <HStack gap="0">
-          <PrepIconButton
+          <IconButtonWithTooltip
             label="Move group up"
             size="2xs"
             disabled={g === 0}
             onClick={() => moveGroup(g, g - 1)}
           >
             <ArrowUp />
-          </PrepIconButton>
-          <PrepIconButton
+          </IconButtonWithTooltip>
+          <IconButtonWithTooltip
             label="Move group down"
             size="2xs"
             disabled={g === count - 1}
             onClick={() => moveGroup(g, g + 1)}
           >
             <ArrowDown />
-          </PrepIconButton>
+          </IconButtonWithTooltip>
         </HStack>
         <Accordion.ItemTrigger flex="1" px="2" cursor="pointer">
           <HStack gap="3" flex="1" wrap="wrap">
@@ -470,9 +457,9 @@ function GroupItem({
             Roll all
           </FlagCheckbox>
         )}
-        <PrepIconButton label="Remove group" onClick={() => removeGroup(g)}>
+        <IconButtonWithTooltip label="Remove group" onClick={() => removeGroup(g)}>
           <Trash2 />
-        </PrepIconButton>
+        </IconButtonWithTooltip>
       </HStack>
       <Accordion.ItemContent>
         <Accordion.ItemBody>
@@ -623,22 +610,22 @@ function StatRows({
             borderColor="border.muted"
           >
             <HStack pt="6" gap="0">
-              <PrepIconButton
+              <IconButtonWithTooltip
                 label="Move up"
                 size="2xs"
                 disabled={s === 0}
                 onClick={() => stats.move(s, s - 1)}
               >
                 <ArrowUp />
-              </PrepIconButton>
-              <PrepIconButton
+              </IconButtonWithTooltip>
+              <IconButtonWithTooltip
                 label="Move down"
                 size="2xs"
                 disabled={s === stats.fields.length - 1}
                 onClick={() => stats.move(s, s + 1)}
               >
                 <ArrowDown />
-              </PrepIconButton>
+              </IconButtonWithTooltip>
             </HStack>
             <Stack flex="1" gap="2">
               <HStack gap="2" align="flex-start" wrap="wrap">
@@ -837,12 +824,12 @@ function StatRows({
                   )}
                 </HStack>
                 <HStack pt="6" ml="auto" gap="0">
-                  <PrepIconButton label="Clone stat" onClick={() => cloneStat(s)}>
+                  <IconButtonWithTooltip label="Clone stat" onClick={() => cloneStat(s)}>
                     <Copy />
-                  </PrepIconButton>
-                  <PrepIconButton label="Remove stat" onClick={() => stats.remove(s)}>
+                  </IconButtonWithTooltip>
+                  <IconButtonWithTooltip label="Remove stat" onClick={() => stats.remove(s)}>
                     <Trash2 />
-                  </PrepIconButton>
+                  </IconButtonWithTooltip>
                 </HStack>
               </HStack>
             </Stack>
@@ -1076,27 +1063,16 @@ function RollPopover({
     // Not lazyMount, as tags-popover.tsx says: zag names the dialog by its
     // title only when the title is in the page as the machine starts.
     <Popover.Root ids={{ trigger: triggerId }} positioning={{ placement: "bottom-start" }}>
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton
-              aria-label={`Roll for ${label}`}
-              size="xs"
-              rounded="full"
-              variant={roll !== "" ? "solid" : "ghost"}
-              colorPalette={error ? "red" : roll !== "" ? "blue" : undefined}
-              data-roll={roll || undefined}
-            >
-              <Dices />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>{roll !== "" ? `Rolls ${roll}` : `Roll for ${label}`}</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      <IconButtonWithTooltip
+        label={`Roll for ${label}`}
+        tooltip={roll !== "" ? `Rolls ${roll}` : `Roll for ${label}`}
+        variant={roll !== "" ? "solid" : "ghost"}
+        colorPalette={error ? "red" : roll !== "" ? "blue" : undefined}
+        data-roll={roll || undefined}
+        popoverTrigger={triggerId}
+      >
+        <Dices />
+      </IconButtonWithTooltip>
       <Portal>
         <Popover.Positioner>
           <Popover.Content w="xs">

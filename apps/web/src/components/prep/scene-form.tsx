@@ -18,12 +18,15 @@ import {
 } from "@chakra-ui/react";
 import type { z } from "zod";
 import { sceneSchema, type SceneValues } from "@/lib/scene-schemas";
-import { SCENE_LOCKED_STATUS, type SceneSessionOption } from "@/lib/scenes";
+import { type SceneSessionOption } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import type { PlayItem } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
+import { applyActionErrors } from "@/lib/forms";
 import { sa_createStoryScene, sa_updateStoryScene } from "@/components/prep/actions";
 import { ScenePictures } from "@/components/play/scene-pictures";
 import { StatusPill } from "@/components/status/status-pill";
+import { FormError } from "@/components/forms/form-error";
 import { SceneElements } from "./scene-elements";
 
 // What the fields hold before the schema runs: the Session <select> keeps its
@@ -132,21 +135,14 @@ export function SceneForm({
     // An edit that saves redirects, so this never runs for it. Anything that
     // comes back is an error the client check did not catch; one with no
     // field to sit on (a scene completed since the form opened) goes on top.
-    let anyField = false;
-    for (const [field, message] of Object.entries(result.errors)) {
-      if (field === "") continue;
-      setError(field as keyof SceneInput, { message });
-      anyField = true;
-    }
-    if (!anyField) {
-      setError("root", {
-        message:
-          result.errors[""] ??
-          (scene
-            ? "Could not save the scene. Please try again."
-            : "Could not create the scene. Please try again."),
-      });
-    }
+    applyActionErrors(
+      { setError },
+      result.errors,
+      Object.keys(sceneSchema.shape),
+      scene
+        ? "Could not save the scene. Please try again."
+        : "Could not create the scene. Please try again.",
+    );
   }
 
   const heading = scene && (
@@ -179,14 +175,7 @@ export function SceneForm({
         </Alert.Root>
       )}
 
-      {errors.root && (
-        <Alert.Root status="error">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Description>{errors.root.message}</Alert.Description>
-          </Alert.Content>
-        </Alert.Root>
-      )}
+      <FormError message={errors.root?.message} />
     </>
   );
 

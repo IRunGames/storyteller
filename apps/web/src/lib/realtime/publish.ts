@@ -120,12 +120,14 @@ export async function publishTableCount(idStory: number, atTable: number): Promi
  * Runs a publish after the action's answer has gone out, so the storyteller's
  * table is not held up by the broker, and the platform keeps the function
  * alive until it is done (Next's after()). Outside a request, as in a test or
- * a script, after() throws, and the work simply runs now.
+ * a script, after() throws, and the work simply runs now, its failure logged
+ * rather than left as an unhandled rejection that would take the process
+ * down.
  */
 export function publishLater(work: () => Promise<void>): void {
   try {
     after(work);
   } catch {
-    void work();
+    work().catch((error: unknown) => console.error("Could not publish", error));
   }
 }

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Box,
   Button,
   Heading,
@@ -30,6 +29,7 @@ import {
 import { UserTypeChip } from "@/app/(app)/(nav)/admin/users/user-type-chip";
 import { UserStatusChip } from "@/components/admin/user-status-chip";
 import { LocalDate } from "@/components/dates/local-date";
+import { USER_SEARCH_DELAY_MS } from "@/lib/search";
 import type { StatusOption } from "@/lib/status";
 import {
   USER_PAGE_SIZES,
@@ -38,9 +38,7 @@ import {
   type UserSortKey,
 } from "@/lib/user-list-schemas";
 import { USER_STATUSES, type UserStatus } from "@/lib/user-types";
-
-/** How long the search box waits after the last keystroke before asking the server. */
-export const USER_SEARCH_DELAY_MS = 500;
+import { FormError } from "@/components/forms/form-error";
 
 // Sorting alone, with no sorted row model: the rows arrive sorted and paged
 // from the server, so the table keeps the sort state and draws the arrows,
@@ -335,14 +333,7 @@ export function UsersAdmin({ types, statusOptions, viewerId, initial }: Props) {
       />
 
       {failed && (
-        <Alert.Root status="error">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Description>
-              The users could not be loaded. Change something to try again.
-            </Alert.Description>
-          </Alert.Content>
-        </Alert.Root>
+        <FormError message="The users could not be loaded. Change something to try again." />
       )}
 
       <Box opacity={loading ? 0.6 : 1} transition="opacity 0.15s" aria-busy={loading}>

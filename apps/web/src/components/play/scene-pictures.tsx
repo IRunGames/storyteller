@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Grid, Heading, HStack, Stack, Text } from "@chakra-ui/react";
 import { Plus } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { toaster } from "@/components/ui/toaster";
 import { sa_detachFromHolder } from "@/components/uploads/actions";
 import { AttachmentCard } from "@/components/uploads/attachment-card";
@@ -96,13 +96,13 @@ export function ScenePictures({
             Pictures
           </Heading>
         )}
-        <PrepIconButton
+        <IconButtonWithTooltip
           label="Add a picture"
           expanded={isAdding}
           onClick={() => setIsAdding((open) => !open)}
         >
           <Plus />
-        </PrepIconButton>
+        </IconButtonWithTooltip>
       </HStack>
       <Text textStyle="xs" color="fg.muted">
         Saved as soon as they are added. Press Cover on the one the scene shows.

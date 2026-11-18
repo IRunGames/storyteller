@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
 import { PROFILE_COLORS, type ProfileColor } from "@/lib/profile";
 
 // Shared by the profile card and its actions, so the client and the server
@@ -44,7 +45,7 @@ const colorValues = PROFILE_COLORS.map((color) => color.value) as [ProfileColor,
 /** One of the palette's colours and nothing else. */
 export const profileColorSchema = z.enum(colorValues, { error: "Pick one of the colours." });
 
-export const systemIdSchema = z.int32();
+export const systemIdSchema = idSchema;
 
 /** How many systems a profile may list as liked. */
 export const MAX_LIKED_SYSTEMS = 20;

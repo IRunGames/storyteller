@@ -2,6 +2,7 @@ import { and, eq, exists, inArray } from "drizzle-orm";
 
 import { db } from "./index";
 import { stories, storySessions } from "./schema";
+import { SESSION_PLAYING_STATUSES } from "@/lib/status";
 
 /**
  * Whether the story on the outer row has a session being played: its current
@@ -32,7 +33,7 @@ export const hasOpenSession = exists(
     .where(
       and(
         eq(storySessions.idStorySession, stories.idStorySession),
-        inArray(storySessions.status, ["OPEN", "RESUMED"]),
+        inArray(storySessions.status, SESSION_PLAYING_STATUSES),
       ),
     ),
 ).mapWith(Boolean);

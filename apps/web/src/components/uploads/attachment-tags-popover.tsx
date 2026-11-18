@@ -5,19 +5,18 @@ import {
   Button,
   Field,
   HStack,
-  IconButton,
   Input,
   Popover,
   Portal,
   Stack,
   Tag,
   Text,
-  Tooltip,
   Wrap,
 } from "@chakra-ui/react";
 import { Star, Tag as TagIcon } from "lucide-react";
 import { attachmentTagSchema } from "@/lib/attachment-schemas";
 import { COVER_TAG } from "@/lib/attachments";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
 type Props = {
   /** What the attachment is called on its card, to name the button per row. */
@@ -61,8 +60,6 @@ export function AttachmentTagsPopover({
   onCoverChange,
   portalled = true,
 }: Props) {
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -114,20 +111,16 @@ export function AttachmentTagsPopover({
         if (!details.open) setError(null);
       }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton aria-label={`Tags for ${label}`} size="xs" variant="ghost">
-              <TagIcon />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal disabled={!portalled}>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Tags</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      {/* Square-cornered like the row's other buttons, not the round default. */}
+      <IconButtonWithTooltip
+        label={`Tags for ${label}`}
+        tooltip="Tags"
+        rounded="l2"
+        popoverTrigger={triggerId}
+        portalled={portalled}
+      >
+        <TagIcon />
+      </IconButtonWithTooltip>
       <Portal disabled={!portalled}>
         <Popover.Positioner>
           <Popover.Content w="xs">

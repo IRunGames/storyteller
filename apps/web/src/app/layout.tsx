@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
 import { appIcons } from "@/lib/app-icons";
 import { currentEnvironment } from "@/lib/environment";
-import { EmotionRegistry } from "@/components/ui/emotion-registry";
+import { EmotionRegistry } from "@/components/providers/emotion-registry";
 import { Provider } from "@/components/ui/provider";
 import { Toaster } from "@/components/ui/toaster";
 

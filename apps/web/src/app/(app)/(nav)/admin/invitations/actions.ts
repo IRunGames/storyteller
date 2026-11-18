@@ -2,11 +2,12 @@
 
 import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { ALREADY_INVITED, createInvitation, emailInvitation } from "@/db/invitations";
 import { requireAdmin } from "@/lib/authorize";
 import { appInviteSchema, invitationEditSchema } from "@/lib/invitation-schemas";
+import { formErrors } from "@/lib/forms";
 
 const { invitations, stories, userTypes, user: users } = schema;
 const acceptedBy = alias(users, "accepted_by");
@@ -14,8 +15,6 @@ const acceptedBy = alias(users, "accepted_by");
 // The administrators' Invitations page. Every action here starts with
 // requireAdmin(); the wrench that leads to the page is only drawn for an
 // administrator, which decides nothing on its own.
-
-const idSchema = z.int32().positive();
 
 export type InvitationStatus = "pending" | "accepted" | "expired" | "revoked";
 
@@ -48,6 +47,11 @@ const statusSql = sql<InvitationStatus>`case
  */
 export async function sa_listInvitations(): Promise<AdminInvitation[]> {
   await requireAdmin();
+  return invitationRows();
+}
+
+/** The invitations as the table shows them, every one or the one named; the read the writes answer with. */
+async function invitationRows(idInvitation?: number): Promise<AdminInvitation[]> {
   return db
     .select({
       idInvitation: invitations.idInvitation,
@@ -69,26 +73,21 @@ export async function sa_listInvitations(): Promise<AdminInvitation[]> {
     .leftJoin(userTypes, eq(userTypes.idUserType, invitations.idUserType))
     .leftJoin(users, eq(users.id, invitations.idCreatedByUser))
     .leftJoin(acceptedBy, eq(acceptedBy.id, invitations.idAcceptedByUser))
+    .where(idInvitation === undefined ? undefined : eq(invitations.idInvitation, idInvitation))
     .orderBy(desc(invitations.idInvitation));
 }
 
-/** One row as sa_listInvitations has it, after a change to it. */
-async function listed(idInvitation: number): Promise<AdminInvitation> {
-  const rows = await sa_listInvitations();
-  const row = rows.find((invitation) => invitation.idInvitation === idInvitation);
-  if (!row) throw new Error("Invitation not found");
-  return row;
+/** One row as sa_listInvitations has it, after a change to it; null when it has gone meanwhile. */
+async function listed(idInvitation: number): Promise<AdminInvitation | null> {
+  const [row] = await invitationRows(idInvitation);
+  return row ?? null;
 }
+
+const INVITATION_GONE = "That invitation is no longer there.";
 
 export type AdminInviteResult =
   | { ok: true; invitation: AdminInvitation; emailed: boolean }
   | { ok: false; errors: Record<string, string> };
-
-function fieldErrors(error: z.ZodError): Record<string, string> {
-  const errors: Record<string, string> = {};
-  for (const issue of error.issues) errors[String(issue.path[0] ?? "root")] ??= issue.message;
-  return errors;
-}
 
 /**
  * The New invitation form: invites an address to the app with an account
@@ -99,7 +98,7 @@ function fieldErrors(error: z.ZodError): Record<string, string> {
 export async function sa_inviteToApp(input: unknown, send: boolean): Promise<AdminInviteResult> {
   const admin = await requireAdmin();
   const parsed = appInviteSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
 
   const made = await createInvitation({
     email: parsed.data.email,
@@ -109,7 +108,9 @@ export async function sa_inviteToApp(input: unknown, send: boolean): Promise<Adm
   if (!made.ok) return { ok: false, errors: { email: made.error } };
 
   const emailed = send ? await emailInvitation(made.idInvitation) : false;
-  return { ok: true, invitation: await listed(made.idInvitation), emailed };
+  const invitation = await listed(made.idInvitation);
+  if (!invitation) return { ok: false, errors: { root: INVITATION_GONE } };
+  return { ok: true, invitation, emailed };
 }
 
 export type EditInvitationResult =
@@ -128,16 +129,17 @@ export async function sa_updateInvitation(
   input: unknown,
 ): Promise<EditInvitationResult> {
   const admin = await requireAdmin();
-  const id = idSchema.parse(idInvitation);
+  const id = idSchema.safeParse(idInvitation);
+  if (!id.success) return { ok: false, errors: { root: INVITATION_GONE } };
   const parsed = invitationEditSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, errors: fieldErrors(parsed.error) };
+  if (!parsed.success) return { ok: false, errors: formErrors(parsed.error) };
 
   const [current] = await db
     .select({ idStory: invitations.idStory, acceptedAt: invitations.acceptedAt })
     .from(invitations)
-    .where(eq(invitations.idInvitation, id))
+    .where(eq(invitations.idInvitation, id.data))
     .limit(1);
-  if (!current) throw new Error("Invitation not found");
+  if (!current) return { ok: false, errors: { root: INVITATION_GONE } };
   if (current.acceptedAt !== null) {
     return { ok: false, errors: { root: "An accepted invitation cannot be changed." } };
   }
@@ -154,7 +156,7 @@ export async function sa_updateInvitation(
     .from(invitations)
     .where(
       and(
-        ne(invitations.idInvitation, id),
+        ne(invitations.idInvitation, id.data),
         eq(invitations.email, parsed.data.email),
         isApp ? isNull(invitations.idStory) : eq(invitations.idStory, current.idStory!),
         isNull(invitations.acceptedAt),
@@ -173,9 +175,11 @@ export async function sa_updateInvitation(
       expiresAt: new Date(`${parsed.data.expiresOn}T23:59:59`),
       idUpdatedByUser: admin.id,
     })
-    .where(eq(invitations.idInvitation, id));
+    .where(eq(invitations.idInvitation, id.data));
 
-  return { ok: true, invitation: await listed(id) };
+  const invitation = await listed(id.data);
+  if (!invitation) return { ok: false, errors: { root: INVITATION_GONE } };
+  return { ok: true, invitation };
 }
 
 /**
@@ -184,14 +188,15 @@ export async function sa_updateInvitation(
  */
 export async function sa_resendInvitation(idInvitation: number): Promise<{ ok: boolean }> {
   await requireAdmin();
-  const id = idSchema.parse(idInvitation);
+  const id = idSchema.safeParse(idInvitation);
+  if (!id.success) return { ok: false };
   const [row] = await db
     .select({ status: statusSql })
     .from(invitations)
-    .where(eq(invitations.idInvitation, id))
+    .where(eq(invitations.idInvitation, id.data))
     .limit(1);
   if (row?.status !== "pending") return { ok: false };
-  return { ok: await emailInvitation(id) };
+  return { ok: await emailInvitation(id.data) };
 }
 
 /**
@@ -201,10 +206,11 @@ export async function sa_resendInvitation(idInvitation: number): Promise<{ ok: b
  */
 export async function sa_deleteInvitation(idInvitation: number): Promise<{ ok: boolean }> {
   await requireAdmin();
-  const id = idSchema.parse(idInvitation);
+  const id = idSchema.safeParse(idInvitation);
+  if (!id.success) return { ok: false };
   const deleted = await db
     .delete(invitations)
-    .where(eq(invitations.idInvitation, id))
+    .where(eq(invitations.idInvitation, id.data))
     .returning({ id: invitations.idInvitation });
   return { ok: deleted.length > 0 };
 }

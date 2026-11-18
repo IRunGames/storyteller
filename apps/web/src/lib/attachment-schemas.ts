@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
+import { MAX_IMAGE_BYTES } from "./image-uploads";
 
 // id_attachment and the external id (a story, session or scene id) share the
 // same int4 column type, but are kept as separate exports so a call site reads
 // which one a given parameter means.
-export const idAttachmentSchema = z.int32();
-export const idExternalSchema = z.int32();
+export const idAttachmentSchema = idSchema;
+export const idExternalSchema = idSchema;
 
 export const attachmentKindSchema = z.enum([
   "STORY",
@@ -47,6 +49,20 @@ export const attachmentUrlSchema = z
   .string()
   .trim()
   .pipe(z.url({ protocol: /^https?$/, error: "Please enter a valid URL." }));
+
+/**
+ * What the browser reports about a file as its upload starts, each part
+ * optional since a typed link has none of them. The columns are free text and
+ * a plain integer, so the bounds here are the upload route's rather than the
+ * database's: a name or type longer than any file system gives, or a size
+ * negative or past MAX_IMAGE_BYTES, the largest the route ever issues a token
+ * for, is not something the uploader sent.
+ */
+export const attachmentFileSchema = z.object({
+  fileName: z.string().max(255).optional(),
+  contentType: z.string().max(127).optional(),
+  byteSize: z.int().nonnegative().max(MAX_IMAGE_BYTES).optional(),
+});
 
 /**
  * One tag as a storyteller types it: trimmed, lower-cased so "Map" and "map"

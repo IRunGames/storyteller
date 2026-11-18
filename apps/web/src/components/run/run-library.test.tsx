@@ -11,17 +11,9 @@ import type { AttachmentSort, ElementDetail, PlayItem, RunLibrarySource } from "
 import type { StatusOption } from "@/lib/status";
 import { UserProvider } from "@/components/auth/user-provider";
 import { Toaster, toaster } from "@/components/ui/toaster";
-import type { CurrentUser } from "@/lib/current-user";
+import { currentUser, mockNavigation } from "@/test/mocks";
 
-const user: CurrentUser = {
-  id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
-  name: "Paul Stafford",
-  email: "storyteller@irun.games",
-  image: null,
-  nickName: null,
-  idUserType: -10,
-  isAnonymous: false,
-};
+const user = currentUser();
 
 const attachment = (
   idAttachment: number,
@@ -191,32 +183,32 @@ describe("RunLibrary", () => {
         sa_detachFromHolder,
       },
     });
-    mock.module("next/navigation", {
-      namedExports: { useRouter: () => ({ push: mock.fn(), refresh: mock.fn() }) },
-    });
+    mockNavigation();
     mock.module("@/components/prep/actions", {
       namedExports: { sa_listStoryElements },
     });
     // An element's info button asks for the element and its workflow.
     mock.module("@/components/elements/actions", {
-      namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
-    });
-    // The element panel's rows load the element's stat blocks as they mount.
-    mock.module("@/components/stat-blocks/actions", {
-      namedExports: { sa_getStatBlocks, sa_setStat: mock.fn() },
-    });
-    mock.module("@/components/run/actions", {
       namedExports: {
+        sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })),
         sa_setElementTags: mock.fn(),
         sa_getElementDetail,
         sa_setElementImage,
         sa_updateStoryElement,
+        sa_listSceneLibraryElements,
+      },
+    });
+    mock.module("@/components/scene-elements/actions", {
+      namedExports: {
         sa_updateSceneElement: mock.fn(),
         sa_moveSceneElement: mock.fn(),
         sa_unlinkSceneElement,
-        sa_listSceneLibraryElements,
         sa_createSceneElement: mock.fn(),
       },
+    });
+    // The element panel's rows load the element's stat blocks as they mount.
+    mock.module("@/components/stat-blocks/actions", {
+      namedExports: { sa_getStatBlocks, sa_setStat: mock.fn() },
     });
     // An element tab's + reads the Add as invisible preference.
     mock.module("@/components/preferences/actions", {

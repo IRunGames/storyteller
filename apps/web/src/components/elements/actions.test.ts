@@ -1,175 +1,296 @@
 // Integration test against the real database, skipped when DATABASE_URL is
-// unset so `just test` stays green offline. `before` makes a story a second
-// user tells and the test user plays in, with one element linked to seven
-// scenes played at different times, one of the links hidden, and a
-// stranger's story with a scene of its own.
-import { after, before, beforeEach, describe, it, mock } from "node:test";
+// unset so `just test` stays green offline. An element of the story apart from any scene: the library's list, the panel's detail, its edit, its picture and its tags.
+// The fixture is test/scene-fixtures.ts's: a story of the test user's with a
+// scene and elements, and a story belonging to someone else; each test opens
+// the session it needs and `beforeEach` clears them.
+import { after, before, beforeEach, it } from "node:test";
 import { expect } from "expect";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
+import { elementIdOf } from "@/lib/run";
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
+import {
+  type SceneFixture,
+  elementForm,
+  makeSceneFixture,
+  mockPublishing,
+  publishMocks,
+} from "@/test/scene-fixtures";
 
-loadEnvConfig(process.cwd());
-
-// Signed in as a test user of its own, never a real account (test-user.ts).
-const TEST_USER_EMAIL = "components-elements-actions@example.test";
-let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
-
-let caller = "";
-const getSession = mock.fn(async () => ({ user: { id: caller } }));
+const mocks = publishMocks();
 
 let actions: typeof import("./actions");
-
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
-
-let tellerId = "";
-let playsIn = 0;
-let strangers = 0;
+let links: typeof import("@/components/scene-elements/actions");
+let run: typeof import("@/components/run/actions");
+let db: Db;
+let tables: Tables;
+let fx: SceneFixture;
+let testUser = "";
+let mine = 0;
+let theirs = 0;
+let scene = 0;
+let theirScene = 0;
 let zed = 0;
-let strangersZed = 0;
-const sceneIds: number[] = [];
 
-describe("element history actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("element actions", { email: "element-actions@example.test" }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
-    caller = testUser;
+    mockPublishing(mocks);
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
     actions = await import("./actions");
-
-    await db
-      .delete(tables.user)
-      .where(eq(tables.user.email, "element-history-fixture@example.test"));
-    const [teller] = await db
-      .insert(tables.user)
-      .values({ name: "Element History Fixture", email: "element-history-fixture@example.test" })
-      .returning({ id: tables.user.id });
-    tellerId = teller.id;
-
-    [{ id: playsIn }, { id: strangers }] = await db
-      .insert(tables.stories)
-      .values([
-        { title: "Element history fixture — plays in", idCreatedByUser: tellerId },
-        { title: "Element history fixture — strangers", idCreatedByUser: tellerId },
-      ])
-      .returning({ id: tables.stories.idStory });
-    await db.insert(tables.storyPlayers).values({ idStory: playsIn, idUser: testUser });
-
-    const [session] = await db
-      .insert(tables.storySessions)
-      .values({ idStory: playsIn, status: "DONE", title: "Kildealg", idCreatedByUser: tellerId })
-      .returning({ id: tables.storySessions.idStorySession });
-
-    // Seven scenes, played a day apart, the first most recently; the
-    // seventh never played. Inserted one at a time so the order of ids is
-    // not the order of play.
-    for (let n = 1; n <= 7; n += 1) {
-      const [row] = await db
-        .insert(tables.storyScenes)
-        .values({
-          idStory: playsIn,
-          idStorySession: n === 7 ? null : session.id,
-          sceneTitle: `Fixture scene ${n}`,
-          status: n === 7 ? "PENDING" : "COMPLETE",
-          activeAt: n === 7 ? null : new Date(Date.UTC(2026, 9, 20 - n)),
-          idCreatedByUser: tellerId,
-        })
-        .returning({ id: tables.storyScenes.idStoryScene });
-      sceneIds.push(row.id);
-    }
-    const [theirs] = await db
-      .insert(tables.storyScenes)
-      .values({ idStory: strangers, sceneTitle: "Fixture elsewhere", idCreatedByUser: tellerId })
-      .returning({ id: tables.storyScenes.idStoryScene });
-
-    [{ id: zed }, { id: strangersZed }] = await db
-      .insert(tables.elements)
-      .values([
-        { idStory: playsIn, kind: "PERSON", name: "Fixture Zed", idCreatedByUser: tellerId },
-        { idStory: strangers, kind: "PERSON", name: "Fixture Zed too", idCreatedByUser: tellerId },
-      ])
-      .returning({ id: tables.elements.idElement });
-    await db.insert(tables.sceneElements).values([
-      ...sceneIds.map((idStoryScene, index) => ({
-        idStoryScene,
-        idElement: zed,
-        // Hidden in the third scene.
-        ...(index === 2 ? { status: "INVISIBLE" } : {}),
-        idCreatedByUser: tellerId,
-      })),
-      { idStoryScene: theirs.id, idElement: strangersZed, idCreatedByUser: tellerId },
-    ]);
+    links = await import("@/components/scene-elements/actions");
+    run = await import("@/components/run/actions");
+    fx = await makeSceneFixture(suite, "Element actions fixture");
+    ({ mine, theirs, scene, theirScene, zed } = fx);
   });
 
-  beforeEach(() => {
-    caller = testUser;
-  });
+  beforeEach(() => fx.clearSessions());
 
   after(async () => {
     if (!db) return;
-    if (playsIn || strangers) {
-      await db
-        .delete(tables.storyPlayers)
-        .where(inArray(tables.storyPlayers.idStory, [playsIn, strangers]));
-      await db.delete(tables.stories).where(inArray(tables.stories.idStory, [playsIn, strangers]));
-    }
-    if (tellerId) await db.delete(tables.user).where(eq(tables.user.id, tellerId));
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
+    await fx.remove();
   });
 
-  const titles = (page: { rows: { title: string }[] } | null) => page?.rows.map((row) => row.title);
+  const openSession = (...args: Parameters<SceneFixture["openSession"]>) => fx.openSession(...args);
+  const sceneIn = (...args: Parameters<SceneFixture["sceneIn"]>) => fx.sceneIn(...args);
 
-  it("lists the storyteller every other scene the element is in, most recently played first, five at a time", async () => {
-    caller = tellerId;
-    const first = await actions.sa_listElementHistory(playsIn, zed, sceneIds[0], 0);
-    expect(titles(first)).toEqual([
-      "Fixture scene 2",
-      "Fixture scene 3",
-      "Fixture scene 4",
-      "Fixture scene 5",
-      "Fixture scene 6",
-    ]);
-    expect(first?.hasMore).toBe(true);
-    expect(first?.rows[0]).toMatchObject({
-      idStoryScene: sceneIds[1],
-      status: "COMPLETE",
-      sessionHeading: "1. Kildealg",
-      at: "2026-10-18T00:00:00.000Z",
+  const form = elementForm;
+
+  it("gives one of the story's elements for the library's info popover", async () => {
+    expect(await actions.sa_getElementDetail(mine, zed)).toMatchObject({
+      element: {
+        idElement: zed,
+        kind: "PERSON",
+        name: "Fixture Zed",
+        initialName: "Fixture hooded figure",
+        title: "Harbourmaster",
+        tags: [],
+      },
+      // No scene asked about, so in none.
+      link: null,
+    });
+    expect((await actions.sa_getElementDetail(mine, zed, scene))?.link).toMatchObject({
+      tags: ["scene"],
+    });
+    const empty = await sceneIn("ACTIVE", "Fixture scene Zed is not in");
+    expect((await actions.sa_getElementDetail(mine, zed, empty))?.link).toBeNull();
+    // Not the caller's story, so nothing, even for an element that exists.
+    expect(await actions.sa_getElementDetail(theirs, zed)).toBeNull();
+    expect(await actions.sa_getElementDetail(mine, 2147483647)).toBeNull();
+  });
+
+  it("sets an element's tags, trimmed, lower-cased and deduplicated", async () => {
+    expect(await actions.sa_setElementTags(mine, zed, [" Docks ", "docks", "Harbour"])).toEqual({
+      ok: true,
+      tags: ["docks", "harbour"],
+    });
+    const tagsOf = async () => {
+      const [row] = await db
+        .select({ tags: tables.elements.tags })
+        .from(tables.elements)
+        .where(eq(tables.elements.idElement, zed));
+      return row.tags;
+    };
+    expect(await tagsOf()).toEqual(["docks", "harbour"]);
+
+    expect(await actions.sa_setElementTags(theirs, zed, ["x"])).toEqual({
+      ok: false,
+      error: "That scene is not part of this story.",
+    });
+    expect(await actions.sa_setElementTags(mine, 2 ** 20, ["x"])).toEqual({
+      ok: false,
+      error: "That element is not part of this story.",
+    });
+    expect(await actions.sa_setElementTags(mine, zed, ["a".repeat(41)])).toEqual({
+      ok: false,
+      error: "Keep a tag under 40 characters.",
+    });
+    expect(await tagsOf()).toEqual(["docks", "harbour"]);
+
+    expect(await actions.sa_setElementTags(mine, zed, [])).toEqual({ ok: true, tags: [] });
+    expect(await tagsOf()).toEqual([]);
+  });
+
+  it("gives an element one of its story's attachments as its picture", async () => {
+    const [mineAttachment, theirAttachment, unfinished, forScene] = await db
+      .insert(tables.attachments)
+      .values([
+        { idStory: mine, status: "READY", url: "https://x.test/zed.png" },
+        { idStory: theirs, status: "READY", url: "https://x.test/other.png" },
+        { idStory: mine, status: "UPLOADING" },
+        { idStory: mine, status: "READY", url: "https://x.test/zed-in-scene.png" },
+      ])
+      .returning({ id: tables.attachments.idAttachment });
+
+    try {
+      expect(await actions.sa_setElementImage(mine, zed, mineAttachment.id)).toEqual({
+        ok: true,
+        imageUrl: "https://x.test/zed.png",
+      });
+      // The play space shows it, and the attachment is still the story's.
+      await openSession(mine, scene);
+      const item = (await run.sa_openRunPlaySpace(mine)).inPlay.find(
+        (each) => elementIdOf(each) === zed,
+      );
+      expect(item?.imageUrl).toBe("https://x.test/zed.png");
+
+      // A new element can start with one, chosen in its form, and with one
+      // for its link in this scene, which is what the pill shows there.
+      const target = await sceneIn("ACTIVE", "Fixture scene for a pictured element");
+      const pictured = await links.sa_createSceneElement(mine, target, null, {
+        ...form({ name: "Fixture pictured" }),
+        idAttachment: mineAttachment.id,
+        idSceneAttachment: forScene.id,
+      });
+      expect(pictured.ok && pictured.item.imageUrl).toBe("https://x.test/zed-in-scene.png");
+      const refusal = {
+        ok: false,
+        errors: { root: "That attachment is not a picture in this story." },
+      };
+      expect(
+        await links.sa_createSceneElement(mine, target, null, {
+          ...form({ name: "Fixture stolen picture" }),
+          idAttachment: theirAttachment.id,
+        }),
+      ).toEqual(refusal);
+      expect(
+        await links.sa_createSceneElement(mine, target, null, {
+          ...form({ name: "Fixture stolen scene picture" }),
+          idSceneAttachment: theirAttachment.id,
+        }),
+      ).toEqual(refusal);
+      if (pictured.ok) {
+        const idPictured = Number(pictured.item.key.split(":")[1]);
+        // The element's own picture is the element's use; the scene's is
+        // the link's, so the detail shows the first and the link the second.
+        const detail = await actions.sa_getElementDetail(mine, idPictured, target);
+        expect(detail?.element.imageUrl).toBe("https://x.test/zed.png");
+        const uses = await db
+          .select({ kind: tables.attachmentUses.kind })
+          .from(tables.attachmentUses)
+          .where(eq(tables.attachmentUses.idAttachment, forScene.id));
+        expect(uses).toEqual([{ kind: "SCENE_ELEMENT" }]);
+        await db.delete(tables.elements).where(eq(tables.elements.idElement, idPictured));
+      }
+
+      // The info popover shows it too, and its − takes it away again.
+      expect((await actions.sa_getElementDetail(mine, zed))?.element.imageUrl).toBe(
+        "https://x.test/zed.png",
+      );
+      expect(await actions.sa_setElementImage(mine, zed, null)).toEqual({
+        ok: true,
+        imageUrl: null,
+      });
+      expect((await actions.sa_getElementDetail(mine, zed, scene))?.element.imageUrl).toBeNull();
+
+      const refused = { ok: false, error: "That attachment is not a picture in this story." };
+      expect(await actions.sa_setElementImage(mine, zed, theirAttachment.id)).toEqual(refused);
+      expect(await actions.sa_setElementImage(mine, zed, unfinished.id)).toEqual(refused);
+      expect(await actions.sa_setElementImage(theirs, zed, mineAttachment.id)).toEqual({
+        ok: false,
+        error: "That scene is not part of this story.",
+      });
+    } finally {
+      // The attachments take their uses with them, the element's picture included.
+      await db
+        .delete(tables.attachments)
+        .where(
+          inArray(tables.attachments.idAttachment, [
+            mineAttachment.id,
+            theirAttachment.id,
+            unfinished.id,
+            forScene.id,
+          ]),
+        );
+    }
+  });
+
+  it("edits a story's element from the library, apart from any scene", async () => {
+    const [made] = await db
+      .insert(tables.elements)
+      .values({ idStory: mine, kind: "THING", name: "Fixture lantern", idCreatedByUser: testUser })
+      .returning({ id: tables.elements.idElement });
+    const values = {
+      kind: "THING",
+      name: "  Fixture storm lantern ",
+      initialName: "",
+      title: "Brass",
+      description: "",
+      notes: "Smells of oil.",
+      url: "",
+      urlText: "",
+      status: "READY",
+    };
+
+    const result = await actions.sa_updateStoryElement(mine, made.id, values);
+    expect(result).toMatchObject({
+      ok: true,
+      element: {
+        idElement: made.id,
+        name: "Fixture storm lantern",
+        title: "Brass",
+        notes: "Smells of oil.",
+        status: "READY",
+        initialName: null,
+      },
     });
 
-    // The never-played scene last, with no date and no session.
-    const second = await actions.sa_listElementHistory(playsIn, zed, sceneIds[0], 5);
-    expect(titles(second)).toEqual(["Fixture scene 7"]);
-    expect(second?.hasMore).toBe(false);
-    expect(second?.rows[0]).toMatchObject({ sessionHeading: null, at: null });
+    expect(
+      await actions.sa_updateStoryElement(mine, made.id, { ...values, status: "NOT_A_STATUS" }),
+    ).toEqual({ ok: false, errors: { status: "Choose one of the element's statuses." } });
+    expect(
+      await actions.sa_updateStoryElement(mine, made.id, { ...values, name: " " }),
+    ).toMatchObject({ ok: false, errors: { name: expect.any(String) } });
+    expect(await actions.sa_updateStoryElement(theirs, made.id, values)).toEqual({
+      ok: false,
+      errors: { root: "That scene is not part of this story." },
+    });
   });
 
-  it("lists a player the same, less the scenes the element is hidden in", async () => {
-    const page = await actions.sa_listElementHistory(playsIn, zed, sceneIds[0], 0);
-    expect(titles(page)).toEqual([
-      "Fixture scene 2",
-      "Fixture scene 4",
-      "Fixture scene 5",
-      "Fixture scene 6",
-      "Fixture scene 7",
-    ]);
-    expect(page?.hasMore).toBe(false);
+  it("lists the scene's elements of one kind for the library's Scene only", async () => {
+    const list = await actions.sa_listSceneLibraryElements(mine, scene, "PERSON");
+    expect(list.map((element) => element.name)).toEqual(["Fixture Zed"]);
+    expect(list[0]).toMatchObject({ idElement: zed, title: "Harbourmaster" });
+    // Searched the way All is, by the element's search text.
+    expect(
+      await actions.sa_listSceneLibraryElements(mine, scene, "PERSON", "harbour"),
+    ).toHaveLength(1);
+    expect(await actions.sa_listSceneLibraryElements(mine, scene, "PERSON", "nowhere")).toEqual([]);
+    expect(await actions.sa_listSceneLibraryElements(mine, scene, "THING")).toEqual([]);
+    expect(await actions.sa_listSceneLibraryElements(theirs, theirScene, "PERSON")).toEqual([]);
+    // Sorted as the library's menu asks, over the element's own columns.
+    for (const sort of ["initial_name", "title", "created", "updated"] as const) {
+      expect(
+        (await actions.sa_listSceneLibraryElements(mine, scene, "PERSON", "", sort)).map(
+          (element) => element.name,
+        ),
+      ).toEqual(["Fixture Zed"]);
+    }
+    // A sort it does not know is a bad request, answered as an unowned scene is.
+    expect(
+      await actions.sa_listSceneLibraryElements(mine, scene, "PERSON", "", "colour" as never),
+    ).toEqual([]);
   });
 
-  it("lists every scene with none to leave out", async () => {
-    caller = tellerId;
-    const page = await actions.sa_listElementHistory(playsIn, zed, null, 0);
-    expect(page?.rows).toHaveLength(5);
-    expect(titles(page)?.[0]).toBe("Fixture scene 1");
-  });
+  it("gives the element and its link to the scene for the info popover", async () => {
+    const detail = await actions.sa_getElementDetail(mine, zed, scene);
 
-  it("finds nothing for a stranger, an element of another story, or ids out of range", async () => {
-    expect(await actions.sa_listElementHistory(strangers, strangersZed, null, 0)).toBeNull();
-    expect(await actions.sa_listElementHistory(playsIn, strangersZed, null, 0)).toBeNull();
-    expect(await actions.sa_listElementHistory(2 ** 40, zed, null, 0)).toBeNull();
+    expect(detail).toMatchObject({
+      element: {
+        kind: "PERSON",
+        name: "Fixture Zed",
+        initialName: "Fixture hooded figure",
+        title: "Harbourmaster",
+        description: null,
+        notes: null,
+        tags: [],
+      },
+      link: { status: "READY", tags: ["scene"], showInfo: true },
+    });
+    expect(detail?.link?.createdAt).toBeInstanceOf(Date);
+
+    const empty = await sceneIn("ACTIVE", "Fixture scene without Zed");
+    // Not in that scene: the element alone, with no link.
+    expect(await actions.sa_getElementDetail(mine, zed, empty)).toMatchObject({ link: null });
+    expect(await actions.sa_getElementDetail(theirs, zed, theirScene)).toBeNull();
   });
 });

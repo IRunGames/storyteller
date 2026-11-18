@@ -9,15 +9,3 @@ export type NewsItem = {
   /** When the item was posted, which is also what the section sorts by. */
   startsAt: Date;
 };
-
-const newsDateFormat = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-  timeZone: "UTC",
-});
-
-/** "Sep 21, 2026". UTC, so the day never shifts with the server's zone. */
-export function formatNewsDate(date: Date): string {
-  return newsDateFormat.format(date);
-}

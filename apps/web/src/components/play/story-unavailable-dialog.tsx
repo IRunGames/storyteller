@@ -3,10 +3,11 @@
 import { useState } from "react";
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Dialog, Portal, Stack, Text } from "@chakra-ui/react";
+import { Button, Dialog, Portal, Stack, Text } from "@chakra-ui/react";
 import type { PlayStory } from "@/lib/play";
 import { sa_activateStory } from "@/components/play/actions";
 import { toaster } from "@/components/ui/toaster";
+import { FormError } from "@/components/forms/form-error";
 
 type Props = {
   story: Pick<PlayStory, "idStory" | "title" | "isOwner" | "isActive" | "isArchived">;
@@ -75,15 +76,7 @@ export function StoryUnavailableDialog({ story }: Props) {
             <Dialog.Body>
               <Stack gap="3">
                 <Text>{explanation(story)}</Text>
-                {error && (
-                  // role="alert", which Chakra's Alert does not set itself.
-                  <Alert.Root role="alert" status="error" size="sm">
-                    <Alert.Indicator />
-                    <Alert.Content>
-                      <Alert.Description>{error}</Alert.Description>
-                    </Alert.Content>
-                  </Alert.Root>
-                )}
+                <FormError message={error} size="sm" />
               </Stack>
             </Dialog.Body>
             <Dialog.Footer>

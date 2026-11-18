@@ -1,21 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import {
-  Toaster as ChakraToaster,
-  Box,
-  HStack,
-  Portal,
-  Stack,
-  Text,
-  Toast,
-  createToaster,
-} from "@chakra-ui/react";
+import { useEffect, useRef, useState } from "react";
+import { Box, HStack, Stack, Text } from "@chakra-ui/react";
 import { chatTime, senderNameColor, senderPalette, type ChatEntry } from "@/lib/chat";
 import { RollCard, SenderAvatar } from "./play-chat-entry";
 import { PlayChatInput } from "./play-chat-input";
 import { PlayChatLayoutPicker } from "./play-chat-layout";
 import type { StoryChat } from "./use-story-chat";
+import { useLatest } from "@/hooks/use-latest";
 
 type Props = {
   /** The box's id, which the header's Chat toggle points at. */
@@ -34,15 +26,11 @@ type Props = {
 
 // How long a line stays over the table.
 const SHOWN_FOR = 10_000;
+// How many lines stack up at most; the oldest goes when a ninth arrives.
+const MAX_SHOWN = 8;
 
-// Its own store, so the table's lines stack by themselves above the box,
-// apart from the app's toasts, and can all go when the overlay does.
-const chatToaster = createToaster({
-  placement: "bottom-end",
-  overlap: false,
-  max: 8,
-  offsets: { top: "1rem", right: "1rem", bottom: "5.5rem", left: "1rem" },
-});
+/** A line on show over the table, and the timer that takes it down. */
+type Shown = { entry: ChatEntry; timer: ReturnType<typeof setTimeout> };
 
 // The overlay chat: no panel, a small box in the lower right to type in,
 // with the layout picker beside it, and each line said while it is up shown
@@ -51,9 +39,12 @@ const chatToaster = createToaster({
 //
 // A line is shown once, when it is first held: what the chat's first page
 // brought, what was already held when the overlay opened, and older lines,
-// are not. Edits and
-// rolls arrive the same way as any line; a taken-back line leaves its toast
-// at once.
+// are not. Edits and rolls arrive the same way as any line; a taken-back
+// line leaves the overlay at once.
+//
+// The lines are a list of this component's own rather than a second
+// toaster: a toast carries a title and a description, and a chat line
+// carried through a toast's `meta` had to be read back out of it untyped.
 export function PlayChatOverlay({
   id,
   idStory,
@@ -62,6 +53,7 @@ export function PlayChatOverlay({
   showLayoutPicker = true,
 }: Props) {
   const { entries, loaded } = chat;
+  const [shown, setShown] = useState<Shown[]>([]);
   // The newest line held once the chat had loaded with the overlay up; only
   // lines after it show.
   const shownUpTo = useRef<number | null>(null);
@@ -73,41 +65,68 @@ export function PlayChatOverlay({
       shownUpTo.current = newestId;
       return;
     }
-    for (const entry of entries) {
-      if (entry.idChat <= shownUpTo.current) continue;
-      chatToaster.create({ id: `chat-${entry.idChat}`, duration: SHOWN_FOR, meta: { entry } });
-    }
-    shownUpTo.current = Math.max(shownUpTo.current, newestId);
-    // A line taken back leaves the overlay too.
-    const held = new Set(entries.map((entry) => `chat-${entry.idChat}`));
-    for (const toast of chatToaster.getVisibleToasts()) {
-      if (toast.id && !held.has(toast.id)) chatToaster.dismiss(toast.id);
-    }
+    const since = shownUpTo.current;
+    shownUpTo.current = Math.max(since, newestId);
+    const held = new Set(entries.map((entry) => entry.idChat));
+    setShown((current) => {
+      // A line taken back leaves the overlay too.
+      const kept = current.filter((line) => {
+        if (held.has(line.entry.idChat)) return true;
+        clearTimeout(line.timer);
+        return false;
+      });
+      const added = entries
+        .filter((entry) => entry.idChat > since)
+        .map((entry) => ({
+          entry,
+          timer: setTimeout(
+            () => setShown((lines) => lines.filter((line) => line.entry.idChat !== entry.idChat)),
+            SHOWN_FOR,
+          ),
+        }));
+      const all = [...kept, ...added];
+      for (const line of all.slice(0, Math.max(0, all.length - MAX_SHOWN)))
+        clearTimeout(line.timer);
+      return all.slice(-MAX_SHOWN);
+    });
   }, [entries, loaded]);
 
-  // Leaving the overlay takes its lines with it.
-  useEffect(() => () => chatToaster.remove(), []);
+  // Leaving the overlay takes its lines with it, and their timers.
+  const shownRef = useLatest(shown);
+  useEffect(() => () => shownRef.current.forEach((line) => clearTimeout(line.timer)), [shownRef]);
 
   return (
     <>
-      <Portal>
-        <ChakraToaster toaster={chatToaster} insetInline={{ mdDown: "4" }}>
-          {(toast) => (
-            <Toast.Root
-              width={{ md: "sm" }}
+      {shown.length > 0 && (
+        <Stack
+          role="log"
+          aria-label="Table chat lines"
+          position="fixed"
+          bottom="5.5rem"
+          right="4"
+          left={{ base: "4", md: "auto" }}
+          w={{ md: "sm" }}
+          zIndex="toast"
+          gap="2"
+          pointerEvents="none"
+        >
+          {shown.map(({ entry }) => (
+            <Box
+              key={entry.idChat}
               py="2"
               px="3"
               bg="bg.panel/75"
               color="fg"
               borderWidth="1px"
+              rounded="l2"
               shadow="sm"
               backdropFilter="blur(6px)"
             >
-              <ChatToastLine entry={(toast.meta as { entry: ChatEntry }).entry} />
-            </Toast.Root>
-          )}
-        </ChakraToaster>
-      </Portal>
+              <ChatToastLine entry={entry} />
+            </Box>
+          ))}
+        </Stack>
+      )}
 
       {(canPost || showLayoutPicker) && (
         <HStack

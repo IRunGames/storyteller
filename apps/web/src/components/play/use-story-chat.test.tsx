@@ -5,20 +5,12 @@ import { useEffect } from "react";
 
 import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
-import type { CurrentUser } from "@/lib/current-user";
 import type { ChatEvent, PublicChat } from "@/lib/realtime/chat-events";
 import type { ChatLoad } from "@/components/play/actions";
 import type { StoryChat } from "./use-story-chat";
+import { currentUser } from "@/test/mocks";
 
-const user: CurrentUser = {
-  id: "me",
-  name: "Paul Stafford",
-  email: "storyteller@irun.games",
-  image: null,
-  nickName: null,
-  idUserType: -20,
-  isAnonymous: false,
-};
+const user = currentUser({ id: "me", idUserType: -20 });
 
 const line = (idChat: number, overrides: Partial<PublicChat> = {}): PublicChat => ({
   idChat,

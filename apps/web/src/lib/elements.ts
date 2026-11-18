@@ -44,9 +44,6 @@ export const ELEMENT_HISTORY_PAGE_SIZE = 5;
 /** Elements per fetch in the Prep Work board's Elements column. */
 export const ELEMENTS_PAGE_SIZE = 10;
 
-/** How long the Elements search box waits after a keystroke before it asks, in ms. */
-export const ELEMENT_SEARCH_DELAY_MS = 250;
-
 /** One card in the Elements column. */
 export type StoryElement = {
   idElement: number;
@@ -73,4 +70,35 @@ export function isWebUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** The fields of an element every form posts, as the schemas name them. */
+export type ElementFormFields = {
+  kind: ElementKind;
+  name: string;
+  initialName: string;
+  title: string;
+  description: string;
+  notes: string;
+  url: string;
+  urlText: string;
+};
+
+/**
+ * An element form's fields as the elements table holds them: the optional
+ * text columns null when left empty, since "" is what an input posts and
+ * null is what the column means by "none". The prep board's forms and the
+ * run table's write the same eight columns, so this is the one mapping.
+ */
+export function elementColumns(values: ElementFormFields) {
+  return {
+    kind: values.kind,
+    name: values.name,
+    initialName: values.initialName || null,
+    title: values.title || null,
+    description: values.description || null,
+    notes: values.notes || null,
+    url: values.url || null,
+    urlText: values.urlText || null,
+  };
 }

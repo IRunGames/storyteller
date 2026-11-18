@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { longTextSchema } from "@/lib/schemas";
 import { ELEMENT_KINDS, isWebUrl } from "./elements";
 import { statBlocksSchema } from "./stat-block-schemas";
 import type { StatBlockFormValues, StatBlockSystem } from "./stat-blocks";
@@ -32,8 +33,8 @@ export const elementSchema = z.object({
     .max(200, "Keep the name under 200 characters."),
   initialName: z.string().trim().max(200, "Keep the initial name under 200 characters."),
   title: z.string().trim().max(200, "Keep the title under 200 characters."),
-  description: z.string().trim().max(8000, "Keep the description under 8000 characters."),
-  notes: z.string().trim().max(8000, "Keep the notes under 8000 characters."),
+  description: longTextSchema("description"),
+  notes: longTextSchema("notes"),
   url: linkUrlSchema,
   urlText: linkTextSchema,
   // The element's stat blocks, keyed by system id, as the board's form posts

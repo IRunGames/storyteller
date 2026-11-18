@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  Alert,
   Button,
   Field,
   Heading,
@@ -23,14 +22,16 @@ import {
   type SessionEditInput,
   type SessionEditValues,
 } from "@/lib/session-schemas";
-import { SCENE_LOCKED_STATUS } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import type { SessionForEdit } from "@/lib/stories";
+import { applyActionErrors } from "@/lib/forms";
 import { sa_getSessionForEdit, sa_updateStorySession } from "@/app/(app)/(nav)/stories/actions";
 import { sa_setLiveSceneSession } from "@/components/live/actions";
 import { toaster } from "@/components/ui/toaster";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { AttachmentListField } from "@/components/uploads/attachment-list-field";
 import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
+import { FormError } from "@/components/forms/form-error";
 
 /**
  * The session as the save stored it: the title, and the three texts each
@@ -92,14 +93,7 @@ export function SessionEditPanel({ idStorySession, onSaved, onClose }: Props) {
   }, [idStorySession]);
 
   if (error) {
-    return (
-      <Alert.Root status="error" size="sm">
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Description>{error}</Alert.Description>
-        </Alert.Content>
-      </Alert.Root>
-    );
+    return <FormError message={error} size="sm" />;
   }
   if (!loaded) {
     return (
@@ -167,10 +161,7 @@ function SessionEditForm({
       toaster.create({ title: "Session saved", type: "success" });
       return;
     }
-    for (const [field, message] of Object.entries(result.errors)) {
-      const known = (FIELDS as readonly string[]).includes(field);
-      setError(known ? (field as (typeof FIELDS)[number]) : "root", { message });
-    }
+    applyActionErrors({ setError }, result.errors, FIELDS);
   }
 
   // A scene put into this session, or taken out: at once, and the list
@@ -200,14 +191,7 @@ function SessionEditForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
       <Stack gap="3">
-        {errors.root && (
-          <Alert.Root status="error" size="sm">
-            <Alert.Indicator />
-            <Alert.Content>
-              <Alert.Description>{errors.root.message}</Alert.Description>
-            </Alert.Content>
-          </Alert.Root>
-        )}
+        <FormError message={errors.root?.message} size="sm" />
         <Field.Root invalid={!!errors.title}>
           <Field.Label>Title (optional)</Field.Label>
           <Input size="sm" autoComplete="off" {...register("title")} />
@@ -234,13 +218,13 @@ function SessionEditForm({
             <Heading as="h3" textStyle="sm" fontWeight="medium">
               Cover image
             </Heading>
-            <PrepIconButton
+            <IconButtonWithTooltip
               label="Add a cover image"
               expanded={isAdding}
               onClick={() => setIsAdding((open) => !open)}
             >
               <Plus />
-            </PrepIconButton>
+            </IconButtonWithTooltip>
           </HStack>
           <Text textStyle="xs" color="fg.muted">
             Saved as soon as they are added. Press Cover on the one the session shows.
@@ -277,7 +261,7 @@ function SessionEditForm({
                       <Text textStyle="sm" truncate>
                         {scene.title}
                       </Text>
-                      <PrepIconButton
+                      <IconButtonWithTooltip
                         label={
                           locked
                             ? "A complete scene keeps its session"
@@ -289,7 +273,7 @@ function SessionEditForm({
                         outlined
                       >
                         <Minus />
-                      </PrepIconButton>
+                      </IconButtonWithTooltip>
                     </HStack>
                   </List.Item>
                 );

@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  Alert,
   Button,
   Center,
   Field,
@@ -22,6 +21,7 @@ import { signInSchema, type SignInValues } from "@/lib/auth-schemas";
 import { withRedirect } from "@/lib/safe-redirect";
 import { AboutStorytellerLink } from "@/components/about/about-storyteller-link";
 import { GoogleButton } from "@/components/auth/google-button";
+import { FormError } from "@/components/forms/form-error";
 
 export function LoginForm({ redirectTo }: { redirectTo: string }) {
   const router = useRouter();
@@ -61,14 +61,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
         <Text color="fg.muted">Sign in to continue your story.</Text>
       </Stack>
 
-      {errors.root && (
-        <Alert.Root status="error">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Description>{errors.root.message}</Alert.Description>
-          </Alert.Content>
-        </Alert.Root>
-      )}
+      <FormError message={errors.root?.message} />
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <Stack gap="4">

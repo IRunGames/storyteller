@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLatest } from "@/hooks/use-latest";
 import { useUser } from "@/components/auth/user-provider";
 import { toaster } from "@/components/ui/toaster";
 import { mergeChatEntries, toChatEntry, type ChatEntry } from "@/lib/chat";
@@ -84,14 +85,8 @@ export function useStoryChat(idStory: number, isOpen: boolean): StoryChat {
   if (isOpen && unread !== 0) setUnread(0);
 
   // What the message handler reads, which the channel holds across renders.
-  // Kept current in an effect, as the hooks rule asks; a message always
-  // arrives after the render that changed them.
-  const entriesRef = useRef(entries);
-  const isOpenRef = useRef(isOpen);
-  useEffect(() => {
-    entriesRef.current = entries;
-    isOpenRef.current = isOpen;
-  });
+  const entriesRef = useLatest(entries);
+  const isOpenRef = useLatest(isOpen);
   // Whether the first page has said if there are older lines.
   const firstPage = useRef(false);
 
@@ -169,7 +164,7 @@ export function useStoryChat(idStory: number, isOpen: boolean): StoryChat {
       }
       mergeAll([event.chat]);
     },
-    [idStory, mergeAll, remove, user.id],
+    [idStory, mergeAll, remove, user.id, isOpenRef],
   );
 
   const merge = useCallback((chat: PublicChat) => mergeAll([chat]), [mergeAll]);
@@ -188,7 +183,7 @@ export function useStoryChat(idStory: number, isOpen: boolean): StoryChat {
     } finally {
       setLoadingPrevious(false);
     }
-  }, [idStory, mergeAll]);
+  }, [idStory, mergeAll, entriesRef]);
 
   return {
     entries,

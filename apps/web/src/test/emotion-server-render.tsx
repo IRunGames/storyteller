@@ -8,7 +8,7 @@ import { renderToString } from "react-dom/server";
 import { ServerInsertedHTMLContext } from "next/dist/shared/lib/server-inserted-html.shared-runtime";
 import { Box, ChakraProvider } from "@chakra-ui/react";
 import { system } from "@/theme";
-import { EmotionRegistry } from "@/components/ui/emotion-registry";
+import { EmotionRegistry } from "@/components/providers/emotion-registry";
 
 function render(tree: ReactNode) {
   const callbacks: (() => ReactNode)[] = [];

@@ -5,17 +5,16 @@ import {
   Button,
   Field,
   HStack,
-  IconButton,
   Input,
   Popover,
   Portal,
   Stack,
   Tag,
   Text,
-  Tooltip,
   Wrap,
 } from "@chakra-ui/react";
 import { Tag as TagIcon } from "lucide-react";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import type { z } from "zod";
 
 type Props = {
@@ -46,8 +45,6 @@ type Props = {
  * holder's own handler rather than a server action.
  */
 export function TagsPopover({ label, tags, tagSchema, onTagsChange, portalled = true }: Props) {
-  // Tooltip and popover each look their trigger up by id; sharing one keeps
-  // the popover from opening at the page corner (nav-theme-menu.tsx).
   const triggerId = useId();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -79,20 +76,16 @@ export function TagsPopover({ label, tags, tagSchema, onTagsChange, portalled = 
         if (!details.open) setError(null);
       }}
     >
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Popover.Trigger asChild>
-            <IconButton aria-label={`Tags for ${label}`} size="xs" variant="ghost">
-              <TagIcon />
-            </IconButton>
-          </Popover.Trigger>
-        </Tooltip.Trigger>
-        <Portal disabled={!portalled}>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Tags</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      {/* Square-cornered like the row's other buttons, not the round default. */}
+      <IconButtonWithTooltip
+        label={`Tags for ${label}`}
+        tooltip="Tags"
+        rounded="l2"
+        popoverTrigger={triggerId}
+        portalled={portalled}
+      >
+        <TagIcon />
+      </IconButtonWithTooltip>
       <Portal disabled={!portalled}>
         <Popover.Positioner>
           <Popover.Content w="xs">

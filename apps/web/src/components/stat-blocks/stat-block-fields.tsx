@@ -31,7 +31,7 @@ import {
 import { Dices, Plus, Star, Trash2, X } from "lucide-react";
 import type { StatBlockSystems } from "@/components/prep/actions";
 import { DeleteButton } from "@/components/confirm/delete-button";
-import { PrepIconButton } from "@/components/prep/prep-icon-button";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import type { ElementFormInput, ElementValues } from "@/lib/element-schemas";
 import {
   carriedGroups,
@@ -445,16 +445,19 @@ function RepeatingGroupFields({
                         <Star size={14} fill="currentColor" />
                       </Box>
                     ) : (
-                      <PrepIconButton
+                      <IconButtonWithTooltip
                         label={`Make ${keyText} the default`}
                         onClick={() => rows.move(i, 0)}
                       >
                         <Star />
-                      </PrepIconButton>
+                      </IconButtonWithTooltip>
                     )}
-                    <PrepIconButton label={`Remove ${keyText}`} onClick={() => rows.remove(i)}>
+                    <IconButtonWithTooltip
+                      label={`Remove ${keyText}`}
+                      onClick={() => rows.remove(i)}
+                    >
                       <Trash2 />
-                    </PrepIconButton>
+                    </IconButtonWithTooltip>
                   </Table.Cell>
                 </Table.Row>
               );
@@ -550,13 +553,13 @@ function StatField({
   const title = <StatName stat={{ ...definition, initialFromLabel: stat.initialFromLabel }} />;
   const source = rolls.source(at, definition);
   const rollSource = source && (
-    <PrepIconButton
+    <IconButtonWithTooltip
       label={`Roll ${source.label} for ${name}`}
       disabled={!isRollNotation(source.dice)}
       onClick={() => rolls.roll(at, definition, true)}
     >
       <Dices />
-    </PrepIconButton>
+    </IconButtonWithTooltip>
   );
 
   switch (stat.type) {

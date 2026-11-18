@@ -1,6 +1,7 @@
 import { formatDay } from "@/lib/dates";
 import type { SessionScene } from "@/lib/scenes";
 import { statusLabel } from "@/lib/status";
+import { plural } from "./plural";
 
 /** Cards per fetch in every Stories section. */
 export const PAGE_SIZE = 10;
@@ -97,14 +98,6 @@ export type StorySession = {
 };
 
 /** What the session info popover shows for one session. */
-/**
- * The status a session has once it has been played out. Named here, as
- * SCENE_LOCKED_STATUS is in lib/scenes.ts, because the workflow has no
- * mark the code could read it off: it is the point from which a player may
- * read the session's completed scenes.
- */
-export const SESSION_DONE_STATUS = "DONE";
-
 export type StorySessionDetail = {
   idStorySession: number;
   /** The story the session belongs to, for the link back to it from the session's page. */
@@ -177,9 +170,6 @@ export type StoryPlayer = {
 /** Matches per search in the Invite Players popover. */
 export const PLAYER_SEARCH_LIMIT = 10;
 
-/** How long the popover waits after a keystroke before it searches, in ms. */
-export const PLAYER_SEARCH_DELAY_MS = 250;
-
 /**
  * One match in the Invite Players popover. The email is shown under the name
  * so two people known by the same nickname can be told apart, and so a
@@ -244,7 +234,7 @@ export function formatSessionLength(minutes: number): string {
 
 /** "3 players", "1 player". */
 export function formatPlayerCount(count: number): string {
-  return `${count} ${count === 1 ? "player" : "players"}`;
+  return plural(count, "player");
 }
 
 /** "4 sessions", "1 session". */
@@ -289,3 +279,19 @@ export const SECTION_EMPTY_TEXT: Record<SectionKey, string> = {
  */
 export const STORIES_SECTIONS = ["favorites", "mine"] as const;
 export const FIND_SECTIONS = ["open"] as const;
+
+/**
+ * The sitting a scene was played in as a row of v_story_scenes carries it,
+ * headed as the Timeline heads it (sessionHeading), or null for a scene in
+ * no sitting, and for the row of a session the view could not number, which
+ * would only happen mid-delete. The one mapping for the six lists that show
+ * a scene with its sitting.
+ */
+export function sessionHeadingOf(row: {
+  idStorySession?: number | null;
+  sessionNumber: number | null;
+  sessionTitle: string | null;
+}): string | null {
+  if (row.idStorySession === null || row.sessionNumber === null) return null;
+  return sessionHeading({ number: row.sessionNumber, title: row.sessionTitle });
+}

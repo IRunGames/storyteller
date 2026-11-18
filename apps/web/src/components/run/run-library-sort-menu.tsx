@@ -1,9 +1,10 @@
 "use client";
 
 import { useId } from "react";
-import { IconButton, Menu, Portal, Tooltip } from "@chakra-ui/react";
+import { Menu, Portal } from "@chakra-ui/react";
 import { ArrowDownUp } from "lucide-react";
 import { ELEMENT_SORT_KEYS, ELEMENT_SORT_LABELS, type ElementSort } from "@/lib/elements";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import {
   ATTACHMENT_SORT_KEYS,
   ATTACHMENT_SORT_LABELS,
@@ -39,20 +40,9 @@ export function RunLibrarySortMenu({
 
   return (
     <Menu.Root positioning={{ placement: "bottom-start" }} ids={{ trigger: triggerId }}>
-      <Tooltip.Root openDelay={200} positioning={{ placement: "top" }} ids={{ trigger: triggerId }}>
-        <Tooltip.Trigger asChild>
-          <Menu.Trigger asChild>
-            <IconButton aria-label="Sort the library" variant="ghost" size="xs" rounded="full">
-              <ArrowDownUp />
-            </IconButton>
-          </Menu.Trigger>
-        </Tooltip.Trigger>
-        <Portal>
-          <Tooltip.Positioner>
-            <Tooltip.Content>Sort the library</Tooltip.Content>
-          </Tooltip.Positioner>
-        </Portal>
-      </Tooltip.Root>
+      <IconButtonWithTooltip label="Sort the library" menuTrigger={triggerId}>
+        <ArrowDownUp />
+      </IconButtonWithTooltip>
       <Portal>
         <Menu.Positioner>
           <Menu.Content>

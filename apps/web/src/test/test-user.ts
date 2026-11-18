@@ -16,12 +16,28 @@ function checked(email: string) {
   return email;
 }
 
-/** Makes the test user afresh, clearing one a crashed run left, and returns its id. */
-export async function makeTestUser(db: typeof Db, tables: typeof Schema, email: string) {
+/** What a suite may say about a test user beyond its address. */
+export type TestUserDetails = { name?: string; nickName?: string };
+
+/**
+ * Makes the test user afresh, clearing one a crashed run left, and returns
+ * its id. The name and nickname are shown wherever the app lists people, so a
+ * suite that asserts on them passes its own.
+ */
+export async function makeTestUser(
+  db: typeof Db,
+  tables: typeof Schema,
+  email: string,
+  details: TestUserDetails = {},
+) {
   await removeTestUser(db, tables, email);
   const [made] = await db
     .insert(tables.user)
-    .values({ name: "Test User", email: checked(email) })
+    .values({
+      name: details.name ?? "Test User",
+      nickName: details.nickName,
+      email: checked(email),
+    })
     .returning({ id: tables.user.id });
   return made.id;
 }

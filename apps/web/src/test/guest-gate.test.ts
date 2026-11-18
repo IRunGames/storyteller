@@ -3,16 +3,25 @@
 // an action is a POST anyone with a cookie can make, whatever the pages show.
 // requireAccount() is what says otherwise (lib/authorize.ts).
 //
-// This test reads every "use server" module and the API routes and fails
+// This test parses every "use server" module and the API routes and fails
 // when an exported action passes a guest through requireUser() without
-// being named below, or calls neither gate without being named either. So a
-// new action is closed to guests unless someone decides here that it is not.
+// being named below, or does not open with a gate without being named
+// either. The gate has to be the first statement: anything before it, a
+// parse of the input say, runs for whoever asks, and a stale cookie for a
+// deactivated account would reach it. So a new action is closed to guests,
+// and gated before it does anything, unless someone decides here otherwise.
 import { describe, it } from "node:test";
 import { expect } from "expect";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
-
-const SRC = join(process.cwd(), "src");
+import ts from "typescript";
+import {
+  exportedFunctions,
+  hasDirective,
+  lineOf,
+  parse,
+  sourceFiles,
+  type ExportedFunction,
+  type Source,
+} from "./source-scan";
 
 // What a guest's pages call: the display table and its waiting room read
 // the story, the scene, the sessions, the chat and the live channel, and
@@ -33,6 +42,10 @@ const GUEST_ACTIONS = new Set([
   "app/(app)/(nav)/stories/actions.ts sa_listStorySessions",
   "components/preferences/actions.ts sa_getUserPreferences",
   "app/(public)/join/[code]/actions.ts sa_joinByLink",
+  // A visitor who already holds a session, a guest's included, is seated as
+  // sa_joinByLink seats them, through the same helper, so the session is
+  // read with requireUser() once the link has been checked.
+  "app/(public)/join/[code]/actions.ts sa_joinAsGuest",
   "app/api/table/leave/route.ts POST",
 ]);
 
@@ -45,49 +58,97 @@ const UNGATED_ACTIONS = new Set([
   "app/(public)/invite/[token]/actions.ts sa_getInvitation",
 ]);
 
-function sources(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name);
-    if (statSync(path).isDirectory()) return sources(path);
-    return /\.tsx?$/.test(name) && !name.includes(".test.") ? [path] : [];
-  });
+const GATES = new Set(["requireUser", "requireAccount", "requireAdmin"]);
+
+/** The gate a statement calls, when it is `await requireX()` bare or assigned to a const. */
+function gateOf(statement: ts.Statement | undefined): string | null {
+  if (!statement) return null;
+  let expression: ts.Expression | undefined;
+  if (ts.isExpressionStatement(statement)) expression = statement.expression;
+  if (ts.isVariableStatement(statement)) {
+    const [declaration] = statement.declarationList.declarations;
+    expression = declaration?.initializer;
+  }
+  if (!expression || !ts.isAwaitExpression(expression)) return null;
+  const call = expression.expression;
+  if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression)) return null;
+  return GATES.has(call.expression.text) ? call.expression.text : null;
 }
 
-// Each exported function with its body, up to the next export.
-function actions(file: string): { name: string; body: string }[] {
-  const text = readFileSync(file, "utf8");
-  const isActions = /^["']use server["']/.test(text.trimStart());
+/** Whether the gate is called anywhere in the body, as a comment never could be. */
+function callsGate(fn: ExportedFunction, gate: string): boolean {
+  let found = false;
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === gate
+    ) {
+      found = true;
+    }
+    if (!found) ts.forEachChild(node, visit);
+  };
+  for (const statement of fn.statements) visit(statement);
+  return found;
+}
+
+type Action = ExportedFunction & { isRoute: boolean };
+
+function actions(source: Source): Action[] {
+  const isActions = hasDirective(source, "use server");
   // The cron jobs answer to CRON_SECRET rather than to a session, and
   // Better Auth's own handler is configured in lib/auth.ts.
-  const isRoute =
-    file.endsWith("route.ts") && !/^app\/api\/(cron|auth)\//.test(relative(SRC, file));
+  const isRoute = source.path.endsWith("route.ts") && !/^app\/api\/(cron|auth)\//.test(source.path);
   if (!isActions && !isRoute) return [];
-  return text
-    .split(/(?=^export async function )/m)
-    .map((part) => ({ name: /^export async function (\w+)/.exec(part)?.[1], body: part }))
-    .filter((part): part is { name: string; body: string } => part.name !== undefined);
+  return exportedFunctions(source).map((fn) => ({ ...fn, isRoute }));
 }
 
 describe("server actions and guests", () => {
-  const found = sources(SRC).flatMap((file) =>
-    actions(file).map((action) => ({ ...action, key: `${relative(SRC, file)} ${action.name}` })),
-  );
+  const found = sourceFiles().flatMap((file) => {
+    const source = parse(file);
+    return actions(source).map((action) => ({
+      ...action,
+      key: `${source.path} ${action.name}`,
+      where: `${source.path}:${lineOf(source, action.node)}`,
+    }));
+  });
+
+  it("finds the actions", () => {
+    expect(found.length).toBeGreaterThan(100);
+  });
 
   it("let a guest through requireUser() only where it is meant to", () => {
     const open = found
-      .filter(({ key, body }) => /requireUser\(\)/.test(body) && !GUEST_ACTIONS.has(key))
+      .filter((action) => callsGate(action, "requireUser") && !GUEST_ACTIONS.has(action.key))
       .map(({ key }) => key);
     expect(open).toEqual([]);
   });
 
-  it("check who is asking in every action not named as ungated", () => {
+  it("open with the gate, as their first statement, in every action not named as ungated", () => {
+    const late = found
+      .filter(
+        (action) =>
+          !action.isRoute &&
+          !UNGATED_ACTIONS.has(action.key) &&
+          gateOf(action.statements[0]) === null,
+      )
+      .map(({ key, where }) => `${key} (${where})`);
+    expect(late).toEqual([]);
+  });
+
+  // A route handler reads the request first and answers a status code rather
+  // than throwing, so its gate sits inside a try or, for the upload route,
+  // inside the callback @vercel/blob runs before it issues a token. It still
+  // has to be called somewhere in the handler.
+  it("call a gate somewhere in every route handler", () => {
     const ungated = found
       .filter(
-        // requireAdmin() is requireAccount() and more (lib/authorize.ts).
-        ({ key, body }) =>
-          !/require(User|Account|Admin)\(\)/.test(body) && !UNGATED_ACTIONS.has(key),
+        (action) =>
+          action.isRoute &&
+          !UNGATED_ACTIONS.has(action.key) &&
+          ![...GATES].some((gate) => callsGate(action, gate)),
       )
-      .map(({ key }) => key);
+      .map(({ key, where }) => `${key} (${where})`);
     expect(ungated).toEqual([]);
   });
 

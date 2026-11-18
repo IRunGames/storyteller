@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  Alert,
   Button,
   Field,
   HStack,
@@ -20,6 +19,7 @@ import { signUp } from "@/lib/auth-client";
 import { MIN_PASSWORD_LENGTH, signUpSchema, type SignUpValues } from "@/lib/auth-schemas";
 import { withRedirect } from "@/lib/safe-redirect";
 import { GoogleButton } from "@/components/auth/google-button";
+import { FormError } from "@/components/forms/form-error";
 
 export function SignupForm({ redirectTo, email = "" }: { redirectTo: string; email?: string }) {
   const router = useRouter();
@@ -59,14 +59,7 @@ export function SignupForm({ redirectTo, email = "" }: { redirectTo: string; ema
         <Text color="fg.muted">Start telling stories together.</Text>
       </Stack>
 
-      {errors.root && (
-        <Alert.Root status="error">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Description>{errors.root.message}</Alert.Description>
-          </Alert.Content>
-        </Alert.Root>
-      )}
+      <FormError message={errors.root?.message} />
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <Stack gap="4">

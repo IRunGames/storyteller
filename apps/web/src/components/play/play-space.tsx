@@ -12,17 +12,20 @@ import {
   Text,
   type HeadingProps,
 } from "@chakra-ui/react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { toPlayItem, type PlayScene } from "@/lib/play-scene";
-import { playStacks } from "@/lib/run";
-import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS, type SceneText } from "@/lib/scenes";
-import { cssUrlValue } from "@/lib/stories";
+import { isStackWide, playStacks, stackKey } from "@/lib/run";
+import { type SceneText } from "@/lib/scenes";
+import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS } from "@/lib/status";
 import { sa_setPlaySceneText } from "@/components/play/actions";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { AttachmentPreviewDialog } from "@/components/uploads/attachment-preview";
 import { BackgroundToggle } from "./background-toggle";
 import { PlayPill } from "./play-pill";
 import { SceneStateOverlay } from "./scene-state-overlay";
 import { SceneTextPopover } from "./scene-text-popover";
 import type { ChannelStatus } from "./use-story-channel";
+import { CoverBackdrop } from "@/components/covers/cover-backdrop";
 
 type Props = {
   idStory: number;
@@ -91,6 +94,38 @@ type Props = {
 // the scene's cover; see run-play-stack.tsx for why it is a halo and not a box.
 const HALO_COLOUR = "var(--chakra-colors-bg)";
 const HALO = [1, 1, 2, 4, 8, 12].map((px) => `0 0 ${px}px ${HALO_COLOUR}`).join(", ");
+const HALO_FILTER = [1, 2, 4, 6].map((px) => `drop-shadow(0 0 ${px}px ${HALO_COLOUR})`).join(" ");
+
+/**
+ * How wide each stack is drawn here: as the storyteller has it
+ * (scene.wideTags), unless the player has pressed the stack's own expand
+ * button since, which is this table's alone and told to nobody. The
+ * storyteller's word wins: when they widen or narrow a stack, the player's
+ * own setting for it goes, so what they put up is seen. Worked out during
+ * render against the last wide set seen, the way React asks for state that
+ * follows a prop, so no frame shows the old width; a new scene starts fresh.
+ */
+function useStackWidths(idStoryScene: number | null, wideTags: readonly string[] | undefined) {
+  const [own, setOwn] = useState<Record<string, boolean>>({});
+  const [seen, setSeen] = useState({ idStoryScene, wideTags });
+  if (seen.idStoryScene !== idStoryScene || seen.wideTags !== wideTags) {
+    setSeen({ idStoryScene, wideTags });
+    const kept =
+      seen.idStoryScene === idStoryScene
+        ? Object.fromEntries(
+            Object.entries(own).filter(
+              ([key]) =>
+                (seen.wideTags?.includes(key) ?? false) === (wideTags?.includes(key) ?? false),
+            ),
+          )
+        : {};
+    if (Object.keys(kept).length !== Object.keys(own).length) setOwn(kept);
+  }
+  const isWide = (tag: string | null) => own[stackKey(tag)] ?? isStackWide(wideTags, tag);
+  const toggle = (tag: string | null) =>
+    setOwn((current) => ({ ...current, [stackKey(tag)]: !isWide(tag) }));
+  return { isWide, toggle };
+}
 
 // How the scene's title is set: centred over the stacks, in small caps, as
 // a scene's title is set on a page, with the halo over the cover.
@@ -154,6 +189,7 @@ export function PlaySpace({
 }: Props) {
   const [showBackground, setShowBackground] = useState(false);
   const detailsHidden = withBackgroundToggle && showBackground;
+  const widths = useStackWidths(scene.scene?.idStoryScene ?? null, scene.wideTags);
   const note = STATUS_NOTES[status];
   const items = scene.items.map(toPlayItem);
   // A pending or complete scene is there to read, not to play in: the pills'
@@ -172,18 +208,11 @@ export function PlaySpace({
   return (
     <Box as="section" aria-labelledby="play-space-heading" position="relative" flex="1" minH="0">
       {coverUrl && (
-        <>
-          <Box
-            aria-hidden
-            data-testid="play-space-cover"
-            position="absolute"
-            inset="0"
-            bgSize="cover"
-            bgPos="center"
-            style={{ backgroundImage: `url("${cssUrlValue(coverUrl)}")` }}
-          />
-          {!detailsHidden && <Box aria-hidden position="absolute" inset="0" bg="blackAlpha.400" />}
-        </>
+        <CoverBackdrop
+          url={coverUrl}
+          scrim={detailsHidden ? "none" : "flat"}
+          testId="play-space-cover"
+        />
       )}
       {withBackgroundToggle && (
         // As tall as the title row (the title's xs info button) and at its
@@ -273,49 +302,77 @@ export function PlaySpace({
           )
         ) : (
           <Flex gap="3" wrap="wrap" align="flex-start" justify="space-between">
-            {playStacks(scene.tags, items).map((stack) => (
-              <Stack
-                key={stack.title}
-                as="section"
-                aria-label={stack.title}
-                gap="2"
-                w={{ base: "full", md: "22rem" }}
-                flexShrink="0"
-              >
-                <Heading
-                  size="xs"
-                  truncate
-                  textShadow={HALO}
-                  textTransform="uppercase"
-                  letterSpacing="wider"
-                  px="2"
-                  py="1"
+            {/* Each stack as the storyteller's table draws it (RunPlayStack):
+                the heading with its halo, the expand button that widens the
+                stack to the whole space with its pills in columns, and the
+                pills. Wide as the storyteller set it, or as the player has
+                since (useStackWidths). */}
+            {playStacks(scene.tags, items).map((stack) => {
+              const wide = widths.isWide(stack.tag);
+              return (
+                <Stack
+                  key={stack.title}
+                  as="section"
+                  aria-label={stack.title}
+                  gap="2"
+                  w={wide ? "full" : { base: "full", md: "22rem" }}
+                  flexShrink="0"
+                  data-wide={wide ? "true" : undefined}
                 >
-                  {stack.title}
-                </Heading>
-                {stack.items.length === 0 ? (
-                  <Text fontSize="sm" color="fg.muted" textShadow={HALO}>
-                    Nothing here yet.
-                  </Text>
-                ) : (
-                  <List.Root listStyleType="none" gap="2">
-                    {stack.items.map((item) => (
-                      <List.Item key={item.key}>
-                        <PlayPill
-                          idStory={idStory}
-                          idStoryScene={scene.scene!.idStoryScene}
-                          item={item}
-                          onNotesChange={onNotesChange}
-                          onStatusChange={onStatusChange}
-                          readOnly={lookOnly}
-                          withHistory={withHistory}
-                        />
-                      </List.Item>
-                    ))}
-                  </List.Root>
-                )}
-              </Stack>
-            ))}
+                  <HStack
+                    justify="space-between"
+                    gap="2"
+                    css={{ "& svg": { filter: HALO_FILTER } }}
+                  >
+                    <Heading
+                      size="xs"
+                      truncate
+                      textShadow={HALO}
+                      textTransform="uppercase"
+                      letterSpacing="wider"
+                      px="2"
+                      py="1"
+                    >
+                      {stack.title}
+                    </Heading>
+                    <IconButtonWithTooltip
+                      label={wide ? `Shrink ${stack.title}` : `Expand ${stack.title}`}
+                      onClick={() => widths.toggle(stack.tag)}
+                    >
+                      {wide ? <Minimize2 /> : <Maximize2 />}
+                    </IconButtonWithTooltip>
+                  </HStack>
+                  {stack.items.length === 0 ? (
+                    <Text fontSize="sm" color="fg.muted" textShadow={HALO}>
+                      Nothing here yet.
+                    </Text>
+                  ) : (
+                    <List.Root
+                      listStyleType="none"
+                      gap="2"
+                      display={wide ? "grid" : undefined}
+                      gridTemplateColumns={
+                        wide ? "repeat(auto-fill, minmax(40rem, 1fr))" : undefined
+                      }
+                    >
+                      {stack.items.map((item) => (
+                        <List.Item key={item.key}>
+                          <PlayPill
+                            idStory={idStory}
+                            idStoryScene={scene.scene!.idStoryScene}
+                            item={item}
+                            onNotesChange={onNotesChange}
+                            onStatusChange={onStatusChange}
+                            readOnly={lookOnly}
+                            withHistory={withHistory}
+                          />
+                        </List.Item>
+                      ))}
+                    </List.Root>
+                  )}
+                </Stack>
+              );
+            })}
           </Flex>
         )}
       </Stack>

@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import { expect } from "expect";
 
 import {
+  attachmentFileSchema,
   attachmentIdsSchema,
   attachmentTagsSchema,
   attachmentKindSchema,
@@ -9,6 +10,29 @@ import {
   idAttachmentSchema,
   idExternalSchema,
 } from "./attachment-schemas";
+import { MAX_IMAGE_BYTES } from "./image-uploads";
+
+describe("attachmentFileSchema", () => {
+  it("accepts a file's name, type and size, each optional", () => {
+    expect(
+      attachmentFileSchema.safeParse({
+        fileName: "map.png",
+        contentType: "image/png",
+        byteSize: MAX_IMAGE_BYTES,
+      }).success,
+    ).toBe(true);
+    expect(attachmentFileSchema.safeParse({}).success).toBe(true);
+    expect(attachmentFileSchema.safeParse({ byteSize: 0 }).success).toBe(true);
+  });
+
+  it("refuses an over-long name or type, and a size that is negative, fractional or over the upload limit", () => {
+    expect(attachmentFileSchema.safeParse({ fileName: "x".repeat(300) }).success).toBe(false);
+    expect(attachmentFileSchema.safeParse({ contentType: "x".repeat(128) }).success).toBe(false);
+    expect(attachmentFileSchema.safeParse({ byteSize: -1 }).success).toBe(false);
+    expect(attachmentFileSchema.safeParse({ byteSize: 1.5 }).success).toBe(false);
+    expect(attachmentFileSchema.safeParse({ byteSize: MAX_IMAGE_BYTES + 1 }).success).toBe(false);
+  });
+});
 
 describe("idAttachmentSchema and idExternalSchema", () => {
   it("accepts an id within int4 range, including negative seed ids", () => {

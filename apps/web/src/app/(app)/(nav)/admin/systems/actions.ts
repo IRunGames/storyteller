@@ -1,13 +1,15 @@
 "use server";
 
 import { asc, count, eq, sql } from "drizzle-orm";
-import { z } from "zod";
+import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { requireAdmin } from "@/lib/authorize";
-import { readStatBlockDefinition, statBlockDefinitionSchema } from "@/lib/stat-block-schemas";
-import { stampDefinition, type StatBlockDefinition } from "@/lib/stat-blocks";
+import { isUniqueViolation } from "@/lib/db-errors";
+import { parseDefinitionToSave, readStatBlockDefinition } from "@/lib/stat-block-schemas";
+import type { StatBlockDefinition } from "@/lib/stat-blocks";
 import { systemLabel } from "@/lib/stories";
 import { systemFieldsSchema } from "@/lib/system-schemas";
+import { formErrors } from "@/lib/forms";
 
 const { systems, stories, userSystems } = schema;
 
@@ -35,8 +37,6 @@ export type AdminSystemDetail = {
   variant: string | null;
   definition: StatBlockDefinition;
 };
-
-const idSystemSchema = z.int32();
 
 // The systems table is a hundred-odd seeded rows and whatever storytellers
 // add; the page holds them all and filters in the browser, so there is no
@@ -80,7 +80,7 @@ export async function sa_listAdminSystems(): Promise<AdminSystem[]> {
 /** One system with its definition read through the schema, or null when there is no such row. */
 export async function sa_getAdminSystem(idSystem: number): Promise<AdminSystemDetail | null> {
   await requireAdmin();
-  const id = idSystemSchema.safeParse(idSystem);
+  const id = idSchema.safeParse(idSystem);
   if (!id.success) return null;
 
   const [row] = await db
@@ -121,9 +121,7 @@ export async function sa_createSystem(input: unknown): Promise<CreateSystemResul
   const admin = await requireAdmin();
   const parsed = systemFieldsSchema.safeParse(input);
   if (!parsed.success) {
-    const errors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) errors[issue.path.join(".")] ??= issue.message;
-    return { ok: false, errors };
+    return { ok: false, errors: formErrors(parsed.error) };
   }
 
   const [row] = await db
@@ -139,12 +137,6 @@ export async function sa_createSystem(input: unknown): Promise<CreateSystemResul
 export type UpdateSystemResult =
   { ok: true; label: string } | { ok: false; errors: Record<string, string> };
 
-/** The unique index on name, version and variant, which an update can hit where an insert does nothing. */
-const isUniqueViolation = (error: unknown): boolean => {
-  const code = (e: unknown) => (e as { code?: unknown } | null)?.code;
-  return code(error) === "23505" || code((error as { cause?: unknown } | null)?.cause) === "23505";
-};
-
 /**
  * The editor page's details form: a system's name, version and variant,
  * checked as the New system dialog's are. The three must stay unique
@@ -157,13 +149,11 @@ export async function sa_updateSystem(
   input: unknown,
 ): Promise<UpdateSystemResult> {
   const admin = await requireAdmin();
-  const id = idSystemSchema.safeParse(idSystem);
+  const id = idSchema.safeParse(idSystem);
   if (!id.success) return { ok: false, errors: { root: "That system is no longer there." } };
   const parsed = systemFieldsSchema.safeParse(input);
   if (!parsed.success) {
-    const errors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) errors[issue.path.join(".")] ??= issue.message;
-    return { ok: false, errors };
+    return { ok: false, errors: formErrors(parsed.error) };
   }
 
   const label = systemLabel(parsed.data) ?? parsed.data.systemName;
@@ -195,7 +185,7 @@ export type DeleteSystemResult = { ok: true } | { ok: false; error: string };
  */
 export async function sa_deleteSystem(idSystem: number): Promise<DeleteSystemResult> {
   await requireAdmin();
-  const id = idSystemSchema.safeParse(idSystem);
+  const id = idSchema.safeParse(idSystem);
   if (!id.success) return { ok: false, error: "That system is no longer there." };
 
   const [[inStories], [onLists]] = await Promise.all([
@@ -234,19 +224,16 @@ export async function sa_setSystemStatBlockDefinition(
   input: unknown,
 ): Promise<SetDefinitionResult> {
   const admin = await requireAdmin();
-  const id = idSystemSchema.parse(idSystem);
+  const id = idSchema.safeParse(idSystem);
+  if (!id.success) return { ok: false, errors: { root: "That system is no longer there." } };
 
-  const parsed = statBlockDefinitionSchema.safeParse(input);
-  if (!parsed.success) {
-    const errors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) errors[issue.path.join(".")] ??= issue.message;
-    return { ok: false, errors };
-  }
+  const parsed = parseDefinitionToSave(input);
+  if (!parsed.ok) return parsed;
 
   const updated = await db
     .update(systems)
-    .set({ statBlockDefinition: stampDefinition(parsed.data), idUpdatedByUser: admin.id })
-    .where(eq(systems.idSystem, id))
+    .set({ statBlockDefinition: parsed.definition, idUpdatedByUser: admin.id })
+    .where(eq(systems.idSystem, id.data))
     .returning({ idSystem: systems.idSystem });
   if (updated.length === 0)
     return { ok: false, errors: { root: "That system is no longer there." } };

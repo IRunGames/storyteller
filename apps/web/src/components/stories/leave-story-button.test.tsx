@@ -5,18 +5,19 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
+import { mockNavigation, mockRouter } from "@/test/mocks";
 
 const sa_leaveStory = mock.fn<
   (idStory: number) => Promise<{ ok: true } | { ok: false; error: string }>
 >(async () => ({ ok: true }));
-const router = { refresh: mock.fn<() => void>() };
+const router = mockRouter();
 
 let LeaveStoryButton: typeof import("./leave-story-button").LeaveStoryButton;
 
 describe("LeaveStoryButton", () => {
   before(async () => {
     mock.module("@/app/(app)/(nav)/stories/actions", { namedExports: { sa_leaveStory } });
-    mock.module("next/navigation", { namedExports: { useRouter: () => router } });
+    mockNavigation({ router });
     ({ LeaveStoryButton } = await import("./leave-story-button"));
   });
 

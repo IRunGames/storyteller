@@ -3,29 +3,31 @@
 // of an element's stat blocks: a system of this file's own with every stat
 // type, a story run in it, an element with no block yet, and a story of
 // someone else's, all removed in `after`.
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, it, mock } from "node:test";
 import { expect } from "expect";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import { eq, inArray } from "drizzle-orm";
-import { loadEnvConfig } from "@next/env";
 
 import type { StatBlockDefinition, StatBlocks, StatRow } from "@/lib/stat-blocks";
-import { makeTestUser, removeTestUser } from "@/test/test-user";
-
-loadEnvConfig(process.cwd());
+import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 
 const TEST_USER_EMAIL = "stat-blocks-actions@example.test";
 const OTHER_EMAIL = "stat-blocks-actions-other@example.test";
 let testUser = "";
-const hasDb = Boolean(process.env.DATABASE_URL);
 
-const getSession = mock.fn(async () => ({ user: { id: testUser } }));
+// What the actions tell the players' table, by which helper they reached
+// for; what the helpers send is their own test's business. Mocked so a test
+// can see a change announced by the right ids.
+const published = {
+  publishElementChanged: mock.fn(async (..._args: unknown[]) => {}),
+  publishSceneElement: mock.fn(async (..._args: unknown[]) => {}),
+};
 
 let actions: typeof import("./actions");
 type ElementStatBlock = import("./actions").ElementStatBlock;
 
-type DbModule = typeof import("@/db");
-let db: DbModule["db"];
-let tables: DbModule["schema"];
+let db: Db;
+let tables: Tables;
 
 let otherUserId = "";
 let myStory = 0;
@@ -268,12 +270,12 @@ const rowStatOf = (block: ElementStatBlock, group: string, key: string, name: st
     .find((row) => row.key === key)!
     .stats.find((s) => s.name === name)!;
 
-describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, () => {
+describeWithDb("stat block actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
-    mock.module("@/lib/require-session", { namedExports: { getSession } });
-    ({ db, schema: tables } = await import("@/db"));
-    testUser = await makeTestUser(db, tables, TEST_USER_EMAIL);
-    otherUserId = await makeTestUser(db, tables, OTHER_EMAIL);
+    mock.module("@/lib/realtime/publish-scene", { namedExports: published });
+    ({ db, tables } = suite);
+    testUser = suite.testUser;
+    otherUserId = await suite.makeUser(OTHER_EMAIL);
     actions = await import("./actions");
 
     const [system] = await db
@@ -330,9 +332,6 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     await db.delete(tables.elements).where(inArray(tables.elements.idStory, [myStory, theirStory]));
     await db.delete(tables.stories).where(inArray(tables.stories.idStory, [myStory, theirStory]));
     await db.delete(tables.systems).where(eq(tables.systems.idSystem, idSystem));
-    await removeTestUser(db, tables, OTHER_EMAIL);
-    await removeTestUser(db, tables, TEST_USER_EMAIL);
-    await db.$client.end();
   });
 
   it("shows the story's system with nothing stored for an element with no block yet", async () => {
@@ -369,26 +368,31 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       // A stat only the copy has can be set; a group only the system has cannot.
       const set = await actions.sa_setStat(
         { idStory: myStory, idElement },
-        idSystem,
-        "stats",
-        "luck",
-        { value: 3 },
+        { idSystem, group: "stats", stat: "luck", patch: { value: 3 } },
       );
       expect(set.ok && statOf(set.block, "stats", "luck")).toMatchObject({ value: 3 });
       expect(
-        await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "combat", "rage", {
-          value: 1,
-        }),
+        await actions.sa_setStat(
+          { idStory: myStory, idElement },
+          {
+            idSystem,
+            group: "combat",
+            stat: "rage",
+            patch: {
+              value: 1,
+            },
+          },
+        ),
       ).toMatchObject({ ok: false });
       // Another story of the same system still reads the system's.
-      getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
+      suite.getSession.mock.mockImplementation(async () => ({ user: { id: otherUserId } }));
       const theirs = await actions.sa_getStatBlocks({
         idStory: theirStory,
         idElement: theirElement,
       });
       expect(theirs![0].groups.map((g) => g.name)).toEqual(["stats", "combat", "attack"]);
     } finally {
-      getSession.mock.restore();
+      suite.getSession.mock.restore();
       await db
         .update(tables.stories)
         .set({ statBlockDefinition: null })
@@ -417,10 +421,21 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
   it("changes a scene element's copy and not its element, and tells the scene", async () => {
     const holder = { idStory: myStory, idSceneElement };
-    const result = await actions.sa_setStat(holder, idSystem, "stats", "str", { value: 11 });
+    published.publishSceneElement.mock.resetCalls();
+    const result = await actions.sa_setStat(holder, {
+      idSystem,
+      group: "stats",
+      stat: "str",
+      patch: { value: 11 },
+    });
     expect(result.ok).toBe(true);
     expect(await storedOnLink()).toEqual({ [idSystem]: { stats: { str: { value: 11 } } } });
     expect(await stored()).toEqual({});
+    // Sent by the link's own id, which is what the players' table draws a
+    // pill by; an element may be in the scene more than once.
+    expect(published.publishSceneElement.mock.calls.map((call) => call.arguments)).toEqual([
+      [myStory, idStoryScene, idSceneElement],
+    ]);
     // A row change goes the same way, through the link's own lock.
     await db
       .update(tables.sceneElements)
@@ -438,9 +453,49 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
         },
       })
       .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
-    const row = await actions.sa_setStat(holder, idSystem, "attack", "uses", { value: 3 }, "Axe");
+    const row = await actions.sa_setStat(holder, {
+      idSystem,
+      group: "attack",
+      stat: "uses",
+      patch: { value: 3 },
+      rowKey: "Axe",
+    });
     expect(row.ok && rowStatOf(row.block, "attack", "Axe", "uses")).toMatchObject({ value: 3 });
     expect(await stored()).toEqual({});
+  });
+
+  it("changes a scene element's stats in a complete scene too", async () => {
+    // The storyteller keeps the stats of a finished scene's creatures up to
+    // date after the fact, so this write sets the scene's lock aside where
+    // the status pill and the pictures refuse it.
+    const holder = { idStory: myStory, idSceneElement };
+    await db
+      .update(tables.sceneElements)
+      .set({ statBlocks: {} })
+      .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
+    await db
+      .update(tables.storyScenes)
+      .set({ status: SCENE_LOCKED_STATUS })
+      .where(eq(tables.storyScenes.idStoryScene, idStoryScene));
+    try {
+      const result = await actions.sa_setStat(holder, {
+        idSystem,
+        group: "stats",
+        stat: "str",
+        patch: { value: 12 },
+      });
+      expect(result.ok).toBe(true);
+      expect(await storedOnLink()).toEqual({ [idSystem]: { stats: { str: { value: 12 } } } });
+    } finally {
+      await db
+        .update(tables.storyScenes)
+        .set({ status: "PENDING" })
+        .where(eq(tables.storyScenes.idStoryScene, idStoryScene));
+      await db
+        .update(tables.sceneElements)
+        .set({ statBlocks: {} })
+        .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
+    }
   });
 
   it("rolls the first die of every row of a group marked Roll all, under the row's key", async () => {
@@ -518,9 +573,14 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
     // No session is being played, so there is no table to say it at: the
     // roll comes back for the storyteller alone.
-    const unsaid = await actions.sa_rollStat(holder, idSystem, "combat", "mana", {
-      title: "A hooded figure",
-      quiet: false,
+    const unsaid = await actions.sa_rollStat(holder, {
+      idSystem,
+      group: "combat",
+      stat: "mana",
+      as: {
+        title: "A hooded figure",
+        quiet: false,
+      },
     });
     expect(unsaid.ok && unsaid.posted).toBe(false);
     expect(unsaid.ok && unsaid.roll).toMatchObject({
@@ -541,34 +601,51 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
       .set({ idStorySession: session.idStorySession })
       .where(eq(tables.stories.idStory, myStory));
     try {
-      const said = await actions.sa_rollStat(holder, idSystem, "combat", "mana", {
-        title: "A hooded figure",
-        quiet: false,
+      const said = await actions.sa_rollStat(holder, {
+        idSystem,
+        group: "combat",
+        stat: "mana",
+        as: {
+          title: "A hooded figure",
+          quiet: false,
+        },
       });
       expect(said.ok && said.posted).toBe(true);
       const lines = await chatsOf();
       expect(lines).toHaveLength(1);
       expect(lines[0].text).toMatch(/^\d+ for A hooded figure: mana$/);
-      const quiet = await actions.sa_rollStat(holder, idSystem, "combat", "mana", {
-        title: "A hooded figure",
-        quiet: true,
+      const quiet = await actions.sa_rollStat(holder, {
+        idSystem,
+        group: "combat",
+        stat: "mana",
+        as: {
+          title: "A hooded figure",
+          quiet: true,
+        },
       });
       expect(quiet.ok && quiet.posted).toBe(false);
       expect(await chatsOf()).toHaveLength(1);
       // A stat with no die has nothing to roll; another's story is not rolled at all.
       expect(
-        await actions.sa_rollStat(holder, idSystem, "stats", "str", { title: "", quiet: true }),
+        await actions.sa_rollStat(holder, {
+          idSystem,
+          group: "stats",
+          stat: "str",
+          as: { title: "", quiet: true },
+        }),
       ).toEqual({ ok: false, error: "There is nothing to roll." });
       expect(
         (
           await actions.sa_rollStat(
             { idStory: theirStory, idSceneElement },
-            idSystem,
-            "combat",
-            "mana",
             {
-              title: "",
-              quiet: true,
+              idSystem,
+              group: "combat",
+              stat: "mana",
+              as: {
+                title: "",
+                quiet: true,
+              },
             },
           )
         ).ok,
@@ -842,148 +919,6 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     }
   });
 
-  it("rolls a stat's Initialized as once as its block is made, for the value and the max", async () => {
-    const holder = { idStory: myStory, idSceneElement };
-    await db
-      .update(tables.sceneElements)
-      .set({ statBlocks: {} })
-      .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
-    // The fixture's mana, started by 2d4 for this test alone.
-    const rolled: StatBlockDefinition = {
-      groups: definition.groups.map((group) =>
-        group.name === "combat"
-          ? {
-              ...group,
-              stats: group.stats.map((stat) =>
-                stat.name === "mana" ? { ...stat, initialRoll: "2d4" } : stat,
-              ),
-            }
-          : group,
-      ),
-    };
-    await db
-      .update(tables.systems)
-      .set({ statBlockDefinition: rolled })
-      .where(eq(tables.systems.idSystem, idSystem));
-    try {
-      const result = await actions.sa_addStatBlock(holder, idSystem, "combat");
-      expect(result.ok).toBe(true);
-      const combat = ((await storedOnLink()) as StatBlocks)[idSystem].combat as StatRow;
-      expect(combat.mana.value).toBeGreaterThanOrEqual(2);
-      expect(combat.mana.value).toBeLessThanOrEqual(8);
-      expect(combat.mana.max).toBe(combat.mana.value);
-      expect(combat.hp).toEqual({ value: 0, min: 0, max: 0 });
-    } finally {
-      await db
-        .update(tables.systems)
-        .set({ statBlockDefinition: definition })
-        .where(eq(tables.systems.idSystem, idSystem));
-      await db
-        .update(tables.sceneElements)
-        .set({ statBlocks: {} })
-        .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
-    }
-  });
-
-  it("rolls the dice a Dice stat already holds into the stats initialized from it as their block is made", async () => {
-    const holder = { idStory: myStory, idSceneElement };
-    // The fixture's stats given Hit Dice, and its mana rolled from them.
-    const fromDice: StatBlockDefinition = {
-      groups: definition.groups.map((group) =>
-        group.name === "stats"
-          ? {
-              ...group,
-              stats: [
-                ...group.stats,
-                { ...group.stats[0], name: "hit_dice", label: "Hit Dice", type: "dice" as const },
-              ],
-            }
-          : group.name === "combat"
-            ? {
-                ...group,
-                stats: group.stats.map((stat) =>
-                  stat.name === "mana" ? { ...stat, initialFrom: "stats.hit_dice" } : stat,
-                ),
-              }
-            : group,
-      ),
-    };
-    await db
-      .update(tables.systems)
-      .set({ statBlockDefinition: fromDice })
-      .where(eq(tables.systems.idSystem, idSystem));
-    await db
-      .update(tables.sceneElements)
-      .set({ statBlocks: { [idSystem]: { stats: { hit_dice: { value: "1d1+6" } } } } })
-      .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
-    try {
-      const result = await actions.sa_addStatBlock(holder, idSystem, "combat");
-      expect(result.ok).toBe(true);
-      const combat = ((await storedOnLink()) as StatBlocks)[idSystem].combat as StatRow;
-      expect(combat.mana).toEqual({ value: 7, min: 0, max: 7 });
-    } finally {
-      await db
-        .update(tables.systems)
-        .set({ statBlockDefinition: definition })
-        .where(eq(tables.systems.idSystem, idSystem));
-      await db
-        .update(tables.sceneElements)
-        .set({ statBlocks: {} })
-        .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
-    }
-  });
-
-  it("picks a stat block for a holder and takes it off again, leaving the others", async () => {
-    const holder = { idStory: myStory, idSceneElement };
-    await db
-      .update(tables.sceneElements)
-      .set({ statBlocks: {} })
-      .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
-
-    let result = await actions.sa_addStatBlock(holder, idSystem, "combat");
-    expect(result.ok && result.block.stored).toBe(true);
-    expect(await storedOnLink()).toEqual({
-      [idSystem]: {
-        combat: {
-          hp: { value: 0, min: 0, max: 0 },
-          mana: { value: 0, min: 0, max: 0 },
-          rage: { value: 0 },
-          die: { value: "d4" },
-        },
-      },
-    });
-    result = await actions.sa_addStatBlock(holder, idSystem, "attack");
-    expect(result.ok).toBe(true);
-    // Picking a block again changes nothing it holds.
-    await actions.sa_setStat(holder, idSystem, "combat", "rage", { value: 2 });
-    result = await actions.sa_addStatBlock(holder, idSystem, "combat");
-    expect(result.ok && statOf(result.block, "combat", "rage").value).toBe(2);
-    // jsonb keeps keys in its own order, so compared sorted.
-    expect(Object.keys(((await storedOnLink()) as StatBlocks)[idSystem]).sort()).toEqual([
-      "attack",
-      "combat",
-    ]);
-
-    result = await actions.sa_removeStatBlock(holder, idSystem, "combat");
-    expect(result.ok).toBe(true);
-    expect(await storedOnLink()).toEqual({ [idSystem]: { attack: [] } });
-    expect(await actions.sa_addStatBlock(holder, idSystem, "nothing")).toEqual({
-      ok: false,
-      error: "That stat block is not in the template.",
-    });
-    // The element's own, through the other holder.
-    const own = { idStory: myStory, idElement };
-    result = await actions.sa_addStatBlock(own, idSystem, "stats");
-    expect(result.ok).toBe(true);
-    expect(await stored()).toEqual({ [idSystem]: { stats: { str: { value: 0 } } } });
-    result = await actions.sa_removeStatBlock(own, idSystem, "stats");
-    expect(await stored()).toEqual({ [idSystem]: {} });
-    await db
-      .update(tables.elements)
-      .set({ statBlocks: {} })
-      .where(eq(tables.elements.idElement, idElement));
-  });
-
   it("sets a holder's blocks whole from the panel's form, refusing what the definition refuses", async () => {
     const holder = { idStory: myStory, idSceneElement };
     const refused = await actions.sa_setStatBlocks(holder, {
@@ -1070,18 +1005,28 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     ).toBeNull();
     expect(await actions.sa_getStatBlocks({ idStory: theirStory, idSceneElement })).toBeNull();
     expect(
-      await actions.sa_setStat({ idStory: theirStory, idSceneElement }, idSystem, "stats", "str", {
-        value: 1,
-      }),
+      await actions.sa_setStat(
+        { idStory: theirStory, idSceneElement },
+        {
+          idSystem,
+          group: "stats",
+          stat: "str",
+          patch: {
+            value: 1,
+          },
+        },
+      ),
     ).toEqual({ ok: false, error: "That element is not one of your story's." });
     expect(
       await actions.sa_setStat(
         { idStory: myStory, idElement: theirElement },
-        idSystem,
-        "stats",
-        "str",
         {
-          value: 1,
+          idSystem,
+          group: "stats",
+          stat: "str",
+          patch: {
+            value: 1,
+          },
         },
       ),
     ).toEqual({
@@ -1093,11 +1038,13 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
   it("makes the block on the first change, and keeps every other stat on the next", async () => {
     const first = await actions.sa_setStat(
       { idStory: myStory, idElement },
-      idSystem,
-      "stats",
-      "str",
       {
-        value: 12,
+        idSystem,
+        group: "stats",
+        stat: "str",
+        patch: {
+          value: 12,
+        },
       },
     );
     expect(first.ok).toBe(true);
@@ -1105,12 +1052,14 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
     const second = await actions.sa_setStat(
       { idStory: myStory, idElement },
-      idSystem,
-      "combat",
-      "hp",
       {
-        value: 5,
-        max: 10,
+        idSystem,
+        group: "combat",
+        stat: "hp",
+        patch: {
+          value: 5,
+          max: 10,
+        },
       },
     );
     expect(second.ok && second.block.stored).toBe(true);
@@ -1123,90 +1072,166 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
   it("clamps a pool to its max and its min, and a stack to 0 and its max", async () => {
     let result = await actions.sa_setStat(
       { idStory: myStory, idElement },
-      idSystem,
-      "combat",
-      "hp",
       {
-        value: 20,
-        max: 12,
+        idSystem,
+        group: "combat",
+        stat: "hp",
+        patch: {
+          value: 20,
+          max: 12,
+        },
       },
     );
     expect(result.ok && statOf(result.block, "combat", "hp")).toMatchObject({ value: 12, max: 12 });
-    result = await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "combat", "hp", {
-      value: -3,
-    });
+    result = await actions.sa_setStat(
+      { idStory: myStory, idElement },
+      {
+        idSystem,
+        group: "combat",
+        stat: "hp",
+        patch: {
+          value: -3,
+        },
+      },
+    );
     expect(result.ok && statOf(result.block, "combat", "hp")).toMatchObject({ value: 0, min: 0 });
 
-    result = await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "combat", "mana", {
-      value: 7,
-      min: 2,
-      max: 5,
-    });
+    result = await actions.sa_setStat(
+      { idStory: myStory, idElement },
+      {
+        idSystem,
+        group: "combat",
+        stat: "mana",
+        patch: {
+          value: 7,
+          min: 2,
+          max: 5,
+        },
+      },
+    );
     expect(result.ok && statOf(result.block, "combat", "mana")).toMatchObject({
       value: 5,
       min: 2,
       max: 5,
     });
-    result = await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "combat", "mana", {
-      value: 1,
-    });
+    result = await actions.sa_setStat(
+      { idStory: myStory, idElement },
+      {
+        idSystem,
+        group: "combat",
+        stat: "mana",
+        patch: {
+          value: 1,
+        },
+      },
+    );
     expect(result.ok && statOf(result.block, "combat", "mana")).toMatchObject({
       value: 2,
       min: 2,
       max: 5,
     });
 
-    result = await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "combat", "rage", {
-      value: -1,
-    });
+    result = await actions.sa_setStat(
+      { idStory: myStory, idElement },
+      {
+        idSystem,
+        group: "combat",
+        stat: "rage",
+        patch: {
+          value: -1,
+        },
+      },
+    );
     expect(result.ok && statOf(result.block, "combat", "rage")).toMatchObject({
       value: 0,
       max: null,
     });
-    result = await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "combat", "rage", {
-      value: 9,
-      max: 3,
-    });
+    result = await actions.sa_setStat(
+      { idStory: myStory, idElement },
+      {
+        idSystem,
+        group: "combat",
+        stat: "rage",
+        patch: {
+          value: 9,
+          max: 3,
+        },
+      },
+    );
     expect(result.ok && statOf(result.block, "combat", "rage")).toMatchObject({ value: 3, max: 3 });
-    result = await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "combat", "rage", {
-      value: 9,
-    });
+    result = await actions.sa_setStat(
+      { idStory: myStory, idElement },
+      {
+        idSystem,
+        group: "combat",
+        stat: "rage",
+        patch: {
+          value: 9,
+        },
+      },
+    );
     expect(result.ok && statOf(result.block, "combat", "rage")).toMatchObject({ value: 3, max: 3 });
   });
 
   it("moves a rack only onto one of its entries", async () => {
     let result = await actions.sa_setStat(
       { idStory: myStory, idElement },
-      idSystem,
-      "combat",
-      "die",
       {
-        value: "d8",
+        idSystem,
+        group: "combat",
+        stat: "die",
+        patch: {
+          value: "d8",
+        },
       },
     );
     expect(result.ok && statOf(result.block, "combat", "die")).toMatchObject({
       value: "d8",
       rackIndex: 2,
     });
-    result = await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "combat", "die", {
-      value: "d20",
-    });
+    result = await actions.sa_setStat(
+      { idStory: myStory, idElement },
+      {
+        idSystem,
+        group: "combat",
+        stat: "die",
+        patch: {
+          value: "d20",
+        },
+      },
+    );
     expect(result.ok && statOf(result.block, "combat", "die")).toMatchObject({ value: "d8" });
   });
 
   it("refuses a computed stat, and a system with no stats", async () => {
     expect(
-      await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "stats", "mod", {
-        value: 1,
-      }),
+      await actions.sa_setStat(
+        { idStory: myStory, idElement },
+        {
+          idSystem,
+          group: "stats",
+          stat: "mod",
+          patch: {
+            value: 1,
+          },
+        },
+      ),
     ).toEqual({
       ok: false,
       error: "That stat is not one that can be set.",
     });
     expect(
-      await actions.sa_setStat({ idStory: myStory, idElement }, 2147483647, "stats", "str", {
-        value: 1,
-      }),
+      await actions.sa_setStat(
+        { idStory: myStory, idElement },
+        {
+          idSystem: 2147483647,
+          group: "stats",
+          stat: "str",
+          patch: {
+            value: 1,
+          },
+        },
+      ),
     ).toEqual({
       ok: false,
       error: "That system has no stats to fill in.",
@@ -1237,11 +1262,7 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
     const result = await actions.sa_setStat(
       { idStory: myStory, idElement },
-      idSystem,
-      "attack",
-      "uses",
-      { value: 9 },
-      "Sword",
+      { idSystem, group: "attack", stat: "uses", patch: { value: 9 }, rowKey: "Sword" },
     );
     expect(result.ok).toBe(true);
     const block = (result as { ok: true; block: ElementStatBlock }).block;
@@ -1264,11 +1285,7 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     expect(
       await actions.sa_setStat(
         { idStory: myStory, idElement },
-        idSystem,
-        "attack",
-        "uses",
-        { value: 1 },
-        "Axe",
+        { idSystem, group: "attack", stat: "uses", patch: { value: 1 }, rowKey: "Axe" },
       ),
     ).toEqual({ ok: false, error: "That Attack is no longer there." });
     expect(await stored()).toEqual(before);
@@ -1289,12 +1306,14 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
 
     const result = await actions.sa_setStat(
       { idStory: myStory, idElement },
-      idSystem,
-      "combat",
-      "mana",
       {
-        value: 2,
-        max: 5,
+        idSystem,
+        group: "combat",
+        stat: "mana",
+        patch: {
+          value: 2,
+          max: 5,
+        },
       },
     );
     expect(result.ok && statOf(result.block, "combat", "mana")).toMatchObject({ value: 2, max: 5 });
@@ -1308,26 +1327,26 @@ describe("stat block actions", { skip: !hasDb && "DATABASE_URL is not set" }, ()
     expect(
       await actions.sa_setStat(
         { idStory: myStory, idElement },
-        idSystem,
-        "attack",
-        "weapon",
-        { value: "Axe" },
-        "Sword",
+        { idSystem, group: "attack", stat: "weapon", patch: { value: "Axe" }, rowKey: "Sword" },
       ),
-    ).toEqual(refused);
-    expect(
-      await actions.sa_setStat({ idStory: myStory, idElement }, idSystem, "attack", "uses", {
-        value: 1,
-      }),
     ).toEqual(refused);
     expect(
       await actions.sa_setStat(
         { idStory: myStory, idElement },
-        idSystem,
-        "stats",
-        "str",
-        { value: 1 },
-        "Sword",
+        {
+          idSystem,
+          group: "attack",
+          stat: "uses",
+          patch: {
+            value: 1,
+          },
+        },
+      ),
+    ).toEqual(refused);
+    expect(
+      await actions.sa_setStat(
+        { idStory: myStory, idElement },
+        { idSystem, group: "stats", stat: "str", patch: { value: 1 }, rowKey: "Sword" },
       ),
     ).toEqual(refused);
   });

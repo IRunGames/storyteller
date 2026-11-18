@@ -18,19 +18,11 @@ async function choose(user: ReturnType<typeof userEvent.setup>, item: HTMLElemen
 
 import { renderWithProviders } from "@/test/render";
 import { UserProvider } from "@/components/auth/user-provider";
-import type { CurrentUser } from "@/lib/current-user";
 import type { PlayScene } from "@/lib/play-scene";
 import type { SceneNeighbour } from "@/app/(app)/preview/scene/[id]/actions";
+import { currentUser, mockHeader, mockNavigation, mockRouter } from "@/test/mocks";
 
-const user: CurrentUser = {
-  id: "01a0b60c-8938-7a0d-ab2b-34e12ce284c9",
-  name: "Paul Stafford",
-  email: "storyteller@irun.games",
-  image: null,
-  nickName: null,
-  idUserType: -10,
-  isAnonymous: false,
-};
+const user = currentUser();
 
 const zed = {
   element: {
@@ -98,19 +90,8 @@ let UserPreferencesProvider: PreferencesModule["UserPreferencesProvider"];
 
 describe("ScenePreview", () => {
   before(async () => {
-    mock.module("next/navigation", {
-      namedExports: {
-        useRouter: () => ({ push, refresh: mock.fn() }),
-        usePathname: () => "/preview/scene/3",
-      },
-    });
-    mock.module("@/lib/auth-client", { namedExports: { signOut: mock.fn() } });
-    mock.module("@/components/feedback/actions", {
-      namedExports: { sa_submitFeedback: mock.fn() },
-    });
-    mock.module("@/components/preferences/actions", {
-      namedExports: { sa_setUserPreference },
-    });
+    mockNavigation({ router: { ...mockRouter(), push }, pathname: "/preview/scene/3" });
+    mockHeader({ sa_setUserPreference });
     // The preview reaches for no action of the players' table; the module is
     // mocked empty so a stray import would fail loudly.
     mock.module("@/components/elements/actions", {

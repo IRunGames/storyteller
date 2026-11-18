@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Alert, Button, Stack, Text } from "@chakra-ui/react";
+import { Button, Stack, Text } from "@chakra-ui/react";
+import { FormError } from "@/components/forms/form-error";
 import { sa_acceptInvitation } from "./actions";
 
 /**
@@ -23,14 +24,7 @@ export function AcceptInvitationForm({ token, member }: { token: string; member:
 
   return (
     <Stack gap="4">
-      {error && (
-        <Alert.Root role="alert" status="error">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Description>{error}</Alert.Description>
-          </Alert.Content>
-        </Alert.Root>
-      )}
+      <FormError message={error} />
       <Text>
         Accepting as <strong>{member}</strong>.
       </Text>

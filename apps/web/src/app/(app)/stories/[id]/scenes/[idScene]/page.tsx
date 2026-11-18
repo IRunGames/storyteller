@@ -53,6 +53,7 @@ export default async function LiveScenePage({
       initialTags={space.tags}
       initialCoverUrl={space.coverUrl}
       initialInPlay={space.inPlay}
+      initialWideTags={space.wideTags}
       sessions={scene.sessions}
       idStorySession={scene.values.idStorySession}
       sceneStatusOptions={sceneStatusOptions}
