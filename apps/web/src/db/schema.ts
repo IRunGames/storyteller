@@ -9,11 +9,13 @@ import {
   jsonb,
   pgTable,
   pgView,
+  smallint,
   text,
   timestamp,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { AnnotationOp } from "@/lib/annotation-schemas";
 import type { UserPreferenceMap } from "@/lib/user-preference-schemas";
 import type { UserStatus } from "@/lib/user-types";
 
@@ -731,6 +733,36 @@ export const elements = pgTable("elements", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
+// The storyteller's drawing over one of the story's pictures, fog of war and
+// pen marks, one per file (db/custom/create_attachment_annotations_table.sql
+// says what each column is for). ops is typed from its zod schema, the one
+// it is read and written through (lib/annotation-schemas.ts), as
+// user_preferences.preferences is.
+export const attachmentAnnotations = pgTable("attachment_annotations", {
+  idAttachmentAnnotation: integer("id_attachment_annotation")
+    .primaryKey()
+    .generatedByDefaultAsIdentity(),
+  idAttachment: integer("id_attachment").notNull().unique(),
+  isActive: boolean("is_active").notNull().default(true),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  ops: jsonb("ops")
+    .$type<AnnotationOp[]>()
+    .default(sql`'[]'::jsonb`)
+    .notNull(),
+  revision: integer("revision").notNull().default(0),
+  fogOpacityPlayers: smallint("fog_opacity_players").notNull().default(100),
+  fogColor: text("fog_color").notNull().default("#1b1d23"),
+  playerUrl: text("player_url"),
+  playerRevision: integer("player_revision"),
+  renderToken: uuid("render_token"),
+  renderClaimedAt: timestamp("render_claimed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  idCreatedByUser: uuid("id_created_by_user"),
+  idUpdatedByUser: uuid("id_updated_by_user"),
+});
+
 // An element brought into a scene, once per scene (UNIQUE on the pair). status
 // runs through the scene elements workflow in s_statuses -- how the element
 // stands in this scene, apart from its own status in the story -- so it is a
@@ -1016,6 +1048,13 @@ export const storyScenesRelations = relations(storyScenes, ({ one }) => ({
 export const elementsRelations = relations(elements, ({ one }) => ({
   story: one(stories, { fields: [elements.idStory], references: [stories.idStory] }),
   storyteller: one(user, { fields: [elements.idCreatedByUser], references: [user.id] }),
+}));
+
+export const attachmentAnnotationsRelations = relations(attachmentAnnotations, ({ one }) => ({
+  attachment: one(attachments, {
+    fields: [attachmentAnnotations.idAttachment],
+    references: [attachments.idAttachment],
+  }),
 }));
 
 export const feedbackRelations = relations(feedback, ({ one }) => ({

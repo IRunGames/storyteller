@@ -11,9 +11,9 @@
 // it -- an intermittent failure in a file this one never touches. Everything
 // inserted below is collected in `created` and only those ids are deleted;
 // the uses go with their attachments (the foreign key cascades).
-import { after, before, describe, it, mock } from "node:test";
+import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { SCENE_COMPLETE } from "@/lib/messages";
+import { DRAWING_WOULD_BE_LOST, SCENE_COMPLETE } from "@/lib/messages";
 import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import { and, eq, inArray } from "drizzle-orm";
 import { createRequire } from "node:module";
@@ -48,6 +48,8 @@ const publishSceneChanged = mock.fn(async (_idStory: number) => {});
 const publishSceneElementPictures = mock.fn(
   async (_idStory: number, _idSceneElement: number) => {},
 );
+// A deleted file an element's drawing was on: the element is sent again.
+const publishElementChanged = mock.fn(async (_idStory: number, _idElement: number) => {});
 // del() really would reach Vercel Blob, so it is mocked rather than left to
 // run against a url that is not a real blob.
 const del = mock.fn(async () => {});
@@ -114,7 +116,7 @@ async function usesOf(id: number) {
 describeWithDb("attachment actions", { email: TEST_USER_EMAIL }, (suite) => {
   before(async () => {
     mock.module("@/lib/realtime/publish-scene", {
-      namedExports: { publishSceneElementPictures, publishSceneChanged },
+      namedExports: { publishSceneElementPictures, publishSceneChanged, publishElementChanged },
     });
     const blobModule: { del: unknown } = requireHere("@vercel/blob");
     originalDel = blobModule.del;
@@ -1104,5 +1106,197 @@ describeWithDb("attachment actions", { email: TEST_USER_EMAIL }, (suite) => {
       // As in the listing case above: the next cases count this story's rows.
       await db.delete(tables.attachments).where(eq(tables.attachments.idAttachment, row.id));
     }
+  });
+
+  describe("a picture with a drawing on it", () => {
+    let idElement = 0;
+    const store = "https://abc123.public.blob.vercel-storage.com";
+    const copyUrl = `${store}/annotations/players-copy-x.webp`;
+
+    before(async () => {
+      [{ idElement }] = await db
+        .insert(tables.elements)
+        .values({ idStory: storyId, kind: "PLACE", name: "Fixture map", idCreatedByUser: testUser })
+        .returning({ idElement: tables.elements.idElement });
+    });
+
+    after(async () => {
+      if (idElement)
+        await db.delete(tables.elements).where(eq(tables.elements.idElement, idElement));
+    });
+
+    // Each case starts from the element with no picture.
+    beforeEach(async () => {
+      await db
+        .delete(tables.attachmentUses)
+        .where(
+          and(
+            eq(tables.attachmentUses.kind, "ELEMENT"),
+            eq(tables.attachmentUses.idExternal, idElement),
+          ),
+        );
+    });
+
+    // The element's cover, with a drawing on it.
+    async function drawnOn() {
+      const url = `${store}/uploads/${testUser}/map-${Date.now()}.png`;
+      const row = await insertAttachment(
+        { idStory: storyId, status: "READY", url, isUploaded: true, idCreatedByUser: testUser },
+        [{ kind: "ELEMENT", idExternal: idElement, tags: ["cover"] }],
+      );
+      await db.insert(tables.attachmentAnnotations).values({
+        idAttachment: row.id,
+        width: 10,
+        height: 10,
+        playerUrl: copyUrl,
+        idCreatedByUser: testUser,
+      });
+      return { id: row.id, url };
+    }
+
+    const drawingOf = (id: number) =>
+      db
+        .select({ isActive: tables.attachmentAnnotations.isActive })
+        .from(tables.attachmentAnnotations)
+        .where(eq(tables.attachmentAnnotations.idAttachment, id));
+
+    it("lists each picture's drawing, for its controls and the remove button", async () => {
+      const map = await drawnOn();
+      const plainUrl = `${store}/uploads/${testUser}/plain-${Date.now()}.png`;
+      const plain = await insertAttachment({
+        idStory: storyId,
+        status: "READY",
+        url: plainUrl,
+        isUploaded: true,
+        idCreatedByUser: testUser,
+      });
+      try {
+        const listed = await actions.sa_listAttachments("STORY", storyId);
+        const row = (id: number) => listed.find((each) => each.idAttachment === id);
+        expect(row(map.id)?.drawing).toEqual({ isActive: true });
+        // Shown to the storyteller as the players see it, its copy; a picture
+        // without a drawing as it is.
+        expect(row(map.id)?.shownUrl).toBe(copyUrl);
+        expect(row(plain.id)?.drawing).toBeNull();
+        expect(row(plain.id)?.shownUrl).toBe(plainUrl);
+        const element = await actions.sa_listAttachments("ELEMENT", idElement);
+        expect(element.map((each) => [each.idAttachment, each.drawing, each.shownUrl])).toEqual([
+          [map.id, { isActive: true }, copyUrl],
+        ]);
+      } finally {
+        await db
+          .delete(tables.attachments)
+          .where(inArray(tables.attachments.idAttachment, [map.id, plain.id]));
+      }
+    });
+
+    it("deletes a picture with a drawing on it only once confirmed, the players' copy too", async () => {
+      del.mock.resetCalls();
+      publishElementChanged.mock.resetCalls();
+      const map = await drawnOn();
+
+      await expect(actions.sa_deleteAttachment(map.id)).rejects.toThrow(DRAWING_WOULD_BE_LOST);
+      expect(await drawingOf(map.id)).toHaveLength(1);
+      expect(del.mock.callCount()).toBe(0);
+
+      await actions.sa_deleteAttachment(map.id, { dropDrawing: true });
+      expect(await drawingOf(map.id)).toEqual([]);
+      // The file's del() mock takes no arguments in its type; the calls still carry them.
+      expect(del.mock.calls.map((call) => (call.arguments as unknown[])[0]).sort()).toEqual(
+        [map.url, copyUrl].sort(),
+      );
+      // The element that showed it is sent again, its copy gone with it.
+      expect(publishElementChanged.mock.calls.map((call) => call.arguments)).toEqual([
+        [storyId, idElement],
+      ]);
+    });
+
+    it("keeps an element's pictures as a list, one of them its cover", async () => {
+      publishElementChanged.mock.resetCalls();
+      const map = await insertAttachment({
+        idStory: storyId,
+        status: "READY",
+        url: `${store}/uploads/${testUser}/list-map.png`,
+        isUploaded: true,
+        idCreatedByUser: testUser,
+      });
+      const tower = await insertAttachment({
+        idStory: storyId,
+        status: "READY",
+        url: `${store}/uploads/${testUser}/list-tower.png`,
+        isUploaded: true,
+        idCreatedByUser: testUser,
+      });
+      try {
+        // An upload from the element's own pictures is one of them, not its cover.
+        const added = await actions.sa_createAttachment({
+          kind: "ELEMENT",
+          idExternal: idElement,
+          url: `${store}/uploads/${testUser}/list-added.png`,
+        });
+        created.push(added.idAttachment);
+        // The story's pictures picked for it join them too.
+        expect(await actions.sa_attachToHolder("ELEMENT", idElement, [map.id, tower.id])).toEqual({
+          ok: true,
+          attached: [map.id, tower.id],
+        });
+        const cover = (id: number) => actions.sa_setAttachmentCover("ELEMENT", idElement, id, true);
+        await cover(map.id);
+        // Another cover leaves the last among the pictures, as a scene's does.
+        await cover(tower.id);
+        const listed = await actions.sa_listAttachments("ELEMENT", idElement);
+        expect(
+          listed.map((row) => [row.idAttachment, row.isCover]).sort((a, b) => +a[0] - +b[0]),
+        ).toEqual(
+          [
+            [map.id, false],
+            [tower.id, true],
+            [added.idAttachment, false],
+          ].sort((a, b) => +a[0] - +b[0]),
+        );
+        // The players' table hears of each change to the pictures.
+        expect(publishElementChanged.mock.calls.map((call) => call.arguments)).toContainEqual([
+          storyId,
+          idElement,
+        ]);
+
+        expect(await actions.sa_detachFromHolder("ELEMENT", idElement, [tower.id])).toEqual({
+          ok: true,
+          detached: [tower.id],
+        });
+        expect(
+          (await actions.sa_listAttachments("ELEMENT", idElement)).map((row) => row.idAttachment),
+        ).not.toContain(tower.id);
+        // The file stays the story's.
+        expect(
+          (await actions.sa_listAttachments("STORY", storyId)).map((row) => row.idAttachment),
+        ).toContain(tower.id);
+      } finally {
+        await db
+          .delete(tables.attachments)
+          .where(inArray(tables.attachments.idAttachment, [map.id, tower.id]));
+      }
+    });
+
+    it("leaves the drawing on its picture when the element's cover changes", async () => {
+      const map = await drawnOn();
+      const other = await insertAttachment({
+        idStory: storyId,
+        status: "READY",
+        url: `${store}/uploads/${testUser}/other.png`,
+        isUploaded: true,
+        idCreatedByUser: testUser,
+      });
+      try {
+        await actions.sa_setAttachmentCover("ELEMENT", idElement, other.id, true);
+        expect(await drawingOf(map.id)).toEqual([{ isActive: true }]);
+        await actions.sa_setAttachmentCover("ELEMENT", idElement, other.id, false);
+        expect(await drawingOf(map.id)).toEqual([{ isActive: true }]);
+      } finally {
+        await db
+          .delete(tables.attachments)
+          .where(inArray(tables.attachments.idAttachment, [map.id, other.id]));
+      }
+    });
   });
 });

@@ -161,9 +161,9 @@ describe("RunSceneSelect", () => {
       "Preview The crossing",
     ]);
     expect(previews.map((link) => link.getAttribute("href"))).toEqual([
-      "/preview/scene/1",
-      "/preview/scene/2",
-      "/preview/scene/3",
+      "/stories/-4/scenes/1/preview",
+      "/stories/-4/scenes/2/preview",
+      "/stories/-4/scenes/3/preview",
     ]);
     for (const link of previews) expect(link).toHaveAttribute("target", "_blank");
     // Beside the item, not in it, so the item's own name is the scene's.

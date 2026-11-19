@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { sceneElements } from "@/db/schema";
-import { currentScene, sceneLink, sceneLinksOf } from "@/db/scene-items";
+import { currentScene, sceneLink, sceneLinksOf, sceneLinksShowing } from "@/db/scene-items";
 import { SCENE_ELEMENT_HIDDEN } from "@/lib/scene-elements";
 import {
   toPublicElement,
@@ -127,6 +127,20 @@ export async function publishElementChanged(idStory: number, idElement: number):
   const current = await currentScene(idStory);
   if (current === null || current.idStoryScene === null) return;
   for (const idSceneElement of await sceneLinksOf(current.idStoryScene, idElement)) {
+    await publishSceneElement(idStory, current.idStoryScene, idSceneElement);
+  }
+}
+
+/**
+ * A picture changed in a way the players see wherever an element shows it
+ * (its drawing turned on or off, or a new players' copy of it): every link
+ * of the current scene that may show it, as the players may now see it.
+ * Nothing when no scene is being played.
+ */
+export async function publishPictureChanged(idStory: number, idAttachment: number): Promise<void> {
+  const current = await currentScene(idStory);
+  if (current === null || current.idStoryScene === null) return;
+  for (const idSceneElement of await sceneLinksShowing(current.idStoryScene, idAttachment)) {
     await publishSceneElement(idStory, current.idStoryScene, idSceneElement);
   }
 }

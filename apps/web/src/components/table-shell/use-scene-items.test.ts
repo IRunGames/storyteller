@@ -64,6 +64,18 @@ describe("useSceneItems", () => {
     expect(result.current.items[1].imageUrl).toBeNull();
   });
 
+  it("marks the element's pills annotated with its picture, and takes the mark off again", () => {
+    const { result } = renderHook(() => useSceneItems([dafydd, lantern]));
+    act(() => result.current.setImage(5, "https://x.test/dai.png", true));
+    expect(result.current.items[0]).toMatchObject({
+      imageUrl: "https://x.test/dai.png",
+      annotated: true,
+    });
+    expect(result.current.items[1].annotated).toBeUndefined();
+    act(() => result.current.setImage(5, "https://x.test/dai.png"));
+    expect(result.current.items[0].annotated).toBeUndefined();
+  });
+
   it("moves an edited element under its new kind's key and keeps what the pill was showing", () => {
     const { result } = renderHook(() => useSceneItems([dafydd]));
     const edited: ElementDetail = {

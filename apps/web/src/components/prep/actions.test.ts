@@ -218,6 +218,54 @@ describeWithDb("libraries actions", { email: TEST_USER_EMAIL }, (suite) => {
     expect(await actions.sa_countStoryScenes(theirStory)).toBe(0);
   });
 
+  // The board's element rows carry a cover pill and a count of the rest.
+  it("lists each element's cover as the storyteller is shown it, and how many other pictures", async () => {
+    const [vault] = await actions.sa_listStoryElements(myStory, "PLACE", 0);
+    expect(vault).toMatchObject({ coverUrl: null, otherPictures: 0 });
+
+    const store = "https://abc.public.blob.vercel-storage.com";
+    const pictures = await db
+      .insert(tables.attachments)
+      .values([
+        {
+          idStory: myStory,
+          status: "READY",
+          url: `${store}/uploads/u/vault.png`,
+          isUploaded: true,
+        },
+        { idStory: myStory, status: "READY", url: `${store}/uploads/u/door.png`, isUploaded: true },
+        { idStory: myStory, status: "READY", url: `${store}/uploads/u/key.png`, isUploaded: true },
+        { idStory: myStory, status: "UPLOADING", isUploaded: true },
+      ])
+      .returning({ id: tables.attachments.idAttachment });
+    const [cover, door, key, uploading] = pictures.map((row) => row.id);
+    try {
+      await db.insert(tables.attachmentUses).values([
+        { idAttachment: cover, kind: "ELEMENT", idExternal: vault.idElement, tags: ["cover"] },
+        { idAttachment: door, kind: "ELEMENT", idExternal: vault.idElement },
+        { idAttachment: key, kind: "ELEMENT", idExternal: vault.idElement },
+        // Still on its way, so not yet a picture to count.
+        { idAttachment: uploading, kind: "ELEMENT", idExternal: vault.idElement },
+      ]);
+      const [listed] = await actions.sa_listStoryElements(myStory, "PLACE", 0);
+      expect(listed).toMatchObject({ coverUrl: `${store}/uploads/u/vault.png`, otherPictures: 2 });
+
+      // An annotated cover with its copy rendered is shown as the players see it.
+      await db.insert(tables.attachmentAnnotations).values({
+        idAttachment: cover,
+        width: 10,
+        height: 10,
+        playerUrl: `${store}/annotations/vault-copy.webp`,
+      });
+      const [annotated] = await actions.sa_listStoryElements(myStory, "PLACE", 0);
+      expect(annotated.coverUrl).toBe(`${store}/annotations/vault-copy.webp`);
+    } finally {
+      await db
+        .delete(tables.attachments)
+        .where(inArray(tables.attachments.idAttachment, [cover, door, key, uploading]));
+    }
+  });
+
   it("lists one kind of element at a time, by name", async () => {
     const people = await actions.sa_listStoryElements(myStory, "PERSON", 0);
     expect(people.map((element) => element.name)).toEqual(["Fixture Aldric", "Fixture Zara"]);
@@ -1212,9 +1260,10 @@ describeWithDb("libraries actions", { email: TEST_USER_EMAIL }, (suite) => {
 
     // What deleting leans on: an element's scene links go with it, and an
     // attachment's uses go with the attachment (an element's uses go by
-    // trigger, not by key). Nothing else points at either table; a new key
-    // that does should say here what it does.
-    it("cascades an element's scene links, and an attachment's uses", async () => {
+    // trigger, not by key). A picture's drawing goes with the file it is
+    // drawn on (sa_deleteAttachment asks first). Nothing else points at
+    // either table; a new key that does should say here what it does.
+    it("cascades an element's scene links, and an attachment's uses and drawing", async () => {
       const keys = await db.execute<{ from_table: string; col: string; on_delete: string }>(sql`
         select c.conrelid::regclass::text as from_table, a.attname as col,
                c.confdeltype as on_delete
@@ -1224,6 +1273,7 @@ describeWithDb("libraries actions", { email: TEST_USER_EMAIL }, (suite) => {
           and c.confrelid in ('elements'::regclass, 'attachments'::regclass)
         order by 1, 2`);
       expect(keys.rows).toEqual([
+        { from_table: "attachment_annotations", col: "id_attachment", on_delete: "c" },
         { from_table: "attachment_uses", col: "id_attachment", on_delete: "c" },
         { from_table: "scene_elements", col: "id_element", on_delete: "c" },
       ]);

@@ -21,6 +21,12 @@ import {
   sa_listStoryScenes,
 } from "@/components/prep/actions";
 
+// An annotated picture's players' copy is rendered after the annotator's
+// save has answered, in this page's function, for up to the render's claim
+// (RENDER_CLAIM_SECONDS in lib/annotations.ts; lib/players-copy-time.test.ts
+// holds the two together).
+export const maxDuration = 60;
+
 // A story's Prep Work board, behind the stopwatch on the story's page.
 // requireSession() here rather than trusting the group layout; see
 // lib/require-session.ts for why. Every action re-checks the user against

@@ -63,7 +63,9 @@ const sa_createAttachment =
 const sa_markAttachmentReady = mock.fn<(id: number, url: string) => Promise<void>>(async () => {});
 const sa_markAttachmentError = mock.fn<(id: number) => Promise<void>>(async () => {});
 const sa_retryAttachment = mock.fn<(id: number) => Promise<void>>(async () => {});
-const sa_deleteAttachment = mock.fn<(id: number) => Promise<void>>(async () => {});
+const sa_deleteAttachment = mock.fn<
+  (id: number, options?: { dropDrawing?: boolean }) => Promise<void>
+>(async () => {});
 const sa_listAttachments = mock.fn<
   (
     kind: string,
@@ -79,6 +81,8 @@ const sa_listAttachments = mock.fn<
       fileName: string | null;
       isCover: boolean;
       tags: string[];
+      drawing?: { isActive: boolean } | null;
+      shownUrl?: string | null;
     }>
   >
 >(async () => []);
@@ -91,6 +95,12 @@ const sa_setAttachmentTags = mock.fn<(id: number, tags: string[]) => Promise<voi
 const router = mockRouter();
 
 let AttachmentListField: typeof import("./attachment-list-field").AttachmentListField;
+
+// The cards' annotation controls; the annotator's own suite draws in it.
+const sa_setAnnotated = mock.fn(async (_picture: number, _on: boolean) => ({
+  ok: true as const,
+  annotation: null,
+}));
 
 before(async () => {
   const blobClientModule: { upload: unknown } = requireHere("@vercel/blob/client");
@@ -107,6 +117,17 @@ before(async () => {
       sa_listAttachments,
       sa_setAttachmentCover,
       sa_setAttachmentTags,
+    },
+  });
+  mock.module("@/components/annotations/actions", {
+    namedExports: {
+      sa_openAnnotation: mock.fn(async () => ({ ok: false as const, error: "Not here." })),
+      sa_getPictureState: mock.fn(async () => null),
+      sa_setAnnotated,
+      sa_getAnnotation: mock.fn(async () => null),
+      sa_saveAnnotation: mock.fn(),
+      sa_refreshPlayersCopy: mock.fn(async () => ({ ok: true, behind: false })),
+      sa_getScenePicture: mock.fn(async () => null),
     },
   });
   mockNavigation({ router });
@@ -709,6 +730,90 @@ describe("AttachmentListField", () => {
       expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument(),
     );
     expect(screen.getByRole("img")).toHaveAttribute("src", URL_A);
+  });
+
+  it("warns that the fog and pen marks drawn on a picture go with it, and confirms that", async () => {
+    const user = userEvent.setup();
+    sa_listAttachments.mock.mockImplementation(async () => [
+      {
+        idAttachment: 9,
+        kind: "STORY_SCENE",
+        idExternal: SCENE_ID,
+        status: "READY",
+        url: "https://example.com/map.jpg",
+        isUploaded: false,
+        fileName: null,
+        isCover: false,
+        tags: [],
+        drawing: { isActive: false },
+      },
+    ]);
+
+    renderWithProviders(<AttachmentListField kind="STORY_SCENE" idExternal={SCENE_ID} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Remove https://example.com/map.jpg" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Remove this attachment?" });
+    expect(dialog).toHaveTextContent(/fog and pen marks drawn on it go with it/i);
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(sa_deleteAttachment.mock.callCount()).toBe(1));
+    expect(sa_deleteAttachment.mock.calls[0].arguments).toEqual([9, { dropDrawing: true }]);
+  });
+
+  it("shows an annotated picture as the players see it, its link still the file's", async () => {
+    const raw = "https://abc.public.blob.vercel-storage.com/uploads/u/map.png";
+    const copy = "https://abc.public.blob.vercel-storage.com/annotations/11/copy.webp";
+    sa_listAttachments.mock.mockImplementation(async () => [
+      {
+        idAttachment: 11,
+        kind: "STORY",
+        idExternal: SCENE_ID,
+        status: "READY",
+        url: raw,
+        isUploaded: true,
+        fileName: "map.png",
+        isCover: false,
+        tags: [],
+        drawing: { isActive: true },
+        shownUrl: copy,
+      },
+    ]);
+    renderWithProviders(<AttachmentListField kind="STORY" idExternal={SCENE_ID} canAnnotate />);
+    const card = await screen.findByRole("listitem");
+    expect(within(card).getByRole("img", { name: "map.png" })).toHaveAttribute("src", copy);
+    expect(within(card).getByRole("link", { name: "map.png" })).toHaveAttribute("href", raw);
+  });
+
+  it("offers an uploaded picture's annotation controls where the field is asked to", async () => {
+    const user = userEvent.setup();
+    sa_setAnnotated.mock.resetCalls();
+    const row = (idAttachment: number, isUploaded: boolean, url: string) => ({
+      idAttachment,
+      kind: "STORY",
+      idExternal: SCENE_ID,
+      status: "READY",
+      url,
+      isUploaded,
+      fileName: null,
+      isCover: false,
+      tags: [],
+    });
+    sa_listAttachments.mock.mockImplementation(async () => [
+      row(11, true, "https://abc.public.blob.vercel-storage.com/uploads/u/map.png"),
+      row(12, false, "https://example.com/typed.png"),
+    ]);
+
+    renderWithProviders(<AttachmentListField kind="STORY" idExternal={SCENE_ID} canAnnotate />);
+    const cards = await screen.findAllByRole("listitem");
+    // A typed link is fetched by no server, so it is not drawn on.
+    expect(within(cards[1]).queryByRole("button", { name: "Annotate for players" })).toBeNull();
+    const toggle = within(cards[0]).getByRole("button", { name: "Annotate for players" });
+
+    await user.click(toggle);
+    expect(sa_setAnnotated.mock.calls[0].arguments).toEqual([11, true]);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(within(cards[0]).getByRole("button", { name: "Open annotator" })).toBeInTheDocument();
   });
 
   it("removes an attachment via sa_deleteAttachment and drops its id from the value", async () => {

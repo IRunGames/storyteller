@@ -86,6 +86,21 @@ export const PROFILE_PREFERENCE_KEYS = {
 } as const;
 
 /**
+ * The annotator's settings (components/annotations), the storyteller's own
+ * and the same over every picture they draw on: the pen's color and width,
+ * the fog brush's size, and how thick the fog is drawn for them. The players'
+ * fog is the drawing's own (attachment_annotations.fog_opacity_players), since
+ * the players' copy is rendered with it; the storyteller's is only how their
+ * screen shows it, so it is kept here and changing it renders nothing.
+ */
+export const ANNOTATION_PREFERENCE_KEYS = {
+  penColor: "annotation.penColor",
+  penWidth: "annotation.penWidth",
+  brushSize: "annotation.brushSize",
+  ownFogOpacity: "annotation.ownFogOpacity",
+} as const;
+
+/**
  * The preference that holds one story's board as the storyteller left it:
  * which columns are hidden or expanded, and what each column's search box
  * and pills are narrowed to. One key per story, since the words typed into a

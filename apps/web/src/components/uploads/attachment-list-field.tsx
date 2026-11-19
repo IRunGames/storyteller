@@ -16,6 +16,7 @@ import { AttachmentAddControls } from "./attachment-add-controls";
 import { AttachmentCard } from "./attachment-card";
 import { UNKNOWN_STATUS, useAttachmentRows } from "./use-attachment-rows";
 import { justNow, useAttachmentUploads } from "./use-attachment-uploads";
+import type { PictureState } from "@/lib/annotations";
 import type { Attachment, AttachmentKind } from "@/lib/attachments";
 
 type Props = {
@@ -107,7 +108,20 @@ type Props = {
    * card is drawn.
    */
   pageSize?: number;
+  /**
+   * Each finished picture the app uploaded offers its annotation controls
+   * (AnnotationControls): the story's Attachments, and an element's pictures.
+   */
+  canAnnotate?: boolean;
 };
+
+/** A row's drawing and how it is shown, as the annotation controls read a picture back. */
+export function pictureRow(picture: PictureState): Pick<Attachment, "drawing" | "shownUrl"> {
+  return {
+    drawing: picture.hasDrawing ? { isActive: picture.isAnnotated } : null,
+    shownUrl: picture.shownUrl,
+  };
+}
 
 /** What a renderRows caller is given; see Props.renderRows. */
 export type AttachmentRowsView = {
@@ -125,6 +139,10 @@ export type AttachmentRowsView = {
   remove: (idAttachment: number) => Promise<void>;
   /** As the card's Retry calls it, for an upload that failed. */
   retry: (idAttachment: number) => void;
+  /** As the card's annotation controls report it: the row's drawing on, or off. */
+  setAnnotated: (idAttachment: number, annotated: boolean) => void;
+  /** As the card's annotation controls read it back: the row's drawing and how it is shown. */
+  setPicture: (picture: PictureState) => void;
 };
 
 /**
@@ -156,6 +174,7 @@ export function AttachmentListField({
   onCountChange,
   renderRows,
   pageSize,
+  canAnnotate = false,
 }: Props) {
   const router = useRouter();
   const attachmentRows = useAttachmentRows({ kind, idExternal, value, onChange, onCountChange });
@@ -279,7 +298,14 @@ export function AttachmentListField({
     const carried = uploads.forget(id);
     commit(attachmentRows.rowsRef.current.filter((row) => row.idAttachment !== id));
     try {
-      await sa_deleteAttachment(id);
+      // The popover said the file's drawing goes with it, so pressing Remove
+      // confirmed it; one drawn since the list loaded was not mentioned, and
+      // the server refuses it, which puts the row back below.
+      if (removedRow.drawing) {
+        await sa_deleteAttachment(id, { dropDrawing: true });
+      } else {
+        await sa_deleteAttachment(id);
+      }
       // The cover is drawn by the server-rendered page around this field (the
       // story page's backdrop), which knows nothing of this list. Removing it
       // leaves that page showing a picture that is gone until it re-renders.
@@ -374,6 +400,9 @@ export function AttachmentListField({
           setCover: handleCover,
           remove: handleRemove,
           retry: (idAttachment) => void uploads.retry(idAttachment),
+          setAnnotated: (idAttachment, annotated) =>
+            updateRow(idAttachment, { drawing: { isActive: annotated } }),
+          setPicture: (picture) => updateRow(picture.idAttachment, pictureRow(picture)),
         })
       ) : (
         <>
@@ -409,6 +438,13 @@ export function AttachmentListField({
                 onRemove={() => void handleRemove(row.idAttachment)}
                 onCoverChange={(isCover) => handleCover(row.idAttachment, isCover)}
                 onTagsChange={(tags) => handleTags(row.idAttachment, tags)}
+                onAnnotatedChange={
+                  canAnnotate
+                    ? (annotated) =>
+                        updateRow(row.idAttachment, { drawing: { isActive: annotated } })
+                    : undefined
+                }
+                onPictureChange={(picture) => updateRow(row.idAttachment, pictureRow(picture))}
               />
             ))}
           </Grid>

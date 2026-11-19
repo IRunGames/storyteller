@@ -1,7 +1,7 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "./index";
-import { sceneElementImageUrl } from "./attachment-url";
+import { playerSceneElementImageUrl } from "./attachment-url";
 import { elements, sceneElements, stories, storySessions } from "./schema";
 import { ELEMENT_KINDS } from "@/lib/elements";
 import { SESSION_PLAYING_STATUSES } from "@/lib/status";
@@ -37,7 +37,11 @@ export async function currentScene(idStory: number): Promise<CurrentScene | null
 
 /**
  * An element with its link to one scene, and the address of the picture its
- * pill shows there: the link's own cover, else the element's.
+ * pill shows the players there: the link's own cover, else the element's,
+ * and for an annotated picture the players' copy in place of the raw
+ * picture (playerSceneElementImageUrl). This is the players' read model:
+ * everything a player is given about a scene's elements comes through here,
+ * so the storyteller's own reads take their pictures elsewhere.
  */
 export type SceneItemRow = {
   element: typeof elements.$inferSelect;
@@ -58,7 +62,7 @@ export async function sceneLink(
     .select({
       element: elements,
       link: sceneElements,
-      imageUrl: sceneElementImageUrl("scene_elements", "elements"),
+      imageUrl: playerSceneElementImageUrl("scene_elements", "elements"),
     })
     .from(sceneElements)
     .innerJoin(elements, eq(elements.idElement, sceneElements.idElement))
@@ -80,6 +84,35 @@ export async function sceneLinksOf(idStoryScene: number, idElement: number): Pro
 }
 
 /**
+ * The links of a scene whose pill may show a picture: those whose own cover
+ * is the file, and those whose element's cover is. A link whose own cover
+ * stands in front of its element's is among them too, which says nothing new
+ * to the players' table but costs nothing.
+ */
+export async function sceneLinksShowing(
+  idStoryScene: number,
+  idAttachment: number,
+): Promise<number[]> {
+  const rows = await db
+    .select({ idSceneElement: sceneElements.idSceneElement })
+    .from(sceneElements)
+    .where(
+      and(
+        eq(sceneElements.idStoryScene, idStoryScene),
+        sql`exists (
+          select 1 from attachment_uses u
+          where u.id_attachment = ${idAttachment}
+            and u.tags @> array['cover']::text[]
+            and ((u.kind = 'SCENE_ELEMENT' and u.external_id = scene_elements.id_scene_element)
+              or (u.kind = 'ELEMENT' and u.external_id = scene_elements.id_element))
+        )`,
+      ),
+    )
+    .orderBy(asc(sceneElements.idSceneElement));
+  return rows.map((row) => row.idSceneElement);
+}
+
+/**
  * Every element linked to a scene of the story, in the order the
  * storyteller's play space shows them: by kind, People to Ephemera, then by
  * name. Links in the statuses given are left out; the players' table leaves
@@ -94,7 +127,7 @@ export async function sceneItems(
     .select({
       element: elements,
       link: sceneElements,
-      imageUrl: sceneElementImageUrl("scene_elements", "elements"),
+      imageUrl: playerSceneElementImageUrl("scene_elements", "elements"),
     })
     .from(sceneElements)
     .innerJoin(elements, eq(elements.idElement, sceneElements.idElement))

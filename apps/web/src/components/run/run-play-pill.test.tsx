@@ -92,6 +92,38 @@ const detail: ElementPanelDetail = {
     createdAt: new Date("2026-10-08T12:00:00Z"),
   },
 };
+// The annotator and the pictures' Annotate for players. The drawing is
+// never loaded here: the annotator's own suite draws in it.
+const sa_setAnnotated = mock.fn(async (_picture: number, _on: boolean) => ({
+  ok: true as const,
+  annotation: null,
+}));
+const sa_getAnnotation = mock.fn(async (_picture: number) => null);
+const sa_openAnnotation = mock.fn(async (_picture: number) => ({
+  ok: false as const,
+  error: "Not here.",
+}));
+// The picture read back after a change; none unless a case says.
+type ReadBack = {
+  idAttachment: number;
+  shownUrl: string | null;
+  canAnnotate: boolean;
+  hasDrawing: boolean;
+  isAnnotated: boolean;
+  behind: boolean;
+};
+const sa_getPictureState = mock.fn(async (_picture: number): Promise<ReadBack | null> => null);
+// The picture behind the pill, as its preview finds it.
+const scenePicture = {
+  idAttachment: 77,
+  shownUrl: "https://x.test/9.png",
+  canAnnotate: true,
+  hasDrawing: false,
+  isAnnotated: false,
+};
+const sa_getScenePicture = mock.fn(
+  async (_story: number, _link: number): Promise<typeof scenePicture | null> => scenePicture,
+);
 const sa_getElementDetail = mock.fn(
   async (_story: number, _element: number, _scene: number | null, _link: number | null) => detail,
 );
@@ -364,6 +396,17 @@ describe("RunPlayPill", () => {
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions, sa_setRowStatus },
     });
+    mock.module("@/components/annotations/actions", {
+      namedExports: {
+        sa_openAnnotation,
+        sa_getPictureState,
+        sa_setAnnotated,
+        sa_getAnnotation,
+        sa_saveAnnotation: mock.fn(),
+        sa_refreshPlayersCopy: mock.fn(async () => ({ ok: true })),
+        sa_getScenePicture,
+      },
+    });
     ({ RunPlayPill } = await import("./run-play-pill"));
   });
 
@@ -384,6 +427,13 @@ describe("RunPlayPill", () => {
     sa_attachToHolder.mock.resetCalls();
     sa_setSceneElementTags.mock.resetCalls();
     sa_setElementTags.mock.resetCalls();
+    sa_setAnnotated.mock.resetCalls();
+    sa_getAnnotation.mock.resetCalls();
+    sa_getScenePicture.mock.resetCalls();
+    sa_getScenePicture.mock.restore();
+    sa_openAnnotation.mock.resetCalls();
+    sa_getPictureState.mock.resetCalls();
+    sa_getPictureState.mock.restore();
     linkRows = [picture(42, "Lantern.png", "SCENE_ELEMENT")];
   });
 
@@ -1065,6 +1115,120 @@ describe("RunPlayPill", () => {
     expect(
       within(container).getByRole("button", { name: "Add an image to A hooded figure" }),
     ).toBeInTheDocument();
+  });
+
+  it("marks an annotated picture with fog, and its preview opens the annotator", async () => {
+    sa_getScenePicture.mock.mockImplementation(async () => ({
+      ...scenePicture,
+      hasDrawing: true,
+      isAnnotated: true,
+    }));
+    const u = userEvent.setup();
+    const { container } = render({
+      ...linked("READY"),
+      imageUrl: "https://x.test/9.png",
+      annotated: true,
+    });
+
+    expect(within(container).getByRole("img", { name: "Annotated for players" })).toBeVisible();
+    await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
+    const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    const toggle = await within(preview).findByRole("button", { name: "Annotate for players" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    // The picture is looked up as the preview opens: the link's, else the element's.
+    expect(sa_getScenePicture.mock.calls[0].arguments).toEqual([-4, 9]);
+
+    await u.click(within(preview).getByRole("button", { name: "Open annotator" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Annotate A hooded figure" }),
+    ).toBeInTheDocument();
+    expect(sa_openAnnotation.mock.calls[0].arguments).toEqual([77]);
+  });
+
+  it("annotates the pill's picture from its preview, and marks the pill", async () => {
+    const u = userEvent.setup();
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
+    expect(within(container).queryByRole("img", { name: "Annotated for players" })).toBeNull();
+
+    await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
+    const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    const toggle = await within(preview).findByRole("button", { name: "Annotate for players" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await u.click(toggle);
+
+    expect(sa_setAnnotated.mock.calls[0].arguments).toEqual([77, true]);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(within(preview).getByRole("button", { name: "Open annotator" })).toBeInTheDocument();
+
+    // Closed again, the pill carries the fog mark.
+    await u.click(within(preview).getByRole("button", { name: "Close preview" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "A hooded figure" })).not.toBeInTheDocument(),
+    );
+    expect(within(container).getByRole("img", { name: "Annotated for players" })).toBeVisible();
+  });
+
+  // Once its players' copy is rendered, the pill shows the picture as the
+  // players see it.
+  it("shows the pill's picture as the players see it once the copy is read back", async () => {
+    const copy = "https://abc.public.blob.vercel-storage.com/annotations/77/copy.webp";
+    sa_getPictureState.mock.mockImplementation(async () => ({
+      ...scenePicture,
+      shownUrl: copy,
+      hasDrawing: true,
+      isAnnotated: true,
+      behind: false,
+    }));
+    const u = userEvent.setup();
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
+
+    await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
+    const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    await u.click(await within(preview).findByRole("button", { name: "Annotate for players" }));
+    await waitFor(() => expect(sa_getPictureState.mock.callCount()).toBe(1));
+
+    await u.click(within(preview).getByRole("button", { name: "Close preview" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "A hooded figure" })).not.toBeInTheDocument(),
+    );
+    expect(within(container).getByRole("img", { name: "A hooded figure" })).toHaveAttribute(
+      "src",
+      copy,
+    );
+  });
+
+  it("offers nothing to annotate in the preview of a picture that cannot be drawn on", async () => {
+    sa_getScenePicture.mock.mockImplementation(async () => ({
+      ...scenePicture,
+      canAnnotate: false,
+    }));
+    const u = userEvent.setup();
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
+
+    await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
+    const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    await waitFor(() => expect(sa_getScenePicture.mock.callCount()).toBe(1));
+    expect(within(preview).queryByRole("button", { name: "Annotate for players" })).toBeNull();
+  });
+
+  it("annotates the element's picture for the players from its panel, and the pill follows", async () => {
+    sa_getElementDetail.mock.mockImplementationOnce(async () => ({
+      ...detail,
+      element: { ...detail.element, imageUrl: "https://x.test/9.png", picture: scenePicture },
+    }));
+    const u = userEvent.setup();
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
+
+    await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
+    const popover = await screen.findByRole("region", { name: "About A hooded figure" });
+    const toggle = await within(popover).findByRole("button", { name: "Annotate for players" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    await u.click(toggle);
+    expect(sa_setAnnotated.mock.calls[0].arguments).toEqual([77, true]);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(within(popover).getByRole("button", { name: "Open annotator" })).toBeInTheDocument();
+    expect(within(container).getByRole("img", { name: "Annotated for players" })).toBeVisible();
   });
 
   it("previews an attachment from its picture in the picker, without picking it", async () => {

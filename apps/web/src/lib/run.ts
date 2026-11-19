@@ -1,3 +1,4 @@
+import type { PictureState } from "@/lib/annotations";
 import type { Attachment } from "@/lib/attachments";
 import {
   ELEMENT_KINDS,
@@ -153,6 +154,11 @@ export type ElementDetail = {
   /** Its external link, and the words for it. */
   url: string | null;
   urlText: string | null;
+  /**
+   * Its picture as the annotation controls need it, or null for none. The
+   * server always says; absent reads as none, as in a test's fixture.
+   */
+  picture?: PictureState | null;
 };
 
 /** An element's link to a scene (scene_elements): how it stands there. */

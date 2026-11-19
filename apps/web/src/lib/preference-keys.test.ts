@@ -22,6 +22,7 @@ describe("preference keys", () => {
       RUN_LIBRARY_ATTACHMENT_SORT: keys.RUN_LIBRARY_ATTACHMENT_SORT,
       RUN_LIBRARY_ELEMENT_SORT: keys.RUN_LIBRARY_ELEMENT_SORT,
       PROFILE_PREFERENCE_KEYS: keys.PROFILE_PREFERENCE_KEYS,
+      ANNOTATION_PREFERENCE_KEYS: keys.ANNOTATION_PREFERENCE_KEYS,
       run: keys.tablePanelPreferenceKeys("run"),
       play: keys.tablePanelPreferenceKeys("play"),
       prepBoard: keys.prepBoardPreferenceKey(42),
@@ -43,6 +44,12 @@ describe("preference keys", () => {
         avatarUrl: "profile.avatarUrl",
         status: "profile.status",
       },
+      ANNOTATION_PREFERENCE_KEYS: {
+        penColor: "annotation.penColor",
+        penWidth: "annotation.penWidth",
+        brushSize: "annotation.brushSize",
+        ownFogOpacity: "annotation.ownFogOpacity",
+      },
       run: {
         chat: "run.showChat",
         character: "run.showCharacter",
@@ -61,6 +68,7 @@ describe("preference keys", () => {
     // A key added to the module without a line above would go unpinned.
     expect(Object.keys(keys).sort()).toEqual(
       [
+        "ANNOTATION_PREFERENCE_KEYS",
         "CHAT_LAYOUT_KEY",
         "PROFILE_PREFERENCE_KEYS",
         "RUN_ADD_INVISIBLE",

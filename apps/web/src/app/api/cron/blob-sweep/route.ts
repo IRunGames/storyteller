@@ -6,7 +6,7 @@ import { isCronRequest } from "@/lib/cron";
 import { isUploadedBlobUrl } from "@/lib/image-uploads";
 import { PROFILE_PREFERENCE_KEYS } from "@/lib/preference-keys";
 
-const { attachments, userPreferences } = schema;
+const { attachments, attachmentAnnotations, userPreferences } = schema;
 
 /**
  * Deletes what the app left behind: blobs no attachment row points at any
@@ -17,9 +17,10 @@ const { attachments, userPreferences } = schema;
  * out from under a user still mid-edit:
  *
  * 1. Blobs — the referenced set is every URL an uploaded attachment
- *    currently points at, whatever it is attached to (or not), and every
- *    profile picture a user's preferences point at, which is the one upload
- *    that is not an attachment.
+ *    currently points at, whatever it is attached to (or not), every
+ *    profile picture a user's preferences point at, and every players' copy
+ *    an annotated picture's drawing points at, the two blobs that are not
+ *    attachments.
  *    `list()` then walks the whole store and anything not in that set, past
  *    the grace period, is deleted.
  * 2. Attachments — rows with a null `id_story` past the grace period were
@@ -43,9 +44,14 @@ export async function GET(request: Request): Promise<Response> {
     .select({ url: sql<string>`${userPreferences.preferences} ->> ${avatarKey}` })
     .from(userPreferences)
     .where(sql`${userPreferences.preferences} ->> ${avatarKey} is not null`);
+  const playersCopyRows = await db
+    .select({ url: attachmentAnnotations.playerUrl })
+    .from(attachmentAnnotations)
+    .where(isNotNull(attachmentAnnotations.playerUrl));
   const referenced = new Set([
     ...referencedRows.map((row) => row.url as string),
     ...avatarRows.map((row) => row.url),
+    ...playersCopyRows.map((row) => row.url as string),
   ]);
 
   let cursor: string | undefined;

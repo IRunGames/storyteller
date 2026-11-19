@@ -67,12 +67,19 @@ describe("client components", () => {
     "components/stat-blocks/dice-input.tsx",
     "components/stat-blocks/stat-block-fields.tsx",
   ]);
-  const SERVER_ONLY = new Set(["@/db", "@/lib/dice"]);
+  const SERVER_ONLY = new Set([
+    "@/db",
+    "@/lib/dice",
+    "@/lib/annotation-render",
+    "@/lib/players-copy",
+  ]);
 
   // The database client and the dice roller run on the server only: a
   // client file importing either would pull them, and their connection
-  // string, into the browser bundle, or fail the build trying.
-  it("import neither @/db nor @/lib/dice", () => {
+  // string, into the browser bundle, or fail the build trying. The players'
+  // copy render is the server's too: it fetches the raw picture and runs
+  // sharp, a native module no browser can load.
+  it("import neither @/db, @/lib/dice nor the players' copy render", () => {
     const leaks = sources
       .filter((source) => hasDirective(source, "use client"))
       .flatMap((source) =>

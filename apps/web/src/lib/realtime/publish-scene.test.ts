@@ -7,7 +7,7 @@
 // send.
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import type { StoryEvent } from "./events";
 import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
@@ -230,6 +230,69 @@ describeWithDb("publish-scene", { email: TEST_USER_EMAIL }, (suite) => {
     it("says nothing with no scene at the table", async () => {
       await play(null);
       await helpers.publishElementChanged(story, zed);
+      expect(sent()).toEqual([]);
+    });
+  });
+
+  describe("publishPictureChanged", () => {
+    it("sends every link of the current scene whose pill may show the picture", async () => {
+      await play(docks);
+      const [{ id: map }, { id: other }] = await db
+        .insert(tables.attachments)
+        .values([
+          { idStory: story, status: "READY", url: "https://x.test/map.png" },
+          { idStory: story, status: "READY", url: "https://x.test/other.png" },
+        ])
+        .returning({ id: tables.attachments.idAttachment });
+      const [{ id: second }] = await db
+        .insert(tables.sceneElements)
+        .values({ idStoryScene: docks, idElement: lantern, idCreatedByUser: testUser })
+        .returning({ id: tables.sceneElements.idSceneElement });
+      try {
+        // Zed's own picture is the map; the lantern's link here shows it as its own.
+        await db.insert(tables.attachmentUses).values([
+          { idAttachment: map, kind: "ELEMENT", idExternal: zed, tags: ["cover"] },
+          { idAttachment: map, kind: "SCENE_ELEMENT", idExternal: second, tags: ["cover"] },
+          { idAttachment: other, kind: "ELEMENT", idExternal: lantern, tags: ["cover"] },
+        ]);
+        await helpers.publishPictureChanged(story, map);
+        expect(
+          sent().map((event) => event.type === "scene_element.upserted" && event.sceneElement),
+        ).toEqual([
+          expect.objectContaining({ idSceneElement: zedLink }),
+          expect.objectContaining({ idSceneElement: second }),
+        ]);
+
+        // A picture only among an element's others is shown by no pill.
+        publishStoryEvent.mock.resetCalls();
+        await db.insert(tables.attachmentUses).values({
+          idAttachment: other,
+          kind: "ELEMENT",
+          idExternal: zed,
+        });
+        await db
+          .delete(tables.attachmentUses)
+          .where(
+            and(
+              eq(tables.attachmentUses.idAttachment, other),
+              eq(tables.attachmentUses.idExternal, lantern),
+            ),
+          );
+        await helpers.publishPictureChanged(story, other);
+        expect(sent()).toEqual([]);
+      } finally {
+        await db
+          .delete(tables.sceneElements)
+          .where(eq(tables.sceneElements.idSceneElement, second));
+        await db
+          .delete(tables.attachments)
+          .where(inArray(tables.attachments.idAttachment, [map, other]));
+      }
+    });
+
+    it("says nothing with no scene at the table", async () => {
+      await play(null);
+      await helpers.publishPictureChanged(story, 1);
       expect(sent()).toEqual([]);
     });
   });

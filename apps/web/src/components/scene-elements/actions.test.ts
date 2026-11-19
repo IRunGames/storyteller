@@ -614,6 +614,53 @@ describeWithDb(
       }
     });
 
+    it("marks an annotated element's pill as annotated when it is linked and after an edit", async () => {
+      const target = await sceneIn("ACTIVE", "Fixture scene for an annotated map");
+      const [{ idAttachment }] = await db
+        .insert(tables.attachments)
+        .values({
+          idStory: mine,
+          status: "READY",
+          url: "https://abc.public.blob.vercel-storage.com/uploads/u/abbey-map.png",
+          isUploaded: true,
+          idCreatedByUser: suite.testUser,
+        })
+        .returning({ idAttachment: tables.attachments.idAttachment });
+      try {
+        await db.insert(tables.attachmentUses).values({
+          idAttachment,
+          kind: "ELEMENT",
+          idExternal: abbey,
+          tags: ["cover"],
+          idCreatedByUser: suite.testUser,
+        });
+        await db.insert(tables.attachmentAnnotations).values({
+          idAttachment,
+          width: 100,
+          height: 50,
+          idCreatedByUser: suite.testUser,
+        });
+
+        const linked = await actions.sa_linkSceneElement(mine, target, abbey);
+        if (!linked.ok) throw new Error("not linked");
+        expect(linked.item.annotated).toBe(true);
+
+        const edited = await actions.sa_updateSceneElement(
+          mine,
+          target,
+          linked.item.idSceneElement!,
+          form({ name: "Fixture Abbey" }),
+        );
+        if (!edited.ok) throw new Error("not edited");
+        expect(edited.item.annotated).toBe(true);
+      } finally {
+        // The attachment takes its use and the drawing with it.
+        await db
+          .delete(tables.attachments)
+          .where(eq(tables.attachments.idAttachment, idAttachment));
+      }
+    });
+
     it("links no element of another story, nor into another's scene", async () => {
       const target = await sceneIn("ACTIVE", "Fixture scene for bad links");
       const [stranger] = await db

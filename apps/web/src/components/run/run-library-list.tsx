@@ -23,6 +23,7 @@ export function LibraryList({
   renderArrow,
   renderActions,
   editTagsFor,
+  previewActionsFor,
 }: {
   items: LibraryItem[] | null;
   filtered: boolean;
@@ -37,6 +38,8 @@ export function LibraryList({
   renderActions?: (item: LibraryItem) => ReactNode;
   /** An attachment's tag handlers, so its full-size preview edits them too. */
   editTagsFor?: (item: LibraryItem) => ComponentProps<typeof AttachmentPreviewDialog>["editTags"];
+  /** Controls at the foot of an attachment's full-size preview: its annotation controls. */
+  previewActionsFor?: (item: LibraryItem) => ReactNode;
 }) {
   // The attachment whose picture is open full size, by key. One dialog for
   // the whole list rather than one per row, so the arrow keys can move it
@@ -118,6 +121,7 @@ export function LibraryList({
           tags={previewed.attachment.tags}
           isCover={previewed.attachment.isCover}
           editTags={editTagsFor?.(previewed)}
+          actions={previewActionsFor?.(previewed)}
           onStep={step}
         />
       )}

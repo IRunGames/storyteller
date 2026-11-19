@@ -7,6 +7,12 @@ import { sa_getPlayStory } from "@/components/play/actions";
 import { sa_getScenePlaySpace } from "@/components/run/actions";
 import { sa_getStorySceneForEdit } from "@/components/prep/actions";
 
+// An annotated picture's players' copy is rendered after the annotator's
+// save has answered, in this page's function, for up to the render's claim
+// (RENDER_CLAIM_SECONDS in lib/annotations.ts; lib/players-copy-time.test.ts
+// holds the two together).
+export const maxDuration = 60;
+
 // A scene's live-edit page, where the pencil on the library's scene cards
 // goes. Outside (nav) because it draws its own header, as
 // /stories/[id]/run does. See home/page.tsx for why the page calls

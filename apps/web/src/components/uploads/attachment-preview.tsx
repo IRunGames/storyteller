@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Box,
   chakra,
@@ -47,6 +47,12 @@ type ContentProps = {
    * nothing.
    */
   onStep?: (direction: -1 | 1) => void;
+  /**
+   * Controls for the picture, at the foot's far end: the annotation controls,
+   * where the storyteller may draw on it. Mounted only while the preview is
+   * open, so controls that look the picture up do so as it opens.
+   */
+  actions?: ReactNode;
 };
 
 type Props = ContentProps;
@@ -124,7 +130,9 @@ export function AttachmentPreviewDialog({
   editTags,
   showTags = true,
   onStep,
+  actions,
 }: ContentProps & { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const shownActions = open ? actions : undefined;
   return (
     <Dialog.Root
       placement="center"
@@ -145,6 +153,10 @@ export function AttachmentPreviewDialog({
             overflow="hidden"
             onKeyDown={(event) => {
               if (!onStep) return;
+              // A dialog opened from the controls (the annotator) is drawn
+              // in a portal, but its keys still bubble here through React:
+              // the arrows pressed there are its own.
+              if (!event.currentTarget.contains(event.target as Node)) return;
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();
                 onStep(event.key === "ArrowDown" ? 1 : -1);
@@ -159,45 +171,50 @@ export function AttachmentPreviewDialog({
               </Dialog.Title>
             </Dialog.Header>
             <Image src={url} alt={label} maxW="90vw" maxH="80vh" objectFit="contain" mx="auto" />
-            {showTags && (
+            {(showTags || shownActions) && (
               <HStack gap="2" px="4" py="3" borderTopWidth="1px" align="center">
-                {editTags ? (
-                  <AttachmentTagsPopover
-                    label={label}
-                    tags={tags}
-                    isCover={isCover}
-                    canCover={editTags.canCover}
-                    onTagsChange={editTags.onTagsChange}
-                    onCoverChange={editTags.onCoverChange}
-                    // In the dialog, which makes the page behind it inert.
-                    portalled={false}
-                  />
-                ) : (
-                  <Box color="fg.muted" flexShrink={0}>
-                    <TagIcon size={16} />
-                  </Box>
-                )}
-                {isCover || tags.length > 0 ? (
-                  <Wrap gap="2" role="list" aria-label="Tags">
-                    {isCover && (
-                      <Tag.Root role="listitem" colorPalette="yellow" variant="solid">
-                        <Tag.StartElement>
-                          <Star fill="currentColor" />
-                        </Tag.StartElement>
-                        <Tag.Label>Cover</Tag.Label>
-                      </Tag.Root>
+                {showTags && (
+                  <>
+                    {editTags ? (
+                      <AttachmentTagsPopover
+                        label={label}
+                        tags={tags}
+                        isCover={isCover}
+                        canCover={editTags.canCover}
+                        onTagsChange={editTags.onTagsChange}
+                        onCoverChange={editTags.onCoverChange}
+                        // In the dialog, which makes the page behind it inert.
+                        portalled={false}
+                      />
+                    ) : (
+                      <Box color="fg.muted" flexShrink={0}>
+                        <TagIcon size={16} />
+                      </Box>
                     )}
-                    {tags.map((tag) => (
-                      <Tag.Root role="listitem" key={tag}>
-                        <Tag.Label>{tag}</Tag.Label>
-                      </Tag.Root>
-                    ))}
-                  </Wrap>
-                ) : (
-                  <Text fontSize="sm" color="fg.muted">
-                    No tags
-                  </Text>
+                    {isCover || tags.length > 0 ? (
+                      <Wrap gap="2" role="list" aria-label="Tags">
+                        {isCover && (
+                          <Tag.Root role="listitem" colorPalette="yellow" variant="solid">
+                            <Tag.StartElement>
+                              <Star fill="currentColor" />
+                            </Tag.StartElement>
+                            <Tag.Label>Cover</Tag.Label>
+                          </Tag.Root>
+                        )}
+                        {tags.map((tag) => (
+                          <Tag.Root role="listitem" key={tag}>
+                            <Tag.Label>{tag}</Tag.Label>
+                          </Tag.Root>
+                        ))}
+                      </Wrap>
+                    ) : (
+                      <Text fontSize="sm" color="fg.muted">
+                        No tags
+                      </Text>
+                    )}
+                  </>
                 )}
+                {shownActions && <Box ms="auto">{shownActions}</Box>}
               </HStack>
             )}
             <Dialog.CloseTrigger asChild>

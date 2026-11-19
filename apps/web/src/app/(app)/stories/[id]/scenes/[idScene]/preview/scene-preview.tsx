@@ -41,7 +41,7 @@ type Props = {
 };
 
 /**
- * /preview/scene/[id]: one scene as the players' table shows the scene
+ * /stories/[id]/scenes/[idScene]/preview: one scene as the players' table shows the scene
  * being played, and nothing more. The tables' header with Preview in the
  * middle where the table has its panel toggles, then the play space read
  * only (PlaySpace, variant preview): the pills' info and the scene's text open to
@@ -67,7 +67,7 @@ export function ScenePreview({
   statusOptions,
   canEdit,
 }: Props) {
-  const here = scene.scene ? scenePreviewPath(scene.scene.idStoryScene) : null;
+  const here = scene.scene ? scenePreviewPath(idStory, scene.scene.idStoryScene) : null;
   return (
     <Flex direction="column" h="100vh">
       <PlayHeader
@@ -83,7 +83,8 @@ export function ScenePreview({
           variant="preview"
           idStory={idStory}
           scene={scene}
-          titleStart={<SceneChevron direction="previous" scene={previous} />}
+          canAnnotate={canEdit}
+          titleStart={<SceneChevron idStory={idStory} direction="previous" scene={previous} />}
           titleEnd={
             <>
               {canEdit && scene.scene && here && (
@@ -105,11 +106,12 @@ export function ScenePreview({
                   </Portal>
                 </Tooltip.Root>
               )}
-              <SceneChevron direction="next" scene={next} />
+              <SceneChevron idStory={idStory} direction="next" scene={next} />
             </>
           }
           renderTitle={(current, headingProps) => (
             <SceneTitleMenu
+              idStory={idStory}
               current={scene.scene?.idStoryScene ?? null}
               title={current}
               scenes={scenes}
@@ -130,9 +132,11 @@ export function ScenePreview({
  * title says why, as the scene selector's does.
  */
 function SceneChevron({
+  idStory,
   direction,
   scene,
 }: {
+  idStory: number;
   direction: "previous" | "next";
   scene: SceneNeighbour | null;
 }) {
@@ -150,7 +154,7 @@ function SceneChevron({
     <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
       <Tooltip.Trigger asChild>
         <IconButton asChild size="xs" variant="ghost" rounded="full">
-          <NextLink href={scenePreviewPath(scene.idStoryScene)} aria-label={name}>
+          <NextLink href={scenePreviewPath(idStory, scene.idStoryScene)} aria-label={name}>
             <Icon />
           </NextLink>
         </IconButton>
@@ -172,12 +176,14 @@ function SceneChevron({
  * goes to its preview in this same tab.
  */
 function SceneTitleMenu({
+  idStory,
   current,
   title,
   scenes,
   statusOptions,
   headingProps,
 }: {
+  idStory: number;
   current: number | null;
   title: string;
   scenes: SceneNeighbour[];
@@ -192,7 +198,7 @@ function SceneTitleMenu({
       positioning={{ placement: "bottom" }}
       onSelect={(details) => {
         const chosen = Number(details.value);
-        if (chosen !== current) router.push(scenePreviewPath(chosen));
+        if (chosen !== current) router.push(scenePreviewPath(idStory, chosen));
       }}
     >
       {/* The heading keeps its own name, the title, since the button inside

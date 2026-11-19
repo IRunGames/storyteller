@@ -138,9 +138,9 @@ export type SetSceneTextResult =
 /**
  * The address of a scene's preview: the scene as the players would see it,
  * with nothing to press, for the storyteller to look something up in
- * another tab without moving the table. Keyed on the scene alone, since a
- * scene names its story.
+ * another tab without moving the table. Beside the scene's edit and info
+ * pages; the old /preview/scene/[id] redirects here.
  */
-export function scenePreviewPath(idStoryScene: number): string {
-  return `/preview/scene/${idStoryScene}`;
+export function scenePreviewPath(idStory: number, idStoryScene: number): string {
+  return `/stories/${idStory}/scenes/${idStoryScene}/preview`;
 }

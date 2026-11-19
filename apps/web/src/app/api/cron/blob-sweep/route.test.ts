@@ -312,4 +312,41 @@ describeWithDb("GET /api/cron/blob-sweep", {}, (suite) => {
     expect(response.status).toBe(200);
     expect(del.mock.calls.flatMap((call) => call.arguments[0])).not.toContain(avatarUrl);
   });
+
+  // A players' copy is not an attachment either: the server renders it from
+  // an annotated picture's drawing, and only attachment_annotations.player_url
+  // points at it.
+  it("keeps a blob an annotated picture's players' copy points at", async () => {
+    list.mock.resetCalls();
+    del.mock.resetCalls();
+
+    const store = "https://abc123.public.blob.vercel-storage.com";
+    const coverUrl = `${store}/uploads/u1/map.png`;
+    const copyUrl = `${store}/annotations/1/players-copy-abc.webp`;
+    const old = new Date(Date.now() - GRACE_MS - 60 * 60 * 1000);
+    const cover = await insertAttachment(
+      { status: "READY", url: coverUrl, isUploaded: true, idCreatedByUser: FIXTURE_USER },
+      sceneId,
+    );
+    // The picture's deletion in `after` takes the drawing with it.
+    await db.insert(tables.attachmentAnnotations).values({
+      idAttachment: cover.id,
+      width: 100,
+      height: 50,
+      playerUrl: copyUrl,
+      idCreatedByUser: FIXTURE_USER,
+    });
+    list.mock.mockImplementation(async () => ({
+      blobs: [
+        { url: coverUrl, uploadedAt: old },
+        { url: copyUrl, uploadedAt: old },
+      ],
+      cursor: undefined,
+    }));
+
+    const response = await GET(request("Bearer s3cret"));
+
+    expect(response.status).toBe(200);
+    expect(del.mock.calls.flatMap((call) => call.arguments[0])).not.toContain(copyUrl);
+  });
 });

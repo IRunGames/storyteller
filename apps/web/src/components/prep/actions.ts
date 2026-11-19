@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { idSchema, offsetSchema, searchSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
-import { attachmentUrl } from "@/db/attachment-url";
+import { attachmentUrl, elementOtherPictures, elementPictureUrl } from "@/db/attachment-url";
 import { elementOrderBy } from "@/db/element-order";
 import { createScene } from "@/db/scenes";
 import { ownedElement, ownedScene, ownedStory, storyAccess } from "@/db/story-access";
@@ -259,7 +259,8 @@ export async function sa_countStoryScenes(idStory: number): Promise<number> {
  * The search runs against elements.search_text, the generated column the
  * database builds from the element's status, names, title, description,
  * notes and tags, so a storyteller finds an element by words the card does
- * not show.
+ * not show. Each comes with its cover as the storyteller is shown it and how
+ * many other pictures it holds, for the board's pills.
  */
 export async function sa_listStoryElements(
   idStory: number,
@@ -288,6 +289,8 @@ export async function sa_listStoryElements(
       name: elements.name,
       title: elements.title,
       description: elements.description,
+      coverUrl: elementPictureUrl("elements"),
+      otherPictures: elementOtherPictures("elements"),
     })
     .from(elements)
     .where(

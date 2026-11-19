@@ -13,6 +13,12 @@ import { sa_getPlayStory } from "@/components/play/actions";
 import { sa_startPlaying } from "@/components/sessions/actions";
 import { sa_openRunPlaySpace } from "@/components/run/actions";
 
+// An annotated picture's players' copy is rendered after the annotator's
+// save has answered, in this page's function, for up to the render's claim
+// (RENDER_CLAIM_SECONDS in lib/annotations.ts; lib/players-copy-time.test.ts
+// holds the two together).
+export const maxDuration = 60;
+
 // The storyteller's table for one story, where Start and Resume land and
 // where /stories/[id]/play sends the story's owner. Outside (nav) because
 // the table draws its own header, as the player's does. See home/page.tsx

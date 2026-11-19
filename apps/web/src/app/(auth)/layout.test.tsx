@@ -39,4 +39,15 @@ describe("AuthLayout", () => {
     // ClientOnly draws the button only once mounted.
     expect(await screen.findByRole("button", { name: "Toggle color mode" })).toBeInTheDocument();
   });
+
+  it("puts the Storyteller logo and name in the upper left, ahead of the form", async () => {
+    const layout = await AuthLayout({ children: <p>The form</p> });
+    renderWithProviders(layout);
+
+    const brand = screen.getByRole("link", { name: "Storyteller" });
+    expect(brand).toHaveAttribute("href", "/");
+    expect(brand.querySelector('img[src="/images/storyteller-logo.png"]')).not.toBeNull();
+    const form = screen.getByText("The form");
+    expect(brand.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

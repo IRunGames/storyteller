@@ -25,7 +25,7 @@ export type SceneNeighbour = {
 };
 
 /**
- * What /preview/scene/[id] shows: whose scene it is, the scene as the
+ * What /stories/[id]/scenes/[idScene]/preview shows: whose scene it is, the scene as the
  * players' table holds one, every scene of the story for the title's
  * dropdown, and the scenes either side of it in that same list.
  */

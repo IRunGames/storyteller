@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { Box, Button, HStack, Link, Spacer, Text } from "@chakra-ui/react";
 import { Link as LinkIcon } from "lucide-react";
+import type { PictureState } from "@/lib/annotations";
 import type { Attachment } from "@/lib/attachments";
+import { AnnotationControls } from "@/components/annotations/annotation-controls";
 import { AttachmentCoverButton } from "./attachment-cover-button";
 import { AttachmentPreview } from "./attachment-preview";
 import { AttachmentRemoveButton } from "./attachment-remove-button";
@@ -21,8 +23,16 @@ type Props = {
   onRemove: () => void;
   onCoverChange: (isCover: boolean) => Promise<boolean>;
   onTagsChange: (tags: string[]) => Promise<boolean>;
-  /** The trashcan only takes the picture off its scene; see AttachmentRemoveButton. */
-  removeDetaches?: boolean;
+  /** The trashcan only takes the picture off this holder, named; see AttachmentRemoveButton. */
+  removeDetachesFrom?: string;
+  /**
+   * The card offers the picture's annotation controls (AnnotationControls),
+   * for a finished file the app uploaded, and is told as it is annotated or
+   * no longer is. Absent, there are none.
+   */
+  onAnnotatedChange?: (annotated: boolean) => void;
+  /** The picture read back by its annotation controls; see AnnotationControls. */
+  onPictureChange?: (picture: PictureState) => void;
 };
 
 /** The address without its scheme: the band is narrow, and https:// says nothing. */
@@ -45,9 +55,12 @@ export function AttachmentCard({
   onRemove,
   onCoverChange,
   onTagsChange,
-  removeDetaches = false,
+  removeDetachesFrom,
+  onAnnotatedChange,
+  onPictureChange,
 }: Props) {
   const isReady = row.status === "READY";
+  const canAnnotate = onAnnotatedChange !== undefined && isReady && row.isUploaded;
   const canCover = isReady && canTag;
   // The Cover button's own refusal, shown on the card it was pressed on. The
   // popover reports its refusals inside itself.
@@ -73,9 +86,10 @@ export function AttachmentCard({
         {row.url ? (
           // Shown whole at the largest size that fits (contain, not cover: a
           // map or a handout is no use with its edges cut off), and pressing
-          // it opens the picture full size.
+          // it opens the picture full size; an annotated one as the players
+          // see it (shownUrl).
           <AttachmentPreview
-            url={row.url}
+            url={row.shownUrl ?? row.url}
             label={label}
             tags={row.tags}
             isCover={row.isCover}
@@ -160,13 +174,24 @@ export function AttachmentCard({
             Retry
           </Button>
         )}
+        {canAnnotate && (
+          <AnnotationControls
+            idAttachment={row.idAttachment}
+            label={label}
+            isAnnotated={row.drawing?.isActive === true}
+            hasDrawing={Boolean(row.drawing)}
+            onAnnotatedChange={onAnnotatedChange}
+            onPictureChange={onPictureChange}
+          />
+        )}
         <Spacer />
         <AttachmentRemoveButton
           label={label}
           isUploaded={row.isUploaded}
           isCover={row.isCover}
           onRemove={onRemove}
-          detaches={removeDetaches}
+          detachesFrom={removeDetachesFrom}
+          hasDrawing={Boolean(row.drawing)}
         />
       </HStack>
     </Box>

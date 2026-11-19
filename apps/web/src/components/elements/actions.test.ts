@@ -110,6 +110,74 @@ describeWithDb("element actions", { email: "element-actions@example.test" }, (su
     expect(await tagsOf()).toEqual([]);
   });
 
+  it("tells the panel about the element's picture as its annotation controls need it", async () => {
+    const store = "https://abc.public.blob.vercel-storage.com";
+    const [typed, uploaded] = await db
+      .insert(tables.attachments)
+      .values([
+        { idStory: mine, status: "READY", url: "https://x.test/typed.png", isUploaded: false },
+        { idStory: mine, status: "READY", url: `${store}/uploads/u/zed.png`, isUploaded: true },
+      ])
+      .returning({ id: tables.attachments.idAttachment });
+    const picture = async () => (await actions.sa_getElementDetail(mine, zed))?.element.picture;
+    try {
+      expect(await picture()).toBeNull();
+      // A typed link is fetched by no server, so it cannot be drawn on.
+      expect(await actions.sa_setElementImage(mine, zed, typed.id)).toMatchObject({
+        ok: true,
+        picture: { idAttachment: typed.id, canAnnotate: false },
+      });
+      expect(await picture()).toEqual({
+        idAttachment: typed.id,
+        shownUrl: "https://x.test/typed.png",
+        canAnnotate: false,
+        hasDrawing: false,
+        isAnnotated: false,
+      });
+
+      // The drawing is the file's, so a picture drawn on already comes with it.
+      await db.insert(tables.attachmentAnnotations).values({
+        idAttachment: uploaded.id,
+        width: 10,
+        height: 10,
+        idCreatedByUser: testUser,
+      });
+      const set = await actions.sa_setElementImage(mine, zed, uploaded.id);
+      const drawn = {
+        idAttachment: uploaded.id,
+        // Annotated, but no players' copy rendered yet: the picture itself.
+        shownUrl: `${store}/uploads/u/zed.png`,
+        canAnnotate: true,
+        hasDrawing: true,
+        isAnnotated: true,
+      };
+      expect(set).toEqual({ ok: true, imageUrl: `${store}/uploads/u/zed.png`, picture: drawn });
+      expect(await picture()).toEqual(drawn);
+      await db
+        .update(tables.attachmentAnnotations)
+        .set({ isActive: false })
+        .where(eq(tables.attachmentAnnotations.idAttachment, uploaded.id));
+      expect(await picture()).toEqual({ ...drawn, isAnnotated: false });
+
+      // Taking the picture away leaves the drawing on the file.
+      expect(await actions.sa_setElementImage(mine, zed, null)).toEqual({
+        ok: true,
+        imageUrl: null,
+        picture: null,
+      });
+      const kept = await db
+        .select({ id: tables.attachmentAnnotations.idAttachment })
+        .from(tables.attachmentAnnotations)
+        .where(eq(tables.attachmentAnnotations.idAttachment, uploaded.id));
+      expect(kept).toHaveLength(1);
+    } finally {
+      // The attachments take their uses and the drawing with them.
+      await db
+        .delete(tables.attachments)
+        .where(inArray(tables.attachments.idAttachment, [typed.id, uploaded.id]));
+    }
+  });
+
   it("gives an element one of its story's attachments as its picture", async () => {
     const [mineAttachment, theirAttachment, unfinished, forScene] = await db
       .insert(tables.attachments)
@@ -122,7 +190,7 @@ describeWithDb("element actions", { email: "element-actions@example.test" }, (su
       .returning({ id: tables.attachments.idAttachment });
 
     try {
-      expect(await actions.sa_setElementImage(mine, zed, mineAttachment.id)).toEqual({
+      expect(await actions.sa_setElementImage(mine, zed, mineAttachment.id)).toMatchObject({
         ok: true,
         imageUrl: "https://x.test/zed.png",
       });
@@ -179,6 +247,7 @@ describeWithDb("element actions", { email: "element-actions@example.test" }, (su
       expect(await actions.sa_setElementImage(mine, zed, null)).toEqual({
         ok: true,
         imageUrl: null,
+        picture: null,
       });
       expect((await actions.sa_getElementDetail(mine, zed, scene))?.element.imageUrl).toBeNull();
 

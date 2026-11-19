@@ -651,7 +651,10 @@ describe("PrepBoard", () => {
     expect(info.querySelector(".lucide-info")).toBeInTheDocument();
     // The preview opens in a tab of its own, so the board stays put.
     const preview = within(items[0]).getByRole("link", { name: "Preview in a new tab" });
-    expect(preview).toHaveAttribute("href", scenePreviewPath(scenes[0].idStoryScene));
+    expect(preview).toHaveAttribute(
+      "href",
+      scenePreviewPath(story.idStory, scenes[0].idStoryScene),
+    );
     expect(preview).toHaveAttribute("target", "_blank");
   });
 

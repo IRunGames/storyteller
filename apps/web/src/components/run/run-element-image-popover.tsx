@@ -23,6 +23,7 @@ import { toaster } from "@/components/ui/toaster";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { useAttachmentSearch } from "@/components/uploads/use-attachment-search";
+import type { PictureState } from "@/lib/annotations";
 
 type Props = {
   idStory: number;
@@ -31,8 +32,8 @@ type Props = {
   idElement: number;
   /** What the pill calls the element, to name the button. */
   label: string;
-  /** The picture chosen, once the action has taken it. */
-  onPicked: (imageUrl: string) => void;
+  /** The picture chosen, once the action has taken it, with its annotation controls' state. */
+  onPicked: (imageUrl: string, picture: PictureState | null) => void;
 };
 
 /** Whose attachments the picker lists: the story's own, or the scene's. */
@@ -87,8 +88,8 @@ export function RunElementImagePopover({
                   idStory={idStory}
                   idStoryScene={idStoryScene}
                   idElement={idElement}
-                  onPicked={(url) => {
-                    onPicked(url);
+                  onPicked={(url, picture) => {
+                    onPicked(url, picture);
                     setOpen(false);
                   }}
                 />
@@ -107,7 +108,7 @@ export function RunElementImagePopover({
  * or, for one not made yet, only hands the choice back for its form to send.
  */
 type PickerTarget =
-  | { idElement: number; onPicked: (imageUrl: string) => void }
+  | { idElement: number; onPicked: (imageUrl: string, picture: PictureState | null) => void }
   | { onChosen: (attachment: Attachment) => void };
 
 /**
@@ -164,7 +165,7 @@ export function RunElementImagePicker({
     try {
       const result = await sa_setElementImage(idStory, target.idElement, row.idAttachment);
       // Picking an attachment always gives a picture; only clearing gives null.
-      if (result.ok && result.imageUrl) target.onPicked(result.imageUrl);
+      if (result.ok && result.imageUrl) target.onPicked(result.imageUrl, result.picture);
       else if (!result.ok) toaster.create({ title: result.error, type: "error" });
     } catch {
       toaster.create({ title: "The image could not be added. Try again.", type: "error" });

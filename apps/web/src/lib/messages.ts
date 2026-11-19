@@ -42,6 +42,17 @@ export const NOT_A_PULSE = "That is not something the players' table answers.";
 export const NO_SUCH_FIELD = "Choose the initial name, the name, the title or the label.";
 export const NOTHING_TO_ROLL = "There is nothing to roll.";
 
+// An annotated picture (components/annotations): the drawing a change would
+// delete, a picture that cannot be drawn on, a drawing saved from elsewhere.
+export const DRAWING_WOULD_BE_LOST =
+  "The picture has fog and pen marks drawn on it. Confirm to delete them with it.";
+export const NO_PICTURE_TO_ANNOTATE = "Only a picture uploaded to the story can be annotated.";
+export const NOT_THIS_STORYS_ATTACHMENT = "That picture is not one of your story's.";
+export const PICTURE_UNREADABLE = "The picture could not be read to annotate it.";
+export const NO_DRAWING = "That picture has no drawing.";
+export const DRAWING_CHANGED_ELSEWHERE =
+  "The drawing was changed somewhere else, so it has been loaded again.";
+export const DRAWING_TOO_LONG = "The drawing has as many steps as it can hold.";
 // What the browser says when an action could not be reached at all: a
 // network failure or a thrown error, where a refusal would have carried
 // its own words. Shared by the controls that show a change before the

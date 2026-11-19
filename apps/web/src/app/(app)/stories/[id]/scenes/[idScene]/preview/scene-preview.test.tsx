@@ -83,6 +83,14 @@ const sa_setUserPreference = mock.fn(async (_input: { key: string; value: unknow
 }));
 
 const push = mock.fn((_href: string) => {});
+// The picture behind a pill, as its preview finds it for the storyteller.
+const sa_getScenePicture = mock.fn(async (_story: number, _link: number) => ({
+  idAttachment: 77,
+  shownUrl: "https://x.test/copy.webp",
+  canAnnotate: true,
+  hasDrawing: true,
+  isAnnotated: true,
+}));
 
 let ScenePreview: typeof import("./scene-preview").ScenePreview;
 type PreferencesModule = typeof import("@/components/preferences/user-preferences-provider");
@@ -90,7 +98,7 @@ let UserPreferencesProvider: PreferencesModule["UserPreferencesProvider"];
 
 describe("ScenePreview", () => {
   before(async () => {
-    mockNavigation({ router: { ...mockRouter(), push }, pathname: "/preview/scene/3" });
+    mockNavigation({ router: { ...mockRouter(), push }, pathname: "/stories/7/scenes/3/preview" });
     mockHeader({ sa_setUserPreference });
     // The preview reaches for no action of the players' table; the module is
     // mocked empty so a stray import would fail loudly.
@@ -98,6 +106,17 @@ describe("ScenePreview", () => {
       namedExports: { sa_listElementHistory: mock.fn(async () => ({ rows: [], hasMore: false })) },
     });
     mock.module("@/components/run/actions", { namedExports: { sa_setSceneText: mock.fn() } });
+    mock.module("@/components/annotations/actions", {
+      namedExports: {
+        sa_openAnnotation: mock.fn(async () => ({ ok: false as const, error: "Not here." })),
+        sa_getPictureState: mock.fn(async () => null),
+        sa_getScenePicture,
+        sa_setAnnotated: mock.fn(),
+        sa_getAnnotation: mock.fn(async () => null),
+        sa_saveAnnotation: mock.fn(),
+        sa_refreshPlayersCopy: mock.fn(async () => ({ ok: true, behind: false })),
+      },
+    });
     mock.module("@/components/live/actions", { namedExports: { sa_setLiveSceneText: mock.fn() } });
     mock.module("@/components/play/actions", {
       namedExports: {
@@ -139,6 +158,7 @@ describe("ScenePreview", () => {
       next: null,
     },
     canEdit = false,
+    shown: PlayScene = scene,
   ) {
     return renderWithProviders(
       <UserProvider user={user}>
@@ -146,7 +166,7 @@ describe("ScenePreview", () => {
           <ScenePreview
             idStory={7}
             title="Psychoneira"
-            scene={scene}
+            scene={shown}
             previous={neighbours.previous}
             next={neighbours.next}
             scenes={scenes}
@@ -178,7 +198,9 @@ describe("ScenePreview", () => {
     expect(items[0]).toHaveAttribute("aria-checked", "true");
 
     await choose(u, items[2]);
-    await waitFor(() => expect(push.mock.calls[0]?.arguments).toEqual(["/preview/scene/4"]));
+    await waitFor(() =>
+      expect(push.mock.calls[0]?.arguments).toEqual(["/stories/7/scenes/4/preview"]),
+    );
   });
 
   it("gives the story's owner a pencil beside the title that opens the scene's edit form, coming back here", async () => {
@@ -187,7 +209,10 @@ describe("ScenePreview", () => {
     const space = screen.getByRole("region", { name: "Play space" });
 
     const pencil = within(space).getByRole("link", { name: "Edit scene" });
-    expect(pencil).toHaveAttribute("href", "/stories/7/scenes/3/edit?from=%2Fpreview%2Fscene%2F3");
+    expect(pencil).toHaveAttribute(
+      "href",
+      "/stories/7/scenes/3/edit?from=%2Fstories%2F7%2Fscenes%2F3%2Fpreview",
+    );
     await u.hover(pencil);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Edit scene");
     unmount();
@@ -203,7 +228,7 @@ describe("ScenePreview", () => {
     const space = screen.getByRole("region", { name: "Play space" });
 
     const previous = within(space).getByRole("link", { name: "Previous scene: The abbey" });
-    expect(previous).toHaveAttribute("href", "/preview/scene/2");
+    expect(previous).toHaveAttribute("href", "/stories/7/scenes/2/preview");
     await u.hover(previous);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("The abbey");
     // Nothing after: the chevron is there but shut, and says so.
@@ -218,7 +243,7 @@ describe("ScenePreview", () => {
     expect(screen.getByRole("button", { name: "No earlier scene" })).toBeDisabled();
     expect(screen.getByRole("link", { name: "Next scene: The crossing" })).toHaveAttribute(
       "href",
-      "/preview/scene/4",
+      "/stories/7/scenes/4/preview",
     );
   });
 
@@ -271,5 +296,33 @@ describe("ScenePreview", () => {
     expect(within(text).getByText("Bring the lantern.")).toBeInTheDocument();
     expect(within(text).queryByRole("textbox")).toBeNull();
     expect(within(text).queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  // The pill's picture is the players' copy here, as the players see it;
+  // the storyteller annotates the picture behind it from its preview.
+  it("offers the storyteller the annotation controls in a pill's picture preview, and no one else", async () => {
+    const u = userEvent.setup();
+    const pictured: PlayScene = {
+      ...scene,
+      items: [{ ...zed, element: { ...zed.element, imageUrl: "https://x.test/copy.webp" } }],
+    };
+    const neighbours = { previous: null, next: null };
+    sa_getScenePicture.mock.resetCalls();
+
+    const { unmount } = render(neighbours, false, pictured);
+    await u.click(screen.getByRole("button", { name: "Preview A hooded figure" }));
+    let preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    expect(within(preview).queryByRole("button", { name: "Annotate for players" })).toBeNull();
+    expect(sa_getScenePicture.mock.callCount()).toBe(0);
+    unmount();
+
+    render(neighbours, true, pictured);
+    await u.click(screen.getByRole("button", { name: "Preview A hooded figure" }));
+    preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    expect(
+      await within(preview).findByRole("button", { name: "Annotate for players" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(within(preview).getByRole("button", { name: "Open annotator" })).toBeInTheDocument();
+    expect(sa_getScenePicture.mock.calls[0].arguments).toEqual([7, 11]);
   });
 });

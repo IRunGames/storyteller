@@ -4,7 +4,12 @@ import { and, count, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
-import { attachmentUrl, sceneElementImageUrl } from "@/db/attachment-url";
+import {
+  annotatedForStoryteller,
+  elementAnnotated,
+  elementPictureUrl,
+  sceneElementImageUrl,
+} from "@/db/attachment-url";
 import { setCover, storyPictureUrl } from "@/db/covers";
 import { linkedItem, linkedRow, linkedRowOf, linkHasStatBlocks } from "@/db/scene-space";
 import { statBlockSystems } from "@/db/stat-block-systems";
@@ -344,6 +349,7 @@ export async function sa_updateSceneElement(
       showing: vSceneElements.elementShowing,
       showInfo: vSceneElements.showInfo,
       imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
+      annotated: annotatedForStoryteller("v_scene_elements", "v_scene_elements"),
       hasStatBlocks: linkHasStatBlocks("v_scene_elements"),
     })
     .from(vSceneElements)
@@ -407,6 +413,7 @@ export async function sa_updateSceneElement(
         hasStatBlocks: current.hasStatBlocks,
         label: values.sceneLabel || null,
         imageUrl: current.imageUrl,
+        annotated: current.annotated,
         url: values.url || null,
         urlText: values.urlText || null,
         sceneUrl: values.sceneUrl || null,
@@ -472,7 +479,8 @@ export async function sa_linkSceneElement(
       name: elements.name,
       initialName: elements.initialName,
       title: elements.title,
-      imageUrl: attachmentUrl("ELEMENT", "elements", "id_element"),
+      imageUrl: elementPictureUrl("elements"),
+      annotated: elementAnnotated("elements"),
       url: elements.url,
       urlText: elements.urlText,
       statBlocks: elements.statBlocks,
@@ -546,6 +554,7 @@ export async function sa_linkSceneElement(
         initialName: row.initialName,
         title: row.title,
         imageUrl: row.imageUrl,
+        annotated: row.annotated,
         url: row.url,
         urlText: row.urlText,
         sceneUrl: link?.sceneUrl ?? null,

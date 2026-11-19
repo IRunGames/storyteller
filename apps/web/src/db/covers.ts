@@ -15,12 +15,12 @@ export const useIsCover = sql<boolean>`${attachmentUses.tags} @> array[${COVER_T
 /**
  * The holders that show a file only as their cover, so a use of theirs with
  * no tags left means nothing and goes: a story's card shows its cover and
- * nothing else of its pool, and an element's picture is its cover alone (the
- * element panel's Other images are its link's, SCENE_ELEMENT uses). A scene,
- * a session and a link keep their uses, which are their lists of pictures.
+ * nothing else of its pool, which is every file it owns whether used or not.
+ * A scene, a session, an element and a link keep their uses, which are their
+ * lists of pictures, one of them the cover.
  */
 function showsOnlyCover(kind: AttachmentKind): boolean {
-  return kind === "STORY" || kind === "ELEMENT";
+  return kind === "STORY";
 }
 
 /** One holder's uses: a kind and the id of the row of that kind. */

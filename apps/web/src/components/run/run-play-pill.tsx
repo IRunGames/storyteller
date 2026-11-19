@@ -35,6 +35,9 @@ import { RunElementPanel } from "./run-element-panel";
 import { ElementStatBlocks } from "@/components/stat-blocks/stat-block-view";
 import { RunInfoToggle } from "./run-info-toggle";
 import { RunPictureTack } from "./run-picture-tack";
+import { ScenePictureControls } from "@/components/annotations/scene-picture-controls";
+import { FogMark } from "./run-fog-mark";
+import type { PictureState } from "@/lib/annotations";
 import { RunSceneStatusMenu } from "./run-scene-status-menu";
 import { glass } from "@/theme";
 
@@ -69,6 +72,23 @@ type Props = {
    */
   locked?: boolean;
 };
+
+/** The pill with its picture marked annotated, or not. */
+function withAnnotated(item: SceneItem, annotated: boolean): SceneItem {
+  const { annotated: _was, ...rest } = item;
+  return annotated ? { ...rest, annotated: true } : rest;
+}
+
+/**
+ * The pill with its picture as read back by its annotation controls: shown
+ * as the players see it once its copy is rendered, and marked annotated.
+ */
+function withPicture(item: SceneItem, picture: PictureState): SceneItem {
+  return withAnnotated(
+    { ...item, imageUrl: picture.shownUrl ?? item.imageUrl },
+    picture.isAnnotated,
+  );
+}
 
 /**
  * One item in a stack of the play space. An element linked to the scene
@@ -211,7 +231,8 @@ export function RunPlayPill({
         {item.imageUrl ? (
           // Pressed, the picture opens full size, as an attachment's does in
           // the library; its tags are the attachment's, not the element's, so
-          // the preview leaves them out. The frame round it carries the glow
+          // the preview leaves them out, and offers the picture's annotation
+          // controls in their place. The fog mark says it is annotated. The frame round it carries the glow
           // and the tack: the tack sits past the corner, which the picture's
           // own overflow clip would cut off.
           <Box
@@ -229,8 +250,21 @@ export function RunPlayPill({
                 tags={[]}
                 isCover={false}
                 showTags={false}
+                actions={
+                  item.idSceneElement != null ? (
+                    <ScenePictureControls
+                      idStory={idStory}
+                      idSceneElement={item.idSceneElement}
+                      label={item.label}
+                      portalled={false}
+                      onAnnotatedChange={(annotated) => replace(withAnnotated(item, annotated))}
+                      onPictureChange={(picture) => replace(withPicture(item, picture))}
+                    />
+                  ) : undefined
+                }
               />
             </Box>
+            {item.annotated && <FogMark />}
             {live && onPictureUpChange && (
               <RunPictureTack label={item.label} pictureUp={pictureUp} onToggle={toggleImage} />
             )}
@@ -245,7 +279,11 @@ export function RunPlayPill({
                 idStoryScene={idStoryScene}
                 idElement={elementIdOf(item)}
                 label={item.label}
-                onPicked={(imageUrl) => replace({ ...item, imageUrl })}
+                onPicked={(imageUrl, picture) =>
+                  replace(
+                    picture ? withPicture({ ...item, imageUrl }, picture) : { ...item, imageUrl },
+                  )
+                }
               />
             </Box>
           )

@@ -11,6 +11,7 @@ import {
 } from "@/lib/scene-elements";
 import { sa_untapPlaySceneElement } from "@/components/play/actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { ScenePictureControls } from "@/components/annotations/scene-picture-controls";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { OverflowTooltip } from "@/components/popovers/overflow-tooltip";
 import { PlayInfoPopover } from "@/components/table-shell/play-info-popover";
@@ -25,10 +26,16 @@ type Props = {
   onNotesChange: (idElement: number, notes: string | null) => void;
   /** The link's status has been changed from the pill, or put back after a refusal. */
   onStatusChange: (idSceneElement: number, status: string) => void;
-  /** A look at the scene (/preview/scene): a tapped card has its marker alone, and the notes are read, not written. */
+  /** A look at the scene (scenePreviewPath): a tapped card has its marker alone, and the notes are read, not written. */
   readOnly?: boolean;
   /** The info popover ends with the element's History, as on a scene's preview; the table leaves it out. */
   withHistory?: boolean;
+  /**
+   * The story's storyteller looking at a scene's preview: the picture's
+   * preview offers the annotation controls for the picture behind it, which
+   * the players are shown as its players' copy (ScenePictureControls).
+   */
+  canAnnotate?: boolean;
 };
 
 /**
@@ -74,6 +81,7 @@ export function PlayPill({
   onStatusChange,
   readOnly = false,
   withHistory = false,
+  canAnnotate = false,
 }: Props) {
   const isDisabled = item.sceneStatus === SCENE_ELEMENT_DISABLED;
   const isTapped = item.sceneStatus === SCENE_ELEMENT_TAPPED;
@@ -165,6 +173,16 @@ export function PlayPill({
             tags={[]}
             isCover={false}
             showTags={false}
+            actions={
+              canAnnotate && item.idSceneElement != null ? (
+                <ScenePictureControls
+                  idStory={idStory}
+                  idSceneElement={item.idSceneElement}
+                  label={item.label}
+                  portalled={false}
+                />
+              ) : undefined
+            }
           />
         </Box>
       )}

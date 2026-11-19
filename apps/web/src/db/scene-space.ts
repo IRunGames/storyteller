@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "./index";
-import { attachmentUrl, sceneElementImageUrl } from "./attachment-url";
+import { annotatedForStoryteller, attachmentUrl, sceneElementImageUrl } from "./attachment-url";
 import { sceneElements, storyScenes, vSceneElements } from "./schema";
 import { ELEMENT_KINDS, isElementKind } from "@/lib/elements";
 import {
@@ -44,6 +44,7 @@ export const linkedColumns = {
   showing: vSceneElements.elementShowing,
   showInfo: vSceneElements.showInfo,
   imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
+  annotated: annotatedForStoryteller("v_scene_elements", "v_scene_elements"),
   url: vSceneElements.elementUrl,
   urlText: vSceneElements.elementUrlText,
   sceneUrl: vSceneElements.url,
@@ -69,6 +70,7 @@ export type LinkedViewRow = {
   showing: string | null;
   showInfo: boolean | null;
   imageUrl: string | null;
+  annotated: boolean | null;
   url: string | null;
   urlText: string | null;
   sceneUrl: string | null;
@@ -95,6 +97,8 @@ export type LinkedRow = {
   showInfo: boolean | null;
   /** The picture the pill shows: the link's own cover in this scene, else the element's. */
   imageUrl: string | null;
+  /** Whether that picture is the element's annotated one (annotatedForStoryteller). */
+  annotated: boolean | null;
   /** The element's external link, and the link's own for this scene (pillLink). */
   url: string | null;
   urlText: string | null;
@@ -123,6 +127,7 @@ export function linkedRowOf(
     showing: null,
     showInfo: null,
     imageUrl: null,
+    annotated: null,
     url: null,
     urlText: null,
     sceneUrl: null,
@@ -152,6 +157,7 @@ export function fromViewRow(row: LinkedViewRow): LinkedRow | null {
     showing: row.showing,
     showInfo: row.showInfo,
     imageUrl: row.imageUrl,
+    annotated: row.annotated,
     url: row.url,
     urlText: row.urlText,
     sceneUrl: row.sceneUrl,
@@ -186,6 +192,7 @@ export function linkedItem(row: LinkedRow): SceneItem {
     label,
     detail,
     imageUrl: row.imageUrl,
+    ...(row.annotated ? { annotated: true } : {}),
     sceneTags: row.tags,
     sceneStatus: row.status,
     showInfo: row.showInfo ?? true,

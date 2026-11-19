@@ -165,6 +165,12 @@ let UserPreferencesProvider: typeof import("@/components/preferences/user-prefer
 
 const sa_getStatBlocks = mock.fn(async (_holder: unknown) => []);
 
+// The attachments' annotation controls; the annotator's own suite draws in it.
+const sa_setAnnotated = mock.fn(async (_picture: number, _on: boolean) => ({
+  ok: true as const,
+  annotation: null,
+}));
+
 describe("RunLibrary", () => {
   before(async () => {
     // The + draws the attachments field's own link input and dropzone, which
@@ -218,6 +224,17 @@ describe("RunLibrary", () => {
     });
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions, sa_setRowStatus: mock.fn() },
+    });
+    mock.module("@/components/annotations/actions", {
+      namedExports: {
+        sa_openAnnotation: mock.fn(async () => ({ ok: false as const, error: "Not here." })),
+        sa_getPictureState: mock.fn(async () => null),
+        sa_setAnnotated,
+        sa_getAnnotation: mock.fn(async () => null),
+        sa_saveAnnotation: mock.fn(),
+        sa_refreshPlayersCopy: mock.fn(async () => ({ ok: true, behind: false })),
+        sa_getScenePicture: mock.fn(async () => null),
+      },
     });
     ({ RunLibrary } = await import("./run-library"));
     ({ UserPreferencesProvider } =
@@ -445,6 +462,23 @@ describe("RunLibrary", () => {
       "https://x.test/2.png",
     );
     expect(within(preview).getByRole("list", { name: "Tags" })).toHaveTextContent("map");
+  });
+
+  it("annotates an uploaded attachment from its full-size preview", async () => {
+    const user = userEvent.setup();
+    sa_setAnnotated.mock.resetCalls();
+    render();
+    const panel = await screen.findByRole("tabpanel", { name: "Attachments" });
+
+    await user.click(await within(panel).findByRole("button", { name: "Preview Handout 2" }));
+    const preview = await screen.findByRole("dialog", { name: "Handout 2" });
+    const toggle = within(preview).getByRole("button", { name: "Annotate for players" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await user.click(toggle);
+
+    expect(sa_setAnnotated.mock.calls[0].arguments).toEqual([2, true]);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(within(preview).getByRole("button", { name: "Open annotator" })).toBeInTheDocument();
   });
 
   it("adds an attachment from its +, as the library page does, and lists it at once", async () => {
@@ -778,7 +812,11 @@ describe("RunLibrary", () => {
     expect(sa_setElementImage.mock.calls[0].arguments).toEqual([-4, 5, 1]);
     // The play space hears of it, and the popover shows it with its −.
     await waitFor(() =>
-      expect(sceneItems.setImage.mock.calls[0]?.arguments).toEqual([5, "https://x.test/1.png"]),
+      expect(sceneItems.setImage.mock.calls[0]?.arguments).toEqual([
+        5,
+        "https://x.test/1.png",
+        false,
+      ]),
     );
     expect(within(dialog).getByRole("button", { name: "Remove picture" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Add picture" })).toBeNull();

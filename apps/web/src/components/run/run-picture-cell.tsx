@@ -29,6 +29,8 @@ type Props = {
   corner?: ReactNode;
   /** The thumbnail's side, a spacing token; wider where a corner control sits on it. */
   size?: "10" | "14";
+  /** Drawn after the thumbnail and its −: the picture's annotation controls. */
+  actions?: ReactNode;
 };
 
 /**
@@ -49,6 +51,7 @@ export function RunPictureCell({
   canChange = true,
   corner,
   size = "10",
+  actions,
 }: Props) {
   if (imageUrl) {
     return (
@@ -77,6 +80,7 @@ export function RunPictureCell({
             <Minus />
           </IconButtonWithTooltip>
         )}
+        {actions}
       </HStack>
     );
   }

@@ -27,7 +27,7 @@ type Props = {
   notesHint?: string;
   /** The scene's pictures under the fields, for the storyteller's panels; see SceneTextForm. */
   pictures?: ScenePicturesProps;
-  /** A look at the scene (/preview/scene): the text is shown as it is, with no form. */
+  /** A look at the scene (scenePreviewPath): the text is shown as it is, with no form. */
   readOnly?: boolean;
   /**
    * What the button shows: the storyteller's table has a chevron, which

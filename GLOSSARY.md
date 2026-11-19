@@ -196,3 +196,82 @@ engineering skills consume this file.
   and unique within the group. The table addresses a row by it.
 - **Row**: one set of a repeating group's values on an element, stored as
   one entry of the group's array.
+
+## Annotated pictures
+
+- **Annotated**: a picture of the story's that the players are shown with
+  the storyteller's drawing over it, fog of war and pen marks, rather than
+  as it is (`attachment_annotations.is_active`), wherever an element shows
+  it: as the element's own picture, in every scene, or as its picture in one
+  scene (its link's cover). Turned on and off by Annotate for players
+  (`sa_setAnnotated`), which sits on the picture's card in the story's
+  Attachments and among an element's pictures on its edit page, beside the
+  picture in the element panel, in a pill's picture preview on the run and
+  live pages and on a scene's preview, and in the run page library's
+  preview. Any change made in the annotator turns it on too: annotating a
+  picture is annotating it for the players. Only a picture the app uploaded
+  can be, since the server must fetch it to render the players' copy.
+  Turned off, the drawing is kept for the next time and the players are
+  given the picture again; turned on again with the drawing changed since,
+  the players are shown nothing until a fresh copy is rendered.
+- **Drawing**: an annotated picture's ordered steps
+  (`attachment_annotations.ops`, `lib/annotation-schemas.ts`), in the
+  picture's own pixels as it stands upright: fog brush strokes and
+  rectangles, each a Reveal or a Cover, Cover all and Clear all, pen marks,
+  shapes, the eraser's drags, and Erase all annotations. A later step wins
+  where two overlap, and a Cover all or Clear all (Erase all annotations for
+  the annotations) makes every step before it moot. Its fog has a color of
+  its own (`fog_color`), the players' copy's as well as the annotator's. A drawing is the file's: it stays with the file whatever the
+  elements show, and goes only when the file is deleted, once the
+  storyteller has been told (`dropDrawing`).
+- **Annotator**: the full-screen dialog the drawing is made in
+  (`AnnotatorDialog`), opened from the brush beside Annotate for players,
+  wherever that is, on any uploaded picture: one with no drawing is given
+  one as it opens, fogged whole, which the players are not shown until a
+  change is made in it. Its toolbar has two halves: the annotations on the left
+  (Pen, Shape, Eraser, the pen's color and width, Erase all annotations),
+  and from the middle the fog (Show fog, My fog and Players' fog as sliders
+  with percentages to type, the fog's color, Cover all, Fog brush, Fog
+  rectangle, Reveal or Cover, the brush's size, Clear all). Undo (Ctrl+Z) and
+  whether the drawing is saved sit beside its title. Each change is saved a moment after it is made
+  (`sa_saveAnnotation`), as the steps kept and the steps added, from the
+  revision it was drawn on; a save from a drawing changed elsewhere is
+  refused and the drawing loaded again.
+- **Fog**: what covers the parts of the picture the players have not
+  reached. It starts over the whole picture; Reveal lifts it, Cover lays it
+  down again, with the brush or a rectangle dragged corner to corner.
+- **Annotation**: a mark drawn under the fog, so the players see it only
+  where the fog is lifted: a pen mark, a freehand line, or a shape (circle,
+  triangle, square, pentagon or hexagon, picked from the shape tool's
+  dropdown) dragged out from its centre with a corner following the
+  pointer, so it grows and turns with the drag, both in the pen's colors
+  and widths.
+  The Eraser takes away whole annotations it is dragged across, as one step
+  that Undo puts back.
+- **Show fog**: the switch between Hide and Show for whether the
+  storyteller sees the fog in the annotator at all, to look at the picture
+  plain; this sitting's only, and nothing to the players' copy.
+- **My fog / Players' fog**: how thick the fog is drawn, as a percentage.
+  My fog is the storyteller's own view in the annotator, light enough to
+  draw through, and kept among their preferences; Players' fog is the
+  drawing's (`fog_opacity_players`), what the players' copy is rendered
+  with.
+- **Players' copy**: the picture with the drawing over it at the players'
+  fog, rendered on the server with sharp after each save and uploaded to
+  Blob (`lib/players-copy.ts`), one render at a time per drawing. While a
+  picture is annotated it is all a player is given of it where an element
+  shows it (`playerSceneElementImageUrl`): nothing until the first copy is
+  ready, never the raw picture (ADR 0002). The storyteller's own pills,
+  cards, previews and panels show it too once it is rendered, so they see
+  what the players see; the annotator keeps the raw picture under My fog. Two ways the raw picture still
+  reaches players: the same file used as a scene's, a session's or the
+  story's cover, or among a scene's or a link's other pictures, is shown as
+  it is there; and a player who loaded the picture before it was annotated
+  may hold it in their browser's cache.
+- **Element pictures**: an element's own pictures (its ELEMENT uses), as a
+  scene has its: one of them its cover, the picture its pill shows in every
+  scene where its link has no cover of its own, and the rest kept beside it.
+  Managed on the element's edit page; the players are only ever shown the
+  cover. On the Prep Work board each element's row shows, beside its
+  status, a Cover pill that opens the cover full size and the count of its
+  other pictures.

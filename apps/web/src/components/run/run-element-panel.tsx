@@ -133,8 +133,12 @@ export function RunElementPanel({
   // undefined while loading, null when there is nothing to show.
   const [loaded, setLoaded] = useState<Loaded | null | undefined>(undefined);
   // The link's own picture for this scene, as the scene card last read or
-  // set it; null for none. What the pill shows over the element's picture.
-  const [sceneImageUrl, setSceneImageUrl] = useState<string | null>(null);
+  // set it, and whether it is annotated; a null url for none. What the pill
+  // shows over the element's picture.
+  const [sceneImage, setSceneImage] = useState<{ url: string | null; annotated: boolean }>({
+    url: null,
+    annotated: false,
+  });
   const [editing, setEditing] = useState(false);
   const [moving, setMoving] = useState(false);
   // Bumped to load again, after an edit saved in the scene.
@@ -310,10 +314,16 @@ export function RunElementPanel({
                 sceneItems.replace(item);
                 onChanged?.();
               }}
-              onImageLoaded={setSceneImageUrl}
-              onImageChange={(url) => {
-                setSceneImageUrl(url);
-                sceneItems.setImage(idElement, url ?? loaded.element.imageUrl);
+              onImageLoaded={(url, annotated) => setSceneImage({ url, annotated })}
+              onImageChange={(url, annotated) => {
+                setSceneImage({ url, annotated });
+                // Without a picture of its own, the link shows the element's,
+                // annotated if that picture is.
+                sceneItems.setImage(
+                  idElement,
+                  url ?? loaded.element.imageUrl,
+                  url === null ? loaded.element.picture?.isAnnotated === true : annotated,
+                );
               }}
             />
           )}
@@ -328,10 +338,44 @@ export function RunElementPanel({
             }}
             idStory={idStory}
             idStoryScene={idStoryScene}
-            onImageChange={(imageUrl) => {
-              patchElement({ imageUrl });
+            onImageChange={(picked, picture) => {
+              // Shown as the players see it, when it is an annotated picture.
+              const imageUrl = picture?.shownUrl ?? picked;
+              patchElement({ imageUrl, picture });
               // The link's own picture, if any, still stands in front.
-              sceneItems.setImage(idElement, sceneImageUrl ?? imageUrl);
+              sceneItems.setImage(
+                idElement,
+                sceneImage.url ?? imageUrl,
+                sceneImage.url === null ? picture?.isAnnotated === true : sceneImage.annotated,
+              );
+            }}
+            onPictureChange={(picture) => {
+              const imageUrl = picture.shownUrl ?? loaded.element.imageUrl;
+              patchElement({ imageUrl, picture });
+              sceneItems.setImage(
+                idElement,
+                sceneImage.url ?? imageUrl,
+                sceneImage.url === null ? picture.isAnnotated : sceneImage.annotated,
+              );
+            }}
+            onAnnotatedChange={(annotated) => {
+              const picture = loaded.element.picture;
+              if (picture) {
+                patchElement({
+                  picture: {
+                    ...picture,
+                    isAnnotated: annotated,
+                    hasDrawing: annotated || picture.hasDrawing,
+                  },
+                });
+              }
+              // The pill is marked while its picture is this annotated one,
+              // not the link's own.
+              sceneItems.setImage(
+                idElement,
+                sceneImage.url ?? loaded.element.imageUrl,
+                sceneImage.url === null ? annotated : sceneImage.annotated,
+              );
             }}
           />
           {/* From a pill, the element's own blocks folded under its rows, to

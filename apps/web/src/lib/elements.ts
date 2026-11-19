@@ -55,6 +55,14 @@ export type StoryElement = {
   name: string;
   title: string | null;
   description: string | null;
+  /**
+   * Its cover as the storyteller is shown it (an annotated one as the
+   * players see it), or null for none. Absent, as a test's fixture may
+   * leave it, reads as none.
+   */
+  coverUrl?: string | null;
+  /** How many finished pictures it holds besides its cover; absent reads as none. */
+  otherPictures?: number;
 };
 
 /**

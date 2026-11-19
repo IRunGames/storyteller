@@ -10,6 +10,7 @@ import { useDebouncedSearch } from "@/hooks/use-debounced-search";
 import { sa_listStoryElements } from "@/components/prep/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { IconLink } from "@/components/links/icon-link";
+import { PrepElementPictures } from "./prep-element-pictures";
 
 type Props = {
   idStory: number;
@@ -37,7 +38,8 @@ type Props = {
 
 // One element column of the Prep Work board, one kind of element. The search
 // goes back to the database and runs against elements.search_text, in the
-// same way, and for the same reasons, as the Scenes column's.
+// same way, and for the same reasons, as the Scenes column's. Each row ends
+// with its status pill and, beside it, its pictures (PrepElementPictures).
 export function PrepElements({
   idStory,
   kind,
@@ -140,7 +142,8 @@ export function PrepElements({
                   {element.description}
                 </Text>
               )}
-              <Box pt="1">
+              {/* The status, then the element's pictures beside it. */}
+              <HStack pt="1" gap="2" wrap="wrap">
                 <StatusPill
                   table="elements"
                   id={element.idElement}
@@ -149,7 +152,12 @@ export function PrepElements({
                   canEdit={canEdit}
                   onChanged={(status) => onStatusChanged(element.idElement, status)}
                 />
-              </Box>
+                <PrepElementPictures
+                  name={element.name}
+                  coverUrl={element.coverUrl ?? null}
+                  otherPictures={element.otherPictures ?? 0}
+                />
+              </HStack>
             </Stack>
           </List.Item>
         ))}

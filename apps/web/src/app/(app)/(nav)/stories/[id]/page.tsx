@@ -10,6 +10,12 @@ import {
 } from "@/components/stories/actions";
 import { sa_getStoryStatBlockDefinition } from "./actions";
 
+// An annotated picture's players' copy is rendered after the annotator's
+// save has answered, in this page's function, for up to the render's claim
+// (RENDER_CLAIM_SECONDS in lib/annotations.ts; lib/players-copy-time.test.ts
+// holds the two together).
+export const maxDuration = 60;
+
 // One story, behind a card's title. requireSession() here rather than
 // trusting the group layout; see lib/require-session.ts for why. Every action
 // re-checks the user against the database before touching data.

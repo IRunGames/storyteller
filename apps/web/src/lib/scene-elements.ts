@@ -78,6 +78,12 @@ export type SceneItem = Item & {
   /** An element linked to the scene: the link's own id, the holder of its stat blocks. */
   idSceneElement?: number;
   /**
+   * The storyteller's table: the pill's picture is the element's annotated
+   * one, fog and pen over it (annotatedForStoryteller), so the pill opens the
+   * annotator rather than the plain picture. Absent for any other.
+   */
+  annotated?: boolean;
+  /**
    * An element linked to the scene: whether the link carries any stat block,
    * which gives the pill its die. As the page loaded or last saved it; a
    * block picked at the table shows once the page is read again.

@@ -36,8 +36,12 @@ export type SceneItems = {
    * under a new key.
    */
   replace: (item: SceneItem) => void;
-  /** An element's picture changed: its pill, if it is in play, shows the new one. */
-  setImage: (idElement: number, imageUrl: string | null) => void;
+  /**
+   * An element's picture changed, or whether it is annotated: its pill, if it
+   * is in play, shows the new one, and opens the annotator from it while it
+   * is annotated (annotated, false unless said).
+   */
+  setImage: (idElement: number, imageUrl: string | null, annotated?: boolean) => void;
   /**
    * An element edited as the story holds it: its pill, if it is in play,
    * takes the new fields, keeps the field it was showing, and moves under
@@ -102,13 +106,15 @@ export function useSceneItems(initial: SceneItem[]): SceneItems {
     [],
   );
   const setImage = useCallback(
-    (idElement: number, imageUrl: string | null) =>
+    (idElement: number, imageUrl: string | null, annotated = false) =>
       setItems((current) =>
-        current.map((existing) =>
-          existing.kind !== "ATTACHMENT" && elementIdOf(existing) === idElement
-            ? { ...existing, imageUrl }
-            : existing,
-        ),
+        current.map((existing) => {
+          if (existing.kind === "ATTACHMENT" || elementIdOf(existing) !== idElement) {
+            return existing;
+          }
+          const { annotated: _was, ...rest } = existing;
+          return annotated ? { ...rest, imageUrl, annotated: true } : { ...rest, imageUrl };
+        }),
       ),
     [],
   );

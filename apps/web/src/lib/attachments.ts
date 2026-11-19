@@ -21,17 +21,19 @@ export type AttachmentKind =
 /**
  * The holders that pictures are attached to out of the story's pool by the
  * story attachment picker and the run page's library: a session (for its
- * cover, from its edit panel), a scene, or an element's link to one.
+ * cover, from its edit panel), a scene, an element (its own pictures, from
+ * its edit page), or an element's link to a scene.
  */
 export type AttachHolderKind = Extract<
   AttachmentKind,
-  "STORY_SESSION" | "STORY_SCENE" | "SCENE_ELEMENT"
+  "STORY_SESSION" | "STORY_SCENE" | "ELEMENT" | "SCENE_ELEMENT"
 >;
 
 /** What a holder is called where an action speaks of it: "no longer be used by the scene". */
 export const ATTACH_HOLDER_NOUNS: Record<AttachHolderKind, string> = {
   STORY_SESSION: "session",
   STORY_SCENE: "scene",
+  ELEMENT: "element",
   SCENE_ELEMENT: "element",
 };
 
@@ -72,6 +74,20 @@ export type Attachment = {
    */
   createdAt: string | null;
   updatedAt: string | null;
+  /**
+   * The drawing (fog and pen marks) over the file, which goes with it when it
+   * is deleted, and whether it is on: the players then being given the
+   * players' copy wherever an element shows the file. Null for none. Listed
+   * by sa_listAttachments; absent, as for a row the field only knows by id,
+   * reads as none.
+   */
+  drawing?: { isActive: boolean } | null;
+  /**
+   * The picture as the storyteller is shown it: its players' copy while it
+   * is annotated and one has been rendered, else `url`. What a card or a
+   * list draws; its link is still the file's. Absent reads as `url`.
+   */
+  shownUrl?: string | null;
 };
 
 /**

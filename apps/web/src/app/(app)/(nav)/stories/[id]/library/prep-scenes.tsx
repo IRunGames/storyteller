@@ -210,7 +210,7 @@ export function PrepScenes({
                       its own so the board stays where it is. */}
                   <IconLink
                     label="Preview in a new tab"
-                    href={scenePreviewPath(scene.idStoryScene)}
+                    href={scenePreviewPath(idStory, scene.idStoryScene)}
                     newTab
                   >
                     <Eye />

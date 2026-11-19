@@ -40,6 +40,9 @@ type Props = {
  * Ten cards are drawn at first, with More under them for ten more, as the
  * board's other columns page: a story's attachments run long, and every
  * card drawn fetches its picture.
+ *
+ * Each uploaded picture's card carries its annotation controls: the drawing
+ * is the file's, shown to the players wherever an element shows the file.
  */
 export function PrepAttachments({
   idStory,
@@ -64,6 +67,7 @@ export function PrepAttachments({
       showEmpty
       onCountChange={onCountChange}
       pageSize={ATTACHMENTS_PAGE_SIZE}
+      canAnnotate
     />
   );
 }

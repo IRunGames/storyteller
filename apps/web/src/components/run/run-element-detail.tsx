@@ -18,9 +18,11 @@ import type { ElementLink } from "@/lib/scene-elements";
 import { isWebUrl } from "@/lib/elements";
 import { ELEMENT_KIND_LABELS, isElementKind } from "@/lib/elements";
 import { elementTagSchema } from "@/lib/element-schemas";
+import type { PictureState } from "@/lib/annotations";
 import type { ElementDetail } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { StatusPill } from "@/components/status/status-pill";
+import { AnnotationControls } from "@/components/annotations/annotation-controls";
 import { sa_setElementImage, sa_setElementTags } from "@/components/elements/actions";
 import { toaster } from "@/components/ui/toaster";
 import { TagsPopover } from "@/components/popovers/tags-popover";
@@ -43,7 +45,10 @@ import { partBadgeProps, tagList } from "./run-detail-parts";
  * The picture leads: the attachment it points at as a small icon, which
  * opens it full size, with a − to take it away, or a + (RunPictureCell),
  * which opens the pill's picker in place below the rows. Either change is
- * reported, so the popover and the pill keep up. The stat blocks are the
+ * reported, so the popover and the pill keep up. An uploaded picture can be
+ * annotated for the players beside it (AnnotationControls); the drawing is
+ * the file's, so it stays with the picture whatever the element shows. The
+ * stat blocks are the
  * panel's to draw under these rows, as the pill's or the library's wants.
  */
 export function ElementDetailRows({
@@ -54,6 +59,8 @@ export function ElementDetailRows({
   idStoryScene,
   onImageChange,
   onTagsChange,
+  onAnnotatedChange,
+  onPictureChange,
 }: {
   element: ElementDetail;
   statusOptions: StatusOption[];
@@ -64,8 +71,15 @@ export function ElementDetailRows({
   /** The scene the table is on, whose attachments the picker's Scene lists. */
   idStoryScene: number | null;
   /** Whose stat blocks the panel shows and changes: the scene element's copy, or the element's own. */
-  /** The element's picture has changed: its address, or null for none. */
-  onImageChange: (imageUrl: string | null) => void;
+  /**
+   * The element's picture has changed: its address, or null for none, and
+   * the picture as its annotation controls need it.
+   */
+  onImageChange: (imageUrl: string | null, picture: PictureState | null) => void;
+  /** The element's picture was annotated, or no longer is, from the Picture row's controls. */
+  onAnnotatedChange?: (annotated: boolean) => void;
+  /** The element's picture as its controls read it back after a change. */
+  onPictureChange?: (picture: PictureState) => void;
 }) {
   const [picking, setPicking] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -74,7 +88,7 @@ export function ElementDetailRows({
     setRemoving(true);
     try {
       const result = await sa_setElementImage(idStory, element.idElement, null);
-      if (result.ok) onImageChange(null);
+      if (result.ok) onImageChange(null, null);
       else toaster.create({ title: result.error, type: "error" });
     } catch {
       toaster.create({ title: "The picture could not be removed. Try again.", type: "error" });
@@ -108,6 +122,18 @@ export function ElementDetailRows({
       picking={picking}
       onPickingChange={setPicking}
       onRemove={removing ? undefined : () => void removePicture()}
+      actions={
+        element.picture?.canAnnotate ? (
+          <AnnotationControls
+            idAttachment={element.picture.idAttachment}
+            label={element.name}
+            isAnnotated={element.picture.isAnnotated}
+            hasDrawing={element.picture.hasDrawing}
+            onAnnotatedChange={onAnnotatedChange}
+            onPictureChange={onPictureChange}
+          />
+        ) : null
+      }
     />
   );
 
@@ -161,9 +187,9 @@ export function ElementDetailRows({
             idStory={idStory}
             idStoryScene={idStoryScene}
             idElement={element.idElement}
-            onPicked={(imageUrl) => {
+            onPicked={(imageUrl, picture) => {
               setPicking(false);
-              onImageChange(imageUrl);
+              onImageChange(imageUrl, picture);
             }}
           />
         </Box>

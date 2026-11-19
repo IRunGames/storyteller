@@ -57,7 +57,7 @@ type Props = {
  * live-edit page has a selector of its own (LiveSceneSelect).
  *
  * At the end of each scene's row, an external-link icon, as a player pill's
- * link carries, opens the scene's preview (/preview/scene/[id]) in a new
+ * link carries, opens the scene's preview (scenePreviewPath) in a new
  * tab: the scene as the players would see
  * it, with nothing to press, for looking something up without moving the
  * table. It stands beside the item rather than inside it, so pressing it
@@ -202,7 +202,7 @@ export function RunSceneSelect({ idStory, scene, hasSession, statusOptions, onLo
                           <Tooltip.Trigger asChild>
                             <IconButton asChild size="xs" variant="ghost" rounded="full">
                               <a
-                                href={scenePreviewPath(row.idStoryScene)}
+                                href={scenePreviewPath(idStory, row.idStoryScene)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 aria-label={`Preview ${row.title}`}

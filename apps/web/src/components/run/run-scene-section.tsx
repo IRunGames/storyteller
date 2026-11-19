@@ -30,7 +30,9 @@ import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-too
 import type { RollAs, StatBlockHolder } from "@/components/stat-blocks/actions";
 import { ElementStatBlocks } from "@/components/stat-blocks/stat-block-view";
 import { StatusPill } from "@/components/status/status-pill";
+import { AnnotationControls } from "@/components/annotations/annotation-controls";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
+import { pictureRow } from "@/components/uploads/attachment-list-field";
 import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
 import { LocalDate } from "@/components/dates/local-date";
 import { DetailSection, linkCell } from "./run-element-detail";
@@ -69,10 +71,17 @@ type Props = {
   onShowInfoChange: (showInfo: boolean) => void;
   /** The stacks menu has saved a tick, as the pill now is. */
   onTagsChange: (item: SceneItem) => void;
-  /** The link's picture for this scene, as read on opening: its address, or null for none. */
-  onImageLoaded: (url: string | null) => void;
-  /** The link's picture for this scene has been changed from here: its address, or null for none. */
-  onImageChange: (url: string | null) => void;
+  /**
+   * The link's picture for this scene, as read on opening: its address, or
+   * null for none, and whether it is annotated.
+   */
+  onImageLoaded: (url: string | null, annotated: boolean) => void;
+  /**
+   * The link's picture for this scene has been changed from here, or
+   * annotated or no longer: its address, or null for none, and whether it is
+   * annotated.
+   */
+  onImageChange: (url: string | null, annotated: boolean) => void;
 };
 
 /**
@@ -97,7 +106,8 @@ type Props = {
  * In the popover: Cover, the element's picture for this scene alone (the
  * cover of its link's SCENE_ELEMENT uses), which its pill shows here instead
  * of the element's own picture. It is shown as the element rows show the
- * element's picture (RunPictureCell): its + opens the attachment picker in
+ * element's picture (RunPictureCell), with the picture's annotation
+ * controls beside it when it is a file the app uploaded: its + opens the attachment picker in
  * place to make one of the story's or the scene's pictures the cover
  * (sa_attachAsCover), and its − takes the picture off the link
  * (sa_detachFromHolder). Under it, Other images lists the link's other
@@ -144,7 +154,8 @@ export function RunSceneSection({
       .then((rows) => {
         if (!live) return;
         setAttachments(rows);
-        onImageLoaded(coverOf(rows)?.url ?? null);
+        const cover = coverOf(rows);
+        onImageLoaded(shown(cover), cover?.drawing?.isActive === true);
       })
       .catch(() => live && setAttachments([]));
     return () => {
@@ -194,7 +205,7 @@ export function RunSceneSection({
         return;
       }
       setPickingCover(false);
-      onImageChange(result.url);
+      onImageChange(attachment.shownUrl ?? result.url, attachment.drawing?.isActive === true);
       reload();
     } catch {
       toaster.create({ title: "The picture could not be added. Try again.", type: "error" });
@@ -206,7 +217,7 @@ export function RunSceneSection({
     if (!cover) return;
     try {
       await sa_setAttachmentCover("SCENE_ELEMENT", link.idSceneElement, cover.idAttachment, false);
-      onImageChange(null);
+      onImageChange(null, false);
       reload();
     } catch {
       toaster.create({ title: "The cover could not be changed. Try again.", type: "error" });
@@ -226,7 +237,7 @@ export function RunSceneSection({
         toaster.create({ title: result.error, type: "error" });
         return;
       }
-      onImageChange(null);
+      onImageChange(null, false);
       reload();
     } catch {
       toaster.create({ title: "The picture could not be removed. Try again.", type: "error" });
@@ -262,7 +273,7 @@ export function RunSceneSection({
       </Text>
     ) : (
       <RunPictureCell
-        imageUrl={cover?.url ?? null}
+        imageUrl={shown(cover)}
         label={cover ? attachmentLabel(cover) : name}
         addLabel="Add cover"
         removeLabel="Remove cover"
@@ -271,6 +282,38 @@ export function RunSceneSection({
         onRemove={removingCover ? undefined : () => void removeCover()}
         canChange={!locked}
         size="14"
+        actions={
+          cover?.isUploaded && cover.status === "READY" ? (
+            <AnnotationControls
+              idAttachment={cover.idAttachment}
+              label={name}
+              isAnnotated={cover.drawing?.isActive === true}
+              hasDrawing={Boolean(cover.drawing)}
+              onAnnotatedChange={(annotated) => {
+                setAttachments(
+                  (rows) =>
+                    rows?.map((row) =>
+                      row.idAttachment === cover.idAttachment
+                        ? { ...row, drawing: { isActive: annotated } }
+                        : row,
+                    ) ?? rows,
+                );
+                onImageChange(shown(cover), annotated);
+              }}
+              onPictureChange={(picture) => {
+                setAttachments(
+                  (rows) =>
+                    rows?.map((row) =>
+                      row.idAttachment === picture.idAttachment
+                        ? { ...row, ...pictureRow(picture) }
+                        : row,
+                    ) ?? rows,
+                );
+                onImageChange(picture.shownUrl, picture.isAnnotated);
+              }}
+            />
+          ) : null
+        }
         corner={
           cover &&
           !locked && (
@@ -322,7 +365,7 @@ export function RunSceneSection({
               bg="bg.muted"
             >
               <AttachmentPreview
-                url={row.url!}
+                url={shown(row)!}
                 label={attachmentLabel(row)}
                 tags={row.tags}
                 isCover={false}
@@ -373,7 +416,7 @@ export function RunSceneSection({
         >
           {cover ? (
             <chakra.img
-              src={cover.url!}
+              src={shown(cover)!}
               alt=""
               boxSize="full"
               objectFit="cover"
@@ -487,6 +530,11 @@ export function RunSceneSection({
 const isPicture = (row: Attachment) => row.status === "READY" && row.url !== null;
 
 /** The link's cover among its attachments, or null for none. */
+/** A picture as the storyteller is shown it: as the players see it, once annotated and rendered. */
+function shown(row: Attachment | null): string | null {
+  return row ? (row.shownUrl ?? row.url) : null;
+}
+
 function coverOf(rows: Attachment[]): Attachment | null {
   return rows.find((row) => isPicture(row) && row.isCover) ?? null;
 }

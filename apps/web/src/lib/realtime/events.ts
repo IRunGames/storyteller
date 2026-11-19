@@ -20,10 +20,12 @@ const tags = z.array(z.string());
  * An element as the players may see it: every column but the two the
  * database builds for itself (search_text, activity_log). The notes are
  * the players' own, written from their table, so they go whole. Timestamps
- * are ISO strings, since the message is JSON. imageUrl is the element's
- * cover picture (its ELEMENT use in attachment_uses), worked out on the way
- * out as the storyteller's table has it, so the players' table need not ask
- * again.
+ * are ISO strings, since the message is JSON. imageUrl is the picture the
+ * players are given for the element in the scene, worked out on the way out
+ * by the players' read model (playerSceneElementImageUrl in
+ * db/attachment-url.ts), so the players' table need not ask again: the
+ * link's or the element's cover, and for an annotated picture the players'
+ * copy, never the raw picture.
  */
 export const publicElementSchema = z.object({
   idElement: z.number().int(),

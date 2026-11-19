@@ -19,6 +19,7 @@ import {
 import { AttachmentCoverButton } from "@/components/uploads/attachment-cover-button";
 import { AttachmentTagsPopover } from "@/components/uploads/attachment-tags-popover";
 import { useAttachmentSearch } from "@/components/uploads/use-attachment-search";
+import { AnnotationControls } from "@/components/annotations/annotation-controls";
 import { LibraryList } from "./run-library-list";
 
 /** Whose attachments the Attachments tab lists: the story's own, or the scene's. */
@@ -187,7 +188,7 @@ export function RunAttachments({
       showAdd={showAdd}
       shownIds={matchedIds}
       hideCovers={kind === "STORY"}
-      renderRows={({ rows, hasLoaded, setTags, setCover, remove }) => {
+      renderRows={({ rows, hasLoaded, setTags, setCover, remove, setAnnotated, setPicture }) => {
         const shown = sortAttachments(rows, sort).slice(0, RUN_LIST_SIZE);
         const byKey = new Map(shown.map((row) => [`ATTACHMENT:${row.idAttachment}`, row]));
 
@@ -232,6 +233,23 @@ export function RunAttachments({
                   {row.isCover &&
                     " It is the cover, so the scene will have none until you choose another."}
                 </DeleteButton>
+              );
+            }}
+            previewActionsFor={(item) => {
+              const row = byKey.get(item.key);
+              if (!row || row.status !== "READY" || !row.isUploaded) return null;
+              // Keyed by the picture, so stepping to the next one starts afresh.
+              return (
+                <AnnotationControls
+                  key={row.idAttachment}
+                  idAttachment={row.idAttachment}
+                  label={item.label}
+                  isAnnotated={row.drawing?.isActive === true}
+                  hasDrawing={Boolean(row.drawing)}
+                  onAnnotatedChange={(annotated) => setAnnotated(row.idAttachment, annotated)}
+                  onPictureChange={setPicture}
+                  portalled={false}
+                />
               );
             }}
             editTagsFor={(item) => {
@@ -301,7 +319,8 @@ function attachmentItem(row: Attachment): LibraryItem {
     kind: "ATTACHMENT",
     label: attachmentLabel(row),
     detail: row.url !== null ? null : row.status === "ERROR" ? "Upload failed" : "Uploading…",
-    imageUrl: row.url,
+    // An annotated picture as the players see it, once its copy is rendered.
+    imageUrl: row.url === null ? null : (row.shownUrl ?? row.url),
     attachment: { tags: row.tags, isCover: row.isCover },
   };
 }

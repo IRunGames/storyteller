@@ -38,7 +38,7 @@ import type { ChannelStatus } from "./use-story-channel";
  * the table is on no scene and, for anyone but a guest, the eye in the
  * upper right that puts everything away to show the cover (BackgroundToggle).
  *
- * `preview` is a look at the scene rather than a seat (/preview/scene): the
+ * `preview` is a look at the scene rather than a seat (scenePreviewPath): the
  * scene is shown whether or not a session is on it, its text and the pills'
  * info open to read, each pill's info ending with the element's History,
  * and nothing writes. The preview draws the scene's title itself, as a
@@ -89,6 +89,11 @@ type Variant =
        * styling the heading carries, so it reads the same.
        */
       renderTitle?: (title: string, headingProps: HeadingProps) => ReactNode;
+      /**
+       * The viewer is the story's storyteller: each pill's picture preview
+       * offers the annotation controls for the picture behind it.
+       */
+      canAnnotate?: boolean;
     }
   | { variant: "card" };
 
@@ -162,6 +167,7 @@ export function PlaySpace(props: Props) {
   const atTable = props.variant === "table";
   const readOnly = !atTable;
   const withHistory = props.variant === "preview";
+  const canAnnotate = props.variant === "preview" && props.canAnnotate === true;
   const withTitle = props.variant !== "card";
   const withStateOverlay = props.variant !== "card";
   // Not for a guest: the eye's choice would be theirs alone, and the display
@@ -317,6 +323,7 @@ export function PlaySpace(props: Props) {
                       onStatusChange={onStatusChange}
                       readOnly={lookOnly}
                       withHistory={withHistory}
+                      canAnnotate={canAnnotate}
                     />
                   )}
                 />

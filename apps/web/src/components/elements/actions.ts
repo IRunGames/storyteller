@@ -4,7 +4,7 @@ import { and, asc, desc, eq, exists, ilike, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { idSchema, offsetSchema, searchSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
-import { attachmentUrl } from "@/db/attachment-url";
+import { elementPicture, elementPictureUrl } from "@/db/attachment-url";
 import { clearCover, setCover, storyPictureUrl } from "@/db/covers";
 import { elementOrderBy } from "@/db/element-order";
 import { listStatusOptions } from "@/db/status-options";
@@ -21,6 +21,7 @@ import {
   type ElementSort,
   type StoryElement,
 } from "@/lib/elements";
+import type { PictureState } from "@/lib/annotations";
 import { likeContains } from "@/lib/filter-text";
 import { formErrors } from "@/lib/forms";
 import {
@@ -289,11 +290,12 @@ async function elementDetail(idStory: number, idElement: number): Promise<Elemen
       title: elements.title,
       description: elements.description,
       notes: elements.notes,
-      imageUrl: attachmentUrl("ELEMENT", "elements", "id_element"),
+      imageUrl: elementPictureUrl("elements"),
       status: elements.status,
       tags: elements.tags,
       url: elements.url,
       urlText: elements.urlText,
+      picture: elementPicture("elements"),
     })
     .from(elements)
     .where(and(eq(elements.idElement, idElement), eq(elements.idStory, idStory)))
@@ -363,20 +365,25 @@ export async function sa_getElementDetail(
 }
 
 export type SetElementImageResult =
-  { ok: true; imageUrl: string | null } | { ok: false; error: string };
+  | { ok: true; imageUrl: string | null; picture: PictureState | null }
+  | { ok: false; error: string };
 
 /**
  * A pill's + for a picture, and the info panel's Add picture and −: makes
  * one of the story's attachments the element's picture, its ELEMENT use in
  * attachment_uses tagged cover (setCover), picked from the story's pool or a
  * scene's pictures, or with null takes the picture away (clearCover). An
- * element shows one picture, so whatever use it had goes first; the
- * attachment is only used, not moved, so it stays in its lists either way.
+ * element shows one picture, its cover, so the cover moves to the one chosen
+ * and the one it had stays among the element's pictures; the attachment is
+ * only used, not moved, so it stays in its lists either way.
  * The picture is the element's, in every scene, and not part of what a scene
  * holds, so a complete scene does not refuse it.
  *
  * Refused when the story is not the caller's, the element is not the
  * story's, or the attachment is not one of the story's finished ones.
+ *
+ * The picture comes back as its annotation controls need it, since a
+ * drawing is the file's and the one now shown may already have one.
  */
 export async function sa_setElementImage(
   idStory: number,
@@ -406,8 +413,13 @@ export async function sa_setElementImage(
     if (attachment.data === null) await clearCover(holder, user.id, {}, tx);
     else await setCover(holder, attachment.data, user.id, tx);
   });
+  const [shown] = await db
+    .select({ picture: elementPicture("elements") })
+    .from(elements)
+    .where(eq(elements.idElement, element.data))
+    .limit(1);
   publishLater(() => publishElementChanged(story.data, element.data));
-  return { ok: true, imageUrl: url };
+  return { ok: true, imageUrl: url, picture: shown?.picture ?? null };
 }
 
 export type SetElementTagsResult = { ok: true; tags: string[] } | { ok: false; error: string };

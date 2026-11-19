@@ -15,7 +15,7 @@ import {
   type SceneRefusal,
 } from "@/db/story-access";
 import { requireAccount } from "@/lib/authorize";
-import { SCENE_COMPLETE } from "@/lib/messages";
+import { DRAWING_WOULD_BE_LOST, SCENE_COMPLETE } from "@/lib/messages";
 import { likeContains } from "@/lib/filter-text";
 import { isOwnUploadedBlobUrl, isUploadedBlobUrl } from "@/lib/image-uploads";
 import {
@@ -35,9 +35,13 @@ import {
   type AttachmentKind,
 } from "@/lib/attachments";
 import { publishLater } from "@/lib/realtime/publish";
-import { publishSceneChanged, publishSceneElementPictures } from "@/lib/realtime/publish-scene";
+import {
+  publishElementChanged,
+  publishSceneChanged,
+  publishSceneElementPictures,
+} from "@/lib/realtime/publish-scene";
 
-const { attachments, attachmentUses, vAttachmentUses, stories } = schema;
+const { attachmentAnnotations, attachments, attachmentUses, vAttachmentUses, stories } = schema;
 
 const NO_ACCESS = "You do not have access to that story.";
 
@@ -265,13 +269,17 @@ export async function sa_retryAttachment(id: number): Promise<void> {
  * else's key (sa_markAttachmentReady refuses to write such a url, but this
  * guard does not rely on that alone).
  */
-export async function sa_deleteAttachment(id: number): Promise<void> {
+export async function sa_deleteAttachment(
+  id: number,
+  options: { dropDrawing?: boolean } = {},
+): Promise<void> {
   const user = await requireAccount();
   const attachmentId = idAttachmentSchema.parse(id);
 
   const [row] = await db
     .select({
       idCreatedByUser: attachments.idCreatedByUser,
+      idStory: attachments.idStory,
       isUploaded: attachments.isUploaded,
       url: attachments.url,
     })
@@ -282,14 +290,56 @@ export async function sa_deleteAttachment(id: number): Promise<void> {
     throw new Error("Attachment not found");
   }
 
-  await db
-    .delete(attachments)
-    .where(
-      and(eq(attachments.idAttachment, attachmentId), eq(attachments.idCreatedByUser, user.id)),
-    );
+  // A picture's drawing goes with the file (the foreign key cascades), so a
+  // file with a drawing on it is deleted only once the storyteller has
+  // confirmed that (`dropDrawing`). The file's row is locked first, which
+  // holds back a drawing being made on it meanwhile, so none is deleted
+  // unconfirmed. The elements and links showing it are read before their
+  // uses go with it, to be sent again once it is gone.
+  const drawn = await db.transaction(async (tx) => {
+    await tx
+      .select({ idAttachment: attachments.idAttachment })
+      .from(attachments)
+      .where(eq(attachments.idAttachment, attachmentId))
+      .for("update");
+    const [drawing] = await tx
+      .select({ playerUrl: attachmentAnnotations.playerUrl })
+      .from(attachmentAnnotations)
+      .where(eq(attachmentAnnotations.idAttachment, attachmentId));
+    if (drawing && options.dropDrawing !== true) throw new Error(DRAWING_WOULD_BE_LOST);
+    const shownBy = drawing
+      ? await tx
+          .select({ kind: attachmentUses.kind, idExternal: attachmentUses.idExternal })
+          .from(attachmentUses)
+          .where(
+            and(
+              eq(attachmentUses.idAttachment, attachmentId),
+              inArray(attachmentUses.kind, ["ELEMENT", "SCENE_ELEMENT"]),
+              useIsCover,
+            ),
+          )
+      : [];
+    await tx
+      .delete(attachments)
+      .where(
+        and(eq(attachments.idAttachment, attachmentId), eq(attachments.idCreatedByUser, user.id)),
+      );
+    return drawing ? { playerUrl: drawing.playerUrl, shownBy } : null;
+  });
 
   if (row.isUploaded && row.url && isOwnUploadedBlobUrl(row.url, user.id)) {
     await del(row.url);
+  }
+  // The players' copy the drawing was shown by, after the rows are gone, and
+  // the elements and links that showed it sent again, since the copy went too.
+  if (drawn) {
+    if (drawn.playerUrl && isUploadedBlobUrl(drawn.playerUrl)) await del(drawn.playerUrl);
+    if (row.idStory !== null) {
+      // The kinds the uses were read by, which the column holds as text.
+      for (const use of drawn.shownBy) {
+        tellPlayers(row.idStory, use.kind as AttachmentKind, use.idExternal);
+      }
+    }
   }
 }
 
@@ -357,6 +407,35 @@ export async function sa_setAttachmentTags(id: number, tags: string[]): Promise<
 }
 
 /**
+ * The drawing over an attachment, as the card's annotation controls and its
+ * remove button need it, or null for none. The file is named as the outer
+ * relation and its column, as identifiers, for the reason attachmentUrl
+ * gives: a single-table select writes its columns bare, and a bare
+ * id_attachment in here would be the drawing's own.
+ */
+function drawingOf(source: string) {
+  return sql<{ isActive: boolean } | null>`(
+    select json_build_object('isActive', aa.is_active)
+    from attachment_annotations aa
+    where aa.id_attachment = ${sql.identifier(source)}.id_attachment
+  )`;
+}
+
+/**
+ * The attachment as the storyteller is shown it: its players' copy while it
+ * is annotated and one has been rendered, else the file itself (PictureState
+ * says why); named as drawingOf names it.
+ */
+function shownUrlOf(source: string) {
+  const file = sql`${sql.identifier(source)}`;
+  return sql<string | null>`coalesce((
+    select aa.player_url
+    from attachment_annotations aa
+    where aa.id_attachment = ${file}.id_attachment and aa.is_active
+  ), ${file}.url)`;
+}
+
+/**
  * A holder's attachments, in the order a gallery or form shows them. For the
  * story itself, its whole pool: every file it owns, whether or not it shows
  * one (only its cover is a use of the story's own), with the cover first
@@ -398,6 +477,8 @@ export async function sa_listAttachments(
         tags: attachments.tags,
         createdAt: attachments.createdAt,
         updatedAt: attachments.updatedAt,
+        drawing: drawingOf("attachments"),
+        shownUrl: shownUrlOf("attachments"),
       })
       .from(attachments)
       .leftJoin(
@@ -440,6 +521,8 @@ export async function sa_listAttachments(
       tags: vAttachmentUses.attachmentTags,
       createdAt: vAttachmentUses.attachmentCreatedAt,
       updatedAt: vAttachmentUses.attachmentUpdatedAt,
+      drawing: drawingOf("v_attachment_uses"),
+      shownUrl: shownUrlOf("v_attachment_uses"),
     })
     .from(vAttachmentUses)
     .where(
@@ -466,6 +549,8 @@ export async function sa_listAttachments(
     tags: row.tags ?? [],
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
+    drawing: row.drawing,
+    shownUrl: row.shownUrl,
   }));
 }
 
@@ -546,8 +631,9 @@ export type DetachResult = { ok: true; detached: number[] } | { ok: false; error
 export type AttachAsCoverResult = { ok: true; url: string } | { ok: false; error: string };
 
 /**
- * A change to a scene element's pictures is told to the players' table,
- * whose pill shows the link's cover, and a change to a scene's cover too,
+ * A change to an element's pictures, or a scene element's, is told to the
+ * players' table, whose pill shows the link's cover else the element's, and
+ * a change to a scene's cover too,
  * since the players' table draws the scene behind its cover and reads it
  * afresh when the scene is said to have changed (publishSceneChanged, which
  * says nothing when the scene is not the one being played). A session's
@@ -556,6 +642,8 @@ export type AttachAsCoverResult = { ok: true; url: string } | { ok: false; error
 function tellPlayers(idStory: number, kind: AttachmentKind, idExternal: number): void {
   if (kind === "SCENE_ELEMENT") {
     publishLater(() => publishSceneElementPictures(idStory, idExternal));
+  } else if (kind === "ELEMENT") {
+    publishLater(() => publishElementChanged(idStory, idExternal));
   } else if (kind === "STORY_SCENE") {
     publishLater(() => publishSceneChanged(idStory));
   }

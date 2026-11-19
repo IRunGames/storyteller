@@ -1,40 +1,21 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
-import { ScenePreview } from "./scene-preview";
-import { sa_listStatusOptions } from "@/components/status/actions";
-import { sa_getScenePreview } from "./actions";
+import { scenePreviewPath } from "@/lib/scenes";
+import { sa_getScenePreview } from "@/app/(app)/stories/[id]/scenes/[idScene]/preview/actions";
 
-// A look at one scene as the players would see it, keyed on the scene, from
-// the eye beside each scene in the storyteller's scene selector. Nothing on
-// it can be pressed to change anything, so the storyteller can check a scene
-// in another tab without moving their table. Outside (nav) because it draws
-// the tables' header, as they do. The story's storyteller and its players
-// get in; anyone else gets the same not-found page as a bad id.
-export default async function ScenePreviewPage({ params }: { params: Promise<{ id: string }> }) {
+// The scene preview's old address, kept so a link or bookmark made before
+// the preview moved beside the scene's other pages still lands on it. The
+// scene names its story, which the new address needs; whoever may not see
+// the preview gets the not-found page there and here alike.
+export default async function OldScenePreviewPage({ params }: { params: Promise<{ id: string }> }) {
   await requireSession();
 
   const { id } = await params;
   const idStoryScene = parseRouteId(id);
   if (idStoryScene === null) notFound();
 
-  // The scene workflow names each status in the title's dropdown.
-  const [preview, statusOptions] = await Promise.all([
-    sa_getScenePreview(idStoryScene),
-    sa_listStatusOptions("story_scenes"),
-  ]);
+  const preview = await sa_getScenePreview(idStoryScene);
   if (!preview) notFound();
-
-  return (
-    <ScenePreview
-      idStory={preview.idStory}
-      title={preview.storyTitle}
-      scene={preview.scene}
-      previous={preview.previous}
-      next={preview.next}
-      scenes={preview.scenes}
-      statusOptions={statusOptions}
-      canEdit={preview.isOwner}
-    />
-  );
+  redirect(scenePreviewPath(preview.idStory, idStoryScene));
 }

@@ -30,6 +30,7 @@ export function publishMocks() {
       publishSceneElement: mock.fn(async (..._args: unknown[]) => {}),
       publishSceneElementPulse: mock.fn(async (..._args: unknown[]) => {}),
       publishElementChanged: mock.fn(async (..._args: unknown[]) => {}),
+      publishPictureChanged: mock.fn(async (..._args: unknown[]) => {}),
       publishSceneElementRemoved: mock.fn(async (..._args: unknown[]) => {}),
       publishSceneChanged: mock.fn(async (..._args: unknown[]) => {}),
       publishSessionUpdated: mock.fn(async (..._args: unknown[]) => {}),
