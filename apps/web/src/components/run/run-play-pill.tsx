@@ -15,9 +15,9 @@ import {
   SCENE_ELEMENT_TAPPED,
   withShowing,
   type ElementShowing,
-  type PlayItem,
+  type SceneItem,
   type SceneElementStatus,
-} from "@/lib/run";
+} from "@/lib/scene-elements";
 import {
   sa_pulseSceneElement,
   sa_setSceneElementShowing,
@@ -42,7 +42,7 @@ type Props = {
   idStory: number;
   /** The scene the table is on; null for none. */
   idStoryScene: number | null;
-  item: PlayItem;
+  item: SceneItem;
   /** The tag of the stack this pill is drawn in; null for the Default stack. */
   stackTag: string | null;
   /** The scene's other stacks, which the panel's Move to offers. */

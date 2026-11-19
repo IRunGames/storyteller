@@ -11,7 +11,7 @@ import {
   type SystemFieldsInput,
   type SystemFieldsValues,
 } from "@/lib/system-schemas";
-import { sa_updateSystem, type AdminSystemDetail } from "../actions";
+import { sa_updateSystem, type AdminSystemDetail } from "@/app/(app)/(nav)/admin/systems/actions";
 import { applyActionErrors } from "@/lib/forms";
 
 const FIELDS = ["systemName", "systemVersion", "variant"] as const;

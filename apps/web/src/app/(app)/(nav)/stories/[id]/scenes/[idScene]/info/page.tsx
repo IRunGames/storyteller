@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { Container } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
-import { ScenePageDetail } from "@/components/prep/scene-page-detail";
+import { ScenePageDetail } from "./scene-page-detail";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getStoryScene } from "@/components/prep/actions";
 

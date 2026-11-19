@@ -3,7 +3,7 @@ import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
 import { isUnplayable, pickWaitingBackground } from "@/lib/play";
 import { WaitingRoom } from "@/components/play/waiting-room";
-import { sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
+import { sa_listStorySessions } from "@/components/stories/actions";
 import { sa_getPlayStory, sa_waitForSession } from "@/components/play/actions";
 
 // The display table's waiting room: the players' one

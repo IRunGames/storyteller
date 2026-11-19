@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Container } from "@chakra-ui/react";
-import { InvitationsAdmin } from "@/components/admin/invitations-admin";
+import { InvitationsAdmin } from "./invitations-admin";
 import { requireUser } from "@/lib/authorize";
 import { USER_TYPES } from "@/lib/user-types";
 import { sa_listInvitations } from "./actions";

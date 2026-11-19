@@ -5,7 +5,8 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button, Field, HStack, Input, Stack, Text, Textarea } from "@chakra-ui/react";
 import { runElementSchema, type RunElementValues } from "@/lib/element-schemas";
-import type { ElementDetail, PlayItem } from "@/lib/run";
+import type { ElementDetail } from "@/lib/run";
+import type { SceneItem } from "@/lib/scene-elements";
 import type { StatusOption } from "@/lib/status";
 import { applyActionErrors } from "@/lib/forms";
 import { sa_updateStoryElement } from "@/components/elements/actions";
@@ -56,7 +57,7 @@ type Props = {
   | {
       target: Extract<ElementFormTarget, { kind: "create" | "scene" }>;
       /** What the save handed back: the pill as it now is. */
-      onSaved: (saved: { item: PlayItem }) => void;
+      onSaved: (saved: { item: SceneItem }) => void;
     }
   | {
       /**

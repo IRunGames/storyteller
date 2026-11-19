@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { sa_setFavorite } from "@/app/(app)/(nav)/stories/actions";
+import { sa_setFavorite } from "./actions";
 import { useLatest } from "@/hooks/use-latest";
 import type { StoryCardData } from "@/lib/stories";
 

@@ -6,18 +6,18 @@ import { Settings } from "lucide-react";
 import {
   DEFAULT_ATTACHMENT_SORT,
   DEFAULT_ELEMENT_SORT,
-  elementIdOf,
   isAttachmentSort,
   isElementSort,
+  type RunScene,
+} from "@/lib/run";
+import { elementIdOf, type LibraryItem, type RunLibrarySource } from "@/lib/scene-elements";
+import {
   RUN_ADD_INVISIBLE,
   RUN_ADD_SHOW_INFO,
   RUN_LIBRARY_ATTACHMENT_SORT,
   RUN_LIBRARY_ELEMENT_SORT,
   RUN_LIBRARY_SCENE_ONLY,
-  type PlayItem,
-  type RunLibrarySource,
-  type RunScene,
-} from "@/lib/run";
+} from "@/lib/preference-keys";
 import type { StackRename } from "@/lib/stack-schemas";
 import { sa_linkSceneElement } from "@/components/scene-elements/actions";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
@@ -120,7 +120,7 @@ export function TableLibraryPanel({
   const storedElementSort = preferences.get<string>(RUN_LIBRARY_ELEMENT_SORT, "");
   const elementSort = isElementSort(storedElementSort) ? storedElementSort : DEFAULT_ELEMENT_SORT;
 
-  async function add(item: PlayItem) {
+  async function add(item: LibraryItem) {
     if (locked) return;
     if (scene === null) {
       put(item);

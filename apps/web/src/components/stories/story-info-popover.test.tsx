@@ -39,7 +39,7 @@ let StoryInfoPopover: typeof import("./story-info-popover").StoryInfoPopover;
 
 describe("StoryInfoPopover", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/stories/actions", { namedExports: { sa_getStory } });
+    mock.module("./actions", { namedExports: { sa_getStory } });
     ({ StoryInfoPopover } = await import("./story-info-popover"));
   });
 

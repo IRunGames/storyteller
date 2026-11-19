@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
-import { ScenePreview } from "@/components/play/scene-preview";
+import { ScenePreview } from "./scene-preview";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getScenePreview } from "./actions";
 

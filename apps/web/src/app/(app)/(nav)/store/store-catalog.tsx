@@ -15,6 +15,7 @@ import {
 } from "@chakra-ui/react";
 import { BookOpen, Images, Search } from "lucide-react";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
+import { STORE_VIEW_KEY } from "@/lib/preference-keys";
 import { ViewToggle, type CardsOrList } from "@/components/buttons/view-toggle";
 import { CoverBackdrop } from "@/components/covers/cover-backdrop";
 import {
@@ -24,9 +25,6 @@ import {
   type StoreGenre,
   type StoreProduct,
 } from "@/lib/store-products";
-
-/** The Store's Icon view or List view, kept as the user's preference as the Stories page's is. */
-export const STORE_VIEW_KEY = "store.view";
 
 // Each genre's colour behind a card, which has no picture yet: deep enough
 // that the white text reads on it as it does on a story's cover.

@@ -16,7 +16,9 @@ let StoryStatBlockEditor: typeof import("./story-stat-block-editor").StoryStatBl
 // this is only that the story's page saves over the story's copy.
 describe("StoryStatBlockEditor", () => {
   before(async () => {
-    mock.module("./actions", { namedExports: { sa_setStoryStatBlockDefinition } });
+    mock.module("@/app/(app)/(nav)/stories/[id]/actions", {
+      namedExports: { sa_setStoryStatBlockDefinition },
+    });
     ({ StoryStatBlockEditor } = await import("./story-stat-block-editor"));
   });
 

@@ -40,8 +40,8 @@ import {
   SCENE_ELEMENT_HIDDEN,
   SCENE_ELEMENT_STATUSES,
   type ElementShowing,
-  type PlayItem,
-} from "@/lib/run";
+  type SceneItem,
+} from "@/lib/scene-elements";
 import { stacksSchema } from "@/lib/stack-schemas";
 import { readStatBlocks } from "@/lib/stat-block-schemas";
 import { rollStartingBlocks } from "@/lib/stat-blocks";
@@ -106,7 +106,7 @@ function stackTags(scene: OwnedScene, tag: string | null): string[] | null {
 }
 
 export type SceneElementFormResult =
-  { ok: true; item: PlayItem } | { ok: false; errors: Record<string, string> };
+  { ok: true; item: SceneItem } | { ok: false; errors: Record<string, string> };
 
 // What the new-element form sends beside its fields: the pictures its two
 // Add pictures chose, the element's own and the link's for this scene, and
@@ -419,7 +419,7 @@ export async function sa_updateSceneElement(
 export type LinkSceneElementResult =
   | {
       ok: true;
-      item: PlayItem;
+      item: SceneItem;
       /** Whether the element was in the scene already, so this link is a copy of it. */
       duplicate: boolean;
     }
@@ -759,7 +759,7 @@ export async function sa_unlinkSceneElement(
   return { ok: true };
 }
 
-export type MoveSceneElementResult = { ok: true; item: PlayItem } | { ok: false; error: string };
+export type MoveSceneElementResult = { ok: true; item: SceneItem } | { ok: false; error: string };
 
 /**
  * The info popover's Move to: files an element under another of the scene's
@@ -806,7 +806,8 @@ export async function sa_moveSceneElement(
   return { ok: true, item: linkedItem({ ...row, tags }) };
 }
 
-export type SetSceneElementTagsResult = { ok: true; item: PlayItem } | { ok: false; error: string };
+export type SetSceneElementTagsResult =
+  { ok: true; item: SceneItem } | { ok: false; error: string };
 
 /**
  * The element panel's stacks dialog: which of the scene's stacks the element

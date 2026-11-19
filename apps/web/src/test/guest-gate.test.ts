@@ -37,9 +37,9 @@ const GUEST_ACTIONS = new Set([
   "components/play/actions.ts sa_getStoryChannel",
   "components/play/actions.ts sa_listChats",
   "components/play/actions.ts sa_leaveAsGuest",
-  "app/(app)/(nav)/stories/actions.ts sa_getStorySession",
-  "app/(app)/(nav)/stories/actions.ts sa_getStorySessionNeighbours",
-  "app/(app)/(nav)/stories/actions.ts sa_listStorySessions",
+  "components/stories/actions.ts sa_getStorySession",
+  "components/stories/actions.ts sa_getStorySessionNeighbours",
+  "components/stories/actions.ts sa_listStorySessions",
   "components/preferences/actions.ts sa_getUserPreferences",
   "app/(public)/join/[code]/actions.ts sa_joinByLink",
   // A visitor who already holds a session, a guest's included, is seated as

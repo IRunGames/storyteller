@@ -43,7 +43,7 @@ describe("the scene builder page", () => {
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions: listStatusOptions },
     });
-    mock.module("@/components/live/live-table", { namedExports: { LiveTable } });
+    mock.module("./live-table", { namedExports: { LiveTable } });
     Page = (await import("./page")).default;
   });
 

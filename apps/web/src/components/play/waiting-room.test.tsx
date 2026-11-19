@@ -50,7 +50,7 @@ describe("WaitingRoom", () => {
       pathname: "/stories/7/play/waiting",
     });
     mockHeader();
-    mock.module("@/app/(app)/(nav)/stories/actions", {
+    mock.module("@/components/stories/actions", {
       namedExports: {
         sa_listStorySessions: mock.fn(async () => []),
         sa_getStorySession: mock.fn(),

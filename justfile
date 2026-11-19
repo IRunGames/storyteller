@@ -71,16 +71,11 @@ test *args:
     set -euo pipefail
     npm test -- "$@"
 
+# There is no production deploy recipe: a push to main is the deploy.
+# .github/workflows/deploy.yml tests, builds, migrates the production database
+# and then ships, in that order, which a deploy from this machine would skip.
 # The repo root is linked to the storyteller-web project (.vercel/), whose
-# Root Directory is apps/web. Pass vercel flags through, e.g. `just deploy --force`
-# Deploy the web app to Vercel production, running the tests first
-[group('web')]
-deploy *args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just test
-    npx --yes vercel@latest deploy --prod "$@"
-
+# Root Directory is apps/web. Pass vercel flags through, e.g. `just preview --force`
 # Deploy a preview build of the web app to Vercel (no tests, no production traffic)
 [group('web')]
 preview *args:
@@ -233,18 +228,6 @@ status:
 [working-directory: 'db']
 redo:
     bunx dbmate rollback && bunx dbmate migrate
-
-# Write the database structure to schema.sql
-[group('dbmate')]
-[working-directory: 'db']
-dump:
-    bunx dbmate dump
-
-# Load schema.sql into the database
-[group('dbmate')]
-[working-directory: 'db']
-load:
-    bunx dbmate load
 
 alias custom := make_custom
 alias die := kill

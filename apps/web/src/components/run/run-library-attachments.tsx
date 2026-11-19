@@ -2,13 +2,8 @@
 
 import { ArrowRight, Recycle, Trash2 } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
-import {
-  attachmentLabel,
-  RUN_LIST_SIZE,
-  sortAttachments,
-  type AttachmentSort,
-  type PlayItem,
-} from "@/lib/run";
+import { attachmentLabel, RUN_LIST_SIZE, sortAttachments, type AttachmentSort } from "@/lib/run";
+import type { LibraryItem } from "@/lib/scene-elements";
 import {
   sa_attachAsCover,
   sa_attachToHolder,
@@ -300,7 +295,7 @@ export function RunAttachments({
  * One attachment as a library item. A row with no address yet says what is
  * happening to it in place of a picture, as its card does.
  */
-function attachmentItem(row: Attachment): PlayItem {
+function attachmentItem(row: Attachment): LibraryItem {
   return {
     key: `ATTACHMENT:${row.idAttachment}`,
     kind: "ATTACHMENT",

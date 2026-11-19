@@ -5,12 +5,8 @@ import { Menu, Portal } from "@chakra-ui/react";
 import { ArrowDownUp } from "lucide-react";
 import { ELEMENT_SORT_KEYS, ELEMENT_SORT_LABELS, type ElementSort } from "@/lib/elements";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
-import {
-  ATTACHMENT_SORT_KEYS,
-  ATTACHMENT_SORT_LABELS,
-  type AttachmentSort,
-  type RunLibrarySource,
-} from "@/lib/run";
+import { ATTACHMENT_SORT_KEYS, ATTACHMENT_SORT_LABELS, type AttachmentSort } from "@/lib/run";
+import type { RunLibrarySource } from "@/lib/scene-elements";
 
 type Props = {
   /** The tab the library is on: it decides which sorts the menu offers. */

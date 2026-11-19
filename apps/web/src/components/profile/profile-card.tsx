@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Avatar, Badge, Box, HStack, Stack, Text } from "@chakra-ui/react";
 import { LocalDate } from "@/components/dates/local-date";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
-import { PROFILE_PREFERENCE_KEYS, avatarSrc, profileColor, type Profile } from "@/lib/profile";
+import { PROFILE_PREFERENCE_KEYS } from "@/lib/preference-keys";
+import { avatarSrc, profileColor, type Profile } from "@/lib/profile";
 import {
   profileDetailsSchema,
   profileStatusSchema,

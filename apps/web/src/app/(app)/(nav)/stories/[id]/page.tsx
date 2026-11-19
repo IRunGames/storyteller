@@ -1,10 +1,14 @@
 import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
-import { StoryDetails } from "@/components/stories/story-details";
+import { StoryDetails } from "./story-details";
 import { sa_listStatusOptions } from "@/components/status/actions";
-import { sa_getStory, sa_listStoryPlayers, sa_listStorySessions } from "../actions";
-import { sa_getStoryStatBlockDefinition } from "./stat-blocks/actions";
+import {
+  sa_getStory,
+  sa_listStoryPlayers,
+  sa_listStorySessions,
+} from "@/components/stories/actions";
+import { sa_getStoryStatBlockDefinition } from "./actions";
 
 // One story, behind a card's title. requireSession() here rather than
 // trusting the group layout; see lib/require-session.ts for why. Every action

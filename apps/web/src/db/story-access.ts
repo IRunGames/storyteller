@@ -105,7 +105,7 @@ export type OwnedScene = {
   description: string | null;
   status: string;
   tags: string[];
-  /** The stacks widened to the whole play space (lib/run.ts stackKey). */
+  /** The stacks widened to the whole play space (lib/scene-elements.ts stackKey). */
   wideTags: string[];
   idStorySession: number | null;
 };

@@ -4,7 +4,8 @@ import { useId, useState } from "react";
 import { Popover, SimpleGrid, chakra } from "@chakra-ui/react";
 import { Check, Pencil } from "lucide-react";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
-import { PROFILE_COLORS, PROFILE_PREFERENCE_KEYS, profileColor } from "@/lib/profile";
+import { PROFILE_COLORS, profileColor } from "@/lib/profile";
+import { PROFILE_PREFERENCE_KEYS } from "@/lib/preference-keys";
 import { profileColorSchema } from "@/lib/profile-schemas";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 

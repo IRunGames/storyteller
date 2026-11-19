@@ -1,0 +1,298 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Box,
+  Button,
+  chakra,
+  Grid,
+  HStack,
+  List,
+  Portal,
+  Stack,
+  Text,
+  Tooltip,
+} from "@chakra-ui/react";
+import { ChevronsRight, Eye, Pencil } from "lucide-react";
+import { SCENES_PAGE_SIZE, scenePreviewPath, type StoryScene } from "@/lib/scenes";
+import { SEARCH_DELAY_MS } from "@/lib/search";
+import type { StatusOption } from "@/lib/status";
+import { useDebouncedSearch } from "@/hooks/use-debounced-search";
+import { sa_listStoryScenes } from "@/components/prep/actions";
+import { StatusPill } from "@/components/status/status-pill";
+import { LocalDate } from "@/components/dates/local-date";
+import { IconLink } from "@/components/links/icon-link";
+import { DeleteSceneButton } from "./delete-scene-button";
+import { SceneInfoPopover } from "@/components/prep/scene-info-popover";
+import { SCENE_LOCKED_STATUS } from "@/lib/status";
+
+type Props = {
+  idStory: number;
+  /** The first page of the story's scenes, loaded by the page. */
+  initial: StoryScene[];
+  /** What the column's search box holds. */
+  filter: string;
+  /**
+   * The statuses still switched on above the search box. The database is
+   * asked for these only, so a status switched off takes its scenes out of
+   * every page, not just the one already loaded.
+   */
+  shownStatuses: string[];
+  /** The story_scenes workflow, for the pills. */
+  statusOptions: StatusOption[];
+  /** The viewer is the storyteller, so the pills are menus. */
+  canEdit: boolean;
+  /**
+   * Changes when the board has created a row here, so the column asks the
+   * database again with what it is narrowed to. 0 until then.
+   */
+  reloadKey?: number;
+};
+
+// A real button, so it takes focus and a tap; Text polymorphed with `as`
+// keeps the paragraph's prop types, which have no `type`.
+const NumberButton = chakra("button");
+
+/**
+ * Which sitting a scene was played in: "Session 3" on the card, with the
+ * sitting's full name behind it. A tooltip rather than a click-popover — it
+ * is one short line, and this is a label rather than something to open — and
+ * the trigger is a button so it takes focus and a tap.
+ *
+ * No aria-label: the words on it are already what it is, and the tooltip
+ * becomes the description, so a screen reader reads "Session 3" and then the
+ * name rather than a name that does not match the visible text.
+ */
+function SessionNumber({ number, heading }: { number: number; heading: string }) {
+  return (
+    <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
+      <Tooltip.Trigger asChild>
+        <NumberButton
+          type="button"
+          color="fg.muted"
+          fontSize="xs"
+          lineHeight="1.4"
+          whiteSpace="nowrap"
+          justifySelf="center"
+          cursor="default"
+        >
+          Session {number}
+        </NumberButton>
+      </Tooltip.Trigger>
+      <Portal>
+        <Tooltip.Positioner>
+          <Tooltip.Content>{heading}</Tooltip.Content>
+        </Tooltip.Positioner>
+      </Portal>
+    </Tooltip.Root>
+  );
+}
+
+// The Scenes column of the Prep Work board. Unlike the other columns the
+// search is not a filter over the rows in hand: it goes back to the database
+// and runs against story_scenes.search_text, so a scene is found by its
+// status, its title or anything written in its description, whether or not
+// its page has been loaded yet.
+export function PrepScenes({
+  idStory,
+  initial,
+  filter,
+  shownStatuses,
+  statusOptions,
+  canEdit,
+  reloadKey = 0,
+}: Props) {
+  const router = useRouter();
+  const [scenes, setScenes] = useState(initial);
+  const [hasMore, setHasMore] = useState(initial.length === SCENES_PAGE_SIZE);
+  const [isLoadingMore, setLoadingMore] = useState(false);
+  const [, startTransition] = useTransition();
+
+  const needle = filter.trim();
+  // The statuses as a string, so the search re-runs when the set changes
+  // rather than on every render that rebuilds the array.
+  const statusKey = shownStatuses.join(",");
+  const everyStatus = statusOptions.length > 0 && shownStatuses.length === statusOptions.length;
+  // The page already loaded the first page narrowed to what the board opened
+  // with (the storyteller's last filter, or none), so until the box or the
+  // pills move away from that, or the board creates a row here, the column
+  // asks for nothing. Every later change does, including one back to where
+  // it started.
+  const key = `${needle}|${statusKey}|${reloadKey}`;
+  const [openedWith] = useState(key);
+  const search = useDebouncedSearch(() => sa_listStoryScenes(idStory, 0, needle, shownStatuses), {
+    key: `${idStory}|${key}`,
+    delay: SEARCH_DELAY_MS,
+    enabled: key !== openedWith,
+    onResult: (found) => {
+      setScenes(found);
+      setHasMore(found.length === SCENES_PAGE_SIZE);
+    },
+  });
+
+  function onMore() {
+    const offset = scenes.length;
+    const asked = search.count();
+    setLoadingMore(true);
+    startTransition(async () => {
+      try {
+        const page = await sa_listStoryScenes(idStory, offset, needle, shownStatuses);
+        // The box moved on while this was in flight; its own search will
+        // replace the list, so this page is no longer wanted.
+        if (asked !== search.count()) return;
+        setScenes((current) => [...current, ...page]);
+        setHasMore(page.length === SCENES_PAGE_SIZE);
+      } catch {
+        // Leave the list as it was; the button stays so they can retry.
+      } finally {
+        setLoadingMore(false);
+      }
+    });
+  }
+
+  // A scene whose status the pill has just moved keeps the new one, so the
+  // row does not snap back while the column waits for its next load.
+  function onStatusChanged(idStoryScene: number, status: string) {
+    setScenes((current) =>
+      current.map((scene) => (scene.idStoryScene === idStoryScene ? { ...scene, status } : scene)),
+    );
+  }
+
+  // A deleted scene leaves the list at once; the refresh brings the
+  // heading's count, and the Timeline's idea of which scene a session is
+  // on, back from the page.
+  function onDeleted(idStoryScene: number) {
+    setScenes((current) => current.filter((scene) => scene.idStoryScene !== idStoryScene));
+    router.refresh();
+  }
+
+  if (scenes.length === 0) {
+    const untouched = needle === "" && everyStatus;
+    return (
+      <Text color="fg.muted">
+        {untouched ? "No scenes yet." : search.isSearching ? "Searching…" : "No matches."}
+      </Text>
+    );
+  }
+
+  return (
+    <Stack gap="4">
+      <List.Root listStyleType="none" gap="3">
+        {scenes.map((scene) => (
+          <List.Item key={scene.idStoryScene}>
+            <Stack gap="1">
+              <HStack gap="1" align="start" justify="space-between">
+                {/* A finished scene is numbered where it came in its
+                    sitting; one still to play has no number yet and its
+                    title starts the line. */}
+                <Text fontWeight="medium" minW="0">
+                  {scene.sceneNumber === null
+                    ? scene.title
+                    : `${scene.sceneNumber}. ${scene.title}`}
+                </Text>
+                <HStack gap="0" flexShrink="0">
+                  {/* A completed scene is the record of what was played,
+                      so only one still to play, or in play, can be edited.
+                      The edit action refuses the rest as well. It opens the
+                      scene's live-edit page, in a tab of its own, so the
+                      board stays where it was. */}
+                  {canEdit && scene.status !== SCENE_LOCKED_STATUS && (
+                    <IconLink
+                      label="Edit scene"
+                      href={`/stories/${idStory}/scenes/${scene.idStoryScene}`}
+                      newTab
+                    >
+                      <Pencil />
+                    </IconLink>
+                  )}
+                  {/* The scene as the players' table shows it, in a tab of
+                      its own so the board stays where it is. */}
+                  <IconLink
+                    label="Preview in a new tab"
+                    href={scenePreviewPath(scene.idStoryScene)}
+                    newTab
+                  >
+                    <Eye />
+                  </IconLink>
+                  {/* The card shows the first lines of what the storyteller
+                      wrote; the panel behind this button shows all of it. */}
+                  <SceneInfoPopover
+                    idStory={idStory}
+                    idStoryScene={scene.idStoryScene}
+                    statusOptions={statusOptions}
+                    canEdit={canEdit}
+                    onStatusChanged={(status) => onStatusChanged(scene.idStoryScene, status)}
+                  />
+                  {/* Last, apart from the ones that open something. Any
+                      scene can go, a completed one included; the dialog
+                      asks harder for that. */}
+                  {canEdit && (
+                    <DeleteSceneButton
+                      idStoryScene={scene.idStoryScene}
+                      title={scene.title}
+                      complete={scene.status === SCENE_LOCKED_STATUS}
+                      sessionHeading={scene.sessionHeading}
+                      onDeleted={() => onDeleted(scene.idStoryScene)}
+                    />
+                  )}
+                </HStack>
+              </HStack>
+
+              {/* The description runs to several lines in the database — the
+                  NPCs in the scene and anything of note — and the column is
+                  narrow, so the card shows the opening and the rest waits
+                  for the scene to be opened. */}
+              {scene.description && (
+                <Text color="fg.muted" fontSize="sm" lineClamp="3">
+                  {scene.description}
+                </Text>
+              )}
+
+              {/* Where the scene has got to, along the foot of the card: the
+                  status, the sitting it was played in, and the day it reached
+                  that status. Three columns rather than a row with a spacer,
+                  so the sitting sits in the middle of the card however wide
+                  the status and the date happen to be. */}
+              <Grid templateColumns="1fr auto 1fr" alignItems="center" gap="2" pt="1">
+                <Box justifySelf="start">
+                  <StatusPill
+                    table="story_scenes"
+                    id={scene.idStoryScene}
+                    status={scene.status}
+                    options={statusOptions}
+                    canEdit={canEdit}
+                    onChanged={(status) => onStatusChanged(scene.idStoryScene, status)}
+                  />
+                </Box>
+                {scene.sessionNumber !== null && scene.sessionHeading !== null && (
+                  <SessionNumber number={scene.sessionNumber} heading={scene.sessionHeading} />
+                )}
+                {scene.statusAt && (
+                  <Text
+                    color="fg.muted"
+                    fontSize="xs"
+                    whiteSpace="nowrap"
+                    gridColumn="3"
+                    justifySelf="end"
+                  >
+                    <LocalDate value={scene.statusAt} />
+                  </Text>
+                )}
+              </Grid>
+            </Stack>
+          </List.Item>
+        ))}
+      </List.Root>
+
+      {hasMore && (
+        <Box>
+          <Button variant="outline" onClick={onMore} loading={isLoadingMore} loadingText="More">
+            More
+            <ChevronsRight />
+          </Button>
+        </Box>
+      )}
+    </Stack>
+  );
+}

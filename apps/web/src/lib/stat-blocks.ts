@@ -95,6 +95,24 @@ export function numberOrText(text: string): number | string {
 }
 
 /**
+ * A rack as the editor's one text field holds it, "d4, d6, d8", split on
+ * commas with a number kept as a number ("6" is the entry 6), so the rack
+ * reads the same whether it was typed or stored.
+ */
+export function splitRack(text: string): RackEntry[] {
+  return text
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "")
+    .map(numberOrText);
+}
+
+/** A rack as the editor's field shows it. */
+export function joinRack(rack: RackEntry[]): string {
+  return rack.map(String).join(", ");
+}
+
+/**
  * One stat of a definition, as statDefinitionSchema (stat-block-schemas.ts)
  * checks it; every field is present, an empty string or array standing for
  * "none", so the editor's rows and the stored jsonb are one shape. The

@@ -4,7 +4,7 @@ import { useId } from "react";
 import { Accordion, Avatar, HStack, Image, List, Stack, Text } from "@chakra-ui/react";
 import { formatSessionLength, sessionHeading, type StorySessionDetail } from "@/lib/stories";
 import type { StatusOption } from "@/lib/status";
-import { sa_getStorySession } from "@/app/(app)/(nav)/stories/actions";
+import { sa_getStorySession } from "./actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { InfoPopover } from "@/components/popovers/info-popover";

@@ -3,7 +3,7 @@
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { Box, HStack, Image, List, Stack, Text } from "@chakra-ui/react";
 import { ArrowRight } from "lucide-react";
-import type { PlayItem } from "@/lib/run";
+import type { LibraryItem } from "@/lib/scene-elements";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import {
   AttachmentPreviewButton,
@@ -24,19 +24,19 @@ export function LibraryList({
   renderActions,
   editTagsFor,
 }: {
-  items: PlayItem[] | null;
+  items: LibraryItem[] | null;
   filtered: boolean;
   /** An element's arrow, which puts it in the play space. */
-  onAdd?: (item: PlayItem) => void;
+  onAdd?: (item: LibraryItem) => void;
   /** In place of the element's arrow: an attachment's, which attaches it, or the Recycle that detaches it. */
-  renderArrow?: (item: PlayItem) => ReactNode;
+  renderArrow?: (item: LibraryItem) => ReactNode;
   /**
    * Controls drawn before an item's arrow: an element's info button, an
    * attachment's tags and Cover.
    */
-  renderActions?: (item: PlayItem) => ReactNode;
+  renderActions?: (item: LibraryItem) => ReactNode;
   /** An attachment's tag handlers, so its full-size preview edits them too. */
-  editTagsFor?: (item: PlayItem) => ComponentProps<typeof AttachmentPreviewDialog>["editTags"];
+  editTagsFor?: (item: LibraryItem) => ComponentProps<typeof AttachmentPreviewDialog>["editTags"];
 }) {
   // The attachment whose picture is open full size, by key. One dialog for
   // the whole list rather than one per row, so the arrow keys can move it

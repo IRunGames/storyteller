@@ -6,8 +6,8 @@ import { sessionHeading } from "@/lib/stories";
 import { EMPTY_PLAY_SCENE } from "@/lib/play-scene";
 import { PlayCover } from "@/components/play/play-cover";
 import { StoryUnavailableDialog } from "@/components/play/story-unavailable-dialog";
-import { PassiveTable } from "@/components/table/passive-table";
-import { sa_getStorySession } from "@/app/(app)/(nav)/stories/actions";
+import { PassiveTable } from "./passive-table";
+import { sa_getStorySession } from "@/components/stories/actions";
 import { sa_getPlayScene, sa_getPlayStory, sa_joinSession } from "@/components/play/actions";
 
 // The display table: the story's table put up to be read at a distance,

@@ -4,7 +4,7 @@ import { db, schema } from "@/db";
 import { staleBlobs, unclaimedAttachmentIds } from "@/lib/blob-sweep";
 import { isCronRequest } from "@/lib/cron";
 import { isUploadedBlobUrl } from "@/lib/image-uploads";
-import { PROFILE_PREFERENCE_KEYS } from "@/lib/profile";
+import { PROFILE_PREFERENCE_KEYS } from "@/lib/preference-keys";
 
 const { attachments, userPreferences } = schema;
 

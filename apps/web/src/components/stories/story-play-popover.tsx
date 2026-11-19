@@ -11,7 +11,7 @@ import {
   sa_listUnfinishedSessions,
   sa_startPlaying,
   type UnfinishedSession,
-} from "@/app/(app)/(nav)/play/actions";
+} from "@/components/sessions/actions";
 
 type Props = {
   idStory: number;

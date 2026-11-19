@@ -128,7 +128,8 @@ It registers the table in `_tables` and raises if it is not there afterwards,
 records what the table needs, runs only the procedures those needs call for,
 and indexes every foreign key. Its other switches add the rest:
 `p_archival` (`is_archived`, `archived_at`, `id_archived_by_user` and the
-triggers that keep them in step), `p_activity_log`, `p_tags`, `p_kind_values`,
+triggers that keep them in step), `p_system_fields` (`system_by`, `system_at`,
+`system_id`, nullable with no default), `p_activity_log`, `p_tags`, `p_kind_values`,
 `p_status_workflow_ids` (see `STATUS_WORKFLOWS.md`) and `p_search_fields`;
 `procedures/_p_set_and_update_table_features.sql` describes each. See
 `custom/create_invitations_table.sql` for a plain table and

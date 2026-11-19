@@ -3,16 +3,17 @@ import type { ElementKind, StoryElement } from "@/lib/elements";
 import { PREP_SESSIONS_PAGE_SIZE } from "@/lib/stories";
 import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
-import { PrepBoard } from "@/components/prep/prep-board";
-import {
-  prepBoardPreferenceKey,
-  prepColumnQuery,
-  readPrepBoardState,
-} from "@/components/prep/prep-board-state";
-import { ELEMENT_COLUMNS } from "@/components/prep/prep-columns";
+import { PrepBoard } from "./prep-board";
+import { prepBoardPreferenceKey } from "@/lib/preference-keys";
+import { prepColumnQuery, readPrepBoardState } from "./prep-board-state";
+import { ELEMENT_COLUMNS } from "./prep-columns";
 import { sa_getUserPreferences } from "@/components/preferences/actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
-import { sa_getStory, sa_countStorySessions, sa_listStorySessions } from "../../actions";
+import {
+  sa_getStory,
+  sa_countStorySessions,
+  sa_listStorySessions,
+} from "@/components/stories/actions";
 import {
   sa_countStoryElements,
   sa_countStoryScenes,

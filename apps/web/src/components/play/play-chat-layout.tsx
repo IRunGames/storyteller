@@ -3,6 +3,7 @@
 import { ButtonGroup, IconButton, Portal, Tooltip } from "@chakra-ui/react";
 import { PictureInPicture2, Rows2, Rows3 } from "lucide-react";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
+import { CHAT_LAYOUT_KEY } from "@/lib/preference-keys";
 
 /**
  * How the table chat is drawn, on the run and play tables alike:
@@ -11,10 +12,8 @@ import { useUserPreferences } from "@/components/preferences/user-preferences-pr
  * - overlay: no panel, a small box in the lower right to type in, and each
  *   new line shown briefly over the table.
  */
-export const CHAT_LAYOUTS = ["standard", "compact", "overlay"] as const;
+const CHAT_LAYOUTS = ["standard", "compact", "overlay"] as const;
 export type ChatLayout = (typeof CHAT_LAYOUTS)[number];
-
-const CHAT_LAYOUT = "chat.layout";
 
 const LABELS: Record<ChatLayout, string> = {
   standard: "Standard chat",
@@ -31,9 +30,9 @@ const ICONS: Record<ChatLayout, typeof Rows2> = {
 /** The viewer's chat layout, kept as a preference; anything unknown reads as standard. */
 export function useChatLayout(): [ChatLayout, (layout: ChatLayout) => void] {
   const preferences = useUserPreferences();
-  const stored = preferences.get(CHAT_LAYOUT);
+  const stored = preferences.get(CHAT_LAYOUT_KEY);
   const layout = CHAT_LAYOUTS.find((value) => value === stored) ?? "standard";
-  return [layout, (next) => void preferences.set(CHAT_LAYOUT, next)];
+  return [layout, (next) => void preferences.set(CHAT_LAYOUT_KEY, next)];
 }
 
 /**

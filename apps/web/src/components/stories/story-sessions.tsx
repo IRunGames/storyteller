@@ -14,7 +14,7 @@ import {
   sessionHeading,
   type StorySession,
 } from "@/lib/stories";
-import { sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
+import { sa_listStorySessions } from "./actions";
 import { StatusPill } from "@/components/status/status-pill";
 import { PlayerCount } from "./player-count";
 import { LocalDate } from "@/components/dates/local-date";

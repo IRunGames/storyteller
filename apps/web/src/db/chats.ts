@@ -3,7 +3,8 @@ import { and, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "./index";
 import type { CurrentScene } from "./scene-items";
 import { chats, stories, storySessions, user, userPreferences } from "./schema";
-import { PROFILE_PREFERENCE_KEYS, avatarSrc, chosenProfileColor } from "@/lib/profile";
+import { PROFILE_PREFERENCE_KEYS } from "@/lib/preference-keys";
+import { avatarSrc, chosenProfileColor } from "@/lib/profile";
 import type { PublicChat } from "@/lib/realtime/chat-events";
 import { rollSchema, type Roll } from "@/lib/roll";
 

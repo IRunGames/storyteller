@@ -40,7 +40,9 @@ const bodyLabels = () => {
 
 describe("SystemsAdmin", () => {
   before(async () => {
-    mock.module("./actions", { namedExports: { sa_createSystem, sa_deleteSystem } });
+    mock.module("./actions", {
+      namedExports: { sa_createSystem, sa_deleteSystem },
+    });
     ({ SystemsAdmin } = await import("./systems-admin"));
   });
 

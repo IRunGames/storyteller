@@ -25,7 +25,7 @@ import {
 import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import type { SessionForEdit } from "@/lib/stories";
 import { applyActionErrors } from "@/lib/forms";
-import { sa_getSessionForEdit, sa_updateStorySession } from "@/app/(app)/(nav)/stories/actions";
+import { sa_getSessionForEdit, sa_updateStorySession } from "./actions";
 import { sa_setLiveSceneSession } from "@/components/live/actions";
 import { toaster } from "@/components/ui/toaster";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";

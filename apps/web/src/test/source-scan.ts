@@ -4,7 +4,7 @@
 // had not been written for (a prop with nested braces, an action declared
 // as an arrow function); the parser sees the file as the compiler does.
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import ts from "typescript";
 
 export const SRC = join(process.cwd(), "src");
@@ -101,4 +101,67 @@ export function exportedFunctions(source: Source): ExportedFunction[] {
     }
   }
   return found;
+}
+
+/**
+ * The module specifiers of every import that is still there at run time:
+ * import declarations, `export … from` and `import()` calls, but not
+ * `import type`, `export type`, or an import whose every name is marked
+ * `type`, all of which the compiler removes.
+ */
+export function runtimeImports(source: Source): ts.StringLiteralLike[] {
+  const found: ts.StringLiteralLike[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isImportDeclaration(node)) {
+      const clause = node.importClause;
+      const typeOnly =
+        clause !== undefined &&
+        (clause.isTypeOnly ||
+          (!clause.name &&
+            clause.namedBindings !== undefined &&
+            ts.isNamedImports(clause.namedBindings) &&
+            clause.namedBindings.elements.length > 0 &&
+            clause.namedBindings.elements.every((element) => element.isTypeOnly)));
+      if (!typeOnly && ts.isStringLiteralLike(node.moduleSpecifier))
+        found.push(node.moduleSpecifier);
+    } else if (ts.isExportDeclaration(node)) {
+      if (
+        !node.isTypeOnly &&
+        node.moduleSpecifier &&
+        ts.isStringLiteralLike(node.moduleSpecifier)
+      ) {
+        found.push(node.moduleSpecifier);
+      }
+    } else if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments[0] &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      found.push(node.arguments[0]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source.sourceFile);
+  return found;
+}
+
+/**
+ * The file under src/ that a specifier written in `from` names, through the
+ * `@/` alias or a relative path, or undefined for a package or a file that
+ * is not among `files`.
+ */
+export function resolveSource(from: string, specifier: string, files: Set<string>) {
+  let base: string;
+  if (specifier.startsWith("@/")) base = join(SRC, specifier.slice(2));
+  else if (specifier.startsWith(".")) base = join(dirname(from), specifier);
+  else return undefined;
+  const candidates = [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    join(base, "index.ts"),
+    join(base, "index.tsx"),
+  ];
+  return candidates.find((candidate) => files.has(candidate));
 }

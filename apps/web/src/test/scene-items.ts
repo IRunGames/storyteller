@@ -3,15 +3,15 @@
 // assert on, and the list holds what the test gives it. Mounted through
 // SceneItemsProvider (components/table-shell/scene-items-context.tsx).
 import { mock, type Mock } from "node:test";
-import type { PlayItem } from "@/lib/run";
+import type { SceneItem } from "@/lib/scene-elements";
 import type { SceneItems } from "@/components/table-shell/use-scene-items";
 
 type Fns = Omit<SceneItems, "items">;
-export type SceneItemsStub = { items: PlayItem[] } & {
+export type SceneItemsStub = { items: SceneItem[] } & {
   [K in keyof Fns]: Mock<Fns[K]>;
 };
 
-export function sceneItemsStub(items: PlayItem[] = []): SceneItemsStub {
+export function sceneItemsStub(items: SceneItem[] = []): SceneItemsStub {
   return {
     items,
     load: mock.fn<SceneItems["load"]>(),

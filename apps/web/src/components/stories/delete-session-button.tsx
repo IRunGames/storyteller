@@ -1,6 +1,6 @@
 "use client";
 
-import { sa_deleteStorySession } from "@/app/(app)/(nav)/stories/actions";
+import { sa_deleteStorySession } from "./actions";
 import { DeleteButton } from "@/components/confirm/delete-button";
 
 type Props = {

@@ -99,7 +99,7 @@ async function open(user = userEvent.setup()) {
 
 describe("SessionInfoPopover", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/stories/actions", {
+    mock.module("./actions", {
       namedExports: { sa_getStorySession },
     });
     mock.module("@/components/prep/actions", {

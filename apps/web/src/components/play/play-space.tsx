@@ -13,7 +13,7 @@ import {
 } from "@chakra-ui/react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { toPlayItem, type PlayScene } from "@/lib/play-scene";
-import { isStackWide, playStacks, stackKey } from "@/lib/run";
+import { isStackWide, playStacks, stackKey } from "@/lib/scene-elements";
 import { type SceneText } from "@/lib/scenes";
 import { SCENE_LOCKED_STATUS, SCENE_PENDING_STATUS } from "@/lib/status";
 import { useUser } from "@/components/auth/user-provider";
@@ -25,7 +25,7 @@ import { PulsedPicture } from "@/components/table-shell/pulsed-picture";
 import { STATUS_NOTES } from "@/components/table-shell/status-notes";
 import { BackgroundToggle } from "./background-toggle";
 import { PlayPill } from "./play-pill";
-import { SceneStateOverlay } from "./scene-state-overlay";
+import { SceneStateOverlay } from "@/components/table-shell/scene-state-overlay";
 import { SceneTextPopover } from "./scene-text-popover";
 import type { ChannelStatus } from "./use-story-channel";
 

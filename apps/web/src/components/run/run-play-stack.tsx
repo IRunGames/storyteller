@@ -2,7 +2,7 @@
 
 import { Text } from "@chakra-ui/react";
 import { Maximize2, Minimize2 } from "lucide-react";
-import type { PlayStack } from "@/lib/run";
+import type { PlayStack } from "@/lib/scene-elements";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { PlayStackFrame } from "@/components/table-shell/play-stack-frame";
 import { useSceneItemsContext } from "@/components/table-shell/scene-items-context";

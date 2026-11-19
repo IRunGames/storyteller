@@ -5,6 +5,7 @@ import { useId, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
 import { THEMES, type Theme } from "@/lib/themes";
+import { THEME_KEY } from "@/lib/preference-keys";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import {
@@ -50,7 +51,7 @@ export function NavThemeMenu() {
   // the provider restore it on the next sign-in, on any browser.
   const choose = (value: string) => {
     setTheme(value);
-    void preferences.set("theme", value);
+    void preferences.set(THEME_KEY, value);
   };
 
   return (

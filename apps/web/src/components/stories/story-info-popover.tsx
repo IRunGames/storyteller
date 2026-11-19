@@ -2,7 +2,7 @@
 
 import { Image, Stack, Text } from "@chakra-ui/react";
 import { formatPlayerCount, systemLabel, type StoryCardData } from "@/lib/stories";
-import { sa_getStory } from "@/app/(app)/(nav)/stories/actions";
+import { sa_getStory } from "./actions";
 import { InfoPopover } from "@/components/popovers/info-popover";
 import { LocalDate } from "@/components/dates/local-date";
 

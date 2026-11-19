@@ -49,7 +49,7 @@ describe("a scene's edit page", () => {
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions: listStatusOptions },
     });
-    mock.module("@/components/prep/scene-form", { namedExports: { SceneForm } });
+    mock.module("@/app/(app)/(nav)/stories/[id]/scene-form", { namedExports: { SceneForm } });
     Page = (await import("./page")).default;
   });
 

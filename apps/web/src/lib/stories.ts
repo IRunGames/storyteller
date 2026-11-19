@@ -1,5 +1,4 @@
 import { formatDay } from "@/lib/dates";
-import type { SessionScene } from "@/lib/scenes";
 import { statusLabel } from "@/lib/status";
 import { plural } from "./plural";
 
@@ -95,6 +94,17 @@ export type StorySession = {
    * ids that still match a user.
    */
   playerCount: number;
+};
+
+/**
+ * One scene as a session's info panel lists it. Here with the session shapes
+ * that hold it rather than in lib/scenes.ts, which reads formatSessionLength
+ * from this module: the two would otherwise import each other.
+ */
+export type SessionScene = {
+  idStoryScene: number;
+  title: string;
+  status: string;
 };
 
 /** What the session info popover shows for one session. */

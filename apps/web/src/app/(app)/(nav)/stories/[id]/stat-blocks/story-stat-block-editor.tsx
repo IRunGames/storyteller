@@ -2,7 +2,7 @@
 
 import { StatBlockDefinitionEditor } from "@/components/stat-blocks/stat-block-definition-editor";
 import type { StatBlockDefinition } from "@/lib/stat-blocks";
-import { sa_setStoryStatBlockDefinition } from "./actions";
+import { sa_setStoryStatBlockDefinition } from "@/app/(app)/(nav)/stories/[id]/actions";
 
 /** The story's copy of its system's stat block definition in the shared editor, saved over the copy. */
 export function StoryStatBlockEditor({

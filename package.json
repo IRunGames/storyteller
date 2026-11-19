@@ -2,18 +2,19 @@
   "name": "storyteller",
   "private": true,
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/*"
   ],
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
-    "test": "turbo test",
-    "clean": "turbo clean"
+    "test": "turbo test"
   },
   "devDependencies": {
     "turbo": "^2"
   },
-  "packageManager": "npm@10.9.4"
+  "packageManager": "npm@10.9.4",
+  "engines": {
+    "node": ">=24 <25"
+  }
 }

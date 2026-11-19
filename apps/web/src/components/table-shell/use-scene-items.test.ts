@@ -1,10 +1,11 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
 import { act, renderHook } from "@testing-library/react";
-import type { ElementDetail, PlayItem } from "@/lib/run";
+import type { ElementDetail } from "@/lib/run";
+import type { SceneItem } from "@/lib/scene-elements";
 import { useSceneItems } from "./use-scene-items";
 
-const dafydd: PlayItem = {
+const dafydd: SceneItem = {
   key: "PERSON:5:9",
   kind: "PERSON",
   label: "Dafydd",
@@ -18,13 +19,13 @@ const dafydd: PlayItem = {
   showing: "name",
 };
 // Dafydd in the scene a second time, with his own link.
-const dafyddAgain: PlayItem = {
+const dafyddAgain: SceneItem = {
   ...dafydd,
   key: "PERSON:5:12",
   idSceneElement: 12,
   label: "Dafydd 2",
 };
-const lantern: PlayItem = {
+const lantern: SceneItem = {
   key: "THING:6:10",
   kind: "THING",
   label: "Lantern",

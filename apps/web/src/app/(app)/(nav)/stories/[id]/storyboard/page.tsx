@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
-import { Storyboard } from "@/components/storyboard/storyboard";
+import { Storyboard } from "./storyboard";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getStoryboard } from "./actions";
 

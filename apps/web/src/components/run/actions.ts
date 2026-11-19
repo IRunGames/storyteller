@@ -23,11 +23,10 @@ import { publishSceneChanged } from "@/lib/realtime/publish-scene";
 import {
   EMPTY_PLAY_SPACE,
   RUN_SCENES_LIST_SIZE,
-  stackKey,
-  withStackWide,
   type RunPlaySpace,
   type RunScene,
 } from "@/lib/run";
+import { stackKey, withStackWide } from "@/lib/scene-elements";
 import { runSceneSchema, sceneTextWithTitleSchema } from "@/lib/scene-schemas";
 import { type SetSceneTextResult } from "@/lib/scenes";
 import { sceneStacksSchema, stackWideSchema } from "@/lib/stack-schemas";
@@ -40,8 +39,8 @@ const { sceneElements, stories, storyScenes, storySessions, vStoryScenes } = sch
 // choosing and making scenes, and writing up the scene itself (its text and
 // its stacks). What is in the scene is components/scene-elements/actions.ts,
 // the element library components/elements/actions.ts, the session's
-// controls components/sessions/actions.ts, and the join link
-// components/join-links/actions.ts. Every action here starts with
+// controls components/sessions/actions.ts, and the join link the run
+// page's own actions.ts beside it. Every action here starts with
 // requireAccount() and answers only the story's storyteller.
 
 /** The executor inside db.transaction, for a helper that may run within a caller's transaction. */

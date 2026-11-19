@@ -4,9 +4,9 @@ import { parseRouteId } from "@/lib/route-ids";
 import { isUnplayable } from "@/lib/play";
 import { PREP_SESSIONS_PAGE_SIZE, sessionHeading } from "@/lib/stories";
 import { PlayCover } from "@/components/play/play-cover";
-import { PlayTable } from "@/components/play/play-table";
+import { PlayTable } from "./play-table";
 import { StoryUnavailableDialog } from "@/components/play/story-unavailable-dialog";
-import { sa_getStorySession, sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
+import { sa_getStorySession, sa_listStorySessions } from "@/components/stories/actions";
 import { EMPTY_PLAY_SCENE } from "@/lib/play-scene";
 import { sa_getPlayScene, sa_getPlayStory, sa_joinSession } from "@/components/play/actions";
 

@@ -37,7 +37,7 @@ import { rollDice, rollTotal } from "@/lib/dice";
 import { currentScene, type CurrentScene } from "@/db/scene-items";
 import { insertChat } from "@/db/chats";
 import { publishChat } from "@/lib/realtime/publish";
-import { isElementShowing, pillText, SCENE_ELEMENT_HIDDEN } from "@/lib/run";
+import { isElementShowing, pillText, SCENE_ELEMENT_HIDDEN } from "@/lib/scene-elements";
 import { formErrors } from "@/lib/forms";
 import { ELEMENT_NOT_YOURS, NOTHING_TO_ROLL } from "@/lib/messages";
 

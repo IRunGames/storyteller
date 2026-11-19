@@ -2,7 +2,7 @@
 
 import { useId, type ReactNode } from "react";
 import { Heading, HStack, List, Stack } from "@chakra-ui/react";
-import type { PlayItem } from "@/lib/run";
+import type { SceneItem } from "@/lib/scene-elements";
 import { HALO, HALO_FILTER } from "./halo";
 
 type Props = {
@@ -26,9 +26,9 @@ type Props = {
   controls?: ReactNode;
   /** What an empty stack says; nothing when left out, as on the display table. */
   empty?: ReactNode;
-  items: PlayItem[];
+  items: SceneItem[];
   /** One pill, drawn as the table draws it. */
-  renderItem: (item: PlayItem) => ReactNode;
+  renderItem: (item: SceneItem) => ReactNode;
 };
 
 /**

@@ -36,7 +36,7 @@ const redirect = (to: string) => {
 let db: Db;
 let tables: Tables;
 let invite: typeof import("./actions");
-let storyActions: typeof import("@/app/(app)/(nav)/stories/actions");
+let storyActions: typeof import("@/components/stories/actions");
 let adminActions: typeof import("@/app/(app)/(nav)/admin/invitations/actions");
 
 let owner = "";
@@ -53,7 +53,7 @@ describeWithDb("invitations", {}, (suite) => {
     mock.module("next/navigation", { namedExports: { redirect, notFound: redirect } });
     ({ db, tables } = suite);
     invite = await import("./actions");
-    storyActions = await import("@/app/(app)/(nav)/stories/actions");
+    storyActions = await import("@/components/stories/actions");
     adminActions = await import("@/app/(app)/(nav)/admin/invitations/actions");
 
     owner = await suite.makeUser(OWNER_EMAIL);

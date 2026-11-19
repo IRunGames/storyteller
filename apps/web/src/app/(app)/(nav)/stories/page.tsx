@@ -1,8 +1,12 @@
 import { Container } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
 import { DEFAULT_MY_STORY_LIST_QUERY } from "@/lib/story-list-schemas";
-import { MyStories } from "@/components/stories/my-stories";
-import { sa_getStoryAllowance, sa_listFavoriteStories, sa_listMyStoryPage } from "./actions";
+import { MyStories } from "./my-stories";
+import {
+  sa_getStoryAllowance,
+  sa_listFavoriteStories,
+  sa_listMyStoryPage,
+} from "@/components/stories/actions";
 
 // The Stories page, behind the "Stories" nav item: every story the caller
 // runs, plays in or has favorited, as cards or as a list, searched and

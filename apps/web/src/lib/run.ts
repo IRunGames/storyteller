@@ -2,15 +2,16 @@ import type { Attachment } from "@/lib/attachments";
 import {
   ELEMENT_KINDS,
   ELEMENT_SORT_KEYS,
-  isWebUrl,
   type ElementKind,
   type ElementSort,
 } from "@/lib/elements";
+import type { RunLibrarySource, SceneItem } from "@/lib/scene-elements";
 import type { SceneText } from "@/lib/scenes";
 
 // The storyteller's table, /stories/[id]/run: the pieces its library panel
 // and play space share. The player's table is /stories/[id]/play; see
-// lib/play.ts.
+// lib/play.ts. What both tables read of a scene's elements (their statuses,
+// the items, a pill's text, the stacks) is lib/scene-elements.ts.
 
 /** How many matches each of the library panel's tabs lists. */
 export const RUN_LIST_SIZE = 10;
@@ -63,42 +64,11 @@ export type RunPlaySpace = {
    */
   wideTags?: string[];
   coverUrl: string | null;
-  inPlay: PlayItem[];
+  inPlay: SceneItem[];
 };
 
 /** What the play space shows with no scene at the table. */
 export const EMPTY_PLAY_SPACE: RunPlaySpace = { scene: null, tags: [], coverUrl: null, inPlay: [] };
-
-/** The stack a scene with no tags shows its elements in. */
-export const DEFAULT_STACK_TITLE = "Default";
-
-/**
- * How a stack is named in story_scenes.wide_tags: by its tag, or by "" for
- * the Default stack, whose tag is null. A real stack can never be called ""
- * (stackNameSchema wants at least one character), so the two never meet.
- */
-export function stackKey(tag: string | null): string {
-  return tag ?? "";
-}
-
-/** Whether the storyteller has widened the stack to the whole play space. */
-export function isStackWide(wideTags: readonly string[] | undefined, tag: string | null): boolean {
-  return wideTags?.includes(stackKey(tag)) ?? false;
-}
-
-/** The wide set with one stack widened or narrowed, as sa_setStackWide writes it. */
-export function withStackWide(
-  wideTags: readonly string[] | undefined,
-  tag: string | null,
-  wide: boolean,
-): string[] {
-  const key = stackKey(tag);
-  const rest = (wideTags ?? []).filter((held) => held !== key);
-  return wide ? [...rest, key] : rest;
-}
-
-/** What a tab of the library panel lists: the story's attachments, or one kind of element. */
-export type RunLibrarySource = "ATTACHMENT" | ElementKind;
 
 // Each kind's tab is named as its column on the Prep Work board is, so the
 // storyteller finds the same word in both places.
@@ -115,182 +85,6 @@ export const RUN_LIBRARY_TABS: readonly { source: RunLibrarySource; title: strin
   { source: "ATTACHMENT", title: "Attachments" },
   ...ELEMENT_KINDS.map((kind) => ({ source: kind, title: KIND_TITLES[kind] })),
 ];
-
-/**
- * One thing in the storyteller's play space: put there from the library, or
- * there from the start as one of the current scene's elements.
- * `key` is the source, the row's id and, for an element linked to the scene,
- * the link's id (playItemKey): an element may be in a scene more than once,
- * one pill per link, and the pills are told apart by it.
- */
-export type PlayItem = {
-  key: string;
-  /** The library tab it belongs to. */
-  kind: RunLibrarySource;
-  label: string;
-  /** A second line: an element's title. */
-  detail: string | null;
-  /** An attachment's picture. */
-  imageUrl: string | null;
-  /**
-   * An attachment's tags and whether it is its story's cover, for the
-   * full-size preview the library opens from its picture. Absent for
-   * everything else.
-   */
-  attachment?: { tags: string[]; isCover: boolean };
-  /**
-   * An element linked to the scene: its scene_elements tags, which choose
-   * the stacks it shows in. Absent for anything only in the page's state.
-   */
-  sceneTags?: string[];
-  /** An element linked to the scene: its scene_elements status, which the pill's status menu shows. */
-  sceneStatus?: string;
-  /** An element linked to the scene: the link's own id, the holder of its stat blocks. */
-  idSceneElement?: number;
-  /**
-   * An element linked to the scene: whether the link carries any stat block,
-   * which gives the pill its die. As the page loaded or last saved it; a
-   * block picked at the table shows once the page is read again.
-   */
-  hasStatBlocks?: boolean;
-  /**
-   * An element linked to the scene: whether the players' table shows its
-   * description (scene_elements.show_info), which the pill's info toggle sets.
-   */
-  showInfo?: boolean;
-  /** The players' table: the element's description, when show_info lets them see it. */
-  info?: string | null;
-  /** The players' table: their own notes on the element (elements.notes), from its info popover. */
-  notes?: string | null;
-  /**
-   * The external link the pill offers (pillLink): the link's own for this
-   * scene, else the element's. Null or absent for none.
-   */
-  link?: PillLink | null;
-  /**
-   * An element linked to the scene: its fields the pill can show, which the
-   * pill's name lists as a dropdown, and the one it shows in this scene
-   * (scene_elements.element_showing). The label and detail are worked out
-   * from them by pillText. Absent for anything only in the page's state.
-   */
-  fields?: ElementFields;
-  showing?: ElementShowing;
-};
-
-/**
- * An item's key: the kind and the element's id, and the link's id after them
- * for an element linked to the scene, so two links of one element are two
- * items. Without a link (an element kept in the page's state alone, with no
- * scene at the table) the element's id is all there is.
- */
-export function playItemKey(kind: string, idElement: number, idSceneElement?: number | null) {
-  return idSceneElement == null ? `${kind}:${idElement}` : `${kind}:${idElement}:${idSceneElement}`;
-}
-
-/**
- * The fields a pill can show, as scene_elements.element_showing names them
- * (its CHECK holds the same four), in the dropdown's order: the element's
- * initial name, name and title, and the link's own label, which a copy of an
- * element already in the scene is given as it is made ("Goblin 1").
- */
-export const ELEMENT_SHOWING = ["initial_name", "name", "title", "label"] as const;
-export type ElementShowing = (typeof ELEMENT_SHOWING)[number];
-
-/** What a new link shows, the column's default: a first appearance. */
-export const DEFAULT_ELEMENT_SHOWING: ElementShowing = "initial_name";
-
-export function isElementShowing(value: unknown): value is ElementShowing {
-  return ELEMENT_SHOWING.includes(value as ElementShowing);
-}
-
-/** The external link a pill offers: the address, and the words for its tooltip. */
-export type PillLink = { url: string; text: string };
-
-/** An external link as a row carries it: the address and the words for it, either empty. */
-export type ElementLink = { url: string | null; urlText: string | null };
-
-/**
- * The link a pill offers for an element in a scene: the link's own for this
- * scene when it has one, else the element's, and only an address that is a
- * well-formed web address (isWebUrl); anything else is kept but not
- * offered. The tooltip is the words given with the address, else the
- * address itself. Null for no link.
- */
-export function pillLink(
-  scene: ElementLink | null | undefined,
-  element: ElementLink,
-): PillLink | null {
-  const chosen = scene?.url ? scene : element;
-  if (!chosen.url || !isWebUrl(chosen.url)) return null;
-  return { url: chosen.url, text: chosen.urlText || chosen.url };
-}
-
-/**
- * A pill's showable fields by their column names: the element's three, and
- * the link's own label (scene_elements.label); only the name is never empty.
- */
-export type ElementFields = {
-  initial_name: string | null;
-  name: string;
-  title: string | null;
-  label: string | null;
-};
-
-/**
- * A linked element's pill text for the field it shows. A field left empty
- * falls back to the name, so a pill is never blank, and `highlighted` is
- * then false: the highlight says the players know the element by something
- * other than its name. The title goes on the second line unless it is
- * already the first.
- */
-export function pillText(
-  fields: ElementFields,
-  showing: ElementShowing,
-): { label: string; detail: string | null; highlighted: boolean } {
-  const label = fields[showing] || fields.name;
-  return {
-    label,
-    detail: fields.title && fields.title !== label ? fields.title : null,
-    highlighted: label !== fields.name,
-  };
-}
-
-/** A linked element's item showing another of its fields, label and detail with it. */
-export function withShowing(item: PlayItem, showing: ElementShowing): PlayItem {
-  if (!item.fields) return item;
-  const { label, detail } = pillText(item.fields, showing);
-  return { ...item, showing, label, detail };
-}
-
-/**
- * The preference behind the library's Add as invisible switch: elements the
- * storyteller adds to the scene start hidden from the players.
- */
-export const RUN_ADD_INVISIBLE = "run.addInvisible";
-
-/**
- * The preference behind the library's Add showing info switch: elements the
- * storyteller adds to the scene start with their description shown to the
- * players (scene_elements.show_info). Off unless chosen: what the players
- * are to know of an element is the storyteller's to give out.
- */
-export const RUN_ADD_SHOW_INFO = "run.addShowInfo";
-
-/**
- * The preference behind the library's All / Scene only switch: whether its
- * element tabs list every element in the story or only the ones linked to
- * the scene the table is on.
- */
-export const RUN_LIBRARY_SCENE_ONLY = "run.librarySceneOnly";
-
-/**
- * The preferences behind the library's sort menu, one for the Attachments
- * tab and one shared by the element tabs, since the two offer different
- * sorts. Each holds a key from ATTACHMENT_SORT_KEYS or ELEMENT_SORT_KEYS;
- * an unknown value (a sort since dropped) falls back to the default.
- */
-export const RUN_LIBRARY_ATTACHMENT_SORT = "run.libraryAttachmentSort";
-export const RUN_LIBRARY_ELEMENT_SORT = "run.libraryElementSort";
 
 /**
  * What the Attachments tab can be sorted by. The file name sorts A to Z by
@@ -343,32 +137,6 @@ function newestFirst(a: string | null, b: string | null): number {
   return a < b ? 1 : a > b ? -1 : 0;
 }
 
-/**
- * The scene elements workflow's statuses, in the order the pill's status
- * menu lists them (the seed holds the same four, each reachable from the
- * others): in play, hidden from the players, used up for now, switched off.
- */
-export const SCENE_ELEMENT_STATUSES = ["READY", "INVISIBLE", "TAPPED", "DISABLED"] as const;
-export type SceneElementStatus = (typeof SCENE_ELEMENT_STATUSES)[number];
-
-export function isSceneElementStatus(value: unknown): value is SceneElementStatus {
-  return SCENE_ELEMENT_STATUSES.includes(value as SceneElementStatus);
-}
-
-/** The scene_elements status of an element in play, the workflow's default. */
-export const SCENE_ELEMENT_SHOWN = "READY";
-/** The scene_elements status of an element hidden from the players. */
-export const SCENE_ELEMENT_HIDDEN = "INVISIBLE";
-/** The scene_elements status of an element used up for now, until the storyteller readies it. */
-export const SCENE_ELEMENT_TAPPED = "TAPPED";
-/** The scene_elements status of an element switched off in the scene. */
-export const SCENE_ELEMENT_DISABLED = "DISABLED";
-
-/** The element id in an element item's key, `KIND:id` or `KIND:id:link` (playItemKey). */
-export function elementIdOf(item: PlayItem): number {
-  return Number(item.key.split(":")[1]);
-}
-
 /** Everything about one of the story's elements, for the info popovers. */
 export type ElementDetail = {
   idElement: number;
@@ -409,34 +177,6 @@ export type SceneLink = {
  */
 export type ElementPanelDetail = { element: ElementDetail; link: SceneLink | null };
 
-/**
- * One stack of the play space: a scene tag and the items filed under it.
- * `tag` is null for the Default stack of a scene with no tags, whose new
- * elements are linked with none.
- */
-export type PlayStack = { tag: string | null; title: string; items: PlayItem[] };
-
-/**
- * The play space's stacks: one per scene tag in the scene's order, or a
- * single Default stack when the scene has none. An item goes in every stack
- * whose tag it carries. Every linked element is given one as it is linked,
- * but one that carries none of the scene's tags (its tag since taken off the
- * scene, say), or anything the page holds without a link, goes in the first
- * stack rather than nowhere.
- */
-export function playStacks(tags: string[], items: PlayItem[]): PlayStack[] {
-  const stacks: PlayStack[] =
-    tags.length > 0
-      ? tags.map((tag) => ({ tag, title: tag, items: [] }))
-      : [{ tag: null, title: DEFAULT_STACK_TITLE, items: [] }];
-  for (const item of items) {
-    const homes = stacks.filter(
-      (stack) => stack.tag !== null && item.sceneTags?.includes(stack.tag),
-    );
-    for (const stack of homes.length > 0 ? homes : [stacks[0]]) stack.items.push(item);
-  }
-  return stacks;
-}
 /**
  * What an attachment is called in a list: its file name, else the last part
  * of its address (a typed link has no file name), else a plain word.

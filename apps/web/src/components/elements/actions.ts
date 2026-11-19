@@ -31,12 +31,8 @@ import {
 } from "@/lib/messages";
 import { publishLater } from "@/lib/realtime/publish";
 import { publishElementChanged } from "@/lib/realtime/publish-scene";
-import {
-  RUN_LIST_SIZE,
-  SCENE_ELEMENT_HIDDEN,
-  type ElementDetail,
-  type ElementPanelDetail,
-} from "@/lib/run";
+import { RUN_LIST_SIZE, type ElementDetail, type ElementPanelDetail } from "@/lib/run";
+import { SCENE_ELEMENT_HIDDEN } from "@/lib/scene-elements";
 import { SCENE_LOCKED_STATUS } from "@/lib/status";
 import { sessionHeadingOf } from "@/lib/stories";
 

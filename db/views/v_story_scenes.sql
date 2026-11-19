@@ -30,9 +30,13 @@
 --                 workflows may each have a status of the same name.
 --
 -- The scene's own columns come through as they are, search_text included, so
--- a caller selects from here instead of from the table. A view freezes what
--- `sc.*` meant when it was created, so a column added to story_scenes later
--- needs this view rebuilt: `just view v_story_scenes`.
+-- a caller selects from here instead of from the table. They are named one by
+-- one rather than taken as `sc.*`: Postgres expands a star once, when the view
+-- is created, so a column added to story_scenes afterwards would be missing
+-- from here, unnoticed, until someone rebuilt the view. With the names written
+-- out, a new story_scenes column goes into both lists below (the scenes CTE
+-- and the final SELECT) and the view is rebuilt with `just view
+-- v_story_scenes`; apps/web/src/db/views.test.ts fails until it is.
 CREATE VIEW v_story_scenes AS
 WITH workflow AS (SELECT s.s_status_id, s.status_key, s.description
                   FROM s_statuses s
@@ -42,13 +46,53 @@ WITH workflow AS (SELECT s.s_status_id, s.status_key, s.description
      -- The end of the workflow. s_status_id counts down in the order the seed
      -- lists the statuses, so the lowest id is the last one.
      final_status AS (SELECT status_key FROM workflow ORDER BY s_status_id LIMIT 1),
-     scenes AS (SELECT sc.*,
+     scenes AS (SELECT sc.id_story_scene,
+                       sc.id_story,
+                       sc.id_story_session,
+                       sc.status,
+                       sc.scene_title,
+                       sc.scene_description,
+                       sc.created_at,
+                       sc.updated_at,
+                       sc.id_created_by_user,
+                       sc.id_updated_by_user,
+                       sc.activity_log,
+                       sc.pending_at,
+                       sc.active_at,
+                       sc.complete_at,
+                       sc.search_text,
+                       sc.played_time,
+                       sc.length,
+                       sc.tags,
+                       sc.notes,
+                       sc.wide_tags,
                        (to_jsonb(sc) ->> (lower(sc.status) || '_at'))::timestamptz AS status_at,
                        (to_jsonb(sc) ->>
                         (lower((SELECT status_key FROM final_status)) || '_at'))::timestamptz
                                                                                    AS completed_at
                 FROM story_scenes sc)
-SELECT s.*,
+SELECT s.id_story_scene,
+       s.id_story,
+       s.id_story_session,
+       s.status,
+       s.scene_title,
+       s.scene_description,
+       s.created_at,
+       s.updated_at,
+       s.id_created_by_user,
+       s.id_updated_by_user,
+       s.activity_log,
+       s.pending_at,
+       s.active_at,
+       s.complete_at,
+       s.search_text,
+       s.played_time,
+       s.length,
+       s.tags,
+       s.notes,
+       s.wide_tags,
+       s.status_at,
+       s.completed_at,
        -- Ascending puts the unfinished ones last, so the finished scenes take
        -- 1 upwards between them and the CASE drops the numbers that would
        -- have gone to scenes that are not finished. The id breaks a tie for

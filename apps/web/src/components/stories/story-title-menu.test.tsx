@@ -35,7 +35,7 @@ describe("StoryTitleMenu", () => {
       },
     );
     mock.module("next/link", { defaultExport: RecordingLink });
-    mock.module("@/app/(app)/(nav)/play/actions", {
+    mock.module("@/components/sessions/actions", {
       namedExports: { sa_listUnfinishedSessions, sa_startPlaying },
     });
     ({ StoryTitleMenu } = await import("./story-title-menu"));

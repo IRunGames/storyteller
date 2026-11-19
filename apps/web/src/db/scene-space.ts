@@ -5,14 +5,13 @@ import { sceneElements, storyScenes, vSceneElements } from "./schema";
 import { ELEMENT_KINDS, isElementKind } from "@/lib/elements";
 import {
   DEFAULT_ELEMENT_SHOWING,
-  EMPTY_PLAY_SPACE,
   isElementShowing,
   pillLink,
   pillText,
   playItemKey,
-  type PlayItem,
-  type RunPlaySpace,
-} from "@/lib/run";
+  type SceneItem,
+} from "@/lib/scene-elements";
+import { EMPTY_PLAY_SPACE, type RunPlaySpace } from "@/lib/run";
 
 // The storyteller's read model of a scene: its play space and the pills in
 // it, built from v_scene_elements. The run table's actions build it after
@@ -172,7 +171,7 @@ export function fromViewRow(row: LinkedViewRow): LinkedRow | null {
  * existed, and shows the default. Keyed by the link as well as the element
  * (playItemKey), since an element may be in the scene more than once.
  */
-export function linkedItem(row: LinkedRow): PlayItem {
+export function linkedItem(row: LinkedRow): SceneItem {
   const fields = {
     initial_name: row.initialName,
     name: row.name,
@@ -183,7 +182,7 @@ export function linkedItem(row: LinkedRow): PlayItem {
   const { label, detail } = pillText(fields, showing);
   return {
     key: playItemKey(row.kind, row.idElement, row.idSceneElement),
-    kind: row.kind as PlayItem["kind"],
+    kind: row.kind as SceneItem["kind"],
     label,
     detail,
     imageUrl: row.imageUrl,

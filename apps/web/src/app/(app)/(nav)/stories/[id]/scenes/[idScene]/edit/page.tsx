@@ -4,7 +4,7 @@ import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
 import { safeRedirect } from "@/lib/safe-redirect";
 import { cssUrlValue } from "@/lib/stories";
-import { SceneForm } from "@/components/prep/scene-form";
+import { SceneForm } from "@/app/(app)/(nav)/stories/[id]/scene-form";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getStorySceneForEdit } from "@/components/prep/actions";
 import { sa_getScenePlaySpace } from "@/components/run/actions";

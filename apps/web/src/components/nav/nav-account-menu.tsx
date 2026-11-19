@@ -11,7 +11,8 @@ import { EnvironmentVisibility } from "@/components/environment/environment-visi
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { ProfileDialog } from "@/components/profile/profile-dialog";
 import { builtAt, currentEnvironment, isShownIn } from "@/lib/environment";
-import { PROFILE_PREFERENCE_KEYS, avatarSrc } from "@/lib/profile";
+import { PROFILE_PREFERENCE_KEYS } from "@/lib/preference-keys";
+import { avatarSrc } from "@/lib/profile";
 import { isUserTypeShown, USER_TYPES } from "@/lib/user-types";
 
 // Who sees which of the menu's build items. Cause error is for anywhere but

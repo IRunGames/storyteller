@@ -26,6 +26,7 @@ rows in `_tables` are purged on each run via the DELETE clause below.
    - `created_at` and `updated_at` (timestamps).
    - `archived_at` and `is_archived` (archival).
    - `id_created_by_user` and `id_updated_by_user` (user tracking).
+   - `system_by`, `system_at` and `system_id` (system fields).
    - Primary key as UUID (if applicable).
 4. Identify foreign key dependencies for each table.
 5. Identify tables that reference the primary key of the current table.
@@ -35,7 +36,7 @@ rows in `_tables` are purged on each run via the DELETE clause below.
 DECLARE
     -- Logging
     actionName VARCHAR DEFAULT '_update_tables';
-    actionVersion VARCHAR DEFAULT '2026-05-28';
+    actionVersion VARCHAR DEFAULT '2026-11-18';
     idLog BIGINT := _action_log_start(
         actionName,
         actionVersion,
@@ -193,7 +194,7 @@ BEGIN
             FROM information_schema.columns
             WHERE table_name = tbl.table_name
               AND column_name = 'system_id'
-              AND data_type = 'bigint'
+              AND data_type = 'integer'
         ) INTO has_system_fields;
 
         PERFORM _action_log_step(idLog, CONCAT('System fields check for table ', tbl.table_name, ': ', has_system_fields), tbl.table_name::VARCHAR, 0);

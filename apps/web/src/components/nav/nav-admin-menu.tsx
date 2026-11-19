@@ -3,20 +3,11 @@
 import { useId } from "react";
 import NextLink from "next/link";
 import { Menu, Portal } from "@chakra-ui/react";
-import { Dices, MailPlus, Users, Wrench } from "lucide-react";
+import { Wrench } from "lucide-react";
 import { UserTypeVisibility } from "@/components/auth/user-type-visibility";
 import { USER_TYPES } from "@/lib/user-types";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
-
-/**
- * The administrators' tools, one item each, for the wrench menu and the
- * drawer. A new tool is one more entry here.
- */
-export const ADMIN_ITEMS = [
-  { href: "/admin/invitations", label: "Invitations", icon: <MailPlus /> },
-  { href: "/admin/users", label: "Users", icon: <Users /> },
-  { href: "/admin/systems", label: "Systems", icon: <Dices /> },
-] as const;
+import { ADMIN_ITEMS } from "./nav-items";
 
 /**
  * Only an administrator's: showAbove is strict and a smaller id is more
@@ -55,7 +46,7 @@ export function NavAdminMenu() {
               {ADMIN_ITEMS.map((item) => (
                 <Menu.Item key={item.href} value={item.href} asChild>
                   <NextLink href={item.href}>
-                    {item.icon}
+                    <item.icon />
                     {item.label}
                   </NextLink>
                 </Menu.Item>

@@ -1,17 +1,6 @@
 import type { JsonValue } from "@/lib/user-preference-schemas";
 
 /**
- * The user_preferences keys the profile card keeps. The card's colour, picture
- * and status live in the preference map rather than on s_users because they
- * are how the user dresses their profile, not facts about the account.
- */
-export const PROFILE_PREFERENCE_KEYS = {
-  color: "profile.color",
-  avatarUrl: "profile.avatarUrl",
-  status: "profile.status",
-} as const;
-
-/**
  * The colours a profile's banner may be. A fixed list rather than a free
  * colour picker because the banner sits on the app's dark surfaces, and these
  * are mid-to-bright hues picked to stand out against them; a free choice

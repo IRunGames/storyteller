@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { serverEnv } from "@/lib/env";
 import { storyChatTopic, storyStateTopic } from "./topics";
 import type { StoryEvent } from "./events";
 import type { ChatEvent, ChatLineEventType, PublicChat } from "./chat-events";
@@ -8,8 +9,6 @@ import type { ChatEvent, ChatLineEventType, PublicChat } from "./chat-events";
 // moment after it answers, and opening a broker connection for every change
 // would cost more than the change itself. One HTTPS POST with the deployment's
 // API key does the same job.
-
-const EMQX_API_PORT = "8443";
 
 type Config = { url: string; authorization: string };
 
@@ -23,9 +22,10 @@ let warned = false;
  * players just do not hear about changes until they reload.
  */
 function config(): Config | null {
-  const address = process.env.MQTT_ADDRESS;
-  const appId = process.env.MQTT_APP_ID;
-  const appSecret = process.env.MQTT_APP_SECRET;
+  const env = serverEnv();
+  const address = env.MQTT_ADDRESS;
+  const appId = env.MQTT_APP_ID;
+  const appSecret = env.MQTT_APP_SECRET;
   if (!address || !appId || !appSecret) {
     if (!warned) {
       warned = true;
@@ -33,9 +33,8 @@ function config(): Config | null {
     }
     return null;
   }
-  const port = process.env.MQTT_API_PORT || EMQX_API_PORT;
   return {
-    url: `https://${address}:${port}/api/v5/publish`,
+    url: `https://${address}:${env.MQTT_API_PORT}/api/v5/publish`,
     authorization: `Basic ${Buffer.from(`${appId}:${appSecret}`).toString("base64")}`,
   };
 }

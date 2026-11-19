@@ -5,13 +5,9 @@ import { Box, Button, Field, HStack, Image, Popover, Portal, Stack, Text } from 
 import { ImagePlus, Minus, Plus } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
 import type { ElementKind } from "@/lib/elements";
-import {
-  attachmentLabel,
-  RUN_ADD_INVISIBLE,
-  RUN_ADD_SHOW_INFO,
-  SCENE_ELEMENT_HIDDEN,
-  type PlayItem,
-} from "@/lib/run";
+import { attachmentLabel } from "@/lib/run";
+import { RUN_ADD_INVISIBLE, RUN_ADD_SHOW_INFO } from "@/lib/preference-keys";
+import { SCENE_ELEMENT_HIDDEN, type SceneItem } from "@/lib/scene-elements";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { RunElementForm } from "./run-element-form";
@@ -37,7 +33,7 @@ type Props = {
    */
   floating?: boolean;
   /** The new element, linked to the scene, for the play space to show. */
-  onCreated: (item: PlayItem) => void;
+  onCreated: (item: SceneItem) => void;
 };
 
 /**
@@ -157,7 +153,7 @@ export function RunNewElementPopover({
                       onChange={setScenePicture}
                     />
                   }
-                  onSaved={({ item }: { item: PlayItem }) => {
+                  onSaved={({ item }: { item: SceneItem }) => {
                     onCreated(item);
                     setOpen(false);
                   }}

@@ -9,7 +9,8 @@ import { sceneItemsStub } from "@/test/scene-items";
 import { Toaster, toaster } from "@/components/ui/toaster";
 import { SceneItemsProvider } from "@/components/table-shell/scene-items-context";
 import { useSceneItems } from "@/components/table-shell/use-scene-items";
-import type { ElementPanelDetail, PlayItem } from "@/lib/run";
+import type { ElementPanelDetail } from "@/lib/run";
+import type { SceneItem } from "@/lib/scene-elements";
 import type { StatusOption } from "@/lib/status";
 import {
   carriedGroups,
@@ -96,7 +97,7 @@ const sa_getElementDetail = mock.fn(
 );
 
 // Keyed by the element and its link, as linkedItem keys a pill (playItemKey).
-const linked = (sceneStatus: string): PlayItem => ({
+const linked = (sceneStatus: string): SceneItem => ({
   key: "PERSON:5:9",
   kind: "PERSON",
   label: "A hooded figure",
@@ -397,7 +398,7 @@ describe("RunPlayPill", () => {
     idStoryScene,
     otherStacks,
   }: {
-    start: PlayItem;
+    start: SceneItem;
     idStoryScene: number | null;
     otherStacks: string[];
   }) {
@@ -424,7 +425,7 @@ describe("RunPlayPill", () => {
   }
 
   const render = (
-    item: PlayItem,
+    item: SceneItem,
     idStoryScene: number | null = -15,
     otherStacks: string[] = ["assets"],
   ) =>

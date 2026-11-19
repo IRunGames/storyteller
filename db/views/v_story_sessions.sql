@@ -23,11 +23,33 @@
 --                   at their own table, so is never counted.
 --
 -- The session's own columns come through as they are, so a caller selects
--- from here instead of from the table. A view freezes what `ss.*` meant when
--- it was created, so a column added to story_sessions later needs this view
--- rebuilt: `just view v_story_sessions`.
+-- from here instead of from the table. They are named one by one rather than
+-- taken as `ss.*`: Postgres expands a star once, when the view is created, so
+-- a column added to story_sessions afterwards would be missing from here,
+-- unnoticed, until someone rebuilt the view. With the names written out, a new
+-- story_sessions column goes into the list below and the view is rebuilt with
+-- `just view v_story_sessions`; apps/web/src/db/views.test.ts fails until it is.
 CREATE VIEW v_story_sessions AS
-SELECT ss.*,
+SELECT ss.id_story_session,
+       ss.id_story,
+       ss.status,
+       ss.created_at,
+       ss.updated_at,
+       ss.id_created_by_user,
+       ss.id_updated_by_user,
+       ss.activity_log,
+       ss.open_at,
+       ss.suspended_at,
+       ss.done_at,
+       ss.resumed_at,
+       ss.paused_time,
+       ss.length,
+       ss.notes,
+       ss.summary,
+       ss.lingering_questions,
+       ss.link,
+       ss.title,
+       ss.id_story_scene,
        (SELECT count(*) + 1
         FROM story_sessions earlier
         WHERE earlier.id_story = ss.id_story

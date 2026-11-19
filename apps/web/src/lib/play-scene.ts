@@ -8,8 +8,8 @@ import {
   pillText,
   playItemKey,
   SCENE_ELEMENT_HIDDEN,
-  type PlayItem,
-} from "@/lib/run";
+  type SceneItem,
+} from "./scene-elements";
 
 // The players' play space: what /stories/[id]/play loads of the scene being
 // played, and how each message on the story's state topic changes it. No
@@ -54,7 +54,7 @@ export const EMPTY_PLAY_SCENE: PlayScene = {
  * lets the players see it; the notes, the players' own, go as they are. The
  * pill never looks at the element itself.
  */
-export function toPlayItem({ element, sceneElement }: PlaySceneItem): PlayItem {
+export function toPlayItem({ element, sceneElement }: PlaySceneItem): SceneItem {
   const fields = {
     initial_name: element.initialName,
     name: element.name,
@@ -67,7 +67,7 @@ export function toPlayItem({ element, sceneElement }: PlaySceneItem): PlayItem {
   const { label, detail } = pillText(fields, showing);
   return {
     key: playItemKey(element.kind, element.idElement, sceneElement.idSceneElement),
-    kind: element.kind as PlayItem["kind"],
+    kind: element.kind as SceneItem["kind"],
     label,
     detail,
     imageUrl: element.imageUrl,

@@ -94,3 +94,19 @@ export function transitionsFrom(current: string, options: StatusOption[]): Statu
     (option) => option.key !== current && (option.from === null || option.from.includes(current)),
   );
 }
+
+/**
+ * What a column is being narrowed to: the words typed, and the statuses still
+ * switched on. `statuses` is every status of the workflow to start with, so a
+ * list that applies it shows everything; each one switched off takes its rows
+ * out. All of them off shows nothing, which is what it says.
+ */
+export type StatusSearchValue = {
+  query: string;
+  statuses: string[];
+};
+
+/** Every status selected, which is what a column starts with. */
+export function allSelected(options: StatusOption[]): StatusSearchValue {
+  return { query: "", statuses: options.map((option) => option.key) };
+}

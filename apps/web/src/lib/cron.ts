@@ -1,3 +1,5 @@
+import { serverEnv } from "@/lib/env";
+
 /**
  * Whether a request to a cron route came from the scheduler: Vercel sends
  * CRON_SECRET as a bearer token, and the route answers nobody else. With no
@@ -7,6 +9,6 @@
  * their whole gate.
  */
 export function isCronRequest(request: Request): boolean {
-  const secret = process.env.CRON_SECRET;
+  const secret = serverEnv().CRON_SECRET;
   return Boolean(secret) && request.headers.get("authorization") === `Bearer ${secret}`;
 }

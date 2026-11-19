@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { sa_setStackWide } from "@/components/run/actions";
 import { toaster } from "@/components/ui/toaster";
-import { isStackWide, withStackWide } from "@/lib/run";
+import { isStackWide, withStackWide } from "@/lib/scene-elements";
 
 /**
  * The stacks the storyteller has widened to the whole play space, as the

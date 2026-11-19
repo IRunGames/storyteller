@@ -36,7 +36,7 @@ import {
   isElementShowing,
   pillText,
   SCENE_ELEMENT_HIDDEN,
-} from "@/lib/run";
+} from "@/lib/scene-elements";
 import { publishLater } from "@/lib/realtime/publish";
 import { publishElementChanged, publishSceneChanged } from "@/lib/realtime/publish-scene";
 import { statBlockSystems } from "@/db/stat-block-systems";

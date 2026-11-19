@@ -4,13 +4,13 @@ import { parseRouteId } from "@/lib/route-ids";
 import { isUnplayable } from "@/lib/play";
 import { PlayCover } from "@/components/play/play-cover";
 import { StoryUnavailableDialog } from "@/components/play/story-unavailable-dialog";
-import { RunTable } from "@/components/run/run-table";
+import { RunTable } from "./run-table";
 import { PREP_SESSIONS_PAGE_SIZE } from "@/lib/stories";
 import { SESSION_STATUS } from "@/lib/status";
-import { sa_getStorySession, sa_listStorySessions } from "@/app/(app)/(nav)/stories/actions";
+import { sa_getStorySession, sa_listStorySessions } from "@/components/stories/actions";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getPlayStory } from "@/components/play/actions";
-import { sa_startPlaying } from "@/app/(app)/(nav)/play/actions";
+import { sa_startPlaying } from "@/components/sessions/actions";
 import { sa_openRunPlaySpace } from "@/components/run/actions";
 
 // The storyteller's table for one story, where Start and Resume land and

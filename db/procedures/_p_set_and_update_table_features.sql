@@ -3,6 +3,7 @@ CREATE OR REPLACE PROCEDURE _p_set_and_update_table_features(
     p_timestamps          BOOLEAN   DEFAULT FALSE,
     p_archival            BOOLEAN   DEFAULT FALSE,
     p_user_ids            BOOLEAN   DEFAULT FALSE,
+    p_system_fields       BOOLEAN   DEFAULT FALSE,
     p_activity_log        BOOLEAN   DEFAULT FALSE,
     p_tags                BOOLEAN   DEFAULT FALSE,
     p_tags_column         TEXT      DEFAULT NULL,
@@ -37,6 +38,7 @@ since: kinds, status workflows and search fields.
   p_timestamps          created_at / updated_at and the set_updated_at trigger
   p_archival            is_archived / archived_at / id_archived_by_user
   p_user_ids            id_created_by_user / id_updated_by_user and their FKs
+  p_system_fields       system_by / system_at / system_id, nullable, no default
   p_activity_log        activity_log JSONB NOT NULL DEFAULT '[]'
   p_tags                a TEXT[] tags column, NOT NULL DEFAULT '{}', with a GIN index
   p_tags_column         that column's name when it is not `tags`
@@ -56,24 +58,21 @@ and drop what it built.
 
 The array parameters are ignored when NULL and replace when given, so passing
 one is how you change it and omitting it is how you leave it alone.
-
-There is no p_system_fields. `_tables` carries the flag, but this database has
-no `_p_update_tables_system_fields()` to act on it, and a switch with no
-procedure behind it is a control that looks like it does something.
 ====================================================================
 */
 DECLARE
-    v_timestamps   BOOLEAN;
-    v_archival     BOOLEAN;
-    v_user_ids     BOOLEAN;
-    v_activity_log BOOLEAN;
-    v_tags         BOOLEAN;
-    v_kind_values  TEXT[];
-    v_workflows    INTEGER[];
-    v_search       TEXT[];
-    v_missing      INTEGER[];
-    v_before       JSONB;
-    v_after        JSONB;
+    v_timestamps    BOOLEAN;
+    v_archival      BOOLEAN;
+    v_user_ids      BOOLEAN;
+    v_system_fields BOOLEAN;
+    v_activity_log  BOOLEAN;
+    v_tags          BOOLEAN;
+    v_kind_values   TEXT[];
+    v_workflows     INTEGER[];
+    v_search        TEXT[];
+    v_missing       INTEGER[];
+    v_before        JSONB;
+    v_after         JSONB;
 BEGIN
     RAISE NOTICE 'Setting up table features for: %', p_table_name;
 
@@ -114,7 +113,8 @@ BEGIN
     -- by writing nothing.
     SELECT jsonb_build_object(
         'needs_timestamps', needs_timestamps, 'needs_archival', needs_archival,
-        'needs_user_ids', needs_user_ids, 'needs_activity_log', needs_activity_log,
+        'needs_user_ids', needs_user_ids, 'needs_system_fields', needs_system_fields,
+        'needs_activity_log', needs_activity_log,
         'needs_tags', needs_tags, 'tags_column', tags_column,
         'kind_values', kind_values, 'kind_column', kind_column,
         's_status_workflow_ids', s_status_workflow_ids,
@@ -126,6 +126,7 @@ BEGIN
     SET needs_timestamps      = COALESCE(needs_timestamps, FALSE) OR p_timestamps,
         needs_archival        = COALESCE(needs_archival, FALSE) OR p_archival,
         needs_user_ids        = COALESCE(needs_user_ids, FALSE) OR p_user_ids,
+        needs_system_fields   = COALESCE(needs_system_fields, FALSE) OR p_system_fields,
         needs_activity_log    = COALESCE(needs_activity_log, FALSE) OR p_activity_log,
         needs_tags            = COALESCE(needs_tags, FALSE) OR p_tags,
         tags_column           = COALESCE(p_tags_column, tags_column),
@@ -139,7 +140,8 @@ BEGIN
 
     SELECT jsonb_build_object(
         'needs_timestamps', needs_timestamps, 'needs_archival', needs_archival,
-        'needs_user_ids', needs_user_ids, 'needs_activity_log', needs_activity_log,
+        'needs_user_ids', needs_user_ids, 'needs_system_fields', needs_system_fields,
+        'needs_activity_log', needs_activity_log,
         'needs_tags', needs_tags, 'tags_column', tags_column,
         'kind_values', kind_values, 'kind_column', kind_column,
         's_status_workflow_ids', s_status_workflow_ids,
@@ -158,10 +160,10 @@ BEGIN
 
     -- Branch on what the table declares now, not on the parameters, so a call
     -- that adds one feature still maintains the ones already there.
-    SELECT needs_timestamps, needs_archival, needs_user_ids, needs_activity_log,
-           needs_tags, kind_values, s_status_workflow_ids, search_fields
-    INTO v_timestamps, v_archival, v_user_ids, v_activity_log,
-         v_tags, v_kind_values, v_workflows, v_search
+    SELECT needs_timestamps, needs_archival, needs_user_ids, needs_system_fields,
+           needs_activity_log, needs_tags, kind_values, s_status_workflow_ids, search_fields
+    INTO v_timestamps, v_archival, v_user_ids, v_system_fields,
+         v_activity_log, v_tags, v_kind_values, v_workflows, v_search
     FROM _tables
     WHERE table_name = p_table_name;
 
@@ -173,6 +175,11 @@ BEGIN
     IF v_user_ids THEN
         RAISE NOTICE 'Applying user ids...';
         CALL _p_update_tables_user_ids();
+    END IF;
+
+    IF v_system_fields THEN
+        RAISE NOTICE 'Applying system fields...';
+        CALL _p_update_tables_system_fields();
     END IF;
 
     IF v_archival THEN

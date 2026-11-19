@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { Button, chakra, Menu, Portal, Text } from "@chakra-ui/react";
 import { ChevronDown } from "lucide-react";
-import type { PlayItem } from "@/lib/run";
+import type { SceneItem } from "@/lib/scene-elements";
 import { sa_setSceneElementTags } from "@/components/scene-elements/actions";
 import { toaster } from "@/components/ui/toaster";
-import { tagList } from "./run-element-detail";
+import { tagList } from "./run-detail-parts";
 
 type Props = {
   idStory: number;
@@ -19,7 +19,7 @@ type Props = {
   /** The link's tags: the stacks it is filed under. */
   tags: string[];
   /** The stacks saved after a tick, as the pill now is. */
-  onSaved: (item: PlayItem) => void;
+  onSaved: (item: SceneItem) => void;
 };
 
 /**

@@ -2,8 +2,8 @@ import NextLink from "next/link";
 import { Button, Container, Stack, Text } from "@chakra-ui/react";
 import { activeStoryLimitMessage } from "@/lib/story-limits";
 import { requireSession } from "@/lib/require-session";
-import { StoryForm } from "@/components/stories/story-form";
-import { sa_getStoryAllowance, sa_listSystems } from "../actions";
+import { StoryForm } from "@/app/(app)/(nav)/stories/story-form";
+import { sa_getStoryAllowance, sa_listSystems } from "@/components/stories/actions";
 
 // redirectTo says where to go once the story is made, as the login page's
 // does: the home page's first-story button sends people on to the Stories

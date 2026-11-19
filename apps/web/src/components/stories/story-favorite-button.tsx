@@ -3,7 +3,7 @@
 import type { ComponentProps } from "react";
 import { IconButton } from "@chakra-ui/react";
 import { Heart } from "lucide-react";
-import { sa_setFavorite } from "@/app/(app)/(nav)/stories/actions";
+import { sa_setFavorite } from "./actions";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 

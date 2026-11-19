@@ -7,22 +7,20 @@ import {
   SCENE_ELEMENT_DISABLED,
   SCENE_ELEMENT_SHOWN,
   SCENE_ELEMENT_TAPPED,
-  type PlayItem,
-} from "@/lib/run";
+  type SceneItem,
+} from "@/lib/scene-elements";
 import { sa_untapPlaySceneElement } from "@/components/play/actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
-import { ElementHistory } from "@/components/elements/element-history";
-import { InfoPopoverShell } from "@/components/popovers/info-popover-shell";
 import { OverflowTooltip } from "@/components/popovers/overflow-tooltip";
-import { PlayElementNotesField } from "./play-element-notes-field";
+import { PlayInfoPopover } from "@/components/table-shell/play-info-popover";
 import { PlayUntapButton } from "./play-untap-button";
 
 type Props = {
   idStory: number;
   /** The scene the table is on, which the pill's link belongs to. */
   idStoryScene: number;
-  item: PlayItem;
+  item: SceneItem;
   /** The players' notes on the element have been saved from its info popover. */
   onNotesChange: (idElement: number, notes: string | null) => void;
   /** The link's status has been changed from the pill, or put back after a refusal. */
@@ -62,7 +60,7 @@ type Props = {
  * the action refuses.
  *
  * An element with an external link (the link's own for this scene, else
- * the element's; lib/run.ts pillLink) carries a link icon at its end,
+ * the element's; lib/scene-elements.ts pillLink) carries a link icon at its end,
  * before the info button, which opens the address in a new tab; its
  * tooltip is the words given for the link, else the address. It goes with
  * the info: with show_info off the link is kept back too, off the wire
@@ -224,7 +222,7 @@ export function PlayPill({
  * link in a new tab. The accessible name says whose link it is; the tooltip
  * says what it is.
  */
-function PlayLinkButton({ label, link }: { label: string; link: NonNullable<PlayItem["link"]> }) {
+function PlayLinkButton({ label, link }: { label: string; link: NonNullable<SceneItem["link"]> }) {
   return (
     <Tooltip.Root openDelay={200} positioning={{ placement: "top" }}>
       <Tooltip.Trigger asChild>
@@ -245,86 +243,5 @@ function PlayLinkButton({ label, link }: { label: string; link: NonNullable<Play
         </Tooltip.Positioner>
       </Portal>
     </Tooltip.Root>
-  );
-}
-
-/**
- * The pill's info button: a popover (InfoPopoverShell) with what the
- * storyteller lets the players know of the element, under the name the pill
- * shows. The display table's pill (PassivePill) offers it too, to someone
- * with an account. The title and the description, each only when the
- * element has one, and then the players' notes field. The shell draws the
- * body afresh each opening, so the field starts from the notes as the table
- * holds them now. Read only, the notes are shown as they are, when there
- * are any.
- */
-export function PlayInfoPopover({
-  label,
-  title,
-  info,
-  idStory,
-  idElement,
-  notes,
-  onNotesChange,
-  readOnly,
-  history,
-}: {
-  label: string;
-  title: string | null;
-  info: string | null | undefined;
-  idStory: number;
-  idElement: number;
-  notes: string | null;
-  onNotesChange: (idElement: number, notes: string | null) => void;
-  readOnly: boolean;
-  /** Given, the popover ends with the element's History, less the scene named. */
-  history: { idStoryScene: number } | null;
-}) {
-  return (
-    <InfoPopoverShell
-      label={`About ${label}`}
-      heading={label}
-      subheading={
-        title && (
-          <Text fontSize="sm" color="fg.muted">
-            {title}
-          </Text>
-        )
-      }
-    >
-      {() => (
-        <Stack gap="3">
-          {info ? (
-            <Text whiteSpace="pre-wrap">{info}</Text>
-          ) : (
-            <Text color="fg.muted">Nothing more is known yet.</Text>
-          )}
-          {readOnly ? (
-            notes && (
-              <Stack gap="1">
-                <Text fontSize="sm" fontWeight="medium">
-                  Notes
-                </Text>
-                <Text whiteSpace="pre-wrap">{notes}</Text>
-              </Stack>
-            )
-          ) : (
-            <PlayElementNotesField
-              idStory={idStory}
-              idElement={idElement}
-              notes={notes}
-              onSaved={(saved) => onNotesChange(idElement, saved)}
-            />
-          )}
-          {history && (
-            <ElementHistory
-              idStory={idStory}
-              idElement={idElement}
-              idStoryScene={history.idStoryScene}
-            />
-          )}
-        </Stack>
-      )}
-    </InfoPopoverShell>
   );
 }

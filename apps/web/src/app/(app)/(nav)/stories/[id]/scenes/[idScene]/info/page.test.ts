@@ -33,7 +33,7 @@ describe("a scene's info page", () => {
     mock.module("@/components/status/actions", {
       namedExports: { sa_listStatusOptions: listStatusOptions },
     });
-    mock.module("@/components/prep/scene-page-detail", { namedExports: { ScenePageDetail } });
+    mock.module("./scene-page-detail", { namedExports: { ScenePageDetail } });
     Page = (await import("./page")).default;
   });
 

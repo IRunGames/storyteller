@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { PlayItem } from "@/lib/run";
+import type { SceneItem } from "@/lib/scene-elements";
 import type { ScenePulseEvent } from "@/components/play/use-play-scene";
 import { AttachmentPreviewDialog } from "@/components/uploads/attachment-preview";
 
@@ -27,7 +27,7 @@ export function usePulsedPicture() {
 
 type Props = {
   /** What the table holds; the picture shown is one of these. */
-  items: PlayItem[];
+  items: SceneItem[];
   /** The link whose picture is up, or null for none. */
   idSceneElement: number | null;
   /** The viewer closed the picture for themselves. */

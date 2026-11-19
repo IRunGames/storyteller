@@ -6,14 +6,8 @@ import { Plus, Search, X } from "lucide-react";
 import type { ElementSort } from "@/lib/elements";
 import { SEARCH_DELAY_MS } from "@/lib/search";
 import { useDebouncedSearch } from "@/hooks/use-debounced-search";
-import {
-  elementIdOf,
-  RUN_LIBRARY_TABS,
-  RUN_LIST_SIZE,
-  type AttachmentSort,
-  type PlayItem,
-  type RunLibrarySource,
-} from "@/lib/run";
+import { elementIdOf, type LibraryItem, type RunLibrarySource } from "@/lib/scene-elements";
+import { RUN_LIBRARY_TABS, RUN_LIST_SIZE, type AttachmentSort } from "@/lib/run";
 import { sa_listStoryElements } from "@/components/prep/actions";
 import { sa_listSceneLibraryElements } from "@/components/elements/actions";
 import { RunElementInfoPopover } from "./run-element-info-popover";
@@ -43,7 +37,7 @@ type Props = {
    */
   sceneOnly: boolean;
   /** Called with an element when its arrow is pressed, to put it in the play space. */
-  onAdd: (item: PlayItem) => void;
+  onAdd: (item: LibraryItem) => void;
   /** The footer's In select: the stack a tab's + files the new element under. */
   stackTag: string | null;
   /** The scene's stacks, in order, for the info popover's stacks dialog. */
@@ -107,7 +101,7 @@ export function RunLibrary({
   const { put } = useSceneItemsContext();
   const [query, setQuery] = useState("");
   // An element tab's matches; null while it is loading.
-  const [items, setItems] = useState<PlayItem[] | null>(null);
+  const [items, setItems] = useState<LibraryItem[] | null>(null);
   // Whether the +'s link input and dropzone are showing.
   const [adding, setAdding] = useState(false);
   // Bumped when an attachment moves between the story and the scene, so the
@@ -315,7 +309,7 @@ async function loadElements(
   kind: Exclude<RunLibrarySource, "ATTACHMENT">,
   needle: string,
   sort: ElementSort,
-): Promise<PlayItem[]> {
+): Promise<LibraryItem[]> {
   // sa_listStoryElements pages by ELEMENTS_PAGE_SIZE, which is RUN_LIST_SIZE,
   // so its first page is the list.
   const elements =

@@ -40,7 +40,7 @@ export function BrandMark({ active }: { active: boolean }) {
 }
 
 /** Where the logo is served from; a copy of the iRun blog's public/logo.png. */
-export const LOGO_URL = "/images/storyteller-logo.png";
+const LOGO_URL = "/images/storyteller-logo.png";
 
 /**
  * The Storyteller logo alone, with no link or name: the brand mark's icon,

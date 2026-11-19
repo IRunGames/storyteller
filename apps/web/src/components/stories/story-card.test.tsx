@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { SUMMARY_PREVIEW_CHARS, type StoryCardData } from "@/lib/stories";
-import type { UnfinishedSession } from "@/app/(app)/(nav)/play/actions";
+import type { UnfinishedSession } from "@/components/sessions/actions";
 
 const unfinished: UnfinishedSession[] = [
   { idStorySession: 31, number: 4, title: "The Drowned Gate", status: "SUSPENDED" },
@@ -49,7 +49,7 @@ const story: StoryCardData = {
 
 describe("StoryCard", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/play/actions", {
+    mock.module("@/components/sessions/actions", {
       namedExports: { sa_listUnfinishedSessions, sa_startPlaying },
     });
     ({ StoryCard } = await import("./story-card"));

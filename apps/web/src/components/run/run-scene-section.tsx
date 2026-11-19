@@ -15,7 +15,8 @@ import {
 } from "@chakra-ui/react";
 import { Image as ImageIcon, Plus } from "lucide-react";
 import type { Attachment } from "@/lib/attachments";
-import { attachmentLabel, type PlayItem, type SceneLink } from "@/lib/run";
+import { attachmentLabel, type SceneLink } from "@/lib/run";
+import type { SceneItem } from "@/lib/scene-elements";
 import type { StatusOption } from "@/lib/status";
 import { sa_setSceneElementShowInfo } from "@/components/scene-elements/actions";
 import {
@@ -32,7 +33,8 @@ import { StatusPill } from "@/components/status/status-pill";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
 import { LocalDate } from "@/components/dates/local-date";
-import { DetailSection, linkCell, partBadgeProps, tagList } from "./run-element-detail";
+import { DetailSection, linkCell } from "./run-element-detail";
+import { partBadgeProps, tagList } from "./run-detail-parts";
 import { RunCoverStar } from "./run-cover-star";
 import { RunElementImagePicker } from "./run-element-image-popover";
 import { RunInfoToggle } from "./run-info-toggle";
@@ -66,7 +68,7 @@ type Props = {
   /** The info toggle has been pressed, or put back after a refusal. */
   onShowInfoChange: (showInfo: boolean) => void;
   /** The stacks menu has saved a tick, as the pill now is. */
-  onTagsChange: (item: PlayItem) => void;
+  onTagsChange: (item: SceneItem) => void;
   /** The link's picture for this scene, as read on opening: its address, or null for none. */
   onImageLoaded: (url: string | null) => void;
   /** The link's picture for this scene has been changed from here: its address, or null for none. */

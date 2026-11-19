@@ -9,7 +9,8 @@ import { resetSceneItemsStub, sceneItemsStub } from "@/test/scene-items";
 import { SceneItemsProvider } from "@/components/table-shell/scene-items-context";
 import type { Attachment } from "@/lib/attachments";
 import type { ElementKind, ElementSort, StoryElement } from "@/lib/elements";
-import type { AttachmentSort, ElementDetail, PlayItem, RunLibrarySource } from "@/lib/run";
+import type { AttachmentSort, ElementDetail } from "@/lib/run";
+import type { LibraryItem, RunLibrarySource } from "@/lib/scene-elements";
 import type { StatusOption } from "@/lib/status";
 import { UserProvider } from "@/components/auth/user-provider";
 import { Toaster, toaster } from "@/components/ui/toaster";
@@ -255,7 +256,7 @@ describe("RunLibrary", () => {
   }
 
   const library = (
-    onAdd: (item: PlayItem) => void = () => {},
+    onAdd: (item: LibraryItem) => void = () => {},
     idStoryScene: number | null = 15,
     sceneOnly = false,
     locked = false,
@@ -687,7 +688,7 @@ describe("RunLibrary", () => {
 
   it("hands an element to the play space with its arrow", async () => {
     const user = userEvent.setup();
-    const onAdd = mock.fn<(item: PlayItem) => void>();
+    const onAdd = mock.fn<(item: LibraryItem) => void>();
     render(onAdd);
 
     await user.click(screen.getByRole("tab", { name: "People" }));

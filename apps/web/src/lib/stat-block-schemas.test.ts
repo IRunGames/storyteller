@@ -2,17 +2,17 @@ import { describe, it } from "node:test";
 import { expect } from "expect";
 
 import {
-  joinRack,
   readStatBlockDefinition,
   readStatBlocks,
-  splitRack,
   statBlockDefinitionFormSchema,
   statBlockDefinitionSchema,
   statBlockSchema,
   statBlocksSchema,
 } from "./stat-block-schemas";
 import {
+  joinRack,
   MULTIPLE,
+  splitRack,
   type StatBlock,
   type StatBlockDefinition,
   type StatDefinition,

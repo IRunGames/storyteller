@@ -1,6 +1,7 @@
-# Deploys every push to main: test, build, migrate the Neon production branch,
-# then deploy the prebuilt output to Vercel. The order means a failing test or
-# build leaves the database untouched, and a failing migration deploys nothing.
+# Deploys every push to main: test, lint, type-check, build, migrate the Neon
+# production branch, then deploy the prebuilt output to Vercel. The order means
+# a failing check or build leaves the database untouched, and a failing
+# migration deploys nothing.
 # Migrations are forward-only and idempotent (db/README.md), so the old code
 # running against the new schema for the few seconds between the two last
 # steps is safe.
@@ -39,9 +40,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Node's major version is read from .nvmrc, which a local `nvm use`
+      # reads too and the root package.json's engines range matches, so CI
+      # and the machines working on the code run the same one.
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
 
       # Third-party action, pinned to a commit so a moved tag cannot swap its code.
@@ -56,6 +60,20 @@ jobs:
       - name: Test the web app
         working-directory: apps/web
         run: npm test
+
+      # Since Next 16 the build lints nothing, so without this step a broken
+      # lint rule would ship. The build does type-check, but only after it has
+      # compiled, and only while typescript.ignoreBuildErrors is unset;
+      # checking here fails sooner, with plain tsc output, whatever that
+      # setting says. Both run before the build, so a failure here, like a
+      # failing test, leaves the database and the live site untouched.
+      - name: Lint the web app
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Type-check the web app
+        working-directory: apps/web
+        run: npm run typecheck
 
       - name: Install Vercel CLI
         run: npm install -g vercel@64

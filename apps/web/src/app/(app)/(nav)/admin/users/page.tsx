@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Container } from "@chakra-ui/react";
-import { UsersAdmin } from "@/components/admin/users-admin";
+import { UsersAdmin } from "./users-admin";
 import { requireUser } from "@/lib/authorize";
 import { defaultUserListQuery } from "@/lib/user-list-schemas";
 import { USER_TYPES } from "@/lib/user-types";

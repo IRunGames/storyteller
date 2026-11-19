@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
-import { LiveTable } from "@/components/live/live-table";
+import { LiveTable } from "./live-table";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getPlayStory } from "@/components/play/actions";
 import { sa_getScenePlaySpace } from "@/components/run/actions";

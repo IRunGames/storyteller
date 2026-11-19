@@ -536,7 +536,7 @@ export const storyScenes = pgTable("story_scenes", {
     .notNull()
     .default(sql`'{}'`),
   // The stacks the storyteller has widened to the whole play space, by tag,
-  // with "" for the Default stack (lib/run.ts stackKey); every table draws
+  // with "" for the Default stack (lib/scene-elements.ts stackKey); every table draws
   // them wide (db/migrations/..._add_story_scenes_wide_tags.sql).
   wideTags: text("wide_tags")
     .array()

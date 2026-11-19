@@ -6,7 +6,7 @@ import { SystemStatBlockEditor } from "./system-stat-block-editor";
 import { requireUser } from "@/lib/authorize";
 import { parseRouteId } from "@/lib/route-ids";
 import { USER_TYPES } from "@/lib/user-types";
-import { sa_getAdminSystem } from "../actions";
+import { sa_getAdminSystem } from "@/app/(app)/(nav)/admin/systems/actions";
 
 export const metadata: Metadata = {
   title: "System · Storyteller",

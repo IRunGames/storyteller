@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { sceneElements } from "@/db/schema";
 import { currentScene, sceneLink, sceneLinksOf } from "@/db/scene-items";
-import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
+import { SCENE_ELEMENT_HIDDEN } from "@/lib/scene-elements";
 import {
   toPublicElement,
   toPublicSceneElement,

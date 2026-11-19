@@ -6,9 +6,9 @@ import {
   elementIdOf,
   playItemKey,
   withShowing,
-  type ElementDetail,
-  type PlayItem,
-} from "@/lib/run";
+  type SceneItem,
+} from "@/lib/scene-elements";
+import type { ElementDetail } from "@/lib/run";
 
 /**
  * Everything in a table's play space and every way it changes, which the
@@ -18,11 +18,11 @@ import {
  */
 export type SceneItems = {
   /** What is in the play space, in the order it was brought in. */
-  items: PlayItem[];
+  items: SceneItem[];
   /** The space read afresh: what it holds now, in place of everything. */
-  load: (items: PlayItem[]) => void;
+  load: (items: SceneItem[]) => void;
   /** Something brought in; an item already in play stays where it is rather than going in twice. */
-  put: (item: PlayItem) => void;
+  put: (item: SceneItem) => void;
   /** An item taken off the play space, by key. */
   remove: (key: string) => void;
   /**
@@ -35,7 +35,7 @@ export type SceneItems = {
    * its key, which carries the kind: an edit that changes the kind comes back
    * under a new key.
    */
-  replace: (item: PlayItem) => void;
+  replace: (item: SceneItem) => void;
   /** An element's picture changed: its pill, if it is in play, shows the new one. */
   setImage: (idElement: number, imageUrl: string | null) => void;
   /**
@@ -52,7 +52,7 @@ export type SceneItems = {
    */
   patchLink: (
     idSceneElement: number,
-    change: Pick<Partial<PlayItem>, "sceneStatus" | "showInfo">,
+    change: Pick<Partial<SceneItem>, "sceneStatus" | "showInfo">,
   ) => void;
   /**
    * Manage stacks saved with renames: a renamed stack takes its pills with
@@ -68,12 +68,12 @@ export type SceneItems = {
  * to each of its memoised rows and a provider's value changes only with the
  * items.
  */
-export function useSceneItems(initial: PlayItem[]): SceneItems {
-  const [items, setItems] = useState<PlayItem[]>(initial);
+export function useSceneItems(initial: SceneItem[]): SceneItems {
+  const [items, setItems] = useState<SceneItem[]>(initial);
 
-  const load = useCallback((next: PlayItem[]) => setItems(next), []);
+  const load = useCallback((next: SceneItem[]) => setItems(next), []);
   const put = useCallback(
-    (item: PlayItem) =>
+    (item: SceneItem) =>
       setItems((current) =>
         current.some((existing) => existing.key === item.key) ? current : [...current, item],
       ),
@@ -91,7 +91,7 @@ export function useSceneItems(initial: PlayItem[]): SceneItems {
     [],
   );
   const replace = useCallback(
-    (item: PlayItem) =>
+    (item: SceneItem) =>
       setItems((current) =>
         current.map((existing) =>
           existing.kind !== "ATTACHMENT" && elementIdOf(existing) === elementIdOf(item)
@@ -119,10 +119,10 @@ export function useSceneItems(initial: PlayItem[]): SceneItems {
           if (existing.kind === "ATTACHMENT" || elementIdOf(existing) !== element.idElement) {
             return existing;
           }
-          const moved: PlayItem = {
+          const moved: SceneItem = {
             ...existing,
             key: playItemKey(element.kind, element.idElement, existing.idSceneElement),
-            kind: element.kind as PlayItem["kind"],
+            kind: element.kind as SceneItem["kind"],
             imageUrl: element.imageUrl,
           };
           // Something the page alone holds has no fields to choose among.
@@ -153,7 +153,7 @@ export function useSceneItems(initial: PlayItem[]): SceneItems {
     [],
   );
   const patchLink = useCallback(
-    (idSceneElement: number, change: Pick<Partial<PlayItem>, "sceneStatus" | "showInfo">) =>
+    (idSceneElement: number, change: Pick<Partial<SceneItem>, "sceneStatus" | "showInfo">) =>
       setItems((current) =>
         current.map((existing) =>
           existing.idSceneElement === idSceneElement ? { ...existing, ...change } : existing,

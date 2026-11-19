@@ -3,7 +3,6 @@
 import { useState, type ReactNode } from "react";
 import {
   Badge,
-  type BadgeProps,
   Box,
   DataList,
   Heading,
@@ -15,7 +14,7 @@ import {
   Tooltip,
 } from "@chakra-ui/react";
 import { ExternalLink } from "lucide-react";
-import type { ElementLink } from "@/lib/run";
+import type { ElementLink } from "@/lib/scene-elements";
 import { isWebUrl } from "@/lib/elements";
 import { ELEMENT_KIND_LABELS, isElementKind } from "@/lib/elements";
 import { elementTagSchema } from "@/lib/element-schemas";
@@ -27,6 +26,7 @@ import { toaster } from "@/components/ui/toaster";
 import { TagsPopover } from "@/components/popovers/tags-popover";
 import { RunElementImagePicker } from "./run-element-image-popover";
 import { RunPictureCell } from "./run-picture-cell";
+import { partBadgeProps, tagList } from "./run-detail-parts";
 
 /**
  * An element's own rows, as both info popovers at the table list them: the
@@ -173,24 +173,6 @@ export function ElementDetailRows({
 }
 
 /**
- * The SCENE and STORY pills that name the panel's two parts in place of
- * headings: a badge the whole width, its words centred, pulled a little
- * over whatever follows it by its negative margin, so it reads as a
- * divider riding on the part it names. One set of props, spread by both,
- * so the two are styled alike.
- */
-export const partBadgeProps = {
-  size: "xs",
-  variant: "subtle",
-  flex: "1",
-  justifyContent: "center",
-  rounded: "full",
-  position: "relative",
-  zIndex: "1",
-  mb: "-2",
-} satisfies BadgeProps;
-
-/**
  * An external link as one row's value: the words for it, else the address,
  * opening in a new tab, with the address as the tooltip. An address that is
  * not a web address is shown as text, since the pill offers no link for it.
@@ -205,11 +187,6 @@ export function linkCell(link: ElementLink): ReactNode {
       <ExternalLink size={14} />
     </Link>
   );
-}
-
-/** A tag list as one row's value, or null to leave the row out. */
-export function tagList(tags: string[]): string | null {
-  return tags.length > 0 ? tags.join(", ") : null;
 }
 
 // Name, title, description and notes are always listed, a dash for an empty

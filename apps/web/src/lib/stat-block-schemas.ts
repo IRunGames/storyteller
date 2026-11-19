@@ -11,11 +11,11 @@ import {
   matchRackEntry,
   numberOrText,
   rowKeyText,
+  splitRack,
   stampDefinition,
   STAT_FORMATS,
   STAT_TYPES,
   statLabel,
-  type RackEntry,
   type StatBlockDefinition,
   type StatBlocks,
   type StatBlockSystem,
@@ -350,24 +350,6 @@ export const statBlockDefinitionSchema = z
       ctx.addIssue({ code: "custom", path: issue.path, message: issue.message });
     }
   });
-
-/**
- * A rack as the editor's one text field holds it, "d4, d6, d8", split on
- * commas with a number kept as a number ("6" is the entry 6), so the rack
- * reads the same whether it was typed or stored.
- */
-export function splitRack(text: string): RackEntry[] {
-  return text
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== "")
-    .map(numberOrText);
-}
-
-/** A rack as the editor's field shows it. */
-export function joinRack(rack: RackEntry[]): string {
-  return rack.map(String).join(", ");
-}
 
 /**
  * The editor's form: the definition with each rack as its text field, piped

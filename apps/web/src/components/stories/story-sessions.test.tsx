@@ -58,7 +58,7 @@ let StorySessions: typeof import("./story-sessions").StorySessions;
 
 describe("StorySessions", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/stories/actions", {
+    mock.module("./actions", {
       namedExports: {
         sa_listStorySessions,
         sa_getStorySession: async () => null,

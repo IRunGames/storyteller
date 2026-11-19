@@ -2,8 +2,8 @@ import { Container, Heading, Stack } from "@chakra-ui/react";
 import { notFound, redirect } from "next/navigation";
 import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
-import { sa_getStory } from "../../actions";
-import { sa_getStoryStatBlockDefinition } from "./actions";
+import { sa_getStory } from "@/components/stories/actions";
+import { sa_getStoryStatBlockDefinition } from "@/app/(app)/(nav)/stories/[id]/actions";
 import { StoryStatBlockEditor } from "./story-stat-block-editor";
 
 // The story's own copy of its system's stat block definition, in the

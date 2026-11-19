@@ -11,8 +11,8 @@ import {
   Separator,
   Stack,
 } from "@chakra-ui/react";
-import { NAV_ITEMS, isActive } from "./nav-items";
-import { ADMIN_ITEMS, AdminOnly } from "./nav-admin-menu";
+import { ADMIN_ITEMS, NAV_ITEMS, isActive } from "./nav-items";
+import { AdminOnly } from "./nav-admin-menu";
 import type { NavFold } from "./nav-actions";
 import { NavDrawerContext } from "./nav-drawer-context";
 import { NavLink } from "./nav-link";

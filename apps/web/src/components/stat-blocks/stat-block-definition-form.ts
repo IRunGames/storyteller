@@ -1,5 +1,6 @@
 import type { Control } from "react-hook-form";
-import { joinRack, splitRack, type StatBlockDefinitionFormInput } from "@/lib/stat-block-schemas";
+import { joinRack, splitRack } from "@/lib/stat-blocks";
+import type { StatBlockDefinitionFormInput } from "@/lib/stat-block-schemas";
 import type { StatBlockDefinition, StatFormat, StatType } from "@/lib/stat-blocks";
 
 /** The definition as the form holds it: each rack as the text of its field (StatBlockDefinitionFormInput). */

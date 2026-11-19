@@ -4,7 +4,17 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
 import ts from "typescript";
-import { exportedFunctions, hasDirective, lineOf, parse, sourceFiles } from "./source-scan";
+import { join } from "node:path";
+import {
+  exportedFunctions,
+  hasDirective,
+  lineOf,
+  parse,
+  resolveSource,
+  runtimeImports,
+  SRC,
+  sourceFiles,
+} from "./source-scan";
 
 const sources = sourceFiles().map(parse);
 
@@ -86,6 +96,84 @@ describe("client components", () => {
   it("name the dice exceptions that still exist", () => {
     const paths = new Set(sources.map((source) => source.path));
     expect([...DICE_IN_CLIENT].filter((path) => !paths.has(path))).toEqual([]);
+  });
+});
+
+describe("lib/env", () => {
+  // lib/env.ts hands out the server's secrets, so it must never be bundled
+  // for the browser. Next bundles a client component together with
+  // everything it imports, and everything those import in turn, so a
+  // direct-import check is not enough: the walk follows every import that
+  // survives compilation. It stops at a "use server" module, since a client
+  // file that imports an action gets a reference to call over the network,
+  // not the action's code.
+  const ENV = join(SRC, "lib/env.ts");
+  const bySourceFile = new Map(sources.map((source) => [source.file, source]));
+  const files = new Set(bySourceFile.keys());
+
+  /** The chain of files from `file` to lib/env.ts, or null when it never gets there. */
+  function pathToEnv(file: string, seen: Set<string>): string[] | null {
+    if (file === ENV) return [file];
+    if (seen.has(file)) return null;
+    seen.add(file);
+    const source = bySourceFile.get(file);
+    if (!source || hasDirective(source, "use server")) return null;
+    for (const specifier of runtimeImports(source)) {
+      const next = resolveSource(file, specifier.text, files);
+      const rest = next && pathToEnv(next, seen);
+      if (rest) return [file, ...rest];
+    }
+    return null;
+  }
+
+  it("exists, so the walk below has something to look for", () => {
+    expect(files.has(ENV)).toBe(true);
+  });
+
+  it("is reached by no client component, directly or through its imports", () => {
+    const leaks = sources
+      .filter((source) => hasDirective(source, "use client"))
+      .map((source) => pathToEnv(source.file, new Set()))
+      .filter((chain): chain is string[] => chain !== null)
+      .map((chain) => chain.map((file) => bySourceFile.get(file)?.path ?? file).join(" → "));
+    expect(leaks).toEqual([]);
+  });
+});
+
+describe("components", () => {
+  // components/ holds what more than one page uses; a route's own files sit
+  // beside its page.tsx (docs/standards.md). A component that imports from
+  // app/ is leaning on one route's file, so either the file it reaches for
+  // is shared and belongs in components/ too, or the component is that
+  // route's own and belongs beside its page. Every module specifier counts:
+  // an import, an export from, an import() and a type import alike.
+  it("import nothing from @/app/", () => {
+    const leaks = sources
+      .filter((source) => source.path.startsWith("components/"))
+      .flatMap((source) => {
+        const found: string[] = [];
+        const visit = (node: ts.Node) => {
+          const specifier =
+            (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier
+              ? node.moduleSpecifier
+              : ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
+                ? node.arguments[0]
+                : ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)
+                  ? node.argument.literal
+                  : undefined;
+          if (
+            specifier &&
+            ts.isStringLiteralLike(specifier) &&
+            specifier.text.startsWith("@/app/")
+          ) {
+            found.push(`${source.path}:${lineOf(source, specifier)} ${specifier.text}`);
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(source.sourceFile);
+        return found;
+      });
+    expect(leaks).toEqual([]);
   });
 });
 

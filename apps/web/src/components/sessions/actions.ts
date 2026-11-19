@@ -1,12 +1,17 @@
 "use server";
 
-import { and, eq, exists, inArray, or } from "drizzle-orm";
+import { redirect } from "next/navigation";
+import { and, desc, eq, exists, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { idSchema } from "@/lib/schemas";
+import { idSchema, titleSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { appendActivityLog } from "@/db/activity-log";
+import { hasOpenSession } from "@/db/open-session";
+import { presentCount, waitingCount } from "@/db/session-player-counts";
 import { ownedSession, playingSession } from "@/db/story-access";
 import { requireAccount } from "@/lib/authorize";
+import { formatDayUtc } from "@/lib/dates";
+import { newSessionTitle } from "@/lib/play";
 import { sessionNotesSchema, sessionTitleSchema } from "@/lib/session-schemas";
 import { formErrors } from "@/lib/forms";
 import {
@@ -19,13 +24,17 @@ import { publishLater } from "@/lib/realtime/publish";
 import { publishSceneChanged, publishSessionUpdated } from "@/lib/realtime/publish-scene";
 import { SESSION_PLAYING_STATUSES, SESSION_STATUS } from "@/lib/status";
 
-const { stories, storyPlayers, storySessions } = schema;
+const { stories, storyPlayers, storySessions, vStorySessions } = schema;
 
 // The session at the table: its notes panel (SessionNotesPopover), written
 // up by the storyteller and the players alike, and the storyteller's control
 // of it from the run table's header, the title and the inactivity check.
-// Every action here starts with requireAccount(); the notes are read through
-// the caller's seat, the controls through the story's storyteller.
+// Then the opening of one, below: the stories the Play page's picker offers,
+// the sessions the session popover offers to carry on, and sa_startPlaying,
+// which makes one the story's current session and sends the storyteller to
+// the table. Every action here starts with requireAccount(); the notes are
+// read through the caller's seat, the controls through the story's
+// storyteller.
 
 /** The session's notes and lingering questions as stored; null for one not written. */
 export type SessionNotes = { notes: string | null; lingeringQuestions: string | null };
@@ -217,4 +226,207 @@ export async function sa_suspendInactiveSession(
   if (!moved) return { ok: false, error: SESSION_NOT_BEING_PLAYED };
   publishLater(() => publishSceneChanged(story.data));
   return { ok: true, status: moved.status };
+}
+
+// The title the picker sends for a new session. Only its length is held to
+// anything: it is the storyteller's own text, renamed freely afterwards.
+// Not the header's sessionTitleSchema, which clears an empty title to null:
+// a new session always gets a title, the day's when none comes.
+const newSessionTitleSchema = titleSchema("session");
+
+/** What the Play page's picker shows per story: the id to link and a label. */
+export type PlayableStory = {
+  idStory: number;
+  title: string;
+  /** The caller tells this story, so Play opens the session popover. */
+  isOwner: boolean;
+  /** Who is at its table, for the Play button's count and glow, as on a card. */
+  hasOpenSession: boolean;
+  waitingCount: number;
+  presentCount: number;
+};
+
+/**
+ * Every active story the caller owns or plays in, newest first. Unpaged, unlike
+ * the card lists in stories/actions.ts: this fills a select, which has no
+ * "More" button, and a person is in few enough stories for that to be fine.
+ * Retired stories are left out because there is no table to open for them.
+ */
+export async function sa_listPlayableStories(): Promise<PlayableStory[]> {
+  const user = await requireAccount();
+
+  // A correlated EXISTS rather than a join, so a story the caller both owns
+  // and has a player row in still comes back once.
+  const playsIn = db
+    .select({ one: storyPlayers.idStoryPlayer })
+    .from(storyPlayers)
+    .where(and(eq(storyPlayers.idStory, stories.idStory), eq(storyPlayers.idUser, user.id)));
+
+  return (
+    db
+      .select({
+        idStory: stories.idStory,
+        title: stories.title,
+        // NULL = userId is NULL in SQL, and Boolean(null) is false, so a
+        // story with no recorded creator has no owner rather than an error.
+        isOwner: eq(stories.idCreatedByUser, user.id).mapWith(Boolean),
+        // The same counts a story card's Play shows, worked out the same way
+        // (cardColumns in stories/actions.ts): everyone waiting but the
+        // caller, and everyone present at an open session.
+        hasOpenSession,
+        waitingCount: waitingCount(stories.idStory, user.id),
+        presentCount: presentCount(),
+      })
+      .from(stories)
+      .where(
+        and(or(eq(stories.idCreatedByUser, user.id), exists(playsIn)), eq(stories.isActive, true)),
+      )
+      // The seed inserts its stories in one statement, so updated_at ties are
+      // common; id_story breaks them the same way the card lists do.
+      .orderBy(desc(stories.updatedAt), desc(stories.idStory))
+  );
+}
+
+/** A session the storyteller can carry on with, as the session picker lists it. */
+export type UnfinishedSession = {
+  idStorySession: number;
+  /** Its place in the story's opening order, as the story page numbers it. */
+  number: number;
+  title: string | null;
+  status: string;
+};
+
+/**
+ * The sessions of a story the caller tells that are not DONE, most recently
+ * touched first, for the picker's second select. A story that is not the
+ * caller's, or is not there, has none: only its storyteller opens sessions.
+ */
+export async function sa_listUnfinishedSessions(idStory: number): Promise<UnfinishedSession[]> {
+  const user = await requireAccount();
+  const id = idSchema.safeParse(idStory);
+  if (!id.success) return [];
+
+  return (
+    db
+      // v_story_sessions numbers each session as the Timeline does. Its
+      // columns are nullable to Drizzle but never null for a row of the
+      // table, so the ones the picker needs are typed as the table has them.
+      .select({
+        idStorySession: sql<number>`${vStorySessions.idStorySession}`,
+        number: sql<number>`${vStorySessions.sessionNumber}`.mapWith(Number),
+        title: vStorySessions.title,
+        status: sql<string>`${vStorySessions.status}`,
+      })
+      .from(vStorySessions)
+      .innerJoin(stories, eq(stories.idStory, vStorySessions.idStory))
+      .where(
+        and(
+          eq(vStorySessions.idStory, id.data),
+          eq(stories.idCreatedByUser, user.id),
+          ne(vStorySessions.status, SESSION_STATUS.DONE),
+        ),
+      )
+      // Sessions opened in one statement share an updated_at, so the id
+      // breaks the tie the same way the session lists do.
+      .orderBy(desc(vStorySessions.updatedAt), desc(vStorySessions.idStorySession))
+  );
+}
+
+export type StartPlayingResult = { ok: false; error: string };
+
+/**
+ * Opens the table for a story the caller tells, then sends them to it. With
+ * no session given, a new one is created; it starts OPEN, the workflow's
+ * default, and is titled with the title given, which the picker builds from
+ * the storyteller's own day ("Oct 6, 2026 session"). Without a usable one it
+ * falls back to the UTC day, the only day the server knows. With one, it must be this story's and not DONE: a SUSPENDED
+ * session is RESUMED, and an OPEN or RESUMED one is carried on as it is.
+ * Either way it becomes the story's current session (stories.id_story_session),
+ * which is what the table and the waiting room read.
+ *
+ * Any other session still open is left as it was: moving the pointer does
+ * not close it, and it stays in the picker until it is marked DONE. Every
+ * table of the story is told the scene changed.
+ */
+export async function sa_startPlaying(
+  idStory: number,
+  idStorySession: number | null,
+  title?: string,
+): Promise<StartPlayingResult> {
+  const user = await requireAccount();
+  const story = idSchema.safeParse(idStory);
+  const session = idSchema.nullable().safeParse(idStorySession);
+  if (!story.success || !session.success) {
+    return { ok: false, error: "That story or session could not be found." };
+  }
+
+  const result = await db.transaction(async (tx): Promise<StartPlayingResult | null> => {
+    const [owned] = await tx
+      .select({ idStory: stories.idStory })
+      .from(stories)
+      .where(
+        and(
+          eq(stories.idStory, story.data),
+          eq(stories.idCreatedByUser, user.id),
+          eq(stories.isActive, true),
+        ),
+      )
+      .limit(1);
+    if (!owned) {
+      return { ok: false, error: "Only the storyteller can open this story's table." };
+    }
+
+    let id: number;
+    if (session.data === null) {
+      const [created] = await tx
+        .insert(storySessions)
+        .values({
+          idStory: story.data,
+          title:
+            newSessionTitleSchema.safeParse(title).data ??
+            newSessionTitle(formatDayUtc(new Date())),
+          idCreatedByUser: user.id,
+          idUpdatedByUser: user.id,
+        })
+        .returning({ id: storySessions.idStorySession });
+      id = created.id;
+    } else {
+      const [existing] = await tx
+        .select({ status: storySessions.status })
+        .from(storySessions)
+        .where(
+          and(
+            eq(storySessions.idStorySession, session.data),
+            eq(storySessions.idStory, story.data),
+          ),
+        )
+        .limit(1);
+      if (!existing || existing.status === SESSION_STATUS.DONE) {
+        return { ok: false, error: "That session has ended. Choose another or create a new one." };
+      }
+      if (existing.status === SESSION_STATUS.SUSPENDED) {
+        await tx
+          .update(storySessions)
+          .set({ status: SESSION_STATUS.RESUMED, idUpdatedByUser: user.id })
+          .where(eq(storySessions.idStorySession, session.data));
+      }
+      id = session.data;
+    }
+
+    await tx
+      .update(stories)
+      .set({ idStorySession: id, idUpdatedByUser: user.id })
+      .where(eq(stories.idStory, story.data));
+    return null;
+  });
+  if (result) return result;
+  // The players' waiting rooms and tables follow the story's pointer: a
+  // table open on the session that was current before, or waiting for one,
+  // hears the story is being played and reads the scene afresh.
+  publishLater(() => publishSceneChanged(story.data));
+
+  // Outside the transaction: redirect() throws to navigate, which would
+  // otherwise roll it back. Straight to the storyteller's own table rather
+  // than through /stories/[id]/play, which would only send them on.
+  redirect(`/stories/${story.data}/run`);
 }

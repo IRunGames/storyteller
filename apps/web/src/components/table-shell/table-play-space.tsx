@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { Box, Flex, Heading, Stack } from "@chakra-ui/react";
 import { CoverBackdrop } from "@/components/covers/cover-backdrop";
-import { playStacks, type PlayItem } from "@/lib/run";
+import { playStacks, type SceneItem } from "@/lib/scene-elements";
 import type { useWideStacks } from "@/components/run/use-wide-stacks";
 import { RunPlayStack } from "@/components/run/run-play-stack";
 
@@ -46,7 +46,7 @@ type StacksProps = {
   idStoryScene: number | null;
   /** The scene's stacks, in order. */
   tags: string[];
-  items: PlayItem[];
+  items: SceneItem[];
   /** The scene is complete: each pill is there to read. */
   locked: boolean;
   /** Which stacks are widened to the whole space, and the button that changes it. */

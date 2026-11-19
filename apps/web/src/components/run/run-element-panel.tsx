@@ -4,13 +4,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Field, HStack, NativeSelect, Separator, Stack, Text } from "@chakra-ui/react";
 import { Pencil } from "lucide-react";
 import { isElementKind } from "@/lib/elements";
-import {
-  SCENE_ELEMENT_HIDDEN,
-  type ElementDetail,
-  type ElementPanelDetail,
-  type PlayItem,
-  type SceneLink,
-} from "@/lib/run";
+import { SCENE_ELEMENT_HIDDEN, type SceneItem } from "@/lib/scene-elements";
+import type { ElementDetail, ElementPanelDetail, SceneLink } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { sa_getElementDetail } from "@/components/elements/actions";
 import { sa_moveSceneElement, sa_unlinkSceneElement } from "@/components/scene-elements/actions";
@@ -406,7 +401,7 @@ function EditForm({
   idElement: number;
   element: ElementDetail;
   link: SceneLink | null;
-  onSavedInScene: (item: PlayItem) => void;
+  onSavedInScene: (item: SceneItem) => void;
   onSavedInStory: (element: ElementDetail) => void;
   onCancel: () => void;
 }) {
@@ -432,7 +427,7 @@ function EditForm({
         idStory={idStory}
         initial={initial}
         target={{ kind: "scene", idStoryScene, idSceneElement: link.idSceneElement }}
-        onSaved={({ item }: { item: PlayItem }) => onSavedInScene(item)}
+        onSaved={({ item }: { item: SceneItem }) => onSavedInScene(item)}
         onCancel={onCancel}
         submitLabel="Save element"
       />

@@ -13,6 +13,7 @@ import { writableScene } from "@/db/story-access";
 import { chatById, insertChat, listChats, type ChatPage } from "@/db/chats";
 import { auth } from "@/lib/auth";
 import { requireAccount, requireUser } from "@/lib/authorize";
+import { serverEnv } from "@/lib/env";
 import { removeGuestsFrom } from "@/lib/guests";
 import {
   isUnplayable,
@@ -43,7 +44,11 @@ import { chatTextSchema } from "@/lib/chat-schemas";
 import { parseChatCommand } from "@/lib/chat-commands";
 import { rollDice } from "@/lib/dice";
 import { rollText } from "@/lib/roll";
-import { SCENE_ELEMENT_HIDDEN, SCENE_ELEMENT_SHOWN, SCENE_ELEMENT_TAPPED } from "@/lib/run";
+import {
+  SCENE_ELEMENT_HIDDEN,
+  SCENE_ELEMENT_SHOWN,
+  SCENE_ELEMENT_TAPPED,
+} from "@/lib/scene-elements";
 import { formErrors } from "@/lib/forms";
 import {
   INFO_NOT_SHOWING,
@@ -655,14 +660,14 @@ export async function sa_getStoryChannel(idStory: number): Promise<StoryChannel 
   const story = await loadPlayStory(user.id, idStory);
   if (!story) return null;
 
-  const address = process.env.MQTT_ADDRESS;
-  const username = process.env.MQTT_PLAYER_USERNAME;
-  const password = process.env.MQTT_PLAYER_PASSWORD;
+  const env = serverEnv();
+  const address = env.MQTT_ADDRESS;
+  const username = env.MQTT_PLAYER_USERNAME;
+  const password = env.MQTT_PLAYER_PASSWORD;
   if (!address || !username || !password) return null;
-  const port = process.env.MQTT_WS_TLS_PORT || "8084";
 
   return {
-    url: `wss://${address}:${port}/mqtt`,
+    url: `wss://${address}:${env.MQTT_WS_TLS_PORT}/mqtt`,
     username,
     password,
     topic: storyStateTopic(story.idStory),

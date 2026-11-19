@@ -19,7 +19,7 @@ import { Image as ImageIcon, Pencil } from "lucide-react";
 import { useUser } from "@/components/auth/user-provider";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { ALLOWED_IMAGE_TYPES, MAX_AVATAR_BYTES, avatarPrefix } from "@/lib/image-uploads";
-import { PROFILE_PREFERENCE_KEYS } from "@/lib/profile";
+import { PROFILE_PREFERENCE_KEYS } from "@/lib/preference-keys";
 import { avatarUrlSchema } from "@/lib/profile-schemas";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { FormError } from "@/components/forms/form-error";

@@ -5,6 +5,9 @@ import { anonymous } from "better-auth/plugins";
 import { db, schema } from "@/db";
 import { moveGuestToUser } from "@/db/guests";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth-schemas";
+import { serverEnv } from "@/lib/env";
+
+const env = serverEnv();
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
@@ -31,10 +34,15 @@ export const auth = betterAuth({
   // a guest is ours too (db/guests.ts), so the plugin's delete stays shut.
   // These paths close only the HTTP handler; auth.api still reaches them.
   disabledPaths: ["/sign-in/anonymous", "/delete-anonymous-user"],
+  // Optional: with no client id or secret, Better Auth refuses the Google
+  // sign-in when it is tried (CLIENT_ID_AND_SECRET_REQUIRED) and email sign-in
+  // is unaffected. An unset id is passed as "", not left undefined: Better
+  // Auth treats both alike when signing in, but checks an ID token's audience
+  // against it, and an undefined audience would mean no check at all.
   socialProviders: {
     google: {
-      clientId: process.env.GOOGLE_CLIENT_ID as string,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      clientId: env.GOOGLE_CLIENT_ID ?? "",
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
     },
   },
   plugins: [

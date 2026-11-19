@@ -4,12 +4,12 @@ import { Container, Heading, HStack, Link, Stack } from "@chakra-ui/react";
 import { sessionHeading } from "@/lib/stories";
 import { requireSession } from "@/lib/require-session";
 import { parseRouteId } from "@/lib/route-ids";
-import { SessionNeighbourChevron } from "@/components/stories/session-neighbour-chevron";
-import { SessionPageDetail } from "@/components/stories/session-page-detail";
-import { SessionScenesAccordion } from "@/components/stories/session-scenes-accordion";
+import { SessionNeighbourChevron } from "./session-neighbour-chevron";
+import { SessionPageDetail } from "./session-page-detail";
+import { SessionScenesAccordion } from "./session-scenes-accordion";
 import { sa_listStatusOptions } from "@/components/status/actions";
 import { sa_getStoryScene } from "@/components/prep/actions";
-import { sa_getStorySession, sa_getStorySessionNeighbours } from "../../stories/actions";
+import { sa_getStorySession, sa_getStorySessionNeighbours } from "@/components/stories/actions";
 
 // A session's info panel on a page of its own, opened in a new tab from the
 // panel's pop-out button, with arrows either side of the heading to the

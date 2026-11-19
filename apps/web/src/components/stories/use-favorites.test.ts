@@ -16,7 +16,7 @@ const story = { idStory: 7, title: "Seven", isFavorite: false } as StoryCardData
 
 describe("useFavorites", () => {
   before(async () => {
-    mock.module("@/app/(app)/(nav)/stories/actions", { namedExports: { sa_setFavorite } });
+    mock.module("./actions", { namedExports: { sa_setFavorite } });
     ({ useFavorites } = await import("./use-favorites"));
   });
 

@@ -1,7 +1,7 @@
 import { Container, Heading, List, Stack, Text } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
-import { PlayPicker } from "@/components/play/play-picker";
-import { sa_listPlayableStories } from "./actions";
+import { PlayPicker } from "./play-picker";
+import { sa_listPlayableStories } from "@/components/sessions/actions";
 
 // The Play primer, behind the "Play" nav item: how a session works, then a
 // picker into the caller's own tables. The table itself is

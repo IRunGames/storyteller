@@ -90,13 +90,6 @@ export type SceneElementInfo = {
   status: string;
 };
 
-/** One scene as a session's info panel lists it. */
-export type SessionScene = {
-  idStoryScene: number;
-  title: string;
-  status: string;
-};
-
 /** The longest title the scene forms accept (sceneSchema in scene-schemas.ts). */
 const SCENE_TITLE_MAX = 200;
 const COPY_SUFFIX = " (copy)";

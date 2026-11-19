@@ -20,7 +20,7 @@ export type PlayButtonStory = Pick<
  * glows for either, an open session with nobody at it yet included, since
  * either is something to go to.
  */
-export function playState(story: PlayButtonStory): {
+function playState(story: PlayButtonStory): {
   count: number;
   live: boolean;
   label: string;

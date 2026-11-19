@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { serverEnv } from "@/lib/env";
 import { currentEnvironment } from "@/lib/environment";
 
 /**
@@ -6,7 +7,7 @@ import { currentEnvironment } from "@/lib/environment";
  * subdomain verified in Resend (EMAILTODO.md), kept apart from irun.games so
  * the app's sending reputation is its own. EMAIL_FROM overrides it.
  */
-const FROM = process.env.EMAIL_FROM ?? "Storyteller <noreply@storyteller.irun.games>";
+const DEFAULT_FROM = "Storyteller <noreply@storyteller.irun.games>";
 
 // One client for the process, made on first use so that importing this
 // module without a key (tests, a fresh checkout) does not throw.
@@ -31,9 +32,10 @@ export type Email = { to: string; subject: string; html: string; text: string };
  * deployment must not fall through to the real recipient.
  */
 export async function sendEmail(intended: Email): Promise<boolean> {
+  const env = serverEnv();
   let email = intended;
   if (currentEnvironment() !== "PRODUCTION") {
-    const to = process.env.EMAIL_NON_PRODUCTION_TO;
+    const to = env.EMAIL_NON_PRODUCTION_TO;
     if (!to) {
       console.warn(
         `[email] Not production and EMAIL_NON_PRODUCTION_TO is not set; not sending "${intended.subject}" to ${intended.to}.`,
@@ -42,14 +44,15 @@ export async function sendEmail(intended: Email): Promise<boolean> {
     }
     email = { ...intended, to, subject: `[to: ${intended.to}] ${intended.subject}` };
   }
-  const key = process.env.RESEND_API_KEY;
+  const key = env.RESEND_API_KEY;
   if (!key) {
     console.warn(`[email] RESEND_API_KEY is not set; not sending "${email.subject}".`);
     return false;
   }
   client ??= new Resend(key);
   try {
-    const { error } = await client.emails.send({ from: FROM, ...email });
+    const from = env.EMAIL_FROM ?? DEFAULT_FROM;
+    const { error } = await client.emails.send({ from, ...email });
     if (error) {
       console.error(`[email] Resend refused "${email.subject}": ${error.message}`);
       return false;
@@ -67,5 +70,5 @@ export async function sendEmail(intended: Email): Promise<boolean> {
  * since Better Auth builds its own callback links from it.
  */
 export function appOrigin(): string {
-  return (process.env.BETTER_AUTH_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  return (serverEnv().BETTER_AUTH_URL ?? "http://localhost:3000").replace(/\/+$/, "");
 }

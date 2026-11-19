@@ -5,7 +5,10 @@ import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
-import type { AdminSystemDetail, UpdateSystemResult } from "../actions";
+import type {
+  AdminSystemDetail,
+  UpdateSystemResult,
+} from "@/app/(app)/(nav)/admin/systems/actions";
 import { mockNavigation, mockRouter } from "@/test/mocks";
 
 const system: AdminSystemDetail = {
@@ -26,7 +29,7 @@ let SystemDetailsForm: typeof import("./system-details-form").SystemDetailsForm;
 
 describe("SystemDetailsForm", () => {
   before(async () => {
-    mock.module("../actions", { namedExports: { sa_updateSystem } });
+    mock.module("@/app/(app)/(nav)/admin/systems/actions", { namedExports: { sa_updateSystem } });
     mockNavigation({ router: { ...mockRouter(), refresh } });
     ({ SystemDetailsForm } = await import("./system-details-form"));
   });

@@ -3,7 +3,11 @@
 import { createElement, useId } from "react";
 import { Menu, Portal } from "@chakra-ui/react";
 import { Ban, Circle, CircleCheck, EyeOff, RotateCw, type LucideIcon } from "lucide-react";
-import { isSceneElementStatus, SCENE_ELEMENT_STATUSES, type SceneElementStatus } from "@/lib/run";
+import {
+  isSceneElementStatus,
+  SCENE_ELEMENT_STATUSES,
+  type SceneElementStatus,
+} from "@/lib/scene-elements";
 import { statusLabel } from "@/lib/status";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 
@@ -29,7 +33,7 @@ const STATUS_ICONS: Record<SceneElementStatus, LucideIcon> = {
 };
 
 /** The icon for a status, or a plain circle for one the workflow no longer lists. */
-export function sceneStatusIcon(status: string): LucideIcon {
+function sceneStatusIcon(status: string): LucideIcon {
   return isSceneElementStatus(status) ? STATUS_ICONS[status] : Circle;
 }
 

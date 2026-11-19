@@ -9,7 +9,7 @@ import { sceneItems } from "@/db/scene-items";
 import { requireAccount } from "@/lib/authorize";
 import type { PlayScene } from "@/lib/play-scene";
 import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
-import { SCENE_ELEMENT_HIDDEN } from "@/lib/run";
+import { SCENE_ELEMENT_HIDDEN } from "@/lib/scene-elements";
 import { SCENE_LOCKED_STATUS } from "@/lib/status";
 
 const { stories, storyPlayers, storyScenes, vStoryScenes } = schema;

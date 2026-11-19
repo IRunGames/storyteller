@@ -1,7 +1,7 @@
 import { Container, Heading, Stack, Text } from "@chakra-ui/react";
 import { requireSession } from "@/lib/require-session";
-import { StoriesBoard } from "@/components/stories/stories-board";
-import { sa_listLookingForPlayers } from "../actions";
+import { StoriesBoard } from "./stories-board";
+import { sa_listLookingForPlayers } from "@/components/stories/actions";
 
 // Find a Story, the sub-page under Stories in the menu: every active story
 // whose storyteller has opened it to new players, as one paged list

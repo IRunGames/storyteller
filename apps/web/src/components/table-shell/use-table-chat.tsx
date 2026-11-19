@@ -6,6 +6,7 @@ import { Activity, MessageSquare, UserRound } from "lucide-react";
 import { useUser } from "@/components/auth/user-provider";
 import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
 import { canSeeDiagnostics } from "@/lib/diagnostics";
+import { tablePanelPreferenceKeys } from "@/lib/preference-keys";
 import { PlayCharacterSpace } from "@/components/play/play-character-space";
 import { PlayChat } from "@/components/play/play-chat";
 import { useChatLayout } from "@/components/play/play-chat-layout";
@@ -22,7 +23,8 @@ import { useStoryChat } from "@/components/play/use-story-chat";
  * the header that open and close them. Whether each is open is a user
  * preference rather than state of the page, so it holds across stories and
  * visits, and across devices. The two tables keep separate preferences
- * (`run.*` and `play.*`) and separate panel ids, since they are laid out
+ * (`run.*` and `play.*`, tablePanelPreferenceKeys) and separate panel ids,
+ * since they are laid out
  * for different jobs and a storyteller who also plays in someone else's
  * story keeps each the way they left it; `prefix` says which table this is.
  *
@@ -37,11 +39,7 @@ export function useTableChat(idStory: number, prefix: "run" | "play") {
   const user = useUser();
   const preferences = useUserPreferences();
   const diagnosticsOffered = canSeeDiagnostics(user.idUserType);
-  const keys = {
-    chat: `${prefix}.showChat`,
-    character: `${prefix}.showCharacter`,
-    diagnostics: `${prefix}.showDiagnostics`,
-  };
+  const keys = tablePanelPreferenceKeys(prefix);
   const ids = {
     chat: `${prefix}-panel-chat`,
     character: `${prefix}-panel-character`,

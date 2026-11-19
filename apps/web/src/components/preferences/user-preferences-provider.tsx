@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useLatest } from "@/hooks/use-latest";
 import { useTheme } from "next-themes";
 import { THEME_NAMES, type Theme } from "@/lib/themes";
+import { THEME_KEY } from "@/lib/preference-keys";
 import type { JsonValue, UserPreferenceMap } from "@/lib/user-preference-schemas";
 import { sa_setUserPreference, type SetUserPreferenceResult } from "./actions";
 
@@ -57,7 +58,7 @@ export function UserPreferencesProvider({
   // ref instead.
   const { setTheme } = useTheme();
   const setThemeRef = useLatest(setTheme);
-  const storedTheme = map.theme;
+  const storedTheme = map[THEME_KEY];
   useEffect(() => {
     if (typeof storedTheme === "string" && THEME_NAMES.includes(storedTheme as Theme)) {
       setThemeRef.current(storedTheme);

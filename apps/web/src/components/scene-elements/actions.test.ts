@@ -6,7 +6,7 @@
 import { after, before, beforeEach, describe, it } from "node:test";
 import { expect } from "expect";
 import { and, eq } from "drizzle-orm";
-import { elementIdOf } from "@/lib/run";
+import { elementIdOf } from "@/lib/scene-elements";
 import { describeWithDb, type Db, type Tables } from "@/test/db-suite";
 import {
   DEFAULT_TAGS,

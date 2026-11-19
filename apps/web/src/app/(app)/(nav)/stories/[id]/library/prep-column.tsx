@@ -1,0 +1,164 @@
+import { useId, type ReactNode } from "react";
+import { Heading, HStack, Spacer, Stack, Text } from "@chakra-ui/react";
+import { Maximize2, Minimize, Minimize2, Plus } from "lucide-react";
+import type { StatusOption, StatusSearchValue } from "@/lib/status";
+import { StatusSearch } from "@/components/status/status-search";
+import type { PrepColumnMode } from "./prep-columns";
+import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
+
+type Props = {
+  title: string;
+  /** What the + button makes: "session", "scene". */
+  singular: string;
+  /**
+   * How many rows the column holds in all, shown beside the title. Null for a
+   * column whose rows are still stand-ins, which has no count to give.
+   */
+  count?: number | null;
+  /** Never "hidden": the board renders a button in the column's place instead. */
+  mode: Exclude<PrepColumnMode, "hidden">;
+  /** The column's width at its usual size. */
+  width: string;
+  /** False for a column that never expands, which then has no expand button. */
+  expandable: boolean;
+  /** False for a column whose rows are made elsewhere, which then has no + button. */
+  creatable: boolean;
+  /** False for the first visible column, which has nothing to its left. */
+  bordered: boolean;
+  /**
+   * The workflow of the rows in this column, for the status pills above the
+   * search box. A column whose rows have no statuses passes none and gets
+   * only the box.
+   */
+  statusOptions?: StatusOption[];
+  /** What the pills are called when they are not statuses; see StatusSearch. */
+  filterLabel?: string;
+  /**
+   * What the search box and the pills are narrowed to. The board holds it
+   * rather than the column, so it can be kept in the storyteller's
+   * preferences with the modes and come back on the next visit.
+   */
+  filter: StatusSearchValue;
+  onFilterChange: (next: StatusSearchValue) => void;
+  /**
+   * For a column whose + opens a form in place rather than acting at once:
+   * whether that form is showing. See IconButtonWithTooltip's expanded.
+   */
+  creating?: boolean;
+  /**
+   * Drawn between the heading and the filters: where a + that opens a form
+   * in place puts it, so the form sits under the button that opened it
+   * rather than below the search box.
+   */
+  aboveFilters?: ReactNode;
+  onCreate: () => void;
+  onExpand: () => void;
+  /** Shrinks an expanded column back to its usual width. */
+  onShrink: () => void;
+  /** Folds the column away into a button above the board, from either width. */
+  onHide: () => void;
+  /**
+   * The rows, given what the column is narrowed to — the words typed and the
+   * statuses still switched on — so they can narrow themselves. What it
+   * means for a row is the board's business.
+   */
+  children: (filter: StatusSearchValue) => ReactNode;
+};
+
+// One column of the Prep Work board: the heading with its buttons, the
+// search box under it, then whatever the board puts in it. The mode and the
+// border are the board's decision, since both depend on the other columns;
+// this only draws them.
+export function PrepColumn({
+  title,
+  singular,
+  count = null,
+  mode,
+  width,
+  expandable,
+  creatable,
+  bordered,
+  statusOptions,
+  filterLabel,
+  filter,
+  onFilterChange,
+  creating,
+  aboveFilters,
+  onCreate,
+  onExpand,
+  onShrink,
+  onHide,
+  children,
+}: Props) {
+  const headingId = useId();
+  const options = statusOptions ?? [];
+
+  return (
+    <Stack
+      as="section"
+      aria-labelledby={headingId}
+      data-column={title}
+      data-mode={mode}
+      data-bordered={bordered}
+      gap="4"
+      flex="none"
+      // Two thirds of the viewport rather than of the board, as asked, and
+      // with vw the width holds while the board scrolls sideways under it.
+      w={mode === "expanded" ? "66.667vw" : width}
+      px="4"
+      // The boundary sits between columns, never before the first or after
+      // the last, so it is a left border that the first visible column drops.
+      borderLeftWidth={bordered ? "1px" : "0"}
+      borderColor="border"
+    >
+      <HStack gap="1">
+        <Heading id={headingId} size="lg" minW="0" truncate>
+          {title}
+        </Heading>
+        {/* The count sits beside the heading rather than inside it, so the
+            column's accessible name stays the plain title while the number
+            changes underneath. */}
+        {count !== null && (
+          <Text color="fg.muted" fontSize="sm" flex="none" data-count={count}>
+            ({count})
+          </Text>
+        )}
+        {/* The + belongs to the title, since it adds to what the column
+            holds; the layout buttons are about the column itself and keep
+            to the far edge, so the two are not mistaken for each other. */}
+        {creatable && (
+          <IconButtonWithTooltip label={`New ${singular}`} onClick={onCreate} expanded={creating}>
+            <Plus />
+          </IconButtonWithTooltip>
+        )}
+        <Spacer />
+        {expandable && mode === "normal" && (
+          <IconButtonWithTooltip label={`Expand ${title}`} onClick={onExpand}>
+            <Maximize2 />
+          </IconButtonWithTooltip>
+        )}
+        {/* Expanded, the column offers both ways down: back to its usual
+            width, drawn as Expand's arrows pointing back in, or straight out
+            of the way into a button above the board. At its usual width only
+            the second is a move. */}
+        {mode === "expanded" && (
+          <IconButtonWithTooltip label={`Shrink ${title}`} onClick={onShrink}>
+            <Minimize2 />
+          </IconButtonWithTooltip>
+        )}
+        <IconButtonWithTooltip label={`Hide ${title}`} onClick={onHide}>
+          <Minimize />
+        </IconButtonWithTooltip>
+      </HStack>
+      {aboveFilters}
+      <StatusSearch
+        label={title}
+        options={options}
+        value={filter}
+        onChange={onFilterChange}
+        groupLabel={filterLabel}
+      />
+      {children(filter)}
+    </Stack>
+  );
+}
