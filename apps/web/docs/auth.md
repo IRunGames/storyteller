@@ -146,7 +146,7 @@ fall back to `/home`.
 ## Guests
 
 A storyteller hands out a join link from their table (the link button in the
-run table's header, `sa_getJoinLink`, with a chip once anyone has joined by
+run table's header, `sa_getOrCreateJoinLink`, with a chip once anyone has joined by
 it saying how many of the plan's seats are taken): `/join/<code>`, where the code is a
 random 12 characters kept on `stories.join_code`. Following it needs no
 account. The join page asks for a name, offering a random one ("Ferocious
@@ -311,8 +311,12 @@ dbmate owns the schema (see [`db/README.md`](../../../db/README.md)).
   (`lib/email.ts`), but Better Auth is not given a `sendVerificationEmail`, so
   `requireEmailVerification: false` and `email_verified` stays false. Sign-in
   is not blocked by it.
-- **Google needs credentials.** `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are
-  empty in `.env.local`; the button won't work until they're filled in.
+- **Google sign-in is optional per environment.** It needs
+  `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` ([`.env.example`](../.env.example)).
+  With no client id or secret, Better Auth refuses the Google sign-in when it is tried
+  (`CLIENT_ID_AND_SECRET_REQUIRED`) and email sign-in is unaffected
+  ([`auth.ts`](../src/lib/auth.ts)). The button is still drawn and shows the
+  refusal under itself.
 - **No password reset or "forgot password" flow yet.**
 
 ## Local setup

@@ -4,7 +4,7 @@
 
 Status workflows are seeded from `seeds/seed_s_status_workflows.sql` and `seeds/seed_s_statuses.sql`, wrapped with `just seed`. The workflow system adds CHECK constraints, status timestamp columns, and transition-enforcement triggers to the target table automatically.
 
-The first workflow, and the file to copy for the table side, is `story_sessions`: see [`custom/create_story_sessions_table.sql`](custom/create_story_sessions_table.sql).
+The first workflow was `story_sessions`, and the statuses example below is its. The file to copy for the table side is [`custom/create_feedback_table.sql`](custom/create_feedback_table.sql), which puts its table on workflow -7 in the one call that registers it.
 
 ## Prerequisites
 
@@ -66,10 +66,21 @@ Example (OPEN -> SUSPENDED or DONE; SUSPENDED -> RESUMED or DONE; RESUMED -> SUS
 
 ### 3. Map the table to the workflow in its create script
 
-In `custom/create_<table>_table.sql`, after `CALL _p_update_tables()`, set
-`s_status_workflow_ids = ARRAY[-N]` in the same `UPDATE _tables` that sets the
-`needs_*` flags, then call the five workflow procedures after the audit-column
-ones:
+In `custom/create_<table>_table.sql`, pass the workflow to the one call that
+registers the table, after the `CREATE TABLE`:
+
+```sql
+CALL _p_set_and_update_table_features('my_table',
+    p_timestamps          := TRUE,
+    p_user_ids            := TRUE,
+    p_activity_log        := TRUE,
+    p_status_workflow_ids := ARRAY[-N]);
+```
+
+The procedure ([`procedures/_p_set_and_update_table_features.sql`](procedures/_p_set_and_update_table_features.sql))
+records the mapping in `_tables.s_status_workflow_ids`, raises if workflow -N
+has not been seeded, and runs the five workflow procedures after the
+audit-column ones:
 
 ```sql
 CALL _p_update_workflow_constraints();
@@ -79,10 +90,14 @@ CALL _p_attach_workflow_triggers();
 CALL _p_attach_status_transition_triggers();
 ```
 
+`p_activity_log` is optional. With it, the transition trigger appends every
+move to the row's `activity_log`; without the column it skips the log with a
+warning.
+
 Anything built on the `<status>_at` columns (a generated column, an index)
-goes after those calls, because that is when the columns appear. The seed for
-`s_statuses` makes the same calls so a later edit to a workflow is applied to
-every mapped table on re-seed.
+goes after that call, because that is when the columns appear. The seed for
+`s_statuses` makes the same five calls so a later edit to a workflow is
+applied to every mapped table on re-seed.
 
 ### 4. Generate the migrations
 
@@ -94,10 +109,12 @@ just seed seed_s_statuses
 just custom create_<table>_table
 ```
 
-Each creates a timestamped migration in `migrations/`. Edit the two seed
-migrations' `DELETE FROM xxx;` placeholders to
-`DELETE FROM s_status_workflows WHERE s_status_workflow_id < 0;` and
-`DELETE FROM s_statuses WHERE s_status_id < 0;`.
+Each creates a timestamped migration in `migrations/`. Fill in each seed
+migration's placeholder, `DELETE FROM <table> WHERE xxx IN (xxx);`, with every
+id that seed inserts, the new ones included:
+`DELETE FROM s_status_workflows WHERE s_status_workflow_id IN (-1, …, -N);` and
+`DELETE FROM s_statuses WHERE s_status_id IN (-1, …);`. Never clear by
+`< 0`: a negative id does not prove the row came from the seed.
 
 ### 5. Run and verify
 

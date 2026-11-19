@@ -35,9 +35,11 @@ export type JoinStory = {
 
 /**
  * The story a join link names, for /join/[code] to show before anyone has
- * an account. One of the two actions that do not start with requireUser():
- * whoever holds the link may see the story's title and cover, which is what
- * the storyteller handed the link out for. Nothing else about the story
+ * an account. One of the three actions that do not start with requireUser(),
+ * with sa_joinAsGuest below and the invite page's sa_getInvitation
+ * (test/guest-gate.test.ts names them): whoever holds the link may see the
+ * story's title and cover, which is what the storyteller handed the link
+ * out for. Nothing else about the story
  * leaves here. A signed-in visitor is also told whether they are already at
  * the table, read from the session alone, so the page can send them on.
  * Archived stories have no table, so their links lead nowhere.

@@ -10,9 +10,10 @@ how we use it. Authentication has its own page, [`auth.md`](auth.md).
 
 - **Every non-obvious decision carries a comment saying why.** Not what the
   code does, but why it is this way and not the obvious way. See the
-  `cssUrlValue` docblock and the `aria-disabled` note in
-  [`story-card.tsx`](../src/components/stories/story-card.tsx), or the tooltip
-  wrapper comment in [`nav-notifications-bell.tsx`](../src/components/nav/nav-notifications-bell.tsx).
+  `cssUrlValue` docblock in [`stories.ts`](../src/lib/stories.ts), the
+  `aria-disabled` note on
+  [`story-favorite-button.tsx`](../src/components/stories/story-favorite-button.tsx),
+  or the tooltip wrapper comment in [`nav-notifications-bell.tsx`](../src/components/nav/nav-notifications-bell.tsx).
 - Prose in comments, not bullet fragments. No analogies.
 - Small, focused files: one component or one concern per file, tests beside it.
 
@@ -30,7 +31,7 @@ how we use it. Authentication has its own page, [`auth.md`](auth.md).
 | `src/lib/`                                                  | Shared code with no React in it: zod schemas (`<feature>-schemas.ts`), view types and formatters, auth helpers, every preference key (`preference-keys.ts`). A value a `.tsx` file exports that is not React (a constant, a plain function) belongs here or in a `.ts` beside the component.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `src/db/`                                                   | The Drizzle client, the hand-written schema, and the reads and writes more than one actions module shares: who may read or change a story (`story-access.ts`), the scene's read model (`scene-space.ts`), one scene insert (`scenes.ts`), covers (`covers.ts`), seats (`seats.ts`), the activity log (`activity-log.ts`). A `"use server"` module may only export actions, so what two of them share lives here.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `src/hooks/`                                                | React hooks more than one feature shares: `use-latest.ts`, `use-optimistic-action.ts` (a control that shows its change before the action answers and puts it back on a refusal), `use-debounced-search.ts` (a search box that asks the database once the typing pauses). A hook one feature owns stays beside it (`components/play/use-story-chat.ts`, `components/stories/use-favorites.ts`, `components/uploads/use-attachment-search.ts`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `src/test/`                                                 | The test harness: `setup.ts`, `render.tsx`, `db-suite.ts` for database tests, `scene-fixtures.ts` for the table's suites, `mocks.ts` for the mocks component tests share, and the source scans (`guest-gate`, `architecture`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `src/test/`                                                 | The test harness: `setup.ts`, `render.tsx`, `db-suite.ts` for database tests, `scene-fixtures.ts` for the table's suites, `mocks.ts` for the mocks component tests share, and the source scans that read the code itself and fail on a rule it breaks (`guest-gate`, `architecture`, `style-prop-order`, `real-accounts`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `src/proxy.ts`                                              | Next 16's name for middleware. An optimistic cookie check only, never a security boundary.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `*.test.ts(x)`                                              | Colocated with the file under test.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
@@ -101,6 +102,12 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   toast an error the user has to act on.
 - **Prefer `aria-disabled` over `disabled`** when the control must stay
   focusable; a disabled button also swallows pointer events, which is why the
+  tooltip that says why a control is unavailable would never open on one. The
+  Stories page's New story button, at the account's limit of active stories,
+  is `aria-disabled` so its tooltip still opens on hover and on focus
+  ([`my-stories.tsx`](<../src/app/(app)/(nav)/stories/my-stories.tsx>)).
+  `aria-disabled` stops nothing by itself, so a click handler on such a
+  control checks the state and refuses, as the favorite heart does.
 - **Every icon button has a tooltip, placed above it,** through
   [`IconButtonWithTooltip`](../src/components/buttons/icon-button-with-tooltip.tsx)
   (a round ghost `xs` button by default; the header's pass their own size,
@@ -132,8 +139,13 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   actions a guest's pages need start with `requireUser()` instead, which lets
   a guest through, and are named in
   [`guest-gate.test.ts`](../src/test/guest-gate.test.ts); a new one fails that
-  test until it is named there. See [Guests](auth.md#guests). There is no
-  separate query layer.
+  test until it is named there. See [Guests](auth.md#guests). Three start
+  with no gate at all, because nobody is signed in yet when they run: the join
+  page's `sa_getJoinStory` and `sa_joinAsGuest` and the invite page's
+  `sa_getInvitation`; the same test names them. A read or write that two
+  actions modules share is a plain function in [`src/db/`](../src/db/), which
+  the action calls after its gate with `user.id`; those functions never read
+  the session themselves.
 - **An actions file lives where a component would.** One that only a single
   route's files call sits beside that route's `page.tsx`: the Storyboard's
   [`actions.ts`](<../src/app/(app)/(nav)/stories/[id]/storyboard/actions.ts>),
@@ -155,12 +167,22 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   element itself (`components/elements/actions.ts`), the session at the
   table and the opening of one (`components/sessions/actions.ts`); a page
   imports from each feature it uses.
-- **One exception, and only one: `app/api/blob/upload/route.ts`.** `upload()`
-  from `@vercel/blob/client` needs an HTTP endpoint to POST to for a token,
-  which a server action cannot be. It opens with the same `requireAccount()`
-  an action does, and it checks the client-supplied pathname against that user's
-  own prefix. Uploading is the only thing that earns a route handler; adding
-  another needs the same kind of reason.
+- **A route handler only where a server action cannot do the job.** Each one
+  under [`src/app/api/`](../src/app/api/) has that reason, and adding another
+  needs the same kind:
+  - `api/auth/[...all]` is Better Auth's own handler ([`auth.md`](auth.md)).
+  - `api/blob/upload`: `upload()` from `@vercel/blob/client` needs an HTTP
+    endpoint to POST to for a token, which a server action cannot be. It opens
+    with the same `requireAccount()` an action does, and it checks the
+    client-supplied pathname against that user's own prefix.
+  - `api/table/leave`: a guest's display table reports that its page is going
+    with `navigator.sendBeacon`, a plain POST sent as the page unloads, which a
+    server action cannot receive. It opens with `requireUser()` and is named in
+    `guest-gate.test.ts` beside the guests' actions.
+  - `api/cron/blob-sweep` and `api/cron/guest-sweep`: the daily jobs in
+    [`vercel.json`](../vercel.json), which Vercel's scheduler calls by URL. They
+    have no session to check; `isCronRequest` in [`cron.ts`](../src/lib/cron.ts)
+    checks the `CRON_SECRET` bearer token instead.
 - **Every exported action is named with the `sa_` prefix**: `sa_listNews`,
   `sa_setFavorite`, `sa_submitFeedback`. A call site and a `mock.module` then
   both show at a glance that the call crosses the network. Only the export is
@@ -228,8 +250,9 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   [`(app)/layout.tsx`](<../src/app/(app)/layout.tsx>) loads the row once with
   `requireUser()` and mounts `UserProvider` with the `CurrentUser` subset from
   [`current-user.ts`](../src/lib/current-user.ts): id, name, email, image,
-  nickName. Add a field there when a page needs it; nothing else on the row
-  reaches the browser. Server components keep calling `requireUser()`, since
+  nickName, idUserType (the account type, which decides what the table
+  offers) and isAnonymous (a guest). Add a field there when a page needs it;
+  nothing else on the row reaches the browser. Server components keep calling `requireUser()`, since
   context is client-only. In a test, wrap the component in `UserProvider`.
 - **Per-user settings go through `useUserPreferences()`**
   ([`user-preferences-provider.tsx`](../src/components/preferences/user-preferences-provider.tsx)),
@@ -288,11 +311,12 @@ result.errors, FIELDS, fallback?)` sets every field the form registers and
 - **`relations()` blocks sit at the bottom of the file**, one per table.
 - **The Better Auth exports stay singular** (`user`, `session`, `account`,
   `verification`): the adapter looks tables up by these keys.
-- **Queries live in the action that needs them.** Share a projection with a
-  helper (`cardColumns` in
-  [`stories/actions.ts`](../src/components/stories/actions.ts)) rather than a
-  repository class. Use a correlated `exists()` for "does the caller have
-  one of these", so a join never duplicates or drops a row.
+- **A query lives in the action that needs it** until a second actions module
+  needs it too. Then it moves to a plain function in `src/db/`, since a
+  `"use server"` module may only export actions, as the story card's
+  projection did: `cardColumns` in [`story-cards.ts`](../src/db/story-cards.ts).
+  A function, not a repository class. Use a correlated `exists()` for "does the
+  caller have one of these", so a join never duplicates or drops a row.
 - **Pagination needs a stable sort:** order by the timestamp _and_ the id,
   because seeds insert many rows in one statement and share a timestamp.
 
@@ -309,19 +333,24 @@ The full guide is [`db/README.md`](../../../db/README.md). The short version:
   with `just make_custom <name>`, then `just migrate`. Copy
   [`create_feedback_table.sql`](../../../db/custom/create_feedback_table.sql): it
   declares only the table's own columns, then registers with the `_tables`
-  metatable (`CALL _p_update_tables()`, `UPDATE _tables SET needs_timestamps,
-needs_user_ids`), fails loudly if the registration did not take, and calls
-  `_p_update_tables_timestamps()` and `_p_update_tables_user_ids()` to add the
-  audit columns, the `set_updated_at` trigger and the foreign keys. A table
-  whose rows are taken down rather than deleted also sets `needs_archival` and
-  calls `_p_update_tables_archives()` for `is_archived`, `archived_at` and
-  `id_archived_by_user`, as
-  [`create_news_table.sql`](../../../db/custom/create_news_table.sql) does.
+  metatable in one call,
+  `CALL _p_set_and_update_table_features('<table>', p_timestamps := TRUE, p_user_ids := TRUE, …)`,
+  which raises if the registration did not take and adds the audit columns,
+  the `set_updated_at` trigger, the foreign keys and an index on each. Every
+  other feature is one more switch on the same call: `p_archival := TRUE` for
+  a table whose rows are taken down rather than deleted (`is_archived`,
+  `archived_at`, `id_archived_by_user`), `p_status_workflow_ids` for a status
+  workflow ([`STATUS_WORKFLOWS.md`](../../../db/STATUS_WORKFLOWS.md)), and the
+  rest as
+  [`_p_set_and_update_table_features.sql`](../../../db/procedures/_p_set_and_update_table_features.sql)
+  lists them. Older scripts such as `create_news_table.sql` spell the steps out
+  by hand; that is not the form to copy.
 - **A one-time change** (rename, drop, add a constraint or column) goes
   straight into `db/migrations` with `just new <name>`; there is no source in
   `custom/` to keep in step with it.
 - **Seeds** go through `just make_seed` and use negative ids, so test fixtures
-  with database-generated positive ids can never collide with them.
+  with database-generated positive ids can never collide with them. A seed's
+  `DELETE` names the ids it inserts, never `id < 0`.
 
 ## Testing
 

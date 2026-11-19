@@ -4,7 +4,7 @@ import { currentEnvironment } from "@/lib/environment";
 
 /**
  * Who the app's mail is from. The sending domain is the storyteller.irun.games
- * subdomain verified in Resend (EMAILTODO.md), kept apart from irun.games so
+ * subdomain verified in Resend, kept apart from irun.games so
  * the app's sending reputation is its own. EMAIL_FROM overrides it.
  */
 const DEFAULT_FROM = "Storyteller <noreply@storyteller.irun.games>";

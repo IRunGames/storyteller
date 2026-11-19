@@ -271,7 +271,7 @@ export async function sa_listPlayableStories(): Promise<PlayableStory[]> {
         // story with no recorded creator has no owner rather than an error.
         isOwner: eq(stories.idCreatedByUser, user.id).mapWith(Boolean),
         // The same counts a story card's Play shows, worked out the same way
-        // (cardColumns in stories/actions.ts): everyone waiting but the
+        // (cardColumns in db/story-cards.ts): everyone waiting but the
         // caller, and everyone present at an open session.
         hasOpenSession,
         waitingCount: waitingCount(stories.idStory, user.id),

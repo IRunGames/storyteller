@@ -13,15 +13,15 @@
   - react-hook-form for form state, wired to Zod via @hookform/resolvers
   - better-auth for authentication (drizzle adapter), with its anonymous plugin for guests who join a story by link (docs/auth.md)
   - Chakra ui v3
-    - @emotion/cache for the cache `src/components/ui/emotion-registry.tsx` hands Chakra's Emotion, so the server's styles go into `<head>` through `useServerInsertedHTML` rather than inline in `<body>`, where moving them broke hydration
+    - @emotion/cache for the cache `src/components/providers/emotion-registry.tsx` hands Chakra's Emotion, so the server's styles go into `<head>` through `useServerInsertedHTML` rather than inline in `<body>`, where moving them broke hydration
   - lucide-react for icons; the only hand-drawn SVGs are marks (the themes' marks in `src/components/nav/icons.tsx`, the Google mark in the sign-in button)
   - next-themes
     > For SSR: the recommended pattern reads the active theme from a cookie during your Next.js RootLayout render and injects the matching theme CSS inline in <head>, so the server-rendered HTML is already correct on first paint — same flash-free approach you'd expect from MUI's SSR theme setup.
-  - Data access: every read and write is a server action in the route's `actions.ts`, starting with `requireAccount()` from `src/lib/authorize.ts`, which checks the session and the user row (exists, active, not a guest) before the query runs; the few a guest may call use `requireUser()`, which lets a guest through. No separate query layer.
+  - Data access: every read and write is a server action in an `actions.ts` (beside the one route that uses it, or in `src/components/<feature>/`), starting with `requireAccount()` from `src/lib/authorize.ts`, which checks the session and the user row (exists, active, not a guest) before the query runs; the few a guest may call use `requireUser()`, which lets a guest through. What two actions modules share is a plain function in `src/db/` (docs/standards.md).
   - @vercel/blob for image uploads, browser-direct to a public store
   - @dice-roller/rpg-dice-roller for the table chat's `/roll`, on the server only (`src/lib/dice.ts`), drawing from Web Crypto
   - resend for transactional email, sent only through `sendEmail` in `src/lib/email.ts` (invitations, so far)
-  - @tanstack/react-table (v9) for tables that sort and search, drawn with Chakra's `Table` (the admin Invitations list)
+  - @tanstack/react-table (v9) for tables that sort and search, drawn with Chakra's `Table` (the admin Invitations and Users lists, and the Stories page's table view)
   - mqtt (mqtt.js) in the browser, over WebSocket TLS, for the players' table to follow the storyteller's; the server publishes through EMQX's REST API (`src/lib/realtime/`)
 
 ## Hosting

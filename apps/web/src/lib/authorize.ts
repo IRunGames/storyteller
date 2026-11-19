@@ -55,7 +55,7 @@ export const requireUser = cache(async function requireUser(): Promise<DbUser> {
  * story's join link (lib/auth.ts). A guest's pages only read the table they
  * joined, so a guest calling anything else has gone around those pages;
  * the few actions that serve them stay on requireUser(), and
- * authorize-guard.test.ts names them.
+ * test/guest-gate.test.ts names them.
  */
 export async function requireAccount(): Promise<DbUser> {
   const user = await requireUser();

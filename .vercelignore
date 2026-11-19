@@ -13,7 +13,6 @@
 .neon
 .env*
 .DS_Store
-EMAILTODO.md
 justfile
 cspell.json
 skills-lock.json

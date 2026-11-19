@@ -1,7 +1,7 @@
 import type { Email } from "@/lib/email";
 
 // Plain HTML and text rather than React Email templates: two short messages
-// do not earn a templating dependency yet (EMAILTODO.md leaves that open).
+// do not earn a templating dependency yet.
 
 /** Escapes text for an HTML body; names and titles are typed by people. */
 function escapeHtml(text: string): string {
