@@ -1,4 +1,4 @@
-import { Dices, MailPlus, Users } from "lucide-react";
+import { Dices, MailPlus, Newspaper, Users } from "lucide-react";
 
 export interface NavItem {
   label: string;
@@ -31,6 +31,7 @@ export const ADMIN_ITEMS = [
   { href: "/admin/invitations", label: "Invitations", icon: MailPlus },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/systems", label: "Systems", icon: Dices },
+  { href: "/admin/news", label: "News", icon: Newspaper },
 ] as const;
 
 export function isActive(pathname: string, href: string) {

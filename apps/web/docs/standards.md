@@ -87,6 +87,19 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   with its own words and its own action, as
   [`delete-scene-button.tsx`](<../src/app/(app)/(nav)/stories/[id]/library/delete-scene-button.tsx>)
   does; it does not draw the popover itself.
+- **A status in an administrators' table is the live pill, never a `Badge`.**
+  The chip that shows a row's status is also the way to change it, in
+  place: [`StatusMenuPill`](../src/components/status/status-menu-pill.tsx),
+  drawn by a small component the page owns that holds the status, calls the
+  action through `useOptimisticAction`, and hands the pill its moves and any
+  confirmation, as the Users page's
+  [`user-status-chip.tsx`](<../src/app/(app)/(nav)/admin/users/user-status-chip.tsx>)
+  does. A status with no workflow in the database names its states in that
+  component, as
+  [`story-active-pill.tsx`](<../src/app/(app)/(nav)/stories/story-active-pill.tsx>)
+  does for a story's Active and Inactive. Only a row the administrator may
+  not change, such as their own account, shows `StatusPillSpan`, the same
+  pill without the menu.
 - **Errors are inline, confirmations are toasts.** A form-level failure is a
   [`FormError`](../src/components/forms/form-error.tsx), given
   `errors.root?.message` or the error string as it is (it draws nothing

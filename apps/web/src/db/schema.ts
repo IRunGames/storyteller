@@ -940,10 +940,11 @@ export const userSystems = pgTable("user_systems", {
   idUpdatedByUser: uuid("id_updated_by_user"),
 });
 
-// Announcements for the home page. Shown from startsAt until expiresAt (null
-// = never). The three archive columns and their triggers come from the
-// metatable's needs_archival flag, so an item is taken down by setting
-// isArchived rather than by deleting the row.
+// Announcements for the home page, written on the administrators' News page.
+// Shown from startsAt until expiresAt (null = never). The three archive
+// columns and their triggers come from the metatable's needs_archival flag:
+// archiving takes an item down and keeps it, and the News page can also
+// delete one outright.
 export const news = pgTable("news", {
   idNews: integer("id_news").primaryKey().generatedByDefaultAsIdentity(),
   title: text("title").notNull(),

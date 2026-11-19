@@ -36,6 +36,7 @@ describe("NavAdminMenu", () => {
       "href",
       "/admin/systems",
     );
+    expect(screen.getByRole("menuitem", { name: "News" })).toHaveAttribute("href", "/admin/news");
   });
 
   it("is not drawn for a paid storyteller", () => {
