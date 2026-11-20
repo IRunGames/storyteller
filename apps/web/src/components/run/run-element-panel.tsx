@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Field, HStack, NativeSelect, Separator, Stack, Text } from "@chakra-ui/react";
+import { HStack, Separator, Stack, Text } from "@chakra-ui/react";
 import { Pencil } from "lucide-react";
 import { isElementKind } from "@/lib/elements";
 import { SCENE_ELEMENT_HIDDEN, type SceneItem } from "@/lib/scene-elements";
 import type { ElementDetail, ElementPanelDetail, SceneLink } from "@/lib/run";
 import type { StatusOption } from "@/lib/status";
 import { sa_getElementDetail } from "@/components/elements/actions";
-import { sa_moveSceneElement, sa_unlinkSceneElement } from "@/components/scene-elements/actions";
-import { toaster } from "@/components/ui/toaster";
+import { sa_unlinkSceneElement } from "@/components/scene-elements/actions";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import { DeleteButton } from "@/components/confirm/delete-button";
 import { ElementHistory } from "@/components/elements/element-history";
@@ -43,8 +42,8 @@ type Props = {
   heading: (text: string) => ReactNode;
   /**
    * The scene is complete: nothing goes into it or comes out of it, so the
-   * scene's status is only shown, Remove from scene and Move to are left
-   * out, and the pencil edits the element alone.
+   * scene's status and stack are only shown, Remove from scene is left out,
+   * and the pencil edits the element alone.
    */
   locked?: boolean;
   /**
@@ -55,19 +54,18 @@ type Props = {
   canEdit?: boolean;
   /**
    * The element has been edited from here, in the scene or in the story, or
-   * moved or filed under other stacks: the play space already shows it, and
-   * a holder that lists elements, the library, lists afresh.
+   * moved to another stack: the play space already shows it, and a holder
+   * that lists elements, the library, lists afresh.
    */
   onChanged?: () => void;
   /** The link has been taken out of the scene from here, by id; the play space already knows. */
   onRemovedFromScene?: (idSceneElement: number) => void;
   /**
-   * From a pill: the tag of the stack it is in, which Move to takes it out
-   * of (null for Default), and the scene's other stacks, which Move to
-   * offers. The library leaves both out, and the panel has no Move to.
+   * From a pill: the tag of the stack it is in, which the stacks menu moves
+   * it out of (null for Default). The library leaves it out, and the menu
+   * moves the element out of the first stack it is filed under.
    */
   stackTag?: string | null;
-  otherStacks?: string[];
   /** The scene's stacks, in order, for the heading's stacks menu; left out, the tags are only shown. */
   sceneStacks?: string[];
 };
@@ -91,13 +89,14 @@ type Loaded = ElementPanelDetail & {
  *
  * Only an element in the scene has the scene's part, first, as a card
  * (RunSceneSection) under a SCENE pill the width of the panel that rides
- * over its top edge, with its stacks menu at the pill's end: its status and
+ * over its top edge, with the menu that moves it to another stack at the
+ * pill's end: its status and
  * info toggle with the thumbnail of its pictures for this scene at the
  * right, its link and its copy of the stat blocks, closed to start; the
  * trashcan beside the pencil takes
  * it out of the scene. The element's own rows follow under a STORY pill of
- * the same cut (ElementDetailRows), and, under them, Move to; an element
- * that is only the story's has the rows alone. Moving its status tells the play space, so
+ * the same cut (ElementDetailRows); an element that is only the story's
+ * has the rows alone. Moving its status tells the play space, so
  * the pill keeps up. The element's own status is among its own rows either
  * way. Last of all, History: the story's other scenes the element has been
  * in (ElementHistory), closed until its chevron is pressed.
@@ -126,7 +125,6 @@ export function RunElementPanel({
   onChanged,
   onRemovedFromScene,
   stackTag = null,
-  otherStacks = [],
   sceneStacks,
 }: Props) {
   const sceneItems = useSceneItemsContext();
@@ -140,7 +138,6 @@ export function RunElementPanel({
     annotated: false,
   });
   const [editing, setEditing] = useState(false);
-  const [moving, setMoving] = useState(false);
   // Bumped to load again, after an edit saved in the scene.
   const [loads, setLoads] = useState(0);
 
@@ -183,27 +180,6 @@ export function RunElementPanel({
     setLoaded((current) =>
       current?.link ? { ...current, link: { ...current.link, ...patch } } : current,
     );
-
-  // Move to: the pill leaves this stack for the one chosen, which redraws it
-  // there and so closes this panel with it.
-  async function moveTo(tag: string) {
-    if (!tag || idStoryScene === null || !loaded?.link) return;
-    const link = loaded.link.idSceneElement;
-    setMoving(true);
-    try {
-      const result = await sa_moveSceneElement(idStory, idStoryScene, link, stackTag, tag);
-      if (result.ok) {
-        sceneItems.replace(result.item);
-        onChanged?.();
-      } else {
-        toaster.create({ title: result.error, type: "error" });
-      }
-    } catch {
-      toaster.create({ title: "The element could not be moved. Try again.", type: "error" });
-    } finally {
-      setMoving(false);
-    }
-  }
 
   // The trashcan beside the pencil: the link is deleted
   // (sa_unlinkSceneElement), once the question is answered, and the element
@@ -296,6 +272,7 @@ export function RunElementPanel({
               locked={locked}
               sceneOptions={loaded.sceneOptions}
               sceneStacks={sceneStacks}
+              stackTag={stackTag}
               holder={{ idStory, idSceneElement: loaded.link.idSceneElement }}
               // The chat names the element as its pill does; an invisible
               // element's roll stays with the storyteller.
@@ -309,7 +286,9 @@ export function RunElementPanel({
                 patchLink({ showInfo });
                 sceneItems.patchLink(loaded.link!.idSceneElement, { showInfo });
               }}
-              onTagsChange={(item) => {
+              // Moved from a pill, the pill is redrawn in the stack chosen,
+              // which closes this panel with it.
+              onMoved={(item) => {
                 patchLink({ tags: item.sceneTags ?? [] });
                 sceneItems.replace(item);
                 onChanged?.();
@@ -392,30 +371,6 @@ export function RunElementPanel({
               canEdit={!locked}
               rollAs={{ title: label, quiet: false }}
             />
-          )}
-          {inScene && !locked && otherStacks.length > 0 && (
-            <>
-              <Separator />
-              <Field.Root>
-                <Field.Label>Move to</Field.Label>
-                <NativeSelect.Root size="sm" disabled={moving}>
-                  <NativeSelect.Field
-                    value=""
-                    onChange={(event) => void moveTo(event.target.value)}
-                  >
-                    <option value="" disabled>
-                      Choose a stack
-                    </option>
-                    {otherStacks.map((tag) => (
-                      <option key={tag} value={tag}>
-                        {tag}
-                      </option>
-                    ))}
-                  </NativeSelect.Field>
-                  <NativeSelect.Indicator />
-                </NativeSelect.Root>
-              </Field.Root>
-            </>
           )}
           <Separator />
           <ElementHistory idStory={idStory} idElement={idElement} idStoryScene={idStoryScene} />

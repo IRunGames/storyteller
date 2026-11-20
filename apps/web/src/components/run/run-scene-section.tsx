@@ -59,6 +59,8 @@ type Props = {
    * then only shown.
    */
   sceneStacks?: string[];
+  /** The stack of the pill the panel was opened from, which a move leaves; null from the library. */
+  stackTag: string | null;
   /** The link, whose stat blocks are drawn and changed here. */
   holder: StatBlockHolder;
   /** How a die here rolls: as the pill names the element, quietly for an invisible one. */
@@ -69,8 +71,8 @@ type Props = {
   onStatusChange: (status: string) => void;
   /** The info toggle has been pressed, or put back after a refusal. */
   onShowInfoChange: (showInfo: boolean) => void;
-  /** The stacks menu has saved a tick, as the pill now is. */
-  onTagsChange: (item: SceneItem) => void;
+  /** The stacks menu has moved the element to another stack, as the pill now is. */
+  onMoved: (item: SceneItem) => void;
   /**
    * The link's picture for this scene, as read on opening: its address, or
    * null for none, and whether it is annotated.
@@ -91,8 +93,8 @@ type Props = {
  *
  * Over the card, in place of a heading: a SCENE pill the width of the
  * panel (partBadgeProps), riding a little over the card's top edge, whose
- * tooltip says when the element was added, and at its end the stacks the
- * element is filed under as a menu that saves each tick
+ * tooltip says when the element was added, and at its end the stack the
+ * element is in, as a menu that moves it to another
  * (RunSceneStacksMenu). The card's first line is the scene status pill and
  * the info toggle the pill has (RunInfoToggle), pressing the same way, and
  * at its right end a thumbnail of the link's cover for this scene, or a
@@ -137,7 +139,8 @@ export function RunSceneSection({
   elementHasStats,
   onStatusChange,
   onShowInfoChange,
-  onTagsChange,
+  stackTag,
+  onMoved,
   onImageLoaded,
   onImageChange,
 }: Props) {
@@ -258,7 +261,8 @@ export function RunSceneSection({
         name={name}
         stacks={sceneStacks}
         tags={link.tags}
-        onSaved={onTagsChange}
+        stackTag={stackTag}
+        onMoved={onMoved}
       />
     ) : (
       <Text as="span" fontSize="xs" color={link.tags.length > 0 ? "fg.muted" : "fg.subtle"}>

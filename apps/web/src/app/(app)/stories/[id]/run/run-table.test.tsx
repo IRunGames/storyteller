@@ -1160,8 +1160,8 @@ describe("RunTable", () => {
     expect(await within(dialog).findByTestId("element-panel-scene")).toHaveTextContent("SCENE");
     expect(within(dialog).getByTestId("scene-card")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Remove from scene" })).toBeInTheDocument();
-    // Move to is a pill's, which knows its stack; the library has none.
-    expect(within(dialog).queryByText("Move to")).toBeNull();
+    // The scene's one stack is only named: there is nowhere to move it.
+    expect(within(dialog).queryByRole("button", { name: "Stack for Dafydd" })).toBeNull();
 
     // Edited in the scene, as from the pill: the pill in play takes the change.
     await u.click(within(dialog).getByRole("button", { name: "Edit Dafydd" }));

@@ -209,7 +209,7 @@ export function linkedItem(row: LinkedRow): SceneItem {
 
 /**
  * One link of a scene of the story with everything its pill shows, read for
- * a write that hands the pill back (Move to, the stacks dialog), or null
+ * a write that hands the pill back (the stacks menu's move), or null
  * when the link is not the scene's. The story is checked because nothing in
  * the database holds a link's element to the scene's story.
  */

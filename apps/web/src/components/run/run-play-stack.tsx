@@ -12,7 +12,7 @@ import { RunPlayPill } from "./run-play-pill";
 type Props = {
   idStory: number;
   stack: PlayStack;
-  /** Every stack's tag, in order, for each pill's Move to. */
+  /** Every stack's tag, in order, for the stacks menu on each pill's panel. */
   sceneTags: string[];
   /** The scene the table is on; null for none, which leaves out the +. */
   idStoryScene: number | null;
@@ -107,7 +107,6 @@ export function RunPlayStack({
           idStoryScene={idStoryScene}
           item={item}
           stackTag={stack.tag}
-          otherStacks={sceneTags.filter((tag) => tag !== stack.tag)}
           sceneStacks={sceneTags}
           pictureUp={item.key === pictureUpKey}
           onPictureUpChange={onPictureUpChange}

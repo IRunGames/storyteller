@@ -40,7 +40,7 @@ type Props = {
   onAdd: (item: LibraryItem) => void;
   /** The footer's In select: the stack a tab's + files the new element under. */
   stackTag: string | null;
-  /** The scene's stacks, in order, for the info popover's stacks dialog. */
+  /** The scene's stacks, in order, for the info popover's stacks menu. */
   sceneStacks: string[];
   /**
    * The scene is complete: nothing may go into it or come out of it, so the

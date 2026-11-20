@@ -918,47 +918,6 @@ describeWithDb(
       });
     });
 
-    it("files an element under the stacks ticked in its panel's stacks dialog", async () => {
-      const target = await sceneIn("ACTIVE", "Fixture scene for stacks");
-      const created = await actions.sa_createSceneElement(
-        mine,
-        target,
-        "elements",
-        form({ name: "Fixture rope" }),
-      );
-      if (!created.ok) throw new Error("not created");
-      const idElement = elementIdOf(created.item);
-      const idLink = created.item.idSceneElement!;
-
-      // Kept in the scene's order, whatever order they were ticked in.
-      const both = await actions.sa_setSceneElementTags(mine, target, idLink, [
-        "scene",
-        "elements",
-      ]);
-      expect(both.ok && both.item.sceneTags).toEqual(["elements", "scene"]);
-      expect(await linksOf(target)).toEqual([{ idElement, tags: ["elements", "scene"] }]);
-
-      // None at all: the pill goes to the first stack.
-      const none = await actions.sa_setSceneElementTags(mine, target, idLink, []);
-      expect(none.ok && none.item.sceneTags).toEqual([]);
-
-      expect(await actions.sa_setSceneElementTags(mine, target, idLink, ["weather"])).toEqual({
-        ok: false,
-        error: "That stack is no longer one of the scene's tags.",
-      });
-      // Zed's link is the fixture scene's, not this one's.
-      expect(
-        await actions.sa_setSceneElementTags(mine, target, await linkOf(scene, zed), ["scene"]),
-      ).toEqual({
-        ok: false,
-        error: "That element is not in this scene.",
-      });
-      expect(await actions.sa_setSceneElementTags(theirs, theirScene, idLink, ["scene"])).toEqual({
-        ok: false,
-        error: "That scene is not part of this story.",
-      });
-    });
-
     describe("telling the players' table", () => {
       beforeEach(() => {
         for (const fn of Object.values(published)) fn.mock.resetCalls();
@@ -967,16 +926,14 @@ describeWithDb(
       const calls = (name: keyof typeof published) =>
         published[name].mock.calls.map((call) => call.arguments);
 
-      it("sends the link after the status menu, the info toggle, the name dropdown, a move and the stacks dialog", async () => {
+      it("sends the link after the status menu, the info toggle, the name dropdown and a move", async () => {
         await openSession(mine, scene);
         const abbeyLink = await linkOf(scene, abbey);
         await actions.sa_setSceneElementStatus(mine, scene, abbeyLink, "INVISIBLE");
         await actions.sa_setSceneElementShowInfo(mine, scene, abbeyLink, false);
         await actions.sa_setSceneElementShowing(mine, scene, abbeyLink, "name");
         await actions.sa_moveSceneElement(mine, scene, abbeyLink, null, "scene");
-        await actions.sa_setSceneElementTags(mine, scene, abbeyLink, ["elements"]);
         expect(calls("publishSceneElement")).toEqual([
-          [mine, scene, abbeyLink],
           [mine, scene, abbeyLink],
           [mine, scene, abbeyLink],
           [mine, scene, abbeyLink],

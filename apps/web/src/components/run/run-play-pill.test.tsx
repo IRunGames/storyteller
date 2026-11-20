@@ -251,12 +251,6 @@ const sa_attachToHolder = mock.fn(async (_kind: string, _holder: number, ids: nu
   linkRows = [...linkRows, ...ids.map((id) => picture(id, `Added ${id}.png`, "SCENE_ELEMENT"))];
   return { ok: true as const, attached: ids };
 });
-const sa_setSceneElementTags = mock.fn(
-  async (_story: number, _scene: number, _element: number, tags: string[]) => ({
-    ok: true as const,
-    item: { ...linked("READY"), sceneTags: tags },
-  }),
-);
 const sa_setElementImage = mock.fn(
   async (_story: number, _element: number, idAttachment: number | null) => ({
     ok: true as const,
@@ -369,7 +363,6 @@ describe("RunPlayPill", () => {
         sa_updateSceneElement,
         sa_moveSceneElement,
         sa_unlinkSceneElement,
-        sa_setSceneElementTags,
       },
     });
     // The + for a picture lists the story's and the scene's attachments;
@@ -425,7 +418,6 @@ describe("RunPlayPill", () => {
     sa_setAttachmentCover.mock.resetCalls();
     sa_detachFromHolder.mock.resetCalls();
     sa_attachToHolder.mock.resetCalls();
-    sa_setSceneElementTags.mock.resetCalls();
     sa_setElementTags.mock.resetCalls();
     sa_setAnnotated.mock.resetCalls();
     sa_getAnnotation.mock.resetCalls();
@@ -464,7 +456,6 @@ describe("RunPlayPill", () => {
             idStoryScene={idStoryScene}
             item={item}
             stackTag="scene"
-            otherStacks={otherStacks}
             sceneStacks={["scene", ...otherStacks]}
             pictureUp={pictureUp}
             onPictureUpChange={(_key, up) => setPictureUp(up)}
@@ -632,8 +623,8 @@ describe("RunPlayPill", () => {
       "aria-pressed",
       "true",
     );
-    // The stacks the element is filed under, on the heading's line, as a menu.
-    expect(within(popover).getByRole("button", { name: "Stacks for Dafydd" })).toHaveTextContent(
+    // The stack the element is in, on the heading's line, as a menu.
+    expect(within(popover).getByRole("button", { name: "Stack for Dafydd" })).toHaveTextContent(
       "scene",
     );
     expect(within(popover).getByText("A hooded figure")).toBeInTheDocument();
@@ -770,35 +761,37 @@ describe("RunPlayPill", () => {
     ).toBeInTheDocument();
   });
 
-  it("moves the element to another stack from the bottom of its popover", async () => {
+  it("moves the element to another stack from the menu on its panel, rather than filing it under both", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("READY"), -15, ["assets", "weather"]);
+    render(linked("READY"), -15, ["assets", "weather"]);
 
-    await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
+    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
     const popover = await screen.findByRole("region", { name: "About A hooded figure" });
-    const moveTo = await within(popover).findByRole("combobox", { name: "Move to" });
-    expect(
-      within(moveTo)
-        .getAllByRole("option")
-        .map((option) => option.textContent),
-    ).toEqual(["Choose a stack", "assets", "weather"]);
-    // A rule before Move to, as before History under it.
-    expect(within(popover).getAllByRole("separator").length).toBeGreaterThan(0);
+    await within(popover).findByText("Person");
+    // One choice, the stack it is in, among the scene's stacks.
+    await u.click(within(popover).getByRole("button", { name: "Stack for Dafydd" }));
+    const stacks = await screen.findAllByRole("menuitemradio");
+    expect(stacks.map((stack) => stack.textContent)).toEqual(["scene", "assets", "weather"]);
+    expect(stacks[0]).toHaveAttribute("aria-checked", "true");
+    // Nothing at the bottom of the panel moves it any more.
+    expect(within(popover).queryByRole("combobox")).toBeNull();
 
-    await u.selectOptions(moveTo, "weather");
+    await choose(u, stacks[2]);
 
+    // Out of the pill's stack and into the one chosen, never added to it.
     await waitFor(() => expect(sa_moveSceneElement.mock.callCount()).toBe(1));
     expect(sa_moveSceneElement.mock.calls[0].arguments).toEqual([-4, -15, 9, "scene", "weather"]);
   });
 
-  it("offers no Move to when the scene has no other stack", async () => {
+  it("only names the stack when the scene has no other to move to", async () => {
     const u = userEvent.setup();
-    const { container } = render(linked("READY"), -15, []);
+    render(linked("READY"), -15, []);
 
-    await u.click(within(container).getByRole("button", { name: "About A hooded figure" }));
+    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
     const popover = await screen.findByRole("region", { name: "About A hooded figure" });
     await within(popover).findByText("Person");
-    expect(within(popover).queryByRole("combobox", { name: "Move to" })).not.toBeInTheDocument();
+    expect(within(popover).queryByRole("button", { name: "Stack for Dafydd" })).toBeNull();
+    expect(within(popover).getAllByText("scene").length).toBeGreaterThan(0);
   });
 
   it("edits the element from the popover's pencil, and the pill follows", async () => {
@@ -1002,7 +995,6 @@ describe("RunPlayPill", () => {
           idStoryScene={-15}
           item={{ ...linked("READY"), imageUrl: "https://x.test/9.png" }}
           stackTag="scene"
-          otherStacks={[]}
           sceneStacks={["scene"]}
         />
       </SceneItemsProvider>,
@@ -1307,7 +1299,11 @@ describe("RunPlayPill", () => {
     ).toEqual(["harbour"]);
     // Focused first, and the focus waited for, then typed: in a long run,
     // type()'s own click has landed before the box was ready to take it, and
-    // keys sent as the dialog settles have gone nowhere.
+    // keys sent as the dialog settles have gone nowhere. The popover moves
+    // focus into itself a frame after it opens, so a click before that frame
+    // loses the box to the popover's own content: wait for the popover to
+    // have taken focus, then click.
+    await waitFor(() => expect(editor.contains(document.activeElement)).toBe(true));
     const box = within(editor).getByRole("textbox", { name: "New tag" });
     await u.click(box);
     await waitFor(() => expect(box).toHaveFocus());
@@ -1344,7 +1340,6 @@ describe("RunPlayPill", () => {
           idStoryScene={-15}
           item={{ ...linked("READY"), imageUrl: "https://x.test/9.png" }}
           stackTag="scene"
-          otherStacks={["assets"]}
           sceneStacks={["scene", "assets"]}
           locked
           pictureUp={false}
@@ -1380,9 +1375,8 @@ describe("RunPlayPill", () => {
       "aria-disabled",
       "true",
     );
-    expect(within(panel).queryByRole("button", { name: "Stacks for Dafydd" })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Stack for Dafydd" })).toBeNull();
     expect(within(panel).getByText("scene")).toBeInTheDocument();
-    expect(within(panel).queryByRole("combobox", { name: "Move to" })).toBeNull();
     expect(within(panel).queryByRole("button", { name: "Edit Dafydd" })).toBeNull();
   });
 
@@ -1438,7 +1432,7 @@ describe("RunPlayPill", () => {
     expect(screen.queryByRole("button", { name: /^Remove / })).not.toBeInTheDocument();
   });
 
-  it("toggles the info and files the element under other stacks from the panel", async () => {
+  it("toggles the info from the panel, and the pill follows", async () => {
     const u = userEvent.setup();
     const { container } = render(linked("READY"));
     await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
@@ -1457,33 +1451,6 @@ describe("RunPlayPill", () => {
       .getAllByRole("button", { name: "Info not showing – click to show" })
       .filter((button) => !popover.contains(button));
     expect(pillToggles).toHaveLength(1);
-
-    // The stacks menu on the heading's line, ticked for the stacks it is in;
-    // each tick saves at once and the menu stays open for the next.
-    await u.click(within(popover).getByRole("button", { name: "Stacks for Dafydd" }));
-    const scene = await screen.findByRole("menuitemcheckbox", { name: "scene" });
-    const assets = screen.getByRole("menuitemcheckbox", { name: "assets" });
-    expect(scene).toHaveAttribute("aria-checked", "true");
-    expect(assets).toHaveAttribute("aria-checked", "false");
-    await choose(u, assets);
-
-    await waitFor(() => expect(sa_setSceneElementTags.mock.callCount()).toBe(1));
-    expect(sa_setSceneElementTags.mock.calls[0].arguments).toEqual([
-      -4,
-      -15,
-      9,
-      ["scene", "assets"],
-    ]);
-    // The trigger says so, and the pill was handed its item as it now is.
-    await waitFor(() =>
-      expect(within(popover).getByRole("button", { name: "Stacks for Dafydd" })).toHaveTextContent(
-        "scene, assets",
-      ),
-    );
-    expect(screen.getByRole("menuitemcheckbox", { name: "assets" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
   });
 
   it("gives the element a picture for this scene from the panel's +, which the pill shows, and takes it away with the −", async () => {
@@ -1617,7 +1584,6 @@ describe("RunPlayPill", () => {
             idStoryScene={-15}
             item={linked("READY")}
             stackTag="scene"
-            otherStacks={[]}
             sceneStacks={["scene"]}
             pictureUp={false}
             onPictureUpChange={() => {}}
@@ -1694,7 +1660,6 @@ describe("RunPlayPill", () => {
           idStoryScene={-15}
           item={linked("READY")}
           stackTag="scene"
-          otherStacks={[]}
           sceneStacks={["scene"]}
           pictureUp={false}
           onPictureUpChange={() => {}}

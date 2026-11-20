@@ -48,9 +48,7 @@ type Props = {
   item: SceneItem;
   /** The tag of the stack this pill is drawn in; null for the Default stack. */
   stackTag: string | null;
-  /** The scene's other stacks, which the panel's Move to offers. */
-  otherStacks: string[];
-  /** Every stack of the scene, in order, which the panel's stacks dialog offers. */
+  /** Every stack of the scene, in order, which the panel's stacks menu offers. */
   sceneStacks: string[];
   /**
    * Whether this is the picture the storyteller last put up on the players'
@@ -114,7 +112,6 @@ export function RunPlayPill({
   idStoryScene,
   item,
   stackTag,
-  otherStacks,
   sceneStacks,
   pictureUp = false,
   onPictureUpChange,
@@ -446,7 +443,6 @@ export function RunPlayPill({
               </Heading>
             )}
             stackTag={stackTag}
-            otherStacks={otherStacks}
             sceneStacks={sceneStacks}
           />
         </Box>

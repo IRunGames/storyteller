@@ -4,9 +4,8 @@ import { useState } from "react";
 import { Button, chakra, Menu, Portal, Text } from "@chakra-ui/react";
 import { ChevronDown } from "lucide-react";
 import type { SceneItem } from "@/lib/scene-elements";
-import { sa_setSceneElementTags } from "@/components/scene-elements/actions";
+import { sa_moveSceneElement } from "@/components/scene-elements/actions";
 import { toaster } from "@/components/ui/toaster";
-import { tagList } from "./run-detail-parts";
 
 type Props = {
   idStory: number;
@@ -18,19 +17,27 @@ type Props = {
   stacks: string[];
   /** The link's tags: the stacks it is filed under. */
   tags: string[];
-  /** The stacks saved after a tick, as the pill now is. */
-  onSaved: (item: SceneItem) => void;
+  /**
+   * The stack of the pill the panel was opened from, which a move takes the
+   * element out of. Null from the library, which has no pill.
+   */
+  stackTag: string | null;
+  /** The element has been moved, as the pill now is. */
+  onMoved: (item: SceneItem) => void;
 };
 
 /**
- * The stacks an element is filed under in the scene, on the In this scene
- * line beside its status: a menu of the scene's stacks with a tick by each
- * it is in. A tick or an untick saves at once (sa_setSceneElementTags) and
- * the menu stays open for the next, so filing an element under two stacks
- * is two presses rather than a dialog and a Save. The button reads the
- * stacks as the pill's row did, "scene, assets", or No stacks for none.
- * Nothing is drawn as changed until the action has answered, so a refusal
- * leaves the menu as it was with a toast saying why.
+ * The stack an element is in, at the end of the SCENE pill on its panel: a
+ * menu of the scene's stacks with the one it is in chosen, and choosing
+ * another moves it there (sa_moveSceneElement), which redraws its pill in
+ * that stack. A move, never a copy: the element leaves the stack it was in.
+ *
+ * From a pill, that is the pill's own stack. From the library, which has no
+ * pill, it is the first stack the element is filed under, where the tables
+ * show it (playStacks), or the first of the scene's when it is filed under
+ * none. A scene with one stack has nowhere to move to, so its name is only
+ * shown. Nothing is drawn as changed until the action has answered, so a
+ * refusal leaves the menu as it was with a toast saying why.
  */
 export function RunSceneStacksMenu({
   idStory,
@@ -39,48 +46,56 @@ export function RunSceneStacksMenu({
   name,
   stacks,
   tags,
-  onSaved,
+  stackTag,
+  onMoved,
 }: Props) {
-  const [saving, setSaving] = useState(false);
-  const shown = tagList(tags);
+  const [moving, setMoving] = useState(false);
+  const current = stackTag ?? stacks.find((stack) => tags.includes(stack)) ?? stacks[0];
 
-  async function tick(stack: string, checked: boolean) {
-    // The scene's order, not the order of ticking, so the pill files the
-    // same way however the stacks were chosen.
-    const next = stacks.filter((each) => (each === stack ? checked : tags.includes(each)));
-    setSaving(true);
+  async function move(to: string) {
+    if (to === current) return;
+    setMoving(true);
     try {
-      const result = await sa_setSceneElementTags(idStory, idStoryScene, idSceneElement, next);
-      if (result.ok) onSaved(result.item);
+      const result = await sa_moveSceneElement(
+        idStory,
+        idStoryScene,
+        idSceneElement,
+        current ?? null,
+        to,
+      );
+      if (result.ok) onMoved(result.item);
       else toaster.create({ title: result.error, type: "error" });
     } catch {
-      toaster.create({ title: "The stacks could not be saved. Try again.", type: "error" });
+      toaster.create({ title: "The element could not be moved. Try again.", type: "error" });
     } finally {
-      setSaving(false);
+      setMoving(false);
     }
   }
 
-  if (stacks.length === 0) {
+  if (stacks.length < 2) {
     return (
-      <Text as="span" fontSize="xs" color="fg.subtle">
-        No stacks
+      <Text as="span" fontSize="xs" color={current ? "fg.muted" : "fg.subtle"}>
+        {current ?? "No stacks"}
       </Text>
     );
   }
 
   return (
-    <Menu.Root positioning={{ placement: "bottom-start" }}>
+    <Menu.Root
+      positioning={{ placement: "bottom-start" }}
+      onSelect={(details) => void move(details.value)}
+    >
       <Menu.Trigger asChild>
         <Button
           size="xs"
           variant="ghost"
           minW="0"
           overflow="hidden"
-          color={shown ? undefined : "fg.subtle"}
-          aria-label={`Stacks for ${name}`}
+          loading={moving}
+          aria-label={`Stack for ${name}`}
         >
           <chakra.span truncate minW="0">
-            {shown ?? "No stacks"}
+            {current}
           </chakra.span>
           <ChevronDown />
         </Button>
@@ -88,19 +103,14 @@ export function RunSceneStacksMenu({
       <Portal>
         <Menu.Positioner>
           <Menu.Content>
-            {stacks.map((stack) => (
-              <Menu.CheckboxItem
-                key={stack}
-                value={stack}
-                checked={tags.includes(stack)}
-                disabled={saving}
-                closeOnSelect={false}
-                onCheckedChange={(checked) => void tick(stack, checked)}
-              >
-                <Menu.ItemIndicator />
-                <Menu.ItemText>{stack}</Menu.ItemText>
-              </Menu.CheckboxItem>
-            ))}
+            <Menu.RadioItemGroup value={current}>
+              {stacks.map((stack) => (
+                <Menu.RadioItem key={stack} value={stack}>
+                  <Menu.ItemIndicator />
+                  <Menu.ItemText>{stack}</Menu.ItemText>
+                </Menu.RadioItem>
+              ))}
+            </Menu.RadioItemGroup>
           </Menu.Content>
         </Menu.Positioner>
       </Portal>

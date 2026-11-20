@@ -47,7 +47,6 @@ import {
   type ElementShowing,
   type SceneItem,
 } from "@/lib/scene-elements";
-import { stacksSchema } from "@/lib/stack-schemas";
 import { readStatBlocks } from "@/lib/stat-block-schemas";
 import { rollStartingBlocks } from "@/lib/stat-blocks";
 
@@ -771,8 +770,8 @@ export async function sa_unlinkSceneElement(
 export type MoveSceneElementResult = { ok: true; item: SceneItem } | { ok: false; error: string };
 
 /**
- * The info popover's Move to: files an element under another of the scene's
- * stacks by swapping the tag of the stack it was opened from for the
+ * The stacks menu on an element's panel: moves an element to another of the
+ * scene's stacks by swapping the tag of the stack it was opened from for the
  * target's. Its other tags stay, so a pill in two stacks leaves only the one
  * it was moved from. `from` is null, or a tag the link lacks, for a pill in
  * the first stack only because nothing else claimed it; the target's tag is
@@ -813,51 +812,4 @@ export async function sa_moveSceneElement(
   publishLater(() => publishSceneElement(scene.idStory, scene.idStoryScene, link.data));
 
   return { ok: true, item: linkedItem({ ...row, tags }) };
-}
-
-export type SetSceneElementTagsResult =
-  { ok: true; item: SceneItem } | { ok: false; error: string };
-
-/**
- * The element panel's stacks dialog: which of the scene's stacks the element
- * is filed under, the link's tags replaced with the ones ticked, kept in the
- * scene's order whatever order they were ticked in. A tag the link carried
- * that is no longer one of the scene's goes with the rest, since the dialog
- * could not offer it. No stacks at all is allowed: the pill then shows in
- * the first stack, where playStacks files anything with none of the scene's
- * tags. Only the link changes. The pill comes back as it now is.
- *
- * Refused for a stack that is not one of the scene's tags, since the stacks
- * it was ticked from are out of date; when the link is not the scene's; and
- * for a scene the caller does not tell or that is complete.
- */
-export async function sa_setSceneElementTags(
-  idStory: number,
-  idStoryScene: number,
-  idSceneElement: number,
-  tags: string[],
-): Promise<SetSceneElementTagsResult> {
-  const user = await requireAccount();
-  const writable = await writableScene(user.id, idStory, idStoryScene);
-  if (!writable.ok) return writable;
-  const { scene } = writable;
-  const link = idSchema.safeParse(idSceneElement);
-  if (!link.success) return { ok: false, error: NOT_IN_THIS_SCENE };
-  const ticked = stacksSchema.safeParse(tags);
-  if (!ticked.success) return { ok: false, error: NO_SUCH_STACK };
-  if (ticked.data.some((tag) => !scene.tags.includes(tag))) {
-    return { ok: false, error: NO_SUCH_STACK };
-  }
-
-  const row = await linkedRow(scene.idStory, scene.idStoryScene, link.data);
-  if (!row) return { ok: false, error: NOT_IN_THIS_SCENE };
-
-  const ordered = scene.tags.filter((tag) => ticked.data.includes(tag));
-  await db
-    .update(sceneElements)
-    .set({ tags: ordered, idUpdatedByUser: user.id })
-    .where(linkIn(scene.idStoryScene, link.data));
-  publishLater(() => publishSceneElement(scene.idStory, scene.idStoryScene, link.data));
-
-  return { ok: true, item: linkedItem({ ...row, tags: ordered }) };
 }
