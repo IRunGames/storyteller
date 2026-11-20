@@ -82,6 +82,16 @@ Google is both sign-up and sign-in — the provider decides which — so
 [`GoogleButton`](../src/components/auth/google-button.tsx) is the same component
 on both pages with different wording.
 
+**Support hears of every new account.** A `databaseHooks.user.create.after`
+hook in [`auth.ts`](../src/lib/auth.ts) mails support@storyteller.irun.games
+the account's name, email and when it was made, in UTC
+([`signup-email.ts`](../src/lib/signup-email.ts)). Hooking the user row
+rather than the sign-up endpoint catches a Google sign-up too. A guest's row
+is skipped; a guest who then signs up is told about as a new account. The
+mail goes through `sendEmail`, so outside production it goes to
+`EMAIL_NON_PRODUCTION_TO` like any other (see [Invitations](#invitations)),
+and a mail that does not go out never fails the sign-up.
+
 ## How protection works
 
 Two tiers, and you need both.
@@ -307,8 +317,8 @@ dbmate owns the schema (see [`db/README.md`](../../../db/README.md)).
 
 ## Current gaps
 
-- **Email verification is off.** Resend is wired up for invitations
-  (`lib/email.ts`), but Better Auth is not given a `sendVerificationEmail`, so
+- **Email verification is off.** Resend is wired up for invitations and the
+  sign-up notice (`lib/email.ts`), but Better Auth is not given a `sendVerificationEmail`, so
   `requireEmailVerification: false` and `email_verified` stays false. Sign-in
   is not blocked by it.
 - **Google sign-in is optional per environment.** It needs

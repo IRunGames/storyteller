@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import { moveGuestToUser } from "@/db/guests";
 import { MIN_PASSWORD_LENGTH } from "@/lib/auth-schemas";
 import { serverEnv } from "@/lib/env";
+import { notifySupportOfSignup } from "@/lib/signup-email";
 
 const env = serverEnv();
 
@@ -22,8 +23,8 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     // Better Auth is given no sendVerificationEmail yet (lib/email.ts only
-    // sends invitations so far), so there is nothing to send a verification
-    // link with. Sign-in stays unblocked and `email_verified` simply stays
+    // sends invitations and the sign-up notice so far), so there is nothing
+    // to send a verification link with. Sign-in stays unblocked and `email_verified` simply stays
     // false until it is.
     requireEmailVerification: false,
     minPasswordLength: MIN_PASSWORD_LENGTH,
@@ -43,6 +44,18 @@ export const auth = betterAuth({
     google: {
       clientId: env.GOOGLE_CLIENT_ID ?? "",
       clientSecret: env.GOOGLE_CLIENT_SECRET,
+    },
+  },
+  // A hook on the user row rather than on the sign-up endpoint, so an
+  // account made through Google is told about as well as one made with a
+  // password. Better Auth runs it once the row's transaction has committed.
+  // It is awaited, not left running: on Vercel the function can be frozen
+  // as soon as the response is sent, taking an unfinished send with it.
+  databaseHooks: {
+    user: {
+      create: {
+        after: (user) => notifySupportOfSignup(user),
+      },
     },
   },
   plugins: [

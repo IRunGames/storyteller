@@ -1,17 +1,8 @@
 import type { Email } from "@/lib/email";
+import { escapeHtml } from "@/lib/escape-html";
 
 // Plain HTML and text rather than React Email templates: two short messages
 // do not earn a templating dependency yet.
-
-/** Escapes text for an HTML body; names and titles are typed by people. */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function body(lines: string[], url: string, button: string): { html: string; text: string } {
   const html = `<!doctype html>
