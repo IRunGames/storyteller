@@ -1,6 +1,6 @@
 // The server's environment variables, read in one place. Server code takes
 // them from here rather than from process.env, so this file and
-// apps/web/.env.example are the whole list of what a deployment sets, each
+// apps/web/.example.env are the whole list of what a deployment sets, each
 // value comes out typed, and a variable the app cannot do without fails with
 // its own name rather than as an undefined somewhere inside a library.
 //
@@ -25,7 +25,7 @@
 //     Better Auth reads BETTER_AUTH_URL too, which is in the schema only
 //     because appOrigin (lib/email.ts) builds links from it as well.
 //   - TZ, which only the test setup sets.
-// .env.example lists all of them.
+// .example.env lists all of them.
 //
 // Several of the values are secrets. This module must never reach the
 // browser, which test/architecture.test.ts checks by following every client
@@ -89,7 +89,7 @@ export class MissingEnvError extends Error {
   constructor(readonly variable: keyof ServerEnv) {
     super(
       `${variable} is not set. Set it in apps/web/.env.local for development, or in the ` +
-        `Vercel project's environment variables for a deployment; apps/web/.env.example ` +
+        `Vercel project's environment variables for a deployment; apps/web/.example.env ` +
         `lists every variable.`,
     );
     this.name = "MissingEnvError";

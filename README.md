@@ -45,7 +45,7 @@ Then, from the repo root:
    DBMATE_NO_DUMP_SCHEMA=true
    ```
 
-4. Copy `apps/web/.env.example` to `apps/web/.env.local` and fill it in. Each line says what it
+4. Copy `apps/web/.example.env` to `apps/web/.env.local` and fill it in. Each line says what it
    is for and what happens without it. To run locally you need at least:
 
    ```

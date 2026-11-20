@@ -17,8 +17,6 @@ next-env.d.ts
 db/formforge/
 .vercel
 .env*
-# The list of variables, with no values, is meant to be committed.
-!.env.example
 
 # Local Claude Code instructions
 CLAUDE.md

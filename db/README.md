@@ -27,7 +27,7 @@ nothing goes under it: a mistake is fixed by a new migration, not by rolling bac
    The migrations table is not dbmate's default name, and without `DBMATE_MIGRATIONS_TABLE`
    dbmate would try to run every migration again. The web app reads the same database through
    its own `DATABASE_URL` in `apps/web/.env.local`, written differently (see
-   [`apps/web/.env.example`](../apps/web/.env.example)).
+   [`apps/web/.example.env`](../apps/web/.example.env)).
 
 3. `just migrate` applies every pending migration. `just psql` opens psql on the same database.
 

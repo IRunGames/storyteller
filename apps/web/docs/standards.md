@@ -249,7 +249,7 @@ rounded="10px" color="nav.icon"`. The right-hand group uses `gap="1"`.
   variable the code cannot go on without is checked where it is used and
   throws a `MissingEnvError` naming it, as the database pool does for
   `DATABASE_URL` ([`db/index.ts`](../src/db/index.ts)). A new variable goes
-  into the schema and into [`.env.example`](../.env.example).
+  into the schema and into [`.example.env`](../.example.env).
   `NEXT_PUBLIC_` variables stay literal `process.env.NEXT_PUBLIC_…` reads
   where they are used, since Next inlines only those into the browser
   bundle, and no client component may reach `env.ts` through any chain of

@@ -91,7 +91,7 @@ describe("MissingEnvError", () => {
     expect(error.variable).toBe("CRON_SECRET");
     expect(error.message).toMatch(/^CRON_SECRET is not set\./);
     expect(error.message).toMatch(/\.env\.local/);
-    expect(error.message).toMatch(/\.env\.example/);
+    expect(error.message).toMatch(/\.example\.env/);
   });
 
   it("never carries a value, even when the variable is set", () => {

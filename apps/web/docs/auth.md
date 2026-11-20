@@ -312,7 +312,7 @@ dbmate owns the schema (see [`db/README.md`](../../../db/README.md)).
   `requireEmailVerification: false` and `email_verified` stays false. Sign-in
   is not blocked by it.
 - **Google sign-in is optional per environment.** It needs
-  `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` ([`.env.example`](../.env.example)).
+  `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` ([`.example.env`](../.example.env)).
   With no client id or secret, Better Auth refuses the Google sign-in when it is tried
   (`CLIENT_ID_AND_SECRET_REQUIRED`) and email sign-in is unaffected
   ([`auth.ts`](../src/lib/auth.ts)). The button is still drawn and shows the
