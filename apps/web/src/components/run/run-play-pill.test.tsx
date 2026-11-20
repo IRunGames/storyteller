@@ -1039,10 +1039,18 @@ describe("RunPlayPill", () => {
       9,
       { action: "preview.open" },
     ]);
-    // The press closed the tooltip; it opens again on a fresh hover.
+    // The press closed the tooltip; it opens again on a fresh hover. Zag
+    // decides whether a move may open it from the value of its last render,
+    // and the leave's change has not always rendered by the first move back,
+    // which it then ignores (one run in thirty, on a busy machine). So keep
+    // moving the pointer over the tack until the tooltip shows.
     await u.unhover(up);
-    await u.hover(up);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Hide for players");
+    let step = 0;
+    await waitFor(async () => {
+      step += 1;
+      await u.pointer({ target: up, coords: { clientX: step, clientY: step } });
+      expect(screen.getByRole("tooltip")).toHaveTextContent("Hide for players");
+    });
     // The thumbnail glows while the picture is up.
     expect(frame).toHaveAttribute("data-picture-up", "true");
     expect(getComputedStyle(frame).boxShadow).toContain("run-picture-up");
