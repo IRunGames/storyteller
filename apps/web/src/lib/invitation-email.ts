@@ -1,8 +1,10 @@
 import type { Email } from "@/lib/email";
 import { escapeHtml } from "@/lib/escape-html";
+import { oneLine } from "@/lib/one-line";
 
 // Plain HTML and text rather than React Email templates: two short messages
-// do not earn a templating dependency yet.
+// do not earn a templating dependency yet. Every name and title in them was
+// typed by someone, so each goes through oneLine before it is used.
 
 function body(lines: string[], url: string, button: string): { html: string; text: string } {
   const html = `<!doctype html>
@@ -22,12 +24,14 @@ export function storyInvitationEmail(input: {
   storyTitle: string;
   url: string;
 }): Email {
+  const inviter = oneLine(input.inviter);
+  const storyTitle = oneLine(input.storyTitle);
   return {
     to: input.to,
-    subject: `${input.inviter} invited you to play ${input.storyTitle}`,
+    subject: `${inviter} invited you to play ${storyTitle}`,
     ...body(
       [
-        `${input.inviter} has invited you to play ${input.storyTitle} on Storyteller.`,
+        `${inviter} has invited you to play ${storyTitle} on Storyteller.`,
         "Follow the link to take your seat. If you don't have an account yet, you can make one on the way.",
       ],
       input.url,
@@ -48,7 +52,7 @@ export function appInvitationEmail(input: {
     subject: "You're invited to Storyteller",
     ...body(
       [
-        `${input.inviter} has invited you to Storyteller, with a ${input.userTypeName} account.`,
+        `${oneLine(input.inviter)} has invited you to Storyteller, with a ${oneLine(input.userTypeName)} account.`,
         "Follow the link to accept. If you don't have an account yet, you can make one on the way.",
       ],
       input.url,

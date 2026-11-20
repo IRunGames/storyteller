@@ -1,6 +1,7 @@
 import { formatDateTimeUtc } from "@/lib/dates";
 import { type Email, sendEmail } from "@/lib/email";
 import { escapeHtml } from "@/lib/escape-html";
+import { oneLine } from "@/lib/one-line";
 
 /** Where the app tells the people who run it that someone has joined. */
 const SUPPORT_EMAIL = "support@storyteller.irun.games";
@@ -29,11 +30,12 @@ export async function notifySupportOfSignup(account: NewAccount): Promise<void> 
 }
 
 function signupNoticeEmail(account: NewAccount): Email {
+  const name = oneLine(account.name);
   // UTC and saying so: support reads it wherever they are, and the server
   // has no reader's zone to use.
   const rows = [
-    ["Name", account.name],
-    ["Email", account.email],
+    ["Name", name],
+    ["Email", oneLine(account.email)],
     ["Signed up", formatDateTimeUtc(account.createdAt)],
   ];
   const html = `<!doctype html>
@@ -48,5 +50,5 @@ ${rows.map(([label, value]) => `<tr><td style="padding: 2px 16px 2px 0; color: #
     "",
     ...rows.map(([label, value]) => `${label}: ${value}`),
   ].join("\n");
-  return { to: SUPPORT_EMAIL, subject: `New sign-up: ${account.name}`, html, text };
+  return { to: SUPPORT_EMAIL, subject: `New sign-up: ${name}`, html, text };
 }

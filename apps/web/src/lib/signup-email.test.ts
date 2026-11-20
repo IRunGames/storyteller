@@ -46,4 +46,18 @@ describe("notifySupportOfSignup", () => {
     expect(sent().html).toContain("&lt;b&gt;Ada&lt;/b&gt;");
     expect(sent().html).not.toContain("<b>Ada</b>");
   });
+
+  it("keeps a name with line breaks on one line, so it cannot add rows of its own", async () => {
+    await notifySupportOfSignup({ ...ada, name: "Ada\r\nEmail: someone@else.test\nSigned up: never" });
+    const lines = sent().text.split("\n");
+    expect(lines.filter((line) => line.startsWith("Email:"))).toEqual(["Email: ada@example.test"]);
+    expect(lines.filter((line) => line.startsWith("Signed up:"))).toHaveLength(1);
+    expect(sent().subject).not.toMatch(/[\r\n]/);
+  });
+
+  it("cuts a very long name short", async () => {
+    await notifySupportOfSignup({ ...ada, name: "A".repeat(10_000) });
+    expect(sent().subject.length).toBeLessThan(300);
+    expect(sent().text.length).toBeLessThan(1000);
+  });
 });
