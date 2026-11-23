@@ -11,6 +11,12 @@ export const THEME_KEY = "theme";
 /** Where the Stories page keeps its view, among the user's preferences. */
 export const STORIES_VIEW_KEY = "stories.view";
 
+/**
+ * The administrators' Systems page's Show systems with no stats switch: on
+ * unless turned off, when only the systems with a stat block are listed.
+ */
+export const ADMIN_SYSTEMS_SHOW_EMPTY = "admin.systems.showEmpty";
+
 /** The Store's Icon view or List view, kept as the user's preference as the Stories page's is. */
 export const STORE_VIEW_KEY = "store.view";
 

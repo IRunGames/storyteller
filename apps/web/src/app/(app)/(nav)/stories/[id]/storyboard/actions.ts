@@ -347,7 +347,9 @@ export async function sa_getStoryboardScene(idStoryScene: number): Promise<PlayS
     coverUrl: row.coverUrl,
     items: items.map((item) => ({
       element: toPublicElement(item.element, item.imageUrl, item.link.showInfo),
-      sceneElement: toPublicSceneElement(item.link),
+      // The board shows the scene as it was set, not how hurt anything got
+      // in it, so it gives no health drop.
+      sceneElement: toPublicSceneElement(item.link, null),
     })),
   };
 }

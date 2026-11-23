@@ -39,6 +39,7 @@ import { ScenePictureControls } from "@/components/annotations/scene-picture-con
 import { FogMark } from "./run-fog-mark";
 import type { PictureState } from "@/lib/annotations";
 import { RunSceneStatusMenu } from "./run-scene-status-menu";
+import { HealthDrop } from "@/components/table-shell/health-drop";
 import { glass } from "@/theme";
 
 type Props = {
@@ -285,6 +286,9 @@ export function RunPlayPill({
             </Box>
           )
         )}
+        {/* How full the health indicator is, just before the name and
+            outside its dropdown, so pressing it opens nothing. */}
+        {item.health !== undefined && <HealthDrop level={item.health} />}
         <Stack
           gap="0"
           flex="1"

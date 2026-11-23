@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { schema } from "@/db";
+import { readStatBlocks } from "@/lib/stat-block-schemas";
+import { healthLevel, type StatBlockSystem } from "@/lib/stat-blocks";
 
 // What goes over a story's state topic: the shape of each message the
 // storyteller's table publishes and the players' table reads. Shared by both
@@ -49,7 +51,11 @@ export const publicElementSchema = z.object({
 });
 export type PublicElement = z.infer<typeof publicElementSchema>;
 
-/** An element's link to a scene as the players may see it: every column but activity_log. */
+/**
+ * An element's link to a scene as the players may see it: every column but
+ * activity_log and stat_blocks, and of its stats only how full the story's
+ * health indicator is (health, 0 to 100, null for no drop).
+ */
 export const publicSceneElementSchema = z.object({
   idSceneElement: z.number().int(),
   idStoryScene: z.number().int(),
@@ -61,6 +67,8 @@ export const publicSceneElementSchema = z.object({
   url: z.string().nullable(),
   urlText: z.string().nullable(),
   label: z.string().nullable(),
+  // Optional, so a message from a server that predates it still reads.
+  health: z.number().int().min(0).max(100).nullable().optional(),
   readyAt: isoDate,
   invisibleAt: isoDate,
   tappedAt: isoDate,
@@ -112,9 +120,14 @@ export function toPublicElement(
  * field by field, as the element is: scene_elements.show_image is not sent,
  * since what the players' preview shows is a pulse (below), not state, and
  * the link's own external link goes only while its show_info allows it, as
- * the element's does.
+ * the element's does. Its stat blocks stay off the topic whole: the players
+ * learn only how full the health indicator of the story's template is
+ * (storyTemplate), for the pill's drop, and nothing with no template.
  */
-export function toPublicSceneElement(row: SceneElementRow): PublicSceneElement {
+export function toPublicSceneElement(
+  row: SceneElementRow,
+  template: Pick<StatBlockSystem, "idSystem" | "definition"> | null,
+): PublicSceneElement {
   return {
     idSceneElement: row.idSceneElement,
     idStoryScene: row.idStoryScene,
@@ -126,6 +139,7 @@ export function toPublicSceneElement(row: SceneElementRow): PublicSceneElement {
     url: row.showInfo ? row.url : null,
     urlText: row.showInfo ? row.urlText : null,
     label: row.label,
+    health: healthLevel(template, readStatBlocks(row.statBlocks)),
     readyAt: iso(row.readyAt),
     invisibleAt: iso(row.invisibleAt),
     tappedAt: iso(row.tappedAt),

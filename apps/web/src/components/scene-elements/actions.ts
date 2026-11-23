@@ -11,8 +11,14 @@ import {
   sceneElementImageUrl,
 } from "@/db/attachment-url";
 import { setCover, storyPictureUrl } from "@/db/covers";
-import { linkedItem, linkedRow, linkedRowOf, linkHasStatBlocks } from "@/db/scene-space";
-import { statBlockSystems } from "@/db/stat-block-systems";
+import {
+  linkedItem,
+  linkedRow,
+  linkedRowOf,
+  linkHasStatBlocks,
+  linkStatBlocks,
+} from "@/db/scene-space";
+import { statBlockSystems, storyTemplate } from "@/db/stat-block-systems";
 import { listStatusOptions } from "@/db/status-options";
 import { ownedScene, type OwnedScene } from "@/db/story-access";
 import { requireAccount } from "@/lib/authorize";
@@ -48,7 +54,7 @@ import {
   type SceneItem,
 } from "@/lib/scene-elements";
 import { readStatBlocks } from "@/lib/stat-block-schemas";
-import { rollStartingBlocks } from "@/lib/stat-blocks";
+import { healthLevel, rollStartingBlocks } from "@/lib/stat-blocks";
 
 const { elements, sceneElements, vSceneElements } = schema;
 
@@ -350,6 +356,8 @@ export async function sa_updateSceneElement(
       imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
       annotated: annotatedForStoryteller("v_scene_elements", "v_scene_elements"),
       hasStatBlocks: linkHasStatBlocks("v_scene_elements"),
+      // The edit leaves the stats alone, so the pill keeps its drop.
+      statBlocks: linkStatBlocks("v_scene_elements"),
     })
     .from(vSceneElements)
     .where(
@@ -410,6 +418,7 @@ export async function sa_updateSceneElement(
         showInfo: current.showInfo,
         idSceneElement: link.data,
         hasStatBlocks: current.hasStatBlocks,
+        health: healthLevel(await storyTemplate(scene.idStory), readStatBlocks(current.statBlocks)),
         label: values.sceneLabel || null,
         imageUrl: current.imageUrl,
         annotated: current.annotated,
@@ -564,6 +573,7 @@ export async function sa_linkSceneElement(
         showInfo: link?.showInfo ?? null,
         idSceneElement,
         hasStatBlocks: link?.hasStatBlocks ?? null,
+        health: healthLevel(await storyTemplate(scene.idStory), statBlocks),
         label,
       }),
     ),

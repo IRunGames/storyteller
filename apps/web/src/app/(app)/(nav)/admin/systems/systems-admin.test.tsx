@@ -27,7 +27,21 @@ const sa_deleteSystem = mock.fn<(idSystem: number) => Promise<DeleteSystemResult
   ok: true,
 }));
 
+const sa_setUserPreference = mock.fn(async (_input: { key: string; value: unknown }) => ({
+  ok: true as const,
+}));
+
 let SystemsAdmin: typeof import("./systems-admin").SystemsAdmin;
+type PreferencesModule = typeof import("@/components/preferences/user-preferences-provider");
+let UserPreferencesProvider: PreferencesModule["UserPreferencesProvider"];
+
+/** The page as the app mounts it, under the user's preferences. */
+const renderPage = (preferences: Record<string, boolean> = {}, rows = systems) =>
+  renderWithProviders(
+    <UserPreferencesProvider preferences={preferences}>
+      <SystemsAdmin systems={rows} />
+    </UserPreferencesProvider>,
+  );
 
 // hidden, since the page behind an open dialog is aria-hidden.
 const bodyLabels = () => {
@@ -43,17 +57,21 @@ describe("SystemsAdmin", () => {
     mock.module("./actions", {
       namedExports: { sa_createSystem, sa_deleteSystem },
     });
+    mock.module("@/components/preferences/actions", { namedExports: { sa_setUserPreference } });
     ({ SystemsAdmin } = await import("./systems-admin"));
+    ({ UserPreferencesProvider } =
+      await import("@/components/preferences/user-preferences-provider"));
   });
 
   beforeEach(() => {
     sa_createSystem.mock.resetCalls();
     sa_deleteSystem.mock.resetCalls();
+    sa_setUserPreference.mock.resetCalls();
   });
   afterEach(() => toaster.remove());
 
   it("shows the counts of a definition, and nothing at all for a system without one", () => {
-    renderWithProviders(<SystemsAdmin systems={systems} />);
+    renderPage();
     const rows = within(screen.getByRole("table", { name: "Systems" })).getAllByRole("row");
     const cells = (row: HTMLElement) =>
       within(row)
@@ -63,9 +81,46 @@ describe("SystemsAdmin", () => {
     expect(cells(rows[2]).slice(1, 3)).toEqual(["4", "14"]);
   });
 
+  it("hides the systems with no stats from the switch at the end of the search line, and shows them again", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const toggle = screen.getByRole("switch", { name: "Show systems with no stats" });
+    // On to start with: every system, as before there was a switch.
+    expect(toggle).toBeChecked();
+    expect(bodyLabels()).toEqual([
+      "Cypher System · Numenera (Revised)",
+      "Palladium Fantasy Role-Playing Game (2e)",
+    ]);
+
+    await user.click(toggle);
+    expect(toggle).not.toBeChecked();
+    expect(bodyLabels()).toEqual(["Palladium Fantasy Role-Playing Game (2e)"]);
+    // Kept among the user's preferences, for the next visit.
+    expect(sa_setUserPreference.mock.calls.map((call) => call.arguments[0])).toEqual([
+      { key: "admin.systems.showEmpty", value: false },
+    ]);
+    // The search still narrows what is left.
+    await user.type(screen.getByRole("searchbox", { name: "Search systems" }), "cypher");
+    expect(screen.getByText("No systems with stats match.")).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(bodyLabels()).toEqual(["Cypher System · Numenera (Revised)"]);
+    expect(sa_setUserPreference.mock.calls.at(-1)?.arguments[0]).toEqual({
+      key: "admin.systems.showEmpty",
+      value: true,
+    });
+  });
+
+  it("comes back with the switch as the user left it", () => {
+    renderPage({ "admin.systems.showEmpty": false });
+    expect(screen.getByRole("switch", { name: "Show systems with no stats" })).not.toBeChecked();
+    expect(bodyLabels()).toEqual(["Palladium Fantasy Role-Playing Game (2e)"]);
+  });
+
   it("makes a system from the New system dialog, and puts it in the list in order", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<SystemsAdmin systems={systems} />);
+    renderPage();
 
     await user.click(screen.getByRole("button", { name: "New system" }));
     const dialog = await screen.findByRole("dialog", { name: "New system" });
@@ -93,7 +148,7 @@ describe("SystemsAdmin", () => {
       ok: false,
       errors: { systemName: "There is already a GURPS (4e)." },
     }));
-    renderWithProviders(<SystemsAdmin systems={systems} />);
+    renderPage();
 
     await user.click(screen.getByRole("button", { name: "New system" }));
     const dialog = await screen.findByRole("dialog", { name: "New system" });
@@ -107,7 +162,7 @@ describe("SystemsAdmin", () => {
 
   it("asks for a name before calling the action", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<SystemsAdmin systems={systems} />);
+    renderPage();
 
     await user.click(screen.getByRole("button", { name: "New system" }));
     const dialog = await screen.findByRole("dialog", { name: "New system" });
@@ -118,7 +173,7 @@ describe("SystemsAdmin", () => {
 
   it("deletes a system from its row's trashcan after asking, and drops the row", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<SystemsAdmin systems={systems} />);
+    renderPage();
 
     await user.click(
       screen.getByRole("button", { name: "Delete Cypher System · Numenera (Revised)" }),
@@ -141,7 +196,7 @@ describe("SystemsAdmin", () => {
       ok: false,
       error: "1 story is run in it, so it stays.",
     }));
-    renderWithProviders(<SystemsAdmin systems={systems} />);
+    renderPage();
 
     await user.click(
       screen.getByRole("button", { name: "Delete Palladium Fantasy Role-Playing Game (2e)" }),

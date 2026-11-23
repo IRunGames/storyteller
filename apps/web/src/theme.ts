@@ -387,6 +387,10 @@ const config = defineConfig({
               _yule: "#f0606a",
             },
           },
+          // A pill's health drop at 0 (HealthDrop), which it darkens to from
+          // white as the health indicator falls: the same blood red in every
+          // theme, since the drop says the same thing everywhere.
+          healthEmpty: { value: "#6b0f0f" },
         },
         // A story card's Play when there is something to go to: players
         // waiting for the storyteller (with the outline round the card), or

@@ -667,6 +667,90 @@ describe("statBlockDefinitionSchema", () => {
   });
 });
 
+describe("a template's health indicator", () => {
+  // combat's pools and stack held to a number, as a pool and a stack start.
+  const numbered: StatBlockDefinition = {
+    groups: definition.groups.map((group) => ({
+      ...group,
+      stats: group.stats.map((s) =>
+        s.type === "pool" || s.type === "stack" ? { ...s, format: "number" as const } : s,
+      ),
+    })),
+  };
+  const naming = (healthIndicator: string, base: StatBlockDefinition = numbered) => ({
+    ...base,
+    healthIndicator,
+  });
+
+  it("accepts a pool or a stack held to a number in a group that does not repeat", () => {
+    for (const named of ["combat.hp", "combat.rage", "combat.mana"]) {
+      const parsed = statBlockDefinitionSchema.safeParse(naming(named));
+      expect(parsed.success).toBe(true);
+      expect(parsed.data?.healthIndicator).toBe(named);
+    }
+  });
+
+  it('accepts none, as "" or left out', () => {
+    expect(statBlockDefinitionSchema.safeParse(naming("")).success).toBe(true);
+    expect(statBlockDefinitionSchema.safeParse(numbered).data?.healthIndicator).toBeUndefined();
+  });
+
+  it("refuses a group or a stat that is not there", () => {
+    expect(errorsOf(statBlockDefinitionSchema.safeParse(naming("armor.hp")))).toEqual({
+      healthIndicator: "There is no stat armor.hp in this template.",
+    });
+    expect(errorsOf(statBlockDefinitionSchema.safeParse(naming("combat.nope")))).toEqual({
+      healthIndicator: "There is no stat combat.nope in this template.",
+    });
+  });
+
+  it("refuses a stat that is not a pool or a stack", () => {
+    for (const named of ["stats.str", "stats.mod", "combat.die"]) {
+      expect(errorsOf(statBlockDefinitionSchema.safeParse(naming(named)))).toEqual({
+        healthIndicator: "A health indicator is a pool or a stack.",
+      });
+    }
+  });
+
+  it("refuses a pool not held to a number", () => {
+    expect(errorsOf(statBlockDefinitionSchema.safeParse(naming("combat.hp", definition)))).toEqual({
+      healthIndicator: "A health indicator is held to a number; set its format.",
+    });
+  });
+
+  it("refuses a stat in a group that repeats", () => {
+    expect(errorsOf(statBlockDefinitionSchema.safeParse(naming("attack.uses")))).toEqual({
+      healthIndicator: "attack repeats, so it has no one value to show as health.",
+    });
+  });
+
+  it("reads a stored template with none as having none", () => {
+    expect(readStatBlockDefinition(numbered).healthIndicator).toBeUndefined();
+    expect(readStatBlockDefinition(naming("combat.hp")).healthIndicator).toBe("combat.hp");
+  });
+
+  it("reads a stored template whose indicator no longer fits without it, keeping the rest", () => {
+    // A definition changed outside the editor (a migration renaming hp, say):
+    // the drop goes, not every stat of the system.
+    const read = readStatBlockDefinition(naming("combat.gone"));
+    expect(read.groups.map((group) => group.name)).toEqual(["stats", "combat", "attack"]);
+    expect(read.healthIndicator).toBeUndefined();
+  });
+
+  it("is carried through the editor's form", () => {
+    const form = {
+      ...naming("combat.hp"),
+      groups: numbered.groups.map((group) => ({
+        ...group,
+        stats: group.stats.map((s) => ({ ...s, rack: joinRack(s.rack) })),
+      })),
+    };
+    const parsed = statBlockDefinitionFormSchema.safeParse(form);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.healthIndicator).toBe("combat.hp");
+  });
+});
+
 describe("statBlockDefinitionFormSchema", () => {
   it("splits each rack's text, keeping a number a number, and runs the same rules", () => {
     const parsed = statBlockDefinitionFormSchema.safeParse({

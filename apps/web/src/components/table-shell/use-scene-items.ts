@@ -51,12 +51,13 @@ export type SceneItems = {
   /** An item's status in the scene, by key. */
   setStatus: (key: string, status: string) => void;
   /**
-   * A link's status or info toggle changed from its panel, by the link: an
-   * element may be in the scene more than once, and the change is one pill's.
+   * A link's status, info toggle or health changed from its panel or its
+   * stats, by the link: an element may be in the scene more than once, and
+   * the change is one pill's. A health of undefined takes the drop away.
    */
   patchLink: (
     idSceneElement: number,
-    change: Pick<Partial<SceneItem>, "sceneStatus" | "showInfo">,
+    change: Pick<Partial<SceneItem>, "sceneStatus" | "showInfo" | "health">,
   ) => void;
   /**
    * Manage stacks saved with renames: a renamed stack takes its pills with
@@ -159,7 +160,10 @@ export function useSceneItems(initial: SceneItem[]): SceneItems {
     [],
   );
   const patchLink = useCallback(
-    (idSceneElement: number, change: Pick<Partial<SceneItem>, "sceneStatus" | "showInfo">) =>
+    (
+      idSceneElement: number,
+      change: Pick<Partial<SceneItem>, "sceneStatus" | "showInfo" | "health">,
+    ) =>
       setItems((current) =>
         current.map((existing) =>
           existing.idSceneElement === idSceneElement ? { ...existing, ...change } : existing,

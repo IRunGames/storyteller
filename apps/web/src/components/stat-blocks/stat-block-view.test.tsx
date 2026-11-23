@@ -1,9 +1,12 @@
 import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
+import { memo, Profiler } from "react";
 import { expect } from "expect";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
+import { sceneItemsStub } from "@/test/scene-items";
+import { SceneItemsProvider } from "@/components/table-shell/scene-items-context";
 import { Toaster, toaster } from "@/components/ui/toaster";
 import {
   carriedGroups,
@@ -308,6 +311,67 @@ describe("ElementStatBlocks", () => {
     expect(screen.queryByRole("textbox", { name: "Damage" })).not.toBeInTheDocument();
   });
 
+  it("tells the table's pill how full the link's health indicator now is", async () => {
+    const user = userEvent.setup();
+    const sceneItems = sceneItemsStub();
+    // The first two changes answer with the link's health; the third as any other.
+    sa_setStat.mock.mockImplementationOnce(
+      async () => ({ ok: true, block: { ...blockOf(), health: 40 } }),
+      0,
+    );
+    sa_setStat.mock.mockImplementationOnce(
+      async () => ({ ok: true, block: { ...blockOf(), health: null } }),
+      1,
+    );
+    renderWithProviders(
+      <SceneItemsProvider value={sceneItems}>
+        <ElementStatBlocks holder={holder} canEdit />
+      </SceneItemsProvider>,
+    );
+
+    await screen.findByTestId("stat-hp");
+    await user.click(screen.getByRole("button", { name: "HP down" }));
+    await waitFor(() => expect(sceneItems.patchLink.mock.callCount()).toBe(1));
+    expect(sceneItems.patchLink.mock.calls[0].arguments).toEqual([50, { health: 40 }]);
+    // Nothing to show any more: the drop goes.
+    await user.click(screen.getByRole("button", { name: "HP down" }));
+    await waitFor(() => expect(sceneItems.patchLink.mock.callCount()).toBe(2));
+    expect(sceneItems.patchLink.mock.calls[1].arguments).toEqual([50, { health: undefined }]);
+    // A block that says nothing of health leaves the pill as it is.
+    await user.click(screen.getByRole("button", { name: "HP down" }));
+    await waitFor(() => expect(sa_setStat.mock.callCount()).toBe(3));
+    expect(sceneItems.patchLink.mock.callCount()).toBe(2);
+  });
+
+  it("is not drawn again when only the table's pills change", async () => {
+    // The stats pane memoises each element's blocks so the table's renders do
+    // not reach them; telling the pill must not undo that.
+    const sceneItems = sceneItemsStub();
+    const commits = mock.fn();
+    const Blocks = memo(function Blocks() {
+      return (
+        <Profiler id="blocks" onRender={commits}>
+          <ElementStatBlocks holder={holder} canEdit />
+        </Profiler>
+      );
+    });
+    const table = (items: typeof sceneItems.items) => (
+      <SceneItemsProvider value={{ ...sceneItems, items }}>
+        <Blocks />
+      </SceneItemsProvider>
+    );
+    const { rerender } = renderWithProviders(table([]));
+    await screen.findByTestId("stat-hp");
+    const before = commits.mock.callCount();
+
+    rerender(
+      table([
+        { key: "PERSON:5:50", kind: "PERSON", label: "Goblin", detail: null, imageUrl: null },
+      ]),
+    );
+    expect(commits.mock.callCount()).toBe(before);
+  });
+
   it("moves a pool, a stack and a rack by their clickers, held to their ends, and sets a typed number on Enter", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ElementStatBlocks holder={holder} canEdit />);
@@ -553,6 +617,29 @@ describe("ElementStatBlocks", () => {
     expect(
       await screen.findByRole("dialog", { name: "Overwrite the element's stats?" }),
     ).toBeInTheDocument();
+  });
+
+  it("leaves the pill's drop alone when the stats are copied back to the element", async () => {
+    // The link's stats are not changed by the copy, and the level this panel
+    // loaded with may be older than the pill's.
+    const user = userEvent.setup();
+    const sceneItems = sceneItemsStub();
+    sa_getStatBlocks.mock.mockImplementationOnce(async () => [
+      { ...blockOf(), onElement: false, health: 40 },
+    ]);
+    renderWithProviders(
+      <SceneItemsProvider value={sceneItems}>
+        <ElementStatBlocks holder={holder} canEdit />
+        <Toaster />
+      </SceneItemsProvider>,
+    );
+
+    await screen.findByTestId("stat-hp");
+    await user.click(screen.getByRole("button", { name: "Edit stat blocks" }));
+    await user.click(await screen.findByRole("button", { name: "Copy stats to the element" }));
+    await waitFor(() => expect(sa_copyStatBlocksToElement.mock.callCount()).toBe(1));
+    expect(await screen.findByText("Stats copied to the element")).toBeInTheDocument();
+    expect(sceneItems.patchLink.mock.callCount()).toBe(0);
   });
 
   it("offers no copy back for an element's own block", async () => {

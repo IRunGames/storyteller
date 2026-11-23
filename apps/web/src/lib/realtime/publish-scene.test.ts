@@ -123,6 +123,71 @@ describeWithDb("publish-scene", { email: TEST_USER_EMAIL }, (suite) => {
       expect(publishStoryEvent.mock.calls[0].arguments[0]).toBe(story);
     });
 
+    it("sends how full the link's health indicator is, and none of its stats", async () => {
+      await play(docks);
+      const pool = {
+        label: "",
+        description: "",
+        rack: [],
+        computedAs: "",
+        visible: true,
+        format: "number" as const,
+        sticky: false,
+        static: false,
+        roll: "",
+        global: false,
+        upDown: false,
+        leftRight: false,
+        initialRoll: "",
+        initialFrom: "",
+      };
+      const [system] = await db
+        .insert(tables.systems)
+        .values({
+          systemName: "Fixture publish health",
+          statBlockDefinition: {
+            healthIndicator: "life.hp",
+            groups: [
+              {
+                name: "life",
+                label: "",
+                keyedBy: "",
+                rollAll: false,
+                canHaveMultiples: false,
+                stats: [{ ...pool, name: "hp", type: "pool" }],
+              },
+            ],
+          },
+        })
+        .returning({ idSystem: tables.systems.idSystem });
+      await db
+        .update(tables.stories)
+        .set({ idSystem: system.idSystem })
+        .where(eq(tables.stories.idStory, story));
+      await db
+        .update(tables.sceneElements)
+        .set({
+          statBlocks: { [system.idSystem]: { life: { hp: { value: 3, min: 0, max: 6 } } } },
+        })
+        .where(eq(tables.sceneElements.idSceneElement, zedLink));
+      try {
+        await helpers.publishSceneElement(story, docks, zedLink);
+        const [event] = sent();
+        expect(event).toMatchObject({ sceneElement: { idSceneElement: zedLink, health: 50 } });
+        expect(JSON.stringify(event)).not.toMatch(/"max"/);
+      } finally {
+        await db
+          .update(tables.sceneElements)
+          .set({ statBlocks: {} })
+          .where(eq(tables.sceneElements.idSceneElement, zedLink));
+        await db
+          .update(tables.stories)
+          .set({ idSystem: null })
+          .where(eq(tables.stories.idStory, story));
+        await db.delete(tables.systems).where(eq(tables.systems.idSystem, system.idSystem));
+      }
+    });
+
     it("keeps the description back while the link does not show its info", async () => {
       await play(docks);
       await db

@@ -6,6 +6,7 @@ import { idSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
 import { attachmentUrl } from "@/db/attachment-url";
 import { sceneItems } from "@/db/scene-items";
+import { storyTemplate } from "@/db/stat-block-systems";
 import { requireAccount } from "@/lib/authorize";
 import type { PlayScene } from "@/lib/play-scene";
 import { toPublicElement, toPublicSceneElement } from "@/lib/realtime/events";
@@ -95,8 +96,10 @@ export async function sa_getScenePreview(idStoryScene: number): Promise<ScenePre
   if (!row) return null;
   if (!row.isOwner && row.status !== SCENE_LOCKED_STATUS) return null;
 
-  const [rows, all] = await Promise.all([
+  const [rows, template, all] = await Promise.all([
     sceneItems(row.idStory, row.idStoryScene, [SCENE_ELEMENT_HIDDEN]),
+    // The preview is the players' table, so its pills show their drops.
+    storyTemplate(row.idStory),
     // Every scene of the story; a story has few enough that they are put in
     // order here, where the rule is easier to read than in SQL, and the
     // neighbours picked out of the one list.
@@ -153,7 +156,7 @@ export async function sa_getScenePreview(idStoryScene: number): Promise<ScenePre
       coverUrl: row.coverUrl,
       items: rows.map((item) => ({
         element: toPublicElement(item.element, item.imageUrl, item.link.showInfo),
-        sceneElement: toPublicSceneElement(item.link),
+        sceneElement: toPublicSceneElement(item.link, template),
       })),
     },
   };

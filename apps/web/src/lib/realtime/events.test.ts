@@ -92,15 +92,15 @@ describe("public rows", () => {
       urlText: null,
     });
     const linked = { ...link, url: "https://example.com/docks", urlText: "Here" };
-    expect(toPublicSceneElement(linked)).toMatchObject({ url: "https://example.com/docks" });
-    expect(toPublicSceneElement({ ...linked, showInfo: false })).toMatchObject({
+    expect(toPublicSceneElement(linked, null)).toMatchObject({ url: "https://example.com/docks" });
+    expect(toPublicSceneElement({ ...linked, showInfo: false }, null)).toMatchObject({
       url: null,
       urlText: null,
     });
   });
 
   it("drops the activity log from a link", () => {
-    const pub = toPublicSceneElement(link);
+    const pub = toPublicSceneElement(link, null);
 
     expect(pub).not.toHaveProperty("activityLog");
     expect(pub).toMatchObject({
@@ -114,6 +114,71 @@ describe("public rows", () => {
   });
 });
 
+describe("a link's health for the players", () => {
+  const template = {
+    idSystem: 4,
+    definition: {
+      healthIndicator: "life.hp",
+      groups: [
+        {
+          name: "life",
+          label: "",
+          keyedBy: "",
+          rollAll: false,
+          canHaveMultiples: false,
+          stats: [
+            {
+              name: "hp",
+              label: "Hit Points",
+              type: "pool" as const,
+              rack: [],
+              computedAs: "",
+              visible: true,
+              format: "number" as const,
+              description: "",
+              sticky: false,
+              static: false,
+              roll: "",
+              global: false,
+              upDown: false,
+              leftRight: false,
+              initialRoll: "",
+              initialFrom: "",
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const hurt = { ...link, statBlocks: { "4": { life: { hp: { value: 6, min: 0, max: 8 } } } } };
+
+  it("gives the level alone, never the stat's numbers", () => {
+    const pub = toPublicSceneElement(hurt, template);
+    expect(pub.health).toBe(75);
+    expect(pub).not.toHaveProperty("statBlocks");
+    expect(JSON.stringify(pub)).not.toMatch(/max|"hp"/);
+  });
+
+  it("gives none with no template, or a link that does not carry the indicator", () => {
+    expect(toPublicSceneElement(hurt, null).health).toBeNull();
+    expect(toPublicSceneElement(link, template).health).toBeNull();
+  });
+
+  it("reads back a level, and a message from before there was one", () => {
+    const event = {
+      v: 1,
+      at: when.toISOString(),
+      idStory: 7,
+      type: "scene_element.upserted",
+      element: toPublicElement(element, null, true),
+      sceneElement: toPublicSceneElement(hurt, template),
+    };
+    expect(parseStoryEvent(JSON.parse(JSON.stringify(event)))).toEqual(event);
+    const { health: _gone, ...older } = event.sceneElement;
+    expect(parseStoryEvent({ ...event, sceneElement: older })).not.toBeNull();
+  });
+});
+
 describe("parseStoryEvent", () => {
   it("reads back what the publisher wrote", () => {
     const event = {
@@ -122,7 +187,7 @@ describe("parseStoryEvent", () => {
       idStory: 7,
       type: "scene_element.upserted",
       element: toPublicElement(element, null, true),
-      sceneElement: toPublicSceneElement(link),
+      sceneElement: toPublicSceneElement(link, null),
     };
 
     expect(parseStoryEvent(JSON.parse(JSON.stringify(event)))).toEqual(event);
@@ -167,7 +232,7 @@ describe("storyEventTitle", () => {
       idStory: 7,
       type: "scene_element.upserted",
       element: toPublicElement(element, null, true),
-      sceneElement: toPublicSceneElement(link),
+      sceneElement: toPublicSceneElement(link, null),
     });
     expect(title).toBe("scene_element.upserted · Zed (READY)");
   });

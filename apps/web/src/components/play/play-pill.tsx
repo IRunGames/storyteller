@@ -16,6 +16,7 @@ import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { OverflowTooltip } from "@/components/popovers/overflow-tooltip";
 import { PlayInfoPopover } from "@/components/table-shell/play-info-popover";
 import { PlayUntapButton } from "./play-untap-button";
+import { HealthDrop } from "@/components/table-shell/health-drop";
 
 type Props = {
   idStory: number;
@@ -186,6 +187,9 @@ export function PlayPill({
           />
         </Box>
       )}
+      {/* How full the health indicator is, as the storyteller's pill shows
+          it: the color alone, never the numbers. */}
+      {item.health !== undefined && <HealthDrop level={item.health} />}
       <Stack
         gap="0"
         flex="1"

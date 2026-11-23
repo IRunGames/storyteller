@@ -90,6 +90,13 @@ export type SceneItem = Item & {
    */
   hasStatBlocks?: boolean;
   /**
+   * An element linked to the scene whose link carries the template's health
+   * indicator: how full it is, 0 to 100 (healthLevel), drawn as a drop by the
+   * name, white when full and dark red at 0. The players' table is given this
+   * alone of the link's stats. Absent for no drop.
+   */
+  health?: number;
+  /**
    * An element linked to the scene: whether the players' table shows its
    * description (scene_elements.show_info), which the pill's info toggle sets.
    */

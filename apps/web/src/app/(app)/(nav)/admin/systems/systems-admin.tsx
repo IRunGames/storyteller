@@ -10,11 +10,14 @@ import {
   Input,
   Portal,
   Stack,
+  Switch,
   Table,
   Text,
   Tooltip,
 } from "@chakra-ui/react";
 import { Pencil } from "lucide-react";
+import { useUserPreferences } from "@/components/preferences/user-preferences-provider";
+import { ADMIN_SYSTEMS_SHOW_EMPTY } from "@/lib/preference-keys";
 import type { AdminSystem } from "./actions";
 import { DeleteSystemButton } from "./delete-system-button";
 import { NewSystemDialog } from "./new-system-dialog";
@@ -27,15 +30,23 @@ import { NewSystemDialog } from "./new-system-dialog";
  * table is a hundred-odd seeded systems and whatever storytellers add, so
  * the search is a filter here rather than a query, unlike the Users page's.
  * The rows are held in state so a new system shows, and a deleted one goes,
- * without a reload.
+ * without a reload. A switch at the far end of the search line hides the
+ * systems with no stats, so the few that have a stat block can be worked on
+ * together; it is kept among the user's preferences, so the page comes back
+ * as it was left.
  */
 export function SystemsAdmin({ systems: initial }: { systems: AdminSystem[] }) {
   const [systems, setSystems] = useState(initial);
   const [search, setSearch] = useState("");
+  const preferences = useUserPreferences();
+  // On unless the user turned it off; anything else stored reads as on.
+  const showEmpty = preferences.get(ADMIN_SYSTEMS_SHOW_EMPTY) !== false;
   const needle = search.trim().toLowerCase();
-  const visible = needle
-    ? systems.filter((system) => system.label.toLowerCase().includes(needle))
-    : systems;
+  const visible = systems.filter(
+    (system) =>
+      (showEmpty || system.statCount > 0) &&
+      (!needle || system.label.toLowerCase().includes(needle)),
+  );
 
   // The rows came sorted by label, so a new one goes in before the first
   // label after its own rather than at the end, where it would be lost.
@@ -68,6 +79,22 @@ export function SystemsAdmin({ systems: initial }: { systems: AdminSystem[] }) {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
+          <Switch.Root
+            checked={showEmpty}
+            onCheckedChange={(details) =>
+              void preferences.set(ADMIN_SYSTEMS_SHOW_EMPTY, details.checked)
+            }
+            size="sm"
+            ms="auto"
+          >
+            {/* Chakra renders a checkbox input; role="switch" is the ARIA
+                pattern for an on/off toggle and what tests query. */}
+            <Switch.HiddenInput role="switch" />
+            <Switch.Control>
+              <Switch.Thumb />
+            </Switch.Control>
+            <Switch.Label>Show systems with no stats</Switch.Label>
+          </Switch.Root>
         </HStack>
 
         <Table.ScrollArea borderWidth="1px" rounded="md">
@@ -126,7 +153,13 @@ export function SystemsAdmin({ systems: initial }: { systems: AdminSystem[] }) {
 
         {visible.length === 0 && (
           <Text color="fg.muted" mt="4">
-            {needle ? "No systems match." : "No systems yet."}
+            {needle
+              ? showEmpty
+                ? "No systems match."
+                : "No systems with stats match."
+              : showEmpty
+                ? "No systems yet."
+                : "No systems have stats yet."}
           </Text>
         )}
       </Box>

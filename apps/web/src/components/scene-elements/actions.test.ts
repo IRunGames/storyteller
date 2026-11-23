@@ -449,6 +449,97 @@ describeWithDb(
       }
     });
 
+    it("gives each pill its health indicator's level, from the link's own stats", async () => {
+      const target = await sceneIn("ACTIVE", "Fixture scene for health drops");
+      const pool = {
+        label: "",
+        description: "",
+        rack: [],
+        computedAs: "",
+        visible: true,
+        format: "number" as const,
+        sticky: false,
+        static: false,
+        roll: "",
+        global: false,
+        upDown: false,
+        leftRight: false,
+        initialRoll: "1d1+9",
+        initialFrom: "",
+      };
+      const definition = {
+        healthIndicator: "life.hp",
+        groups: [
+          {
+            name: "life",
+            label: "",
+            keyedBy: "",
+            rollAll: false,
+            canHaveMultiples: false,
+            stats: [{ ...pool, name: "hp", type: "pool" as const }],
+          },
+        ],
+      };
+      const [system] = await db
+        .insert(tables.systems)
+        .values({ systemName: "Fixture health drops", statBlockDefinition: definition })
+        .returning({ idSystem: tables.systems.idSystem });
+      const key = String(system.idSystem);
+      await db
+        .update(tables.stories)
+        .set({ idSystem: system.idSystem })
+        .where(eq(tables.stories.idStory, mine));
+      await db
+        .update(tables.elements)
+        .set({ statBlocks: { [key]: { life: { hp: { value: 2, min: 0, max: 10 } } } } })
+        .where(eq(tables.elements.idElement, abbey));
+      try {
+        // Linked, the hit points are rolled afresh, full.
+        const linked = await actions.sa_linkSceneElement(mine, target, abbey);
+        if (!linked.ok) throw new Error("not linked");
+        expect(linked.item.health).toBe(100);
+        const idLink = linked.item.idSceneElement!;
+
+        // Hurt in play: the link's copy, not the element's, is what the drop reads.
+        await db
+          .update(tables.sceneElements)
+          .set({ statBlocks: { [key]: { life: { hp: { value: 5, min: 0, max: 10 } } } } })
+          .where(eq(tables.sceneElements.idSceneElement, idLink));
+        const moved = await actions.sa_moveSceneElement(mine, target, idLink, "elements", "scene");
+        expect(moved.ok && moved.item.health).toBe(50);
+        const edited = await actions.sa_updateSceneElement(
+          mine,
+          target,
+          idLink,
+          form({ name: "Fixture Abbey" }),
+        );
+        expect(edited.ok && edited.item.health).toBe(50);
+        const { spaceFor } = await import("@/db/scene-space");
+        const space = await spaceFor(mine, target);
+        expect(space.inPlay.find((item) => item.idSceneElement === idLink)?.health).toBe(50);
+
+        // A template that names none gives no drop.
+        await db
+          .update(tables.systems)
+          .set({ statBlockDefinition: { ...definition, healthIndicator: "" } })
+          .where(eq(tables.systems.idSystem, system.idSystem));
+        const plain = await spaceFor(mine, target);
+        expect(plain.inPlay.find((item) => item.idSceneElement === idLink)).not.toHaveProperty(
+          "health",
+        );
+      } finally {
+        await db
+          .update(tables.elements)
+          .set({ statBlocks: {} })
+          .where(eq(tables.elements.idElement, abbey));
+        await db
+          .update(tables.stories)
+          .set({ idSystem: null })
+          .where(eq(tables.stories.idStory, mine));
+        await db.delete(tables.systems).where(eq(tables.systems.idSystem, system.idSystem));
+      }
+    });
+
     it("links a library element as invisible with the Add as invisible switch", async () => {
       const target = await sceneIn("ACTIVE", "Fixture scene for hidden links");
 

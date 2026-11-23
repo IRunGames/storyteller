@@ -584,6 +584,23 @@ describe("RunPlayPill", () => {
     });
   });
 
+  it("draws a drop by the name for the link's health, white when full and dark red at none", async () => {
+    const u = userEvent.setup();
+    const hurt = render({ ...linked("READY"), health: 40 });
+    const drop = within(hurt.container).getByRole("img", { name: "Health 40%" });
+    // Mixed from white at 40% toward the template's dark red.
+    expect(drop.querySelector("svg")!.getAttribute("fill")).toBe(
+      "color-mix(in oklab, white 40%, var(--chakra-colors-run-health-empty))",
+    );
+    // The drop is beside the name's dropdown, not part of it.
+    await u.click(drop);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    hurt.unmount();
+
+    const fine = render(linked("READY"));
+    expect(within(fine.container).queryByRole("img", { name: /^Health/ })).not.toBeInTheDocument();
+  });
+
   it("opens the element and its place in the scene in place, from the chevron", async () => {
     const u = userEvent.setup();
     const { container } = render(linked("READY"));

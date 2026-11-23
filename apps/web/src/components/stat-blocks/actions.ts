@@ -16,6 +16,7 @@ import {
   evaluateStatBlock,
   findGroup,
   findStat,
+  healthLevel,
   isRepeating,
   matchRackEntry,
   rowKeyText,
@@ -78,6 +79,14 @@ export type ElementStatBlock = {
    * answer was not read.
    */
   onElement?: boolean;
+  /**
+   * For a scene element's block of the story's own system, how full the
+   * template's health indicator is (healthLevel), null for no drop: what the
+   * link's pill should now show, which the panel that changed the block
+   * hands to the table's pills. Absent for an element's own block, and for
+   * any other system's.
+   */
+  health?: number | null;
 };
 
 /** What a change to one stat carries: the parts the stat stores. */
@@ -308,13 +317,15 @@ function carries(blocks: StatBlocks, idSystem?: number): boolean {
 
 /**
  * One system's block worked out for showing; for a scene element, given its
- * element's blocks, with whether the element carries one of the system.
+ * element's blocks, with whether the element carries one of the system, and
+ * for the link's block of the story's own system (pill), its health.
  */
 function evaluated(
   system: StatBlockSystem,
   block: StatBlock | undefined,
   stored: boolean,
   elementBlocks: StatBlocks | null = null,
+  pill = false,
 ): ElementStatBlock {
   const tidy = block ? tidyStatBlock(system.definition, block) : {};
   return {
@@ -326,6 +337,7 @@ function evaluated(
     carried: carriedGroups(system.definition, tidy).map((group) => group.name),
     groups: evaluateStatBlock(system.definition, tidy),
     ...(elementBlocks === null ? {} : { onElement: carries(elementBlocks, system.idSystem) }),
+    ...(pill ? { health: healthLevel(system, { [systemKey(system.idSystem)]: tidy }) } : {}),
   };
 }
 
@@ -366,7 +378,9 @@ function blocksOf(
   const own = systems.find((system) => system.idSystem === storySystem);
   if (own) {
     const key = systemKey(own.idSystem);
-    result.push(evaluated(own, blocks[key], key in blocks, elementBlocks));
+    // Only a scene element, which has its element's blocks beside its own,
+    // has a pill to tell.
+    result.push(evaluated(own, blocks[key], key in blocks, elementBlocks, elementBlocks !== null));
   }
   for (const system of systems) {
     if (system === own) continue;
@@ -470,6 +484,7 @@ function evaluatedWritten(
     readStatBlocks(written)[systemKey(system.idSystem)],
     true,
     found.elementBlocks,
+    found.link !== null && system.idSystem === found.storySystem,
   );
 }
 

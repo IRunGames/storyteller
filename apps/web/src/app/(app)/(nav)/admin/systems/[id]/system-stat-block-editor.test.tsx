@@ -32,15 +32,13 @@ describe("SystemStatBlockEditor", () => {
     ({ SystemStatBlockEditor } = await import("./system-stat-block-editor"));
   });
 
-  it("says the stat block is the system's, saves over the system, and links back to the systems", async () => {
+  it("says the stat block is the system's, and saves over the system", async () => {
     const user = userEvent.setup();
     renderWithProviders(<SystemStatBlockEditor system={system} />);
 
     expect(screen.getByText(/every element run in this system can carry/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to systems" })).toHaveAttribute(
-      "href",
-      "/admin/systems",
-    );
+    // The way back is beside the system's name at the top (SystemHeading), not beside Save.
+    expect(screen.queryByRole("link", { name: "Back to systems" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save stat block" }));
     await waitFor(() => expect(sa_setSystemStatBlockDefinition.mock.callCount()).toBe(1));
     expect(sa_setSystemStatBlockDefinition.mock.calls[0].arguments).toEqual([-90, { groups: [] }]);

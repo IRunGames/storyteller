@@ -10,6 +10,7 @@ export type EditorControl = Control<FormInput, unknown, StatBlockDefinition>;
 /** The definition as the form holds it: each rack as the text of its field. */
 export function toForm(definition: StatBlockDefinition): FormInput {
   return {
+    healthIndicator: definition.healthIndicator ?? "",
     groups: definition.groups.map((group) => ({
       ...group,
       stats: group.stats.map((stat) => ({ ...stat, rack: joinRack(stat.rack) })),
@@ -20,6 +21,7 @@ export function toForm(definition: StatBlockDefinition): FormInput {
 /** The form's values as a definition, for the JSON tab; the schema does the same on save. */
 export function toDefinition(values: FormInput): StatBlockDefinition {
   return {
+    healthIndicator: values.healthIndicator,
     groups: values.groups.map((group) => ({
       ...group,
       stats: group.stats.map((stat) => ({ ...stat, rack: splitRack(stat.rack) })),

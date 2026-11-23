@@ -10,6 +10,7 @@ describe("preference keys", () => {
   it("keep the values users' preferences are stored under", () => {
     expect({
       THEME_KEY: keys.THEME_KEY,
+      ADMIN_SYSTEMS_SHOW_EMPTY: keys.ADMIN_SYSTEMS_SHOW_EMPTY,
       STORIES_VIEW_KEY: keys.STORIES_VIEW_KEY,
       STORE_VIEW_KEY: keys.STORE_VIEW_KEY,
       CHAT_LAYOUT_KEY: keys.CHAT_LAYOUT_KEY,
@@ -28,6 +29,7 @@ describe("preference keys", () => {
       prepBoard: keys.prepBoardPreferenceKey(42),
     }).toEqual({
       THEME_KEY: "theme",
+      ADMIN_SYSTEMS_SHOW_EMPTY: "admin.systems.showEmpty",
       STORIES_VIEW_KEY: "stories.view",
       STORE_VIEW_KEY: "store.view",
       CHAT_LAYOUT_KEY: "chat.layout",
@@ -68,6 +70,7 @@ describe("preference keys", () => {
     // A key added to the module without a line above would go unpinned.
     expect(Object.keys(keys).sort()).toEqual(
       [
+        "ADMIN_SYSTEMS_SHOW_EMPTY",
         "ANNOTATION_PREFERENCE_KEYS",
         "CHAT_LAYOUT_KEY",
         "PROFILE_PREFERENCE_KEYS",

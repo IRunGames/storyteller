@@ -122,6 +122,33 @@ export function parseDefinitionToSave(
   return { ok: true, definition: stampDefinition(parsed.data) };
 }
 
+const healthIndicatorSchema = z.string().trim().max(81).optional();
+
+/**
+ * The health indicator's rule, said on its select: it names a pool or a
+ * stack held to a number, in a group that does not repeat, since a drop
+ * shows one value against its max. Nothing for none.
+ */
+function checkHealthIndicator(definition: StatBlockDefinition): Issue[] {
+  const named = definition.healthIndicator ?? "";
+  if (named === "") return [];
+  const refuse = (message: string) => [{ path: ["healthIndicator"], message }];
+  const [groupName, statName] = named.split(".");
+  const group = definition.groups.find((candidate) => candidate.name === groupName);
+  const stat = group?.stats.find((candidate) => candidate.name === statName);
+  if (!group || !stat) return refuse(`There is no stat ${named} in this template.`);
+  if (stat.type !== "pool" && stat.type !== "stack") {
+    return refuse("A health indicator is a pool or a stack.");
+  }
+  if (!isNumberFormat(stat.format)) {
+    return refuse("A health indicator is held to a number; set its format.");
+  }
+  if (isRepeating(group)) {
+    return refuse(`${group.name} repeats, so it has no one value to show as health.`);
+  }
+  return [];
+}
+
 /**
  * The rules a definition keeps beyond its shape, each said on the field
  * that breaks it: names unique, each type with the fields it needs and no
@@ -336,6 +363,8 @@ export const statBlockDefinitionSchema = z
     // The action's stamp (stampDefinition), not the editor's: kept when a
     // stored definition is read, and replaced by the action on every save.
     updatedAt: z.iso.datetime().optional(),
+    // "group.stat" or "" (healthIndicatorOf); two identifiers and the dot.
+    healthIndicator: healthIndicatorSchema,
   })
   .superRefine((definition, ctx) => {
     if (JSON.stringify(definition).length > MAX_DEFINITION_LENGTH) {
@@ -346,7 +375,7 @@ export const statBlockDefinitionSchema = z
       });
       return;
     }
-    for (const issue of checkDefinition(definition)) {
+    for (const issue of [...checkDefinition(definition), ...checkHealthIndicator(definition)]) {
       ctx.addIssue({ code: "custom", path: issue.path, message: issue.message });
     }
   });
@@ -357,6 +386,9 @@ export const statBlockDefinitionSchema = z
  */
 export const statBlockDefinitionFormSchema = z
   .object({
+    // None is the select's "", saved as no field at all, so a template that
+    // names none is stored as it was before there could be one.
+    healthIndicator: healthIndicatorSchema.transform((named) => named || undefined).optional(),
     groups: z.array(
       statGroupDefinitionSchema.extend({
         stats: z.array(statDefinitionSchema.extend({ rack: z.string().transform(splitRack) })),
@@ -373,8 +405,17 @@ export type StatBlockDefinitionFormInput = z.input<typeof statBlockDefinitionFor
  * what last wrote it and a page is better empty than broken.
  */
 export function readStatBlockDefinition(raw: unknown): StatBlockDefinition {
-  const parsed = statBlockDefinitionSchema.safeParse(withDefaults(raw));
-  return parsed.success ? parsed.data : EMPTY_DEFINITION;
+  const stored = withDefaults(raw);
+  const parsed = statBlockDefinitionSchema.safeParse(stored);
+  if (parsed.success) return parsed.data;
+  // A health indicator that no longer fits (its stat renamed outside the
+  // editor, say) costs the drop alone, not every stat of the system.
+  if (typeof stored === "object" && stored !== null && "healthIndicator" in stored) {
+    const { healthIndicator: _stale, ...rest } = stored;
+    const without = statBlockDefinitionSchema.safeParse(rest);
+    if (without.success) return without.data;
+  }
+  return EMPTY_DEFINITION;
 }
 
 /**

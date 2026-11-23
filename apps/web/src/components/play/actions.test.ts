@@ -806,6 +806,71 @@ describeWithDb("play table actions", { email: TEST_USER_EMAIL }, (suite) => {
       );
     });
 
+    it("gives each element how full its link's health indicator is, and none of its stats", async () => {
+      await onScene(docks);
+      const pool = {
+        label: "",
+        description: "",
+        rack: [],
+        computedAs: "",
+        visible: true,
+        format: "number" as const,
+        sticky: false,
+        static: false,
+        roll: "",
+        global: false,
+        upDown: false,
+        leftRight: false,
+        initialRoll: "",
+        initialFrom: "",
+      };
+      const [system] = await db
+        .insert(tables.systems)
+        .values({
+          systemName: "Fixture play health",
+          statBlockDefinition: {
+            healthIndicator: "life.hp",
+            groups: [
+              {
+                name: "life",
+                label: "",
+                keyedBy: "",
+                rollAll: false,
+                canHaveMultiples: false,
+                stats: [{ ...pool, name: "hp", type: "pool" }],
+              },
+            ],
+          },
+        })
+        .returning({ idSystem: tables.systems.idSystem });
+      await db
+        .update(tables.stories)
+        .set({ idSystem: system.idSystem })
+        .where(eq(tables.stories.idStory, playsIn));
+      try {
+        const zed = (await actions.sa_getPlayScene(playsIn))!.items[0].element.idElement;
+        await db
+          .update(tables.sceneElements)
+          .set({
+            statBlocks: { [system.idSystem]: { life: { hp: { value: 1, min: 0, max: 4 } } } },
+          })
+          .where(eq(tables.sceneElements.idElement, zed));
+        const [item] = (await actions.sa_getPlayScene(playsIn))!.items;
+        expect(item.sceneElement.health).toBe(25);
+        expect(item.sceneElement).not.toHaveProperty("statBlocks");
+      } finally {
+        await db
+          .update(tables.sceneElements)
+          .set({ statBlocks: {} })
+          .where(eq(tables.sceneElements.idStoryScene, docks));
+        await db
+          .update(tables.stories)
+          .set({ idSystem: null })
+          .where(eq(tables.stories.idStory, playsIn));
+        await db.delete(tables.systems).where(eq(tables.systems.idSystem, system.idSystem));
+      }
+    });
+
     it("is empty with no scene chosen, or nothing being played", async () => {
       const session = await onScene(null);
       expect(await actions.sa_getPlayScene(playsIn)).toEqual({

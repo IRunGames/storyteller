@@ -5,7 +5,7 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import { Toaster, toaster } from "@/components/ui/toaster";
-import type { StatBlockDefinition } from "@/lib/stat-blocks";
+import type { StatBlockDefinition, StatDefinition } from "@/lib/stat-blocks";
 import {
   StatBlockDefinitionEditor,
   type SaveDefinitionResult,
@@ -175,6 +175,59 @@ const keyable: Fixture = {
 const keyed: Fixture = {
   ...keyable,
   definition: { groups: [{ ...keyable.definition.groups[0], keyedBy: "ar" }] },
+};
+
+// A template with stats that may and may not be its health indicator: a
+// pool and a stack held to a number in a plain group, a pool with no format,
+// a display, and a pool held to a number in a group that repeats.
+const statOf = (
+  over: Pick<StatDefinition, "name" | "type"> & Partial<StatDefinition>,
+): StatDefinition => ({
+  label: "",
+  rack: [],
+  computedAs: "",
+  visible: true,
+  format: "",
+  description: "",
+  sticky: false,
+  static: false,
+  roll: "",
+  global: false,
+  upDown: false,
+  leftRight: false,
+  initialRoll: "",
+  initialFrom: "",
+  ...over,
+});
+const healthy: Fixture = {
+  definition: {
+    groups: [
+      {
+        name: "defense",
+        label: "Defense",
+        keyedBy: "",
+        rollAll: false,
+        canHaveMultiples: false,
+        stats: [
+          statOf({ name: "hp", label: "Hit Points", type: "pool", format: "number" }),
+          statOf({ name: "ar", label: "AR", type: "display", format: "number" }),
+          statOf({ name: "sdc", type: "pool" }),
+          statOf({ name: "fatigue", type: "stack", format: "number" }),
+        ],
+      },
+      {
+        name: "attack",
+        label: "",
+        keyedBy: "weapon",
+        rollAll: false,
+        canHaveMultiples: false,
+        stats: [
+          statOf({ name: "weapon", type: "display" }),
+          statOf({ name: "uses", type: "pool", format: "number" }),
+        ],
+      },
+    ],
+  },
 };
 
 /** A group's accordion trigger, by the name it shows closed. */
@@ -412,6 +465,69 @@ describe("StatBlockDefinitionEditor", () => {
     await user.click(screen.getByRole("button", { name: "Save stat block" }));
     expect(await screen.findByText("There is no stat ar in this group.")).toBeInTheDocument();
     expect(save.mock.calls.length).toBe(0);
+  });
+
+  it("offers as the health indicator each pool or stack held to a number in a group that does not repeat", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(editor(healthy));
+
+    const select = screen.getByRole("combobox", { name: "Health indicator" });
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["None", "Hit Points (Defense)", "fatigue (Defense)"]);
+    await user.selectOptions(select, "defense.hp");
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    await waitFor(() => expect(save.mock.calls.length).toBe(1));
+    expect(save.mock.calls[0].arguments[0].healthIndicator).toBe("defense.hp");
+  });
+
+  it("starts the health indicator from the template, and saves None as none", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      editor({ definition: { ...healthy.definition, healthIndicator: "defense.fatigue" } }),
+    );
+
+    const select = screen.getByRole("combobox", { name: "Health indicator" });
+    expect(select).toHaveValue("defense.fatigue");
+    await user.selectOptions(select, "");
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    await waitFor(() => expect(save.mock.calls.length).toBe(1));
+    expect(save.mock.calls[0].arguments[0].healthIndicator).toBeUndefined();
+  });
+
+  it("says on the select when the health indicator's stat is gone, and does not save", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      editor({ definition: { ...healthy.definition, healthIndicator: "defense.hp" } }),
+    );
+    await openGroup(user, "defense");
+
+    await user.click(screen.getAllByRole("button", { name: "Remove stat" })[0]);
+    // Still shown as chosen, so the message beside it reads against it.
+    expect(screen.getByRole("combobox", { name: "Health indicator" })).toHaveValue("defense.hp");
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    expect(
+      await screen.findByText("There is no stat defense.hp in this template."),
+    ).toBeInTheDocument();
+    expect(save.mock.calls.length).toBe(0);
+  });
+
+  it("shows the action's refusal of the health indicator on its select", async () => {
+    const user = userEvent.setup();
+    save.mock.mockImplementation(async () => ({
+      ok: false,
+      errors: { healthIndicator: "A health indicator is a pool or a stack." },
+    }));
+    renderWithProviders(editor(healthy));
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Health indicator" }),
+      "defense.hp",
+    );
+    await user.click(screen.getByRole("button", { name: "Save stat block" }));
+    expect(await screen.findByText("A health indicator is a pool or a stack.")).toBeInTheDocument();
   });
 
   it("says in the browser where a formula points at nothing, and does not save", async () => {

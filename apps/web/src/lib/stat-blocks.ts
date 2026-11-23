@@ -137,6 +137,13 @@ export type StatBlockDefinition = {
    * before the stamp was kept.
    */
   updatedAt?: string;
+  /**
+   * The template's health indicator, as "group.stat": a pool or a stack held
+   * to a number, in a group that does not repeat, whose level each pill
+   * carrying it shows as a drop by its name (healthLevel). "" or absent for
+   * none; absent on a template saved before there was one.
+   */
+  healthIndicator?: string;
 };
 
 /** The definition as a save writes it, stamped with the moment of the save. */
@@ -280,6 +287,47 @@ export function initializedAs(
 /** The key a system's block is stored under. */
 export function systemKey(idSystem: number): string {
   return String(idSystem);
+}
+
+/**
+ * The stat the template names as its health indicator, with its group: null
+ * for none, or for a name the template no longer has as a pool or a stack held
+ * to a number in a group that does not repeat.
+ */
+export function healthIndicatorOf(
+  definition: StatBlockDefinition,
+): { group: StatGroupDefinition; stat: StatDefinition } | null {
+  const named = definition.healthIndicator ?? "";
+  if (named === "") return null;
+  const [groupName, statName] = named.split(".");
+  const group = findGroup(definition, groupName);
+  const stat = group?.stats.find((candidate) => candidate.name === statName);
+  if (!group || !stat || isRepeating(group)) return null;
+  if (stat.type !== "pool" && stat.type !== "stack") return null;
+  return isNumberFormat(stat.format) ? { group, stat } : null;
+}
+
+/**
+ * How full a holder's health indicator is, for its drop: the stat's value
+ * over its max as a whole percent, 0 at or below 0 and 100 at or above the
+ * max, whatever a pool's min. Read from the holder's block of the template's
+ * system. Null when there is nothing to show: no template, no indicator, the
+ * group not carried, the value blank, or no max above 0.
+ */
+export function healthLevel(
+  template: Pick<StatBlockSystem, "idSystem" | "definition"> | null,
+  blocks: StatBlocks,
+): number | null {
+  if (template === null) return null;
+  const indicator = healthIndicatorOf(template.definition);
+  if (indicator === null) return null;
+  const stored = blocks[systemKey(template.idSystem)]?.[indicator.group.name];
+  if (stored === undefined || Array.isArray(stored)) return null;
+  const fitted = fitStatValue(indicator.stat, stored[indicator.stat.name]);
+  if (typeof fitted?.value !== "number" || fitted.max === undefined || fitted.max <= 0) {
+    return null;
+  }
+  return Math.min(100, Math.max(0, Math.round((fitted.value / fitted.max) * 100)));
 }
 
 /** Whether a definition has anything to draw. */

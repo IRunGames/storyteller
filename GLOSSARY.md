@@ -110,6 +110,26 @@ engineering skills consume this file.
   said in the chat as a pill's roll is, an invisible element's and every one
   made with no session at the table kept back and toasted to the storyteller
   together.
+- **Health indicator**: one stat the template names (`healthIndicator`,
+  "group.stat", "" or absent for none), from the template editor's Health
+  indicator select above the groups: a pool or a stack held to a number, in
+  a group that does not repeat (`healthIndicatorOf`). A rename, retype or
+  removal of the stat is refused on save, on the select. Read against a
+  scene element's own copy of its stats, never the element's: its level is
+  the value over the max as a whole percent, 0 at or below 0 and 100 at or
+  above the max, whatever a pool's min (`healthLevel`), with nothing to show
+  while the value is blank, there is no max above 0, or the link does not
+  carry the group. One per template, so a pill has at most one drop.
+- **Drop**: the blood drop just before a pill's name, on the storyteller's
+  pills at the run and live pages and on the players' at the play page and a
+  scene's preview, for a link whose health indicator has a level
+  (`SceneItem.health`, `HealthDrop`): white when full, darkening to dark red
+  (`run.healthEmpty`) at 0, outlined so it shows on a light theme. The
+  players are given the level alone (`health` on the public scene element),
+  never the stat's numbers; the storyboard gives none. Worked out on the
+  server as the pills are read, and kept true in play by each stat change
+  (`ElementStatBlock.health`), which the panel that made it hands to the
+  pill (`patchLink`) and the players' table is sent with the link.
 - **Stats pane**: the storyteller's table pane beside the library (`Stats` in
   the header, `run.showStats`) listing every element in the scene that
   carries a stat block, invisible ones too, each under a pill the pane's width

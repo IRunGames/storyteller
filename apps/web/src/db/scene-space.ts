@@ -12,6 +12,9 @@ import {
   type SceneItem,
 } from "@/lib/scene-elements";
 import { EMPTY_PLAY_SPACE, type RunPlaySpace } from "@/lib/run";
+import { readStatBlocks } from "@/lib/stat-block-schemas";
+import { healthLevel, type StatBlockSystem } from "@/lib/stat-blocks";
+import { storyTemplate } from "./stat-block-systems";
 
 // The storyteller's read model of a scene: its play space and the pills in
 // it, built from v_scene_elements. The run table's actions build it after
@@ -27,6 +30,18 @@ import { EMPTY_PLAY_SPACE, type RunPlaySpace } from "@/lib/run";
 export function linkHasStatBlocks(source: string) {
   return sql<boolean>`(
     select link.stat_blocks <> '{}'::jsonb
+    from ${sceneElements} link
+    where link.id_scene_element = ${sql.identifier(source)}.id_scene_element
+  )`;
+}
+
+/**
+ * A link's stat blocks, raw, read beside the view's columns as
+ * linkHasStatBlocks is, for its pill's health drop (healthLevel).
+ */
+export function linkStatBlocks(source: string) {
+  return sql<unknown>`(
+    select link.stat_blocks
     from ${sceneElements} link
     where link.id_scene_element = ${sql.identifier(source)}.id_scene_element
   )`;
@@ -51,6 +66,7 @@ export const linkedColumns = {
   sceneUrlText: vSceneElements.urlText,
   idSceneElement: vSceneElements.idSceneElement,
   hasStatBlocks: linkHasStatBlocks("v_scene_elements"),
+  statBlocks: linkStatBlocks("v_scene_elements"),
   label: vSceneElements.label,
 };
 
@@ -77,6 +93,8 @@ export type LinkedViewRow = {
   sceneUrlText: string | null;
   idSceneElement: number | null;
   hasStatBlocks: boolean | null;
+  /** The link's stat blocks as stored, for its health drop. */
+  statBlocks: unknown;
   label: string | null;
 };
 
@@ -107,6 +125,8 @@ export type LinkedRow = {
   /** The link's own id and whether it carries a stat block. */
   idSceneElement: number | null;
   hasStatBlocks: boolean | null;
+  /** How full the link's health indicator is (healthLevel); null for no drop. */
+  health: number | null;
   /** The link's own label (scene_elements.label), one of the fields the pill may show. */
   label: string | null;
 };
@@ -134,6 +154,7 @@ export function linkedRowOf(
     sceneUrlText: null,
     idSceneElement: null,
     hasStatBlocks: null,
+    health: null,
     label: null,
     ...known,
   };
@@ -142,9 +163,13 @@ export function linkedRowOf(
 /**
  * A row of v_scene_elements as a LinkedRow, or null for one with no element
  * behind it, which the view's nullable columns allow in type though a link
- * always has its element.
+ * always has its element. The link's health is read against the story's
+ * template (storyTemplate).
  */
-export function fromViewRow(row: LinkedViewRow): LinkedRow | null {
+export function fromViewRow(
+  row: LinkedViewRow,
+  template: Pick<StatBlockSystem, "idSystem" | "definition"> | null,
+): LinkedRow | null {
   if (row.idElement === null || row.kind === null || row.name === null) return null;
   return linkedRowOf({
     idElement: row.idElement,
@@ -164,6 +189,7 @@ export function fromViewRow(row: LinkedViewRow): LinkedRow | null {
     sceneUrlText: row.sceneUrlText,
     idSceneElement: row.idSceneElement,
     hasStatBlocks: row.hasStatBlocks,
+    health: healthLevel(template, readStatBlocks(row.statBlocks)),
     label: row.label,
   });
 }
@@ -198,6 +224,7 @@ export function linkedItem(row: LinkedRow): SceneItem {
     showInfo: row.showInfo ?? true,
     ...(row.idSceneElement == null ? {} : { idSceneElement: row.idSceneElement }),
     hasStatBlocks: row.hasStatBlocks ?? false,
+    ...(row.health === null ? {} : { health: row.health }),
     link: pillLink(
       { url: row.sceneUrl, urlText: row.sceneUrlText },
       { url: row.url, urlText: row.urlText },
@@ -229,7 +256,7 @@ export async function linkedRow(
       ),
     )
     .limit(1);
-  return row ? fromViewRow(row) : null;
+  return row ? fromViewRow(row, await storyTemplate(idStory)) : null;
 }
 
 /**
@@ -270,8 +297,9 @@ export async function spaceFor(idStory: number, idStoryScene: number): Promise<R
     .orderBy(asc(vSceneElements.name), asc(vSceneElements.idElement));
 
   const order = (kind: string) => ELEMENT_KINDS.indexOf(kind as (typeof ELEMENT_KINDS)[number]);
+  const template = await storyTemplate(idStory);
   const linked = rows
-    .map(fromViewRow)
+    .map((row) => fromViewRow(row, template))
     .filter((row): row is LinkedRow => row !== null && isElementKind(row.kind))
     .sort((a, b) => order(a.kind) - order(b.kind))
     .map(linkedItem);

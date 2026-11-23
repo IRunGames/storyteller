@@ -6,6 +6,7 @@ import { ClipboardPaste, Copy, Pencil } from "lucide-react";
 import { toaster } from "@/components/ui/toaster";
 import { DeleteButton, type DeleteOutcome } from "@/components/confirm/delete-button";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
+import { useOptionalPatchLink } from "@/components/table-shell/scene-items-context";
 import { isRepeating, type EvaluatedGroup } from "@/lib/stat-blocks";
 import {
   sa_copyStatBlocksFromElement,
@@ -168,8 +169,8 @@ export function StatBlockView({
   showControls = true,
   editing: editingGiven,
   onEditingChange,
-  onChange,
-  onBlocks,
+  onChange: onChangeGiven,
+  onBlocks: onBlocksGiven,
 }: {
   holder: StatBlockHolder;
   block: ElementStatBlock;
@@ -195,6 +196,24 @@ export function StatBlockView({
 }) {
   const [busy, setBusy] = useState(false);
   const [ownEditing, setOwnEditing] = useState(false);
+  const patchLink = useOptionalPatchLink();
+  // At a table, a scene element's changed block says how full its health
+  // indicator now is (health), which its pill shows as a drop: told here, so
+  // the pill's own stats, the scene card and the stats pane all keep it true.
+  // A block that says nothing of health leaves the pill as it is.
+  function tellPill(blocks: ElementStatBlock[]) {
+    if (patchLink === null || !("idSceneElement" in holder)) return;
+    const told = blocks.find((changed) => changed.health !== undefined);
+    if (told) patchLink(holder.idSceneElement, { health: told.health ?? undefined });
+  }
+  const onChange = (changed: ElementStatBlock) => {
+    onChangeGiven(changed);
+    tellPill([changed]);
+  };
+  const onBlocks = (blocks: ElementStatBlock[]) => {
+    onBlocksGiven(blocks);
+    tellPill(blocks);
+  };
   const editing = editingGiven ?? ownEditing;
   const setEditing = (next: boolean) => {
     setOwnEditing(next);
@@ -207,7 +226,9 @@ export function StatBlockView({
   // next copy asks first.
   async function copyToElement(): Promise<DeleteOutcome> {
     const result = await sa_copyStatBlocksToElement(holder, block.idSystem);
-    if (result.ok) onChange({ ...block, onElement: true });
+    // The link's own stats are as they were, so the pill is not told: the
+    // level this block holds may be older than the one it shows.
+    if (result.ok) onChangeGiven({ ...block, onElement: true });
     return result;
   }
 

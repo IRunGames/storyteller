@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { sceneElements } from "@/db/schema";
 import { currentScene, sceneLink, sceneLinksOf, sceneLinksShowing } from "@/db/scene-items";
+import { storyTemplate } from "@/db/stat-block-systems";
 import { SCENE_ELEMENT_HIDDEN } from "@/lib/scene-elements";
 import {
   toPublicElement,
@@ -59,7 +60,7 @@ export async function publishSceneElement(
           idStory,
           type: "scene_element.upserted",
           element: toPublicElement(row.element, row.imageUrl, row.link.showInfo),
-          sceneElement: toPublicSceneElement(row.link),
+          sceneElement: toPublicSceneElement(row.link, await storyTemplate(idStory)),
         };
   await publishStoryEvent(idStory, event);
 }

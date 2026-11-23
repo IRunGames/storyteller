@@ -75,6 +75,7 @@ export function toPlayItem({ element, sceneElement }: PlaySceneItem): SceneItem 
     sceneStatus: sceneElement.status,
     idSceneElement: sceneElement.idSceneElement,
     showInfo: sceneElement.showInfo,
+    ...(sceneElement.health == null ? {} : { health: sceneElement.health }),
     info: sceneElement.showInfo ? element.description : null,
     notes: element.notes,
     link: pillLink(sceneElement, element),

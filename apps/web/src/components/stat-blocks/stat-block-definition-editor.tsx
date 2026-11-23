@@ -14,6 +14,7 @@ import type { StatBlockDefinition } from "@/lib/stat-blocks";
 import { applyActionErrors } from "@/lib/forms";
 import { toDefinition, toForm, type FormInput } from "./stat-block-definition-form";
 import { GroupItem } from "./stat-block-definition-group";
+import { HealthIndicatorSelect } from "./stat-block-health-indicator-select";
 
 /** What a save answers: done, or the schema's refusals keyed by the field they name, "root" for the rest. */
 export type SaveDefinitionResult = { ok: true } | { ok: false; errors: Record<string, string> };
@@ -43,8 +44,9 @@ const atIndex = (g: number) => `#${g}`;
  * action again, and a group with an error on it is opened so the message
  * can be seen. Whose definition it is, a system's or a story's copy, is the
  * caller's: it hands in the definition, the opening sentence that says
- * whose, the save that calls its own action, and where Back goes, as
- * DeleteButton's callers hand in theirs.
+ * whose, the save that calls its own action, and where Back beside Save
+ * goes, if the page wants one there, as DeleteButton's callers hand in
+ * theirs.
  */
 export function StatBlockDefinitionEditor({
   definition,
@@ -57,8 +59,12 @@ export function StatBlockDefinitionEditor({
   intro: ReactNode;
   /** Saves the definition through the caller's action. */
   save: (definition: StatBlockDefinition) => Promise<SaveDefinitionResult>;
-  /** The link beside Save, back to where the editor was opened from. */
-  back: { href: string; label: string };
+  /**
+   * The link beside Save, back to where the editor was opened from; left out
+   * where the page puts its own way back elsewhere (the Systems page, by the
+   * system's name).
+   */
+  back?: { href: string; label: string };
 }) {
   const {
     control,
@@ -133,7 +139,11 @@ export function StatBlockDefinitionEditor({
       toaster.create({ title: "Stat block saved.", type: "success" });
       return;
     }
-    applyActionErrors({ setError }, result.errors, (path) => path.startsWith("groups."));
+    applyActionErrors(
+      { setError },
+      result.errors,
+      (path) => path.startsWith("groups.") || path === "healthIndicator",
+    );
     // The groups holding an error open, found by the index in each path.
     const withErrors: FieldErrors<FormInput> = { groups: [] };
     for (const [path, message] of Object.entries(result.errors)) {
@@ -162,6 +172,7 @@ export function StatBlockDefinitionEditor({
           <FormError message={errors.root?.message} />
           {/* The groups array's own message: too many, or too long in all. */}
           {errors.groups?.root && <FormError message={errors.groups.root.message} size="sm" />}
+          <HealthIndicatorSelect control={control} register={register} errors={errors} />
 
           <Tabs.Root defaultValue="groups" variant="line" lazyMount>
             <Tabs.List>
@@ -232,9 +243,11 @@ export function StatBlockDefinitionEditor({
             <Button type="submit" loading={isSubmitting}>
               Save stat block
             </Button>
-            <Button asChild variant="ghost">
-              <NextLink href={back.href}>{back.label}</NextLink>
-            </Button>
+            {back && (
+              <Button asChild variant="ghost">
+                <NextLink href={back.href}>{back.label}</NextLink>
+              </Button>
+            )}
           </HStack>
         </Stack>
       </form>

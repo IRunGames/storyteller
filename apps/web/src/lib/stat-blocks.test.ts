@@ -20,6 +20,7 @@ import {
   evaluateStatBlock,
   emptyStatRowFields,
   fitStatValue,
+  healthLevel,
   rowKeyText,
   statBlockFromFields,
   tidyStatBlock,
@@ -28,6 +29,7 @@ import {
   type StatBlockDefinition,
   type StatDefinition,
   type StatRowFieldValues,
+  type StatValue,
 } from "./stat-blocks";
 
 const stat = (
@@ -828,5 +830,74 @@ describe("numberOnly and signOf", () => {
     expect(signOf(3)).toBe("+");
     expect(signOf(0)).toBe("+");
     expect(signOf(-2)).toBe("−");
+  });
+});
+
+describe("healthLevel", () => {
+  const plain = (name: string, stats: StatDefinition[]) => ({
+    name,
+    label: "",
+    keyedBy: "",
+    rollAll: false,
+    canHaveMultiples: false,
+    stats,
+  });
+  const health: StatBlockDefinition = {
+    healthIndicator: "defense.hp",
+    groups: [
+      plain("defense", [
+        stat({ name: "hp", type: "pool", format: "number" }),
+        stat({ name: "fatigue", type: "stack", format: "number" }),
+      ]),
+      plain("saves", [stat({ name: "luck", type: "pool", format: "number" })]),
+    ],
+  };
+  const template = { idSystem: 7, definition: health };
+  const hp = (value: StatValue) => ({ "7": { defense: { hp: value } } });
+
+  it("is 100 when full, 50 at half and 0 at 0", () => {
+    expect(healthLevel(template, hp({ value: 30, min: 0, max: 30 }))).toBe(100);
+    expect(healthLevel(template, hp({ value: 15, min: 0, max: 30 }))).toBe(50);
+    expect(healthLevel(template, hp({ value: 0, min: 0, max: 30 }))).toBe(0);
+  });
+
+  it("rounds to a whole percent", () => {
+    expect(healthLevel(template, hp({ value: 1, min: 0, max: 3 }))).toBe(33);
+  });
+
+  it("holds to 0 below 0 and to 100 above the max", () => {
+    expect(healthLevel(template, hp({ value: -5, min: -10, max: 30 }))).toBe(0);
+    expect(healthLevel(template, hp({ value: 40, min: 0, max: 30 }))).toBe(100);
+  });
+
+  it("is null for a blank value, no max, or a max of 0", () => {
+    expect(healthLevel(template, hp({ min: 0, max: 30 }))).toBeNull();
+    expect(healthLevel(template, hp({ value: 12, min: 0 }))).toBeNull();
+    expect(healthLevel(template, hp({ value: 0, min: 0, max: 0 }))).toBeNull();
+  });
+
+  it("is null when the holder does not carry the group, or the system's block", () => {
+    expect(healthLevel(template, { "7": { saves: { luck: { value: 3, max: 6 } } } })).toBeNull();
+    expect(healthLevel(template, { "8": { defense: { hp: { value: 3, max: 6 } } } })).toBeNull();
+    expect(healthLevel(template, {})).toBeNull();
+  });
+
+  it("is null when the template names no indicator, or there is no template", () => {
+    const none = { idSystem: 7, definition: { ...health, healthIndicator: "" } };
+    expect(healthLevel(none, hp({ value: 3, max: 6 }))).toBeNull();
+    expect(healthLevel(null, hp({ value: 3, max: 6 }))).toBeNull();
+  });
+
+  it("reads a stack against its max", () => {
+    const stack = { idSystem: 7, definition: { ...health, healthIndicator: "defense.fatigue" } };
+    expect(healthLevel(stack, { "7": { defense: { fatigue: { value: 1, max: 4 } } } })).toBe(25);
+  });
+
+  it("is null when the indicator no longer names a pool or stack held to a number", () => {
+    const retyped: StatBlockDefinition = {
+      ...health,
+      groups: [plain("defense", [stat({ name: "hp", type: "display", format: "number" })])],
+    };
+    expect(healthLevel({ idSystem: 7, definition: retyped }, hp({ value: 3 }))).toBeNull();
   });
 });

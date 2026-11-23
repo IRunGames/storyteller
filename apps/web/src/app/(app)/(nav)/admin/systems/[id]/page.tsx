@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Container, Heading, Stack } from "@chakra-ui/react";
+import { Container, Stack } from "@chakra-ui/react";
 import { SystemDetailsForm } from "./system-details-form";
+import { SystemHeading } from "./system-heading";
 import { SystemStatBlockEditor } from "./system-stat-block-editor";
 import { requireUser } from "@/lib/authorize";
 import { parseRouteId } from "@/lib/route-ids";
@@ -31,7 +32,7 @@ export default async function SystemPage({ params }: { params: Promise<{ id: str
     // every one that fits on a line is one less wrap to read across.
     <Container maxW="7xl" py="8">
       <Stack gap="8">
-        <Heading size="2xl">{system.label}</Heading>
+        <SystemHeading label={system.label} />
         <SystemDetailsForm system={system} />
         <SystemStatBlockEditor system={system} />
       </Stack>

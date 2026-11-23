@@ -8,6 +8,7 @@ import { attachmentUrl } from "@/db/attachment-url";
 import { hasOpenSession } from "@/db/open-session";
 import { atTableCount, waitingCount } from "@/db/session-player-counts";
 import { currentScene, sceneItems } from "@/db/scene-items";
+import { storyTemplate } from "@/db/stat-block-systems";
 import { appendActivityLog } from "@/db/activity-log";
 import { writableScene } from "@/db/story-access";
 import { chatById, insertChat, listChats, type ChatPage } from "@/db/chats";
@@ -371,6 +372,7 @@ export async function sa_getPlayScene(idStory: number): Promise<PlayScene | null
   if (!scene) return { ...EMPTY_PLAY_SCENE, idStorySession: current.idStorySession };
 
   const rows = await sceneItems(story.idStory, scene.idStoryScene, [SCENE_ELEMENT_HIDDEN]);
+  const template = await storyTemplate(story.idStory);
   return {
     idStorySession: current.idStorySession,
     scene: {
@@ -384,7 +386,7 @@ export async function sa_getPlayScene(idStory: number): Promise<PlayScene | null
     coverUrl: scene.coverUrl,
     items: rows.map((row) => ({
       element: toPublicElement(row.element, row.imageUrl, row.link.showInfo),
-      sceneElement: toPublicSceneElement(row.link),
+      sceneElement: toPublicSceneElement(row.link, template),
     })),
   };
 }

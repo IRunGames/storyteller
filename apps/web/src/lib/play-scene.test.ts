@@ -91,6 +91,15 @@ describe("toPlayItem", () => {
     });
   });
 
+  it("carries the link's health level for the drop, and no drop for none", () => {
+    expect(toPlayItem({ element: element(), sceneElement: link({ health: 40 }) }).health).toBe(40);
+    expect(toPlayItem({ element: element(), sceneElement: link({ health: 0 }) }).health).toBe(0);
+    expect(
+      toPlayItem({ element: element(), sceneElement: link({ health: null }) }),
+    ).not.toHaveProperty("health");
+    expect(toPlayItem({ element: element(), sceneElement: link() })).not.toHaveProperty("health");
+  });
+
   it("falls back to the name when the chosen field is empty or unknown", () => {
     const item = toPlayItem({
       element: element({ initialName: null }),

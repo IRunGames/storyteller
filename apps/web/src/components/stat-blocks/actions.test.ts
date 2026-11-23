@@ -464,6 +464,69 @@ describeWithDb("stat block actions", { email: TEST_USER_EMAIL }, (suite) => {
     expect(await stored()).toEqual({});
   });
 
+  it("says how full a scene element's health indicator is after each change, and nothing for an element", async () => {
+    // The template names hit points, held to a number, as its health indicator.
+    const healthy: StatBlockDefinition = {
+      ...definition,
+      healthIndicator: "combat.hp",
+      groups: definition.groups.map((group) => ({
+        ...group,
+        stats: group.stats.map((s) => (s.name === "hp" ? { ...s, format: "number" as const } : s)),
+      })),
+    };
+    await db
+      .update(tables.systems)
+      .set({ statBlockDefinition: healthy })
+      .where(eq(tables.systems.idSystem, idSystem));
+    await db
+      .update(tables.sceneElements)
+      .set({ statBlocks: { [idSystem]: { combat: { hp: { value: 8, min: 0, max: 8 } } } } })
+      .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
+    try {
+      const link = { idStory: myStory, idSceneElement };
+      const hurt = await actions.sa_setStat(link, {
+        idSystem,
+        group: "combat",
+        stat: "hp",
+        patch: { value: 2 },
+      });
+      expect(hurt.ok && hurt.block.health).toBe(25);
+      const read = await actions.sa_getStatBlocks(link);
+      expect(read![0].health).toBe(25);
+      const pane = await actions.sa_getSceneStatBlocks(myStory, idStoryScene);
+      expect(pane!.find((row) => row.idSceneElement === idSceneElement)!.blocks[0].health).toBe(25);
+      // A change that leaves the indicator alone still says it, so the pill
+      // stays as it is.
+      const other = await actions.sa_setStat(link, {
+        idSystem,
+        group: "stats",
+        stat: "str",
+        patch: { value: 9 },
+      });
+      expect(other.ok && other.block.health).toBe(25);
+
+      // An element's own blocks draw no pill.
+      const own = await actions.sa_setStat(
+        { idStory: myStory, idElement },
+        { idSystem, group: "combat", stat: "hp", patch: { value: 1 } },
+      );
+      expect(own.ok && own.block).not.toHaveProperty("health");
+    } finally {
+      await db
+        .update(tables.systems)
+        .set({ statBlockDefinition: definition })
+        .where(eq(tables.systems.idSystem, idSystem));
+      await db
+        .update(tables.sceneElements)
+        .set({ statBlocks: {} })
+        .where(eq(tables.sceneElements.idSceneElement, idSceneElement));
+      await db
+        .update(tables.elements)
+        .set({ statBlocks: {} })
+        .where(eq(tables.elements.idElement, idElement));
+    }
+  });
+
   it("changes a scene element's stats in a complete scene too", async () => {
     // The storyteller keeps the stats of a finished scene's creatures up to
     // date after the fact, so this write sets the scene's lock aside where

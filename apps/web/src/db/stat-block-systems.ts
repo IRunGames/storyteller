@@ -50,6 +50,32 @@ export async function statBlockSystems(idStory: number | null): Promise<StatBloc
     .filter((system) => hasStats(system.definition));
 }
 
+/**
+ * The template the story's elements are read against for their health
+ * indicator: its own system's, or the story's copy of it where there is one.
+ * Null for a story with no system, or none to read. The caller has checked
+ * the story is one the user may read this way.
+ */
+export async function storyTemplate(
+  idStory: number,
+): Promise<Pick<StatBlockSystem, "idSystem" | "definition"> | null> {
+  const [row] = await db
+    .select({
+      idSystem: stories.idSystem,
+      copy: stories.statBlockDefinition,
+      definition: systems.statBlockDefinition,
+    })
+    .from(stories)
+    .innerJoin(systems, eq(systems.idSystem, stories.idSystem))
+    .where(eq(stories.idStory, idStory))
+    .limit(1);
+  if (!row || row.idSystem === null) return null;
+  return {
+    idSystem: row.idSystem,
+    definition: readStatBlockDefinition(row.copy ?? row.definition),
+  };
+}
+
 /** The story's copy of its system's definition, raw, with the system it stands in for; null for none. */
 async function storyCopy(
   idStory: number,
