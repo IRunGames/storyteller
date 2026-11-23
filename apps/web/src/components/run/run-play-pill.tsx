@@ -80,11 +80,18 @@ function withAnnotated(item: SceneItem, annotated: boolean): SceneItem {
 
 /**
  * The pill with its picture as read back by its annotation controls: shown
- * as the players see it once its copy is rendered, and marked annotated.
+ * as the players see it once its copy is rendered, saying so when that copy
+ * shows nothing or has fog on it anywhere, and marked annotated.
  */
 function withPicture(item: SceneItem, picture: PictureState): SceneItem {
+  const { fogCovered: _was, fogActive: _wasActive, ...rest } = item;
   return withAnnotated(
-    { ...item, imageUrl: picture.shownUrl ?? item.imageUrl },
+    {
+      ...rest,
+      imageUrl: picture.shownUrl ?? item.imageUrl,
+      ...(picture.fogCovered ? { fogCovered: true } : {}),
+      ...(picture.fogActive ? { fogActive: true } : {}),
+    },
     picture.isAnnotated,
   );
 }
@@ -230,9 +237,11 @@ export function RunPlayPill({
           // Pressed, the picture opens full size, as an attachment's does in
           // the library; its tags are the attachment's, not the element's, so
           // the preview leaves them out, and offers the picture's annotation
-          // controls in their place. The fog mark says it is annotated. The frame round it carries the glow
-          // and the tack: the tack sits past the corner, which the picture's
-          // own overflow clip would cut off.
+          // controls in their place. The fog mark says it is annotated, and
+          // a note over the picture says when the players see none of it.
+          // The frame round it carries the glow and the tack: the tack sits
+          // past the corner, which the picture's own overflow clip would cut
+          // off.
           <Box
             position="relative"
             flexShrink="0"
@@ -248,6 +257,8 @@ export function RunPlayPill({
                 tags={[]}
                 isCover={false}
                 showTags={false}
+                fogCovered={item.fogCovered === true}
+                fogActive={item.fogActive === true}
                 actions={
                   item.idSceneElement != null ? (
                     <ScenePictureControls

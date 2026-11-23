@@ -45,6 +45,18 @@ type Item = {
   detail: string | null;
   /** An attachment's picture. */
   imageUrl: string | null;
+  /**
+   * Whether imageUrl is a players' copy that shows nothing of the picture,
+   * fogged whole (PictureState.fogCovered), so it is drawn with "Image is
+   * covered in fog" over it. Absent for any other.
+   */
+  fogCovered?: boolean;
+  /**
+   * Whether imageUrl is a players' copy with fog on it anywhere
+   * (PictureState.fogActive), so its full-size preview is marked "FOG OF WAR
+   * ACTIVE". Only the storyteller's reads set it; absent for any other.
+   */
+  fogActive?: boolean;
 };
 
 /**

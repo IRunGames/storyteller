@@ -15,7 +15,9 @@ import {
   chakra,
 } from "@chakra-ui/react";
 import {
+  BrickWall,
   Check,
+  CheckLine,
   ChevronDown,
   Circle,
   Cloud,
@@ -25,9 +27,11 @@ import {
   Eye,
   EyeOff,
   Hexagon,
+  PaintBucket,
   Paintbrush,
   PenLine,
   Pentagon,
+  Pickaxe,
   RectangleHorizontal,
   Square,
   Trash2,
@@ -37,7 +41,14 @@ import {
 } from "lucide-react";
 import { IconButtonWithTooltip } from "@/components/buttons/icon-button-with-tooltip";
 import type { AnnotationMode, ShapeKind } from "@/lib/annotation-schemas";
-import { BRUSH_SIZES, FOG_COLORS, PEN_COLORS, PEN_WIDTHS } from "@/lib/annotations";
+import {
+  BRUSH_SIZES,
+  FOG_COLORS,
+  OWN_FOG_SLIDER,
+  PEN_COLORS,
+  PEN_WIDTHS,
+  PLAYERS_FOG_SLIDER,
+} from "@/lib/annotations";
 import type { AnnotationTool } from "./annotator-stage";
 import type { SaveStatus } from "./use-annotation-session";
 
@@ -69,9 +80,13 @@ type Props = {
   onCoverAll: () => void;
   onClearAll: () => void;
   onEraseAll: () => void;
+  /** Whether the wall pen is partway through a wall, which Finish wall then finishes. */
+  wallInProgress: boolean;
+  onFinishWall: () => void;
 };
 
-type Choice<T extends string> = { value: T; label: string; Icon: LucideIcon };
+/** A choice's name, and its tooltip when that says more than the name. */
+type Choice<T extends string> = { value: T; label: string; tooltip?: string; Icon: LucideIcon };
 
 const SHAPES: Choice<ShapeKind>[] = [
   { value: "circle", label: "Circle", Icon: Circle },
@@ -84,6 +99,27 @@ const SHAPES: Choice<ShapeKind>[] = [
 const FOG_TOOLS: Choice<AnnotationTool>[] = [
   { value: "brush", label: "Fog brush", Icon: Paintbrush },
   { value: "rect", label: "Fog rectangle", Icon: RectangleHorizontal },
+  {
+    value: "flood",
+    label: "Flood",
+    tooltip: "Flood: reveal or cover the area clicked, up to its walls",
+    Icon: PaintBucket,
+  },
+];
+
+const WALL_TOOLS: Choice<AnnotationTool>[] = [
+  {
+    value: "wall",
+    label: "Wall pen",
+    tooltip: "Wall pen: click corner by corner, Escape to finish",
+    Icon: BrickWall,
+  },
+  {
+    value: "wallEraser",
+    label: "Wall eraser",
+    tooltip: "Wall eraser: drag over walls to take them away",
+    Icon: Pickaxe,
+  },
 ];
 
 const MODES: Choice<AnnotationMode>[] = [
@@ -103,11 +139,15 @@ const STATUS_TEXT: Record<SaveStatus, string> = {
  * the shapes, each dragged out from its centre by a corner), the eraser, which takes away whole marks it is dragged over,
  * the pen's color and width, which the shapes take too, and Erase all
  * annotations. From the middle rightwards the fog: a switch for whether the
- * storyteller sees it at all, their own fog's opacity and the players', each a slider
- * and a percentage to type, the fog's color, Cover all, the fog brush and
- * rectangle with Reveal or Cover, the brush's size, and Clear all. One tool
- * is in hand at a time, from either half. Undo and whether the drawing is
- * saved sit in the annotator's header (AnnotatorSaveState).
+ * storyteller sees it at all, their own fog's opacity and the players', each
+ * a slider from 50 to 100 and a percentage to type from 0 to 100, the fog's
+ * color, Cover all, the fog brush, the fog rectangle and the flood with
+ * Reveal or Cover, the brush's size, Clear all, and the walls' tools: the
+ * wall pen and the wall eraser, which have no Reveal or Cover. While the wall
+ * pen is partway through a wall, Finish wall follows them and does what
+ * Escape does, for a touch screen that has no Escape. One tool is in hand at
+ * a time, from either half. Undo and whether the drawing is saved sit in the
+ * annotator's header (AnnotatorSaveState).
  *
  * Its controls sit in the annotator's dialog, which hides everything outside
  * itself, so their tooltips and the color popovers are drawn in place rather
@@ -119,7 +159,7 @@ const STATUS_TEXT: Record<SaveStatus, string> = {
 export function AnnotatorToolbar(props: Props) {
   const { tool, mode } = props;
   const marking = tool === "pen" || tool === "shape";
-  const fogging = tool === "brush" || tool === "rect";
+  const fogging = tool === "brush" || tool === "rect" || tool === "flood";
   return (
     <Grid
       role="toolbar"
@@ -186,16 +226,14 @@ export function AnnotatorToolbar(props: Props) {
         <ToolbarSlider
           label="My fog"
           value={props.ownFog}
-          min={0}
-          max={100}
+          {...OWN_FOG_SLIDER}
           percent
           onCommit={props.onOwnFogChange}
         />
         <ToolbarSlider
           label="Players' fog"
           value={props.playersFog}
-          min={0}
-          max={100}
+          {...PLAYERS_FOG_SLIDER}
           percent
           onCommit={props.onPlayersFogChange}
         />
@@ -223,6 +261,22 @@ export function AnnotatorToolbar(props: Props) {
         <IconButtonWithTooltip label="Clear all" onClick={props.onClearAll} portalled={false}>
           <CloudOff />
         </IconButtonWithTooltip>
+        <Choices
+          label="Wall tool"
+          choices={WALL_TOOLS}
+          value={tool}
+          onChange={props.onToolChange}
+        />
+        {props.wallInProgress && (
+          <IconButtonWithTooltip
+            label="Finish wall"
+            tooltip="Finish wall (Escape)"
+            onClick={props.onFinishWall}
+            portalled={false}
+          >
+            <CheckLine />
+          </IconButtonWithTooltip>
+        )}
       </HStack>
     </Grid>
   );
@@ -376,7 +430,8 @@ function FogSwitch({ shown, onChange }: { shown: boolean; onChange: (shown: bool
 /**
  * Icon-only choices as the standards ask: buttons with role="radio" in a
  * radiogroup, the chosen one checked. A group may have none checked, when
- * the tool in hand is one of the other half's.
+ * the tool in hand is in another group (the fog tools, the wall tools, or
+ * the other half's).
  */
 function Choices<T extends string>({
   label,
@@ -391,12 +446,13 @@ function Choices<T extends string>({
 }) {
   return (
     <HStack role="radiogroup" aria-label={label} gap="0.5">
-      {choices.map(({ value: option, label: name, Icon }) => {
+      {choices.map(({ value: option, label: name, tooltip, Icon }) => {
         const checked = option === value;
         return (
           <IconButtonWithTooltip
             key={option}
             label={name}
+            tooltip={tooltip}
             role="radio"
             aria-checked={checked}
             {...(checked ? ON : OFF)}

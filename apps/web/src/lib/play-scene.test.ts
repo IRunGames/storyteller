@@ -100,6 +100,27 @@ describe("toPlayItem", () => {
     expect(toPlayItem({ element: element(), sceneElement: link() })).not.toHaveProperty("health");
   });
 
+  it("carries whether the picture is covered in fog, for the pill's note", () => {
+    const copy = "https://x.test/copy.webp";
+    const covered = element({ imageUrl: copy, imageFogCovered: true });
+    expect(toPlayItem({ element: covered, sceneElement: link() }).fogCovered).toBe(true);
+    const shown = element({ imageUrl: copy, imageFogCovered: false });
+    expect(toPlayItem({ element: shown, sceneElement: link() })).not.toHaveProperty("fogCovered");
+    // A message from before the flag was sent says nothing of it.
+    expect(
+      toPlayItem({ element: element({ imageUrl: copy }), sceneElement: link() }),
+    ).not.toHaveProperty("fogCovered");
+  });
+
+  it("carries whether the picture has fog on it, for the storyteller's preview mark", () => {
+    const copy = "https://x.test/copy.webp";
+    const active = element({ imageUrl: copy, imageFogActive: true });
+    expect(toPlayItem({ element: active, sceneElement: link() }).fogActive).toBe(true);
+    expect(
+      toPlayItem({ element: element({ imageUrl: copy }), sceneElement: link() }),
+    ).not.toHaveProperty("fogActive");
+  });
+
   it("falls back to the name when the chosen field is empty or unknown", () => {
     const item = toPlayItem({
       element: element({ initialName: null }),

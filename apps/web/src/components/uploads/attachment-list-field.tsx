@@ -116,10 +116,14 @@ type Props = {
 };
 
 /** A row's drawing and how it is shown, as the annotation controls read a picture back. */
-export function pictureRow(picture: PictureState): Pick<Attachment, "drawing" | "shownUrl"> {
+export function pictureRow(
+  picture: PictureState,
+): Pick<Attachment, "drawing" | "shownUrl" | "fogCovered" | "fogActive"> {
   return {
     drawing: picture.hasDrawing ? { isActive: picture.isAnnotated } : null,
     shownUrl: picture.shownUrl,
+    fogCovered: picture.fogCovered,
+    fogActive: picture.fogActive,
   };
 }
 

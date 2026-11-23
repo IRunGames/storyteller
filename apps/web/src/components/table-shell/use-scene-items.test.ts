@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
 import { act, renderHook } from "@testing-library/react";
+import type { PictureState } from "@/lib/annotations";
 import type { ElementDetail } from "@/lib/run";
 import type { SceneItem } from "@/lib/scene-elements";
 import { useSceneItems } from "./use-scene-items";
@@ -76,28 +77,89 @@ describe("useSceneItems", () => {
     expect(result.current.items[0].annotated).toBeUndefined();
   });
 
+  it("says the element's pills' picture is covered in fog, and takes the note off again", () => {
+    const { result } = renderHook(() => useSceneItems([dafydd, lantern]));
+    act(() => result.current.setImage(5, "https://x.test/dai-copy.webp", true, true));
+    expect(result.current.items[0]).toMatchObject({
+      imageUrl: "https://x.test/dai-copy.webp",
+      annotated: true,
+      fogCovered: true,
+    });
+    expect(result.current.items[1].fogCovered).toBeUndefined();
+    act(() => result.current.setImage(5, "https://x.test/dai-copy.webp", true));
+    expect(result.current.items[0].fogCovered).toBeUndefined();
+  });
+
+  it("says the element's pills' picture has fog active, and takes the mark off again", () => {
+    const { result } = renderHook(() => useSceneItems([dafydd, lantern]));
+    act(() => result.current.setImage(5, "https://x.test/dai-copy.webp", true, false, true));
+    expect(result.current.items[0]).toMatchObject({ annotated: true, fogActive: true });
+    expect(result.current.items[0].fogCovered).toBeUndefined();
+    expect(result.current.items[1].fogActive).toBeUndefined();
+    act(() => result.current.setImage(5, "https://x.test/dai-copy.webp", true, true));
+    expect(result.current.items[0].fogActive).toBeUndefined();
+  });
+
+  const edited: ElementDetail = {
+    idElement: 5,
+    kind: "CREATURE",
+    name: "Dafydd the Shell",
+    initialName: "A hooded figure",
+    title: "Shell seller",
+    description: null,
+    notes: null,
+    imageUrl: null,
+    status: "READY",
+    tags: [],
+    url: null,
+    urlText: null,
+  };
+
   it("moves an edited element under its new kind's key and keeps what the pill was showing", () => {
     const { result } = renderHook(() => useSceneItems([dafydd]));
-    const edited: ElementDetail = {
-      idElement: 5,
-      kind: "CREATURE",
-      name: "Dafydd the Shell",
-      initialName: "A hooded figure",
-      title: "Shell seller",
-      description: null,
-      notes: null,
-      imageUrl: null,
-      status: "READY",
-      tags: [],
-      url: null,
-      urlText: null,
-    };
     act(() => result.current.editElement(edited));
     const [item] = result.current.items;
     expect(item.key).toBe("CREATURE:5:9");
     expect(item.kind).toBe("CREATURE");
     expect(item.label).toBe("Dafydd the Shell");
     expect(item.showing).toBe("name");
+  });
+
+  // The pill showed a fogged players' copy; the element's own picture, which
+  // the edit puts in its place, says for itself whether it is one.
+  it("takes the element's own picture's annotation and fog note with it when edited", () => {
+    const { result } = renderHook(() => useSceneItems([dafydd]));
+    act(() => result.current.setImage(5, "https://x.test/cove-copy.webp", true, true));
+    act(() =>
+      result.current.editElement({ ...edited, imageUrl: "https://x.test/dai.png", picture: null }),
+    );
+    expect(result.current.items[0].imageUrl).toBe("https://x.test/dai.png");
+    expect(result.current.items[0].annotated).toBeUndefined();
+    expect(result.current.items[0].fogCovered).toBeUndefined();
+    expect(result.current.items[0].fogActive).toBeUndefined();
+
+    const fogged: PictureState = {
+      idAttachment: 40,
+      shownUrl: "https://x.test/dai-copy.webp",
+      canAnnotate: true,
+      hasDrawing: true,
+      isAnnotated: true,
+      fogCovered: true,
+      fogActive: true,
+    };
+    act(() =>
+      result.current.editElement({
+        ...edited,
+        imageUrl: "https://x.test/dai-copy.webp",
+        picture: fogged,
+      }),
+    );
+    expect(result.current.items[0]).toMatchObject({
+      imageUrl: "https://x.test/dai-copy.webp",
+      annotated: true,
+      fogCovered: true,
+      fogActive: true,
+    });
   });
 
   it("sets a status by key and patches a link by its id alone", () => {

@@ -78,6 +78,7 @@ export function LibraryList({
                     <AttachmentPreviewButton
                       url={item.imageUrl}
                       label={item.label}
+                      fogCovered={item.fogCovered === true}
                       onOpen={() => setPreviewKey(item.key)}
                     />
                   </Box>
@@ -120,6 +121,8 @@ export function LibraryList({
           label={previewed.label}
           tags={previewed.attachment.tags}
           isCover={previewed.attachment.isCover}
+          fogCovered={previewed.fogCovered === true}
+          fogActive={previewed.fogActive === true}
           editTags={editTagsFor?.(previewed)}
           actions={previewActionsFor?.(previewed)}
           onStep={step}

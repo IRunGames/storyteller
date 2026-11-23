@@ -11,6 +11,10 @@ type Props = {
   name: string;
   /** Its cover as the storyteller is shown it, or null for none. */
   coverUrl: string | null;
+  /** That cover is a players' copy that shows nothing of the picture, fogged whole. */
+  coverFogCovered?: boolean;
+  /** That cover is a players' copy with fog on it somewhere, for its preview's mark. */
+  coverFogActive?: boolean;
   /** How many finished pictures it holds besides its cover. */
   otherPictures: number;
 };
@@ -21,8 +25,18 @@ type Props = {
  * size (an annotated one as the players see it), and the count of its other
  * pictures beside a picture icon. Either is left out when there is none.
  * Each says what it is in a tooltip, the count reached by the keyboard too.
+ *
+ * A cover covered in fog says so full size (FogCoveredNote), not in the
+ * pill: the picture there is a mark the height of a line of text, with no
+ * room for words over it.
  */
-export function PrepElementPictures({ name, coverUrl, otherPictures }: Props) {
+export function PrepElementPictures({
+  name,
+  coverUrl,
+  coverFogCovered = false,
+  coverFogActive = false,
+  otherPictures,
+}: Props) {
   const [open, setOpen] = useState(false);
   const others = `${otherPictures} other ${otherPictures === 1 ? "picture" : "pictures"}`;
   return (
@@ -65,6 +79,8 @@ export function PrepElementPictures({ name, coverUrl, otherPictures }: Props) {
             tags={[]}
             isCover
             showTags={false}
+            fogCovered={coverFogCovered}
+            fogActive={coverFogActive}
           />
         </>
       )}

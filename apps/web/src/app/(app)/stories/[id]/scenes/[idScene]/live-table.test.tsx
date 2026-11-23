@@ -227,7 +227,7 @@ describe("LiveTable", () => {
     expect(within(space).queryByRole("button", { name: /picture to the players/ })).toBeNull();
   });
 
-  it("puts the scene's status chip beside its title in the play space, and PREVIEWING on the same line", () => {
+  it("puts the scene's status chip beside its title in the play space, and SCENE BUILDER on the same line", () => {
     renderTable();
 
     const space = screen.getByRole("region", { name: "Play space" });
@@ -239,11 +239,9 @@ describe("LiveTable", () => {
     expect(title.parentElement).toContainElement(chip);
     expect(title.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The word is on the line the title pill is on, after the pill.
-    const previewing = within(space).getByText("PREVIEWING");
-    expect(title.parentElement!.parentElement).toContainElement(previewing);
-    expect(
-      chip.compareDocumentPosition(previewing) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    const builder = within(space).getByText("SCENE BUILDER");
+    expect(title.parentElement!.parentElement).toContainElement(builder);
+    expect(chip.compareDocumentPosition(builder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The header's "Active" is a filter pill of the scene selector, a toggle;
     // the scene's chip, a menu, is not up there any more.
     const headerChips = within(screen.getByRole("banner"))
@@ -363,12 +361,10 @@ describe("LiveTable", () => {
     const space = screen.getByRole("region", { name: "Play space" });
     expect(within(space).getByTestId("play-space-cover")).toBeInTheDocument();
     const icon = within(space).getByRole("button", { name: "Remove cover image" });
-    // On the title's line, after PREVIEWING.
-    const previewing = within(space).getByText("PREVIEWING");
-    expect(previewing.parentElement).toContainElement(icon);
-    expect(
-      previewing.compareDocumentPosition(icon) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    // On the title's line, after SCENE BUILDER.
+    const builder = within(space).getByText("SCENE BUILDER");
+    expect(builder.parentElement).toContainElement(icon);
+    expect(builder.compareDocumentPosition(icon) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await u.click(icon);
     const dialog = await screen.findByRole("dialog", { name: "Remove the cover image?" });

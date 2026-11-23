@@ -116,6 +116,9 @@ export function ElementDetailRows({
   const picture = (
     <RunPictureCell
       imageUrl={element.imageUrl}
+      // Read and set with imageUrl, so the two always speak of one picture.
+      fogCovered={element.picture?.fogCovered === true}
+      fogActive={element.picture?.fogActive === true}
       label={element.name}
       addLabel="Add picture"
       removeLabel="Remove picture"
@@ -128,7 +131,6 @@ export function ElementDetailRows({
             idAttachment={element.picture.idAttachment}
             label={element.name}
             isAnnotated={element.picture.isAnnotated}
-            hasDrawing={element.picture.hasDrawing}
             onAnnotatedChange={onAnnotatedChange}
             onPictureChange={onPictureChange}
           />

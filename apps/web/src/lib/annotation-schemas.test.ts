@@ -4,7 +4,10 @@ import { expect } from "expect";
 import {
   MAX_ANNOTATION_OPS,
   MAX_APPENDED_OPS,
+  MAX_FLOOD_POINTS,
+  MAX_FLOOD_RINGS,
   MAX_STROKE_POINTS,
+  MAX_WALL_POINTS,
   annotationOpSchema,
   annotationOpsSchema,
   eraseRefusal,
@@ -160,6 +163,58 @@ describe("shapes and the eraser", () => {
     expect(eraseRefusal([pen, { t: "erase", targets: [1] }])).not.toBeNull();
     expect(eraseRefusal([fog, { t: "erase", targets: [0] }])).not.toBeNull();
     expect(eraseRefusal([{ t: "erase", targets: [1] }, pen])).not.toBeNull();
+  });
+});
+
+describe("walls and the flood", () => {
+  it("accepts a wall, a wall eraser's drag and a flood", () => {
+    for (const op of [
+      { t: "wall", points: [0, 10, 50, 10] },
+      { t: "wallErase", targets: [0] },
+      { t: "flood", mode: "reveal", rings: [[0, 0, 10, 0, 10, 10]] },
+      {
+        t: "flood",
+        mode: "cover",
+        rings: [
+          [0, 0, 9, 0, 9, 9, 0, 9],
+          [2, 2, 3, 2, 3, 3],
+        ],
+      },
+    ]) {
+      expect(annotationOpSchema.safeParse(op).success).toBe(true);
+    }
+  });
+
+  it("refuses a wall of one point, a ring of two, and a flood past its caps", () => {
+    const bad = [
+      { t: "wall", points: [0, 10] },
+      { t: "flood", mode: "reveal", rings: [] },
+      { t: "flood", mode: "reveal", rings: [[0, 0, 10, 0]] },
+      {
+        t: "flood",
+        mode: "reveal",
+        rings: Array.from({ length: MAX_FLOOD_RINGS + 1 }, () => [0, 0, 1, 0, 1, 1]),
+      },
+      // Two rings each under the per-ring bound, together over the step's.
+      { t: "flood", mode: "reveal", rings: [0, 1].map(() => Array(MAX_FLOOD_POINTS + 2).fill(1)) },
+      { t: "wall", points: Array((MAX_WALL_POINTS + 1) * 2).fill(1) },
+    ];
+    for (const op of bad) expect(annotationOpSchema.safeParse(op).success).toBe(false);
+  });
+
+  it("holds a wall eraser to walls drawn before it, and an eraser to marks", () => {
+    const wall: AnnotationOp = { t: "wall", points: [0, 0, 10, 10] };
+    const pen: AnnotationOp = { t: "pen", color: "#000000", width: 2, points: [1, 1] };
+    expect(eraseRefusal([wall, pen, { t: "wallErase", targets: [0] }])).toBeNull();
+    expect(eraseRefusal([wall, pen, { t: "wallErase", targets: [1] }])).toBe(
+      "A wall eraser can only take away a wall drawn before it.",
+    );
+    expect(eraseRefusal([{ t: "wallErase", targets: [1] }, wall])).toBe(
+      "A wall eraser can only take away a wall drawn before it.",
+    );
+    expect(eraseRefusal([wall, { t: "erase", targets: [0] }])).toBe(
+      "An eraser can only take away a mark drawn before it.",
+    );
   });
 });
 

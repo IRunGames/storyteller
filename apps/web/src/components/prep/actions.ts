@@ -5,7 +5,13 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { idSchema, offsetSchema, searchSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
-import { attachmentUrl, elementOtherPictures, elementPictureUrl } from "@/db/attachment-url";
+import {
+  attachmentUrl,
+  elementOtherPictures,
+  elementPictureFogActive,
+  elementPictureFogCovered,
+  elementPictureUrl,
+} from "@/db/attachment-url";
 import { elementOrderBy } from "@/db/element-order";
 import { createScene } from "@/db/scenes";
 import { ownedElement, ownedScene, ownedStory, storyAccess } from "@/db/story-access";
@@ -290,6 +296,8 @@ export async function sa_listStoryElements(
       title: elements.title,
       description: elements.description,
       coverUrl: elementPictureUrl("elements"),
+      coverFogCovered: elementPictureFogCovered("elements"),
+      coverFogActive: elementPictureFogActive("elements"),
       otherPictures: elementOtherPictures("elements"),
     })
     .from(elements)

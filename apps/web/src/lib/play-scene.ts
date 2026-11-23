@@ -71,6 +71,8 @@ export function toPlayItem({ element, sceneElement }: PlaySceneItem): SceneItem 
     label,
     detail,
     imageUrl: element.imageUrl,
+    ...(element.imageFogCovered ? { fogCovered: true } : {}),
+    ...(element.imageFogActive ? { fogActive: true } : {}),
     sceneTags: sceneElement.tags,
     sceneStatus: sceneElement.status,
     idSceneElement: sceneElement.idSceneElement,

@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import type { PictureState } from "@/lib/annotations";
 import { Toaster, toaster } from "@/components/ui/toaster";
 import { renderWithProviders, screen, waitFor, within } from "@/test/render";
+import { AttachmentPreviewDialog } from "@/components/uploads/attachment-preview";
 
 type SetResult = { ok: true; annotation: null } | { ok: false; error: string };
 
@@ -62,7 +63,6 @@ describe("AnnotationControls", () => {
           idAttachment={5}
           label="Harbour map"
           isAnnotated={isAnnotated}
-          hasDrawing={isAnnotated}
           onAnnotatedChange={onAnnotatedChange}
           onPictureChange={onPictureChange}
         />
@@ -93,19 +93,89 @@ describe("AnnotationControls", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "true");
 
     await user.click(toggle);
-    let ask = await screen.findByRole("dialog", { name: "Show the players the picture as it is?" });
+    let ask = await screen.findByRole("dialog", {
+      name: "Show the players the original picture (no fog)?",
+    });
     await user.click(within(ask).getByRole("button", { name: "Cancel" }));
     expect(sa_setAnnotated.mock.callCount()).toBe(0);
     expect(toggle).toHaveAttribute("aria-pressed", "true");
 
     await user.click(toggle);
-    ask = await screen.findByRole("dialog", { name: "Show the players the picture as it is?" });
-    expect(ask).toHaveTextContent(/fog and pen marks/i);
+    ask = await screen.findByRole("dialog", {
+      name: "Show the players the original picture (no fog)?",
+    });
     await user.click(within(ask).getByRole("button", { name: "Show it" }));
 
     expect(sa_setAnnotated.mock.calls[0].arguments).toEqual([5, false]);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "false"));
     expect(onAnnotatedChange.mock.calls.map((call) => call.arguments[0])).toEqual([false]);
+  });
+
+  // In a full-size preview's bottom bar the fog switch is a pill at the
+  // bar's start that says whether fog is on, the pencil after it.
+  function inPreview(isAnnotated: boolean) {
+    renderWithProviders(
+      <AttachmentPreviewDialog
+        open
+        onOpenChange={() => {}}
+        url="https://x.test/copy.webp"
+        label="Harbour map"
+        tags={["map"]}
+        isCover={false}
+        actions={
+          <AnnotationControls
+            idAttachment={5}
+            label="Harbour map"
+            isAnnotated={isAnnotated}
+            onAnnotatedChange={onAnnotatedChange}
+            onPictureChange={onPictureChange}
+            portalled={false}
+          />
+        }
+      />,
+    );
+    return screen.getByTestId("preview-foot");
+  }
+
+  it("draws the fog switch in a preview's bar as a pill saying fog is on, the pencil after it", async () => {
+    const user = userEvent.setup();
+    const bar = inPreview(true);
+    const pill = within(bar).getByRole("button", { name: "FOG OF WAR ACTIVE" });
+    expect(pill).toHaveAttribute("aria-pressed", "true");
+    expect(pill.querySelector("svg")).toHaveAttribute("fill", "currentColor");
+    expect(within(bar).queryByRole("button", { name: "Annotate for players" })).toBeNull();
+    const pencil = within(bar).getByRole("button", { name: "Open annotator" });
+    expect(pill.compareDocumentPosition(pencil) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      pencil.compareDocumentPosition(within(bar).getByText("map")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // Pressed, it asks first, as the cloud does, then turns the fog off.
+    await user.click(pill);
+    const ask = await screen.findByRole("dialog", {
+      name: "Show the players the original picture (no fog)?",
+    });
+    await user.click(within(ask).getByRole("button", { name: "Show it" }));
+    expect(sa_setAnnotated.mock.calls[0].arguments).toEqual([5, false]);
+    const off = await within(bar).findByRole("button", { name: "FOG OF WAR OFF" });
+    expect(off).toHaveAttribute("aria-pressed", "false");
+    expect(off.querySelector("svg")).toHaveAttribute("fill", "none");
+  });
+
+  it("turns the fog on from a preview's bar at one press of the pill", async () => {
+    const user = userEvent.setup();
+    const bar = inPreview(false);
+    const pill = within(bar).getByRole("button", { name: "FOG OF WAR OFF" });
+    expect(pill).toHaveAttribute("aria-pressed", "false");
+    expect(pill.querySelector("svg")).toHaveAttribute("fill", "none");
+
+    await user.click(pill);
+
+    expect(sa_setAnnotated.mock.calls[0].arguments).toEqual([5, true]);
+    const on = await within(bar).findByRole("button", { name: "FOG OF WAR ACTIVE" });
+    expect(on).toHaveAttribute("aria-pressed", "true");
+    expect(onAnnotatedChange.mock.calls.map((call) => call.arguments[0])).toEqual([true]);
   });
 
   it("puts the toggle back and says why when the action refuses", async () => {

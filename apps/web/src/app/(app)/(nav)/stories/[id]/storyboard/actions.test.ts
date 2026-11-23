@@ -407,6 +407,47 @@ describeWithDb("storyboard actions", { email: TEST_USER_EMAIL }, (suite) => {
       expect(scene?.items[0].element.description).toBe("Keeps the docks.");
     });
 
+    it("tells the storyteller a picture has fog on it, and never a player", async () => {
+      const [story] = await db
+        .select({ idStory: tables.storyScenes.idStory })
+        .from(tables.storyScenes)
+        .where(eq(tables.storyScenes.idStoryScene, docks));
+      const [{ id: idAttachment }] = await db
+        .insert(tables.attachments)
+        .values({
+          idStory: story.idStory,
+          status: "READY",
+          url: "https://abc.public.blob.vercel-storage.com/uploads/u/zed.png",
+          isUploaded: true,
+          idCreatedByUser: tellerId,
+        })
+        .returning({ id: tables.attachments.idAttachment });
+      try {
+        await db.insert(tables.attachmentUses).values({
+          idAttachment,
+          kind: "ELEMENT",
+          idExternal: zed,
+          tags: ["cover"],
+          idCreatedByUser: tellerId,
+        });
+        await db.insert(tables.attachmentAnnotations).values({
+          idAttachment,
+          width: 100,
+          height: 50,
+          playerUrl: "https://abc.public.blob.vercel-storage.com/annotations/zed-copy.webp",
+          idCreatedByUser: tellerId,
+        });
+        const zedOf = async () => (await actions.sa_getStoryboardScene(docks))?.items[0].element;
+        expect(await zedOf()).not.toHaveProperty("imageFogActive");
+        suite.caller = tellerId;
+        expect((await zedOf())?.imageFogActive).toBe(true);
+      } finally {
+        await db
+          .delete(tables.attachments)
+          .where(eq(tables.attachments.idAttachment, idAttachment));
+      }
+    });
+
     it("gives a reader of a public story the scene's description but not the table's notes", async () => {
       const scene = await actions.sa_getStoryboardScene(chapel);
       expect(scene?.scene?.text).toEqual({ description: "A chapel in the hills.", notes: null });

@@ -9,6 +9,10 @@ import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 type Props = {
   /** The picture's address, or null for none. */
   imageUrl: string | null;
+  /** It is a players' copy that shows nothing of the picture, which the thumbnail says. */
+  fogCovered?: boolean;
+  /** It is a players' copy with fog on it somewhere, which the full-size preview marks. */
+  fogActive?: boolean;
   /** What is pictured, for the preview's name. */
   label: string;
   /** What the + is called: "Add picture" for an element, "Add cover" for the scene. */
@@ -42,6 +46,8 @@ type Props = {
  */
 export function RunPictureCell({
   imageUrl,
+  fogCovered = false,
+  fogActive = false,
   label,
   addLabel,
   removeLabel,
@@ -72,6 +78,8 @@ export function RunPictureCell({
             tags={[]}
             isCover={false}
             showTags={false}
+            fogCovered={fogCovered}
+            fogActive={fogActive}
           />
           {corner}
         </Box>

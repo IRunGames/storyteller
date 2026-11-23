@@ -2,12 +2,18 @@ import { describe, it } from "node:test";
 import { expect } from "expect";
 
 import type { AnnotationOp } from "@/lib/annotation-schemas";
+import { WALL_CLOSED } from "@/lib/annotations";
 import { render } from "@/test/render";
 import { AnnotationOverlay } from "./annotation-overlay";
 
 const ops: AnnotationOp[] = [
   { t: "rect", mode: "reveal", x: 10, y: 10, w: 50, h: 20 },
   { t: "pen", color: "#e53935", width: 4, points: [1, 2, 30, 40] },
+];
+
+// A room whose wall ends on its own first corner, so it is closed.
+const room: AnnotationOp[] = [
+  { t: "wall", points: [100, 50, 300, 50, 300, 150, 100, 150, 100, 50] },
 ];
 
 describe("AnnotationOverlay", () => {
@@ -78,5 +84,31 @@ describe("AnnotationOverlay", () => {
     expect(container.querySelector('[data-layer="pen"]')).toBe(layer);
     expect(container.querySelector('[data-layer="pen"] path')).toBe(mark);
     expect(container.querySelector('mask rect[fill="black"]')).toBe(reveal);
+  });
+
+  it("draws walls above the fog whether the fog is shown or not", () => {
+    const props = { ops: room, width: 400, height: 200 };
+    const { container, rerender } = render(<AnnotationOverlay {...props} fogOpacity={0} />);
+    expect(container.querySelector('[data-layer="fog"]')).toBeNull();
+    const shown = container.querySelector('[data-layer="walls"]');
+    expect(shown?.querySelector(`path[stroke="${WALL_CLOSED.color}"]`)).not.toBeNull();
+
+    rerender(<AnnotationOverlay {...props} fogOpacity={50} />);
+    const walls = container.querySelector('[data-layer="walls"]')!;
+    const fog = container.querySelector('[data-layer="fog"]')!;
+    expect(walls.querySelector(`path[stroke="${WALL_CLOSED.color}"]`)).not.toBeNull();
+    expect(fog.compareDocumentPosition(walls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The fog inside the closed room is drawn in the closed walls' blue.
+    expect(container.querySelector(`rect[fill="${WALL_CLOSED.color}"]`)).not.toBeNull();
+  });
+
+  it("hides the walls a wall eraser's drag has taken while it is being made", () => {
+    const props = { ops: room, width: 400, height: 200, fogOpacity: 50 };
+    const { container, rerender } = render(<AnnotationOverlay {...props} />);
+    expect(container.querySelectorAll('[data-layer="walls"] path')).toHaveLength(2);
+
+    rerender(<AnnotationOverlay {...props} pending={{ t: "wallErase", targets: [0] }} />);
+    expect(container.querySelectorAll('[data-layer="walls"] path')).toHaveLength(0);
+    expect(container.querySelector(`rect[fill="${WALL_CLOSED.color}"]`)).toBeNull();
   });
 });

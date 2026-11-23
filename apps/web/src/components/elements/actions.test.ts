@@ -133,6 +133,8 @@ describeWithDb("element actions", { email: "element-actions@example.test" }, (su
         canAnnotate: false,
         hasDrawing: false,
         isAnnotated: false,
+        fogCovered: false,
+        fogActive: false,
       });
 
       // The drawing is the file's, so a picture drawn on already comes with it.
@@ -150,6 +152,8 @@ describeWithDb("element actions", { email: "element-actions@example.test" }, (su
         canAnnotate: true,
         hasDrawing: true,
         isAnnotated: true,
+        fogCovered: false,
+        fogActive: false,
       };
       expect(set).toEqual({ ok: true, imageUrl: `${store}/uploads/u/zed.png`, picture: drawn });
       expect(await picture()).toEqual(drawn);

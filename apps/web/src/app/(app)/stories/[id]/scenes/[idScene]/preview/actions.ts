@@ -97,7 +97,9 @@ export async function sa_getScenePreview(idStoryScene: number): Promise<ScenePre
   if (!row.isOwner && row.status !== SCENE_LOCKED_STATUS) return null;
 
   const [rows, template, all] = await Promise.all([
-    sceneItems(row.idStory, row.idStoryScene, [SCENE_ELEMENT_HIDDEN]),
+    // Whether a picture has fog on it is the storyteller's to be told, for
+    // the mark in the full-size preview, so only the owner's read works it out.
+    sceneItems(row.idStory, row.idStoryScene, [SCENE_ELEMENT_HIDDEN], { fogActive: row.isOwner }),
     // The preview is the players' table, so its pills show their drops.
     storyTemplate(row.idStory),
     // Every scene of the story; a story has few enough that they are put in
@@ -155,7 +157,13 @@ export async function sa_getScenePreview(idStoryScene: number): Promise<ScenePre
       tags: row.tags,
       coverUrl: row.coverUrl,
       items: rows.map((item) => ({
-        element: toPublicElement(item.element, item.imageUrl, item.link.showInfo),
+        element: toPublicElement(
+          item.element,
+          item.imageUrl,
+          item.link.showInfo,
+          item.fogCovered,
+          row.isOwner && item.fogActive,
+        ),
         sceneElement: toPublicSceneElement(item.link, template),
       })),
     },

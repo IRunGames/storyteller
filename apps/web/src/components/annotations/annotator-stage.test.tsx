@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { expect } from "expect";
 
-import type { AnnotationOp } from "@/lib/annotation-schemas";
+import type { AnnotationOp, FloodOp } from "@/lib/annotation-schemas";
+import { insideRings } from "@/lib/fog-areas";
+import type { Snap } from "@/lib/fog-walls";
 import { fireEvent, renderWithProviders, screen } from "@/test/render";
 import { AnnotatorStage } from "./annotator-stage";
 
@@ -38,6 +40,32 @@ function drag(surface: HTMLElement, points: [number, number][]) {
   const last = points.at(-1)!;
   fireEvent.pointerUp(surface, { clientX: last[0], clientY: last[1], pointerId: 1 });
 }
+
+const click = (surface: HTMLElement, x: number, y: number) => drag(surface, [[x, y]]);
+
+// The area round the picture, which it sits in: a hundred of the screen's
+// pixels either side of it and sixteen above and below.
+function around(surface: HTMLElement) {
+  const area = surface.parentElement!;
+  mock.method(area, "getBoundingClientRect", () => ({
+    left: -100,
+    top: -16,
+    width: 400,
+    height: 132,
+    right: 300,
+    bottom: 116,
+    x: -100,
+    y: -16,
+    toJSON: () => ({}),
+  }));
+  return area;
+}
+
+// A wall across the top of the picture and a pen mark across the bottom.
+const crossed: AnnotationOp[] = [
+  { t: "wall", points: [0, 40, 400, 40] },
+  { t: "pen", color: "#000000", width: 2, points: [0, 160, 400, 160] },
+];
 
 describe("AnnotatorStage", () => {
   beforeEach(() => {
@@ -172,5 +200,167 @@ describe("AnnotatorStage", () => {
       [160, 90],
     ]);
     expect(onDraw.mock.callCount()).toBe(0);
+  });
+
+  // The wall pen's reach is ten of the screen's pixels, twenty of the
+  // picture's at half size: the first click lands two from the left edge,
+  // the second ten from the wall, the third far from both.
+  it("hands the wall pen's clicks over snapped, onto the edge or a wall, else where they land", () => {
+    const onWallCorner = mock.fn((_snap: Snap) => {});
+    const surface = stage({
+      tool: "wall",
+      onWallCorner,
+      ops: [{ t: "wall", points: [200, 0, 200, 200] }],
+    });
+    click(surface, 1, 50);
+    click(surface, 95, 50);
+    click(surface, 50, 50);
+    expect(onWallCorner.mock.calls.map((call) => call.arguments[0])).toEqual([
+      { x: 0, y: 100, on: "touch" },
+      { x: 200, y: 100, on: "touch" },
+      { x: 100, y: 100, on: null },
+    ]);
+    expect(onDraw.mock.callCount()).toBe(0);
+  });
+
+  it("places no corner when a second pointer comes down before the first is let go", () => {
+    const onWallCorner = mock.fn((_snap: Snap) => {});
+    const surface = stage({ tool: "wall", onWallCorner });
+    fireEvent.pointerDown(surface, { clientX: 50, clientY: 50, pointerId: 1, button: 0 });
+    fireEvent.pointerDown(surface, { clientX: 150, clientY: 50, pointerId: 2, button: 0 });
+    fireEvent.pointerUp(surface, { clientX: 150, clientY: 50, pointerId: 2 });
+    fireEvent.pointerUp(surface, { clientX: 50, clientY: 50, pointerId: 1 });
+    expect(onWallCorner.mock.callCount()).toBe(0);
+    click(surface, 50, 50);
+    expect(onWallCorner.mock.callCount()).toBe(1);
+  });
+
+  // The draft runs from (100, 100) to (200, 100); the pointer is first two
+  // of the picture's pixels short of the right edge, then nowhere near
+  // anything.
+  it("draws the wall in progress with a line to where the pointer would land, ringed when it snaps", () => {
+    const surface = stage({
+      tool: "wall",
+      wallDraft: { points: [100, 100, 200, 100], startTouches: false },
+    });
+    fireEvent.pointerMove(surface, { clientX: 199, clientY: 30, pointerId: 1 });
+    const draft = surface.querySelector('[data-layer="wall-draft"]')!;
+    const lines = [...draft.querySelectorAll("path")].map((path) => path.getAttribute("d"));
+    expect(lines).toEqual(["M100 100L200 100L400 60", "M100 100L200 100L400 60"]);
+    expect(draft.querySelectorAll("circle").length).toBeGreaterThan(0);
+
+    fireEvent.pointerMove(surface, { clientX: 75, clientY: 25, pointerId: 1 });
+    expect(draft.querySelector("path")!.getAttribute("d")).toBe("M100 100L200 100L150 50");
+    expect(draft.querySelectorAll("circle")).toHaveLength(0);
+  });
+
+  // Left of the picture at half its height, above it a quarter of the way
+  // across, and beyond its bottom right corner.
+  it("lands a wall pen's click in the area round the picture on the picture's edge", () => {
+    const onWallCorner = mock.fn((_snap: Snap) => {});
+    const area = around(stage({ tool: "wall", onWallCorner }));
+    click(area, -50, 50);
+    click(area, 50, -10);
+    click(area, 250, 110);
+    expect(onWallCorner.mock.calls.map((call) => call.arguments[0])).toEqual([
+      { x: 0, y: 100, on: "touch" },
+      { x: 100, y: 0, on: "touch" },
+      { x: 400, y: 200, on: "touch" },
+    ]);
+  });
+
+  // The pointer goes from (300, 60) on the picture out past its right edge,
+  // level with where it was, then out of the area too.
+  it("draws the wall in progress on to the edge while the pointer is round the picture, until it leaves that area", () => {
+    const surface = stage({
+      tool: "wall",
+      wallDraft: { points: [100, 100, 200, 100], startTouches: false },
+    });
+    const area = around(surface);
+    const draft = surface.querySelector('[data-layer="wall-draft"]')!;
+    const line = () => draft.querySelector("path")!.getAttribute("d");
+    fireEvent.pointerMove(surface, { clientX: 150, clientY: 30, pointerId: 1 });
+    fireEvent.pointerLeave(surface, { relatedTarget: area });
+    expect(line()).toBe("M100 100L200 100L300 60");
+
+    fireEvent.pointerMove(area, { clientX: 250, clientY: 30, pointerId: 1 });
+    expect(line()).toBe("M100 100L200 100L400 60");
+    expect(draft.querySelectorAll("circle").length).toBeGreaterThan(0);
+
+    fireEvent.pointerLeave(area);
+    expect(line()).toBe("M100 100L200 100");
+    expect(draft.querySelectorAll("circle")).toHaveLength(0);
+  });
+
+  it("starts no pen mark in the area round the picture", () => {
+    click(around(stage({ tool: "pen" })), -50, 50);
+    expect(onDraw.mock.callCount()).toBe(0);
+  });
+
+  it("floods nothing for a click in the area round the picture", () => {
+    click(around(stage({ tool: "flood" })), -50, 50);
+    expect(onDraw.mock.callCount()).toBe(0);
+  });
+
+  it("shows the brush's ring over the picture only", () => {
+    const surface = stage();
+    const area = around(surface);
+    fireEvent.pointerMove(surface, { clientX: 50, clientY: 50, pointerId: 1 });
+    expect(surface.querySelectorAll("circle")).toHaveLength(2);
+    fireEvent.pointerLeave(surface, { relatedTarget: area });
+    fireEvent.pointerMove(area, { clientX: -50, clientY: 50, pointerId: 1 });
+    expect(surface.querySelectorAll("circle")).toHaveLength(0);
+  });
+
+  it("floods the area clicked, and nothing for a click on a wall", () => {
+    const wall: AnnotationOp = { t: "wall", points: [200, 0, 200, 200] };
+    const surface = stage({ tool: "flood", mode: "cover", ops: [wall] });
+    click(surface, 100, 50);
+    expect(onDraw.mock.callCount()).toBe(0);
+    click(surface, 25, 50);
+    const op = onDraw.mock.calls[0].arguments[0] as FloodOp;
+    expect(op).toMatchObject({ t: "flood", mode: "cover" });
+    expect(insideRings(op.rings, 50, 100)).toBe(true);
+    expect(insideRings(op.rings, 300, 100)).toBe(false);
+  });
+
+  it("takes walls away with the wall eraser, and never a mark", () => {
+    drag(stage({ tool: "wallEraser", ops: crossed }), [
+      [10, 20],
+      [10, 80],
+    ]);
+    expect(onDraw.mock.calls.map((call) => call.arguments[0])).toEqual([
+      { t: "wallErase", targets: [0] },
+    ]);
+  });
+
+  it("makes no step when the wall eraser touches no wall", () => {
+    drag(stage({ tool: "wallEraser", ops: crossed }), [
+      [10, 70],
+      [150, 90],
+    ]);
+    expect(onDraw.mock.callCount()).toBe(0);
+  });
+
+  it("never takes a wall away with the annotations' eraser", () => {
+    drag(stage({ tool: "eraser", ops: crossed }), [
+      [10, 20],
+      [20, 20],
+    ]);
+    expect(onDraw.mock.callCount()).toBe(0);
+  });
+
+  // The corner where Shift went down and the run's end are each given twice,
+  // so the stroke's smoothing turns there instead of curving into the run.
+  it("draws the pen straight while Shift is held, and freehand again once it is let go", () => {
+    const surface = stage({ tool: "pen" });
+    fireEvent.pointerDown(surface, { clientX: 10, clientY: 10, pointerId: 1, button: 0 });
+    fireEvent.pointerMove(surface, { clientX: 30, clientY: 10, pointerId: 1, shiftKey: true });
+    fireEvent.pointerMove(surface, { clientX: 50, clientY: 30, pointerId: 1, shiftKey: true });
+    fireEvent.pointerMove(surface, { clientX: 60, clientY: 30, pointerId: 1 });
+    fireEvent.pointerUp(surface, { clientX: 60, clientY: 30, pointerId: 1 });
+    expect(onDraw.mock.calls.map((call) => call.arguments[0])).toEqual([
+      { t: "pen", color: "#e53935", width: 3, points: [20, 20, 20, 20, 100, 60, 100, 60, 120, 60] },
+    ]);
   });
 });

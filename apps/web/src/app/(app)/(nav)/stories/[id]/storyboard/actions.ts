@@ -334,7 +334,12 @@ export async function sa_getStoryboardScene(idStoryScene: number): Promise<PlayS
 
   // The scene as it was played, for the storyteller too: a hidden element
   // was never shown at the table, so the board does not show it either.
-  const items = await sceneItems(row.idStory, row.idStoryScene, [SCENE_ELEMENT_HIDDEN]);
+  // Whether a picture has fog on it is for the storyteller's full-size
+  // preview alone, so the players and the public are not given it.
+  const isStoryteller = access === "storyteller";
+  const items = await sceneItems(row.idStory, row.idStoryScene, [SCENE_ELEMENT_HIDDEN], {
+    fogActive: isStoryteller,
+  });
   return {
     idStorySession: null,
     scene: {
@@ -346,7 +351,13 @@ export async function sa_getStoryboardScene(idStoryScene: number): Promise<PlayS
     tags: row.tags,
     coverUrl: row.coverUrl,
     items: items.map((item) => ({
-      element: toPublicElement(item.element, item.imageUrl, item.link.showInfo),
+      element: toPublicElement(
+        item.element,
+        item.imageUrl,
+        item.link.showInfo,
+        item.fogCovered,
+        isStoryteller && item.fogActive,
+      ),
       // The board shows the scene as it was set, not how hurt anything got
       // in it, so it gives no health drop.
       sceneElement: toPublicSceneElement(item.link, null),

@@ -312,7 +312,7 @@ describe("ScenePreview", () => {
     const { unmount } = render(neighbours, false, pictured);
     await u.click(screen.getByRole("button", { name: "Preview A hooded figure" }));
     let preview = await screen.findByRole("dialog", { name: "A hooded figure" });
-    expect(within(preview).queryByRole("button", { name: "Annotate for players" })).toBeNull();
+    expect(within(preview).queryByRole("button", { name: /^FOG OF WAR / })).toBeNull();
     expect(sa_getScenePicture.mock.callCount()).toBe(0);
     unmount();
 
@@ -320,7 +320,7 @@ describe("ScenePreview", () => {
     await u.click(screen.getByRole("button", { name: "Preview A hooded figure" }));
     preview = await screen.findByRole("dialog", { name: "A hooded figure" });
     expect(
-      await within(preview).findByRole("button", { name: "Annotate for players" }),
+      await within(preview).findByRole("button", { name: "FOG OF WAR ACTIVE" }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(within(preview).getByRole("button", { name: "Open annotator" })).toBeInTheDocument();
     expect(sa_getScenePicture.mock.calls[0].arguments).toEqual([7, 11]);

@@ -209,6 +209,49 @@ describeWithDb("scene preview actions", { email: TEST_USER_EMAIL }, (suite) => {
     expect(atLater?.next).toMatchObject({ idStoryScene: earlier });
   });
 
+  // The mark in a full-size preview, "FOG OF WAR ACTIVE", is for the
+  // storyteller: the players' copy is what both are shown, but only the
+  // storyteller is told it has fog on it.
+  it("tells the storyteller a picture has fog on it, and never a player", async () => {
+    const [{ id: idAttachment }] = await db
+      .insert(tables.attachments)
+      .values({
+        idStory: playsIn,
+        status: "READY",
+        url: "https://abc.public.blob.vercel-storage.com/uploads/u/zed.png",
+        isUploaded: true,
+        idCreatedByUser: tellerId,
+      })
+      .returning({ id: tables.attachments.idAttachment });
+    try {
+      await db.insert(tables.attachmentUses).values({
+        idAttachment,
+        kind: "ELEMENT",
+        idExternal: zed,
+        tags: ["cover"],
+        idCreatedByUser: tellerId,
+      });
+      await db.insert(tables.attachmentAnnotations).values({
+        idAttachment,
+        width: 100,
+        height: 50,
+        playerUrl: "https://abc.public.blob.vercel-storage.com/annotations/zed-copy.webp",
+        idCreatedByUser: tellerId,
+      });
+      const zedOf = async () => (await actions.sa_getScenePreview(docks))?.scene.items[0].element;
+      expect(await zedOf()).not.toHaveProperty("imageFogActive");
+      suite.caller = tellerId;
+      expect((await zedOf())?.imageFogActive).toBe(true);
+      await db
+        .update(tables.attachmentAnnotations)
+        .set({ ops: [{ t: "fogAll", mode: "reveal" }] })
+        .where(eq(tables.attachmentAnnotations.idAttachment, idAttachment));
+      expect(await zedOf()).not.toHaveProperty("imageFogActive");
+    } finally {
+      await db.delete(tables.attachments).where(eq(tables.attachments.idAttachment, idAttachment));
+    }
+  });
+
   it("shows the storyteller the same", async () => {
     suite.caller = tellerId;
     expect((await actions.sa_getScenePreview(docks))?.scene.scene?.title).toBe("Fixture docks");

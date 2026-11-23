@@ -55,6 +55,12 @@ let theirPicture = 0;
 
 const brush: AnnotationOp = { t: "brush", mode: "reveal", radius: 10, points: [1, 2, 3, 4] };
 const pen: AnnotationOp = { t: "pen", color: "#e53935", width: 2, points: [5, 6] };
+const wall: AnnotationOp = { t: "wall", points: [0, 50, 400, 50] };
+const flood: AnnotationOp = {
+  t: "flood",
+  mode: "reveal",
+  rings: [[0, 0, 400, 0, 400, 50, 0, 50]],
+};
 
 describeWithDb("annotation actions", { email: "annotation-actions@example.test" }, (suite) => {
   before(async () => {
@@ -342,6 +348,8 @@ describeWithDb("annotation actions", { email: "annotation-actions@example.test" 
       canAnnotate: true,
       hasDrawing: false,
       isAnnotated: false,
+      fogCovered: false,
+      fogActive: false,
     });
 
     await db
@@ -357,6 +365,8 @@ describeWithDb("annotation actions", { email: "annotation-actions@example.test" 
         canAnnotate: true,
         hasDrawing: true,
         isAnnotated: false,
+        fogCovered: false,
+        fogActive: false,
       });
       expect(await actions.sa_getScenePicture(fx.theirs, link)).toBeNull();
     } finally {
@@ -394,6 +404,124 @@ describeWithDb("annotation actions", { email: "annotation-actions@example.test" 
       [mine, map],
     ]);
     expect(renderPlayersCopyLater.mock.calls.map((c) => c.arguments)).toEqual([[mine, map]]);
+  });
+
+  // Walls are the storyteller's alone: they are never drawn into the players' copy.
+  it("saves walls without turning the picture on, publishing, or asking for a copy", async () => {
+    await actions.sa_openAnnotation(map);
+    expect(
+      await actions.sa_saveAnnotation(map, { baseRevision: 0, keep: 0, append: [wall] }),
+    ).toEqual({ ok: true, revision: 1 });
+    expect(
+      await actions.sa_saveAnnotation(map, {
+        baseRevision: 1,
+        keep: 1,
+        append: [{ t: "wallErase", targets: [0] }],
+      }),
+    ).toEqual({ ok: true, revision: 2 });
+    // Undo of the wall eraser's drag alone is walls-only too.
+    expect(await actions.sa_saveAnnotation(map, { baseRevision: 2, keep: 1, append: [] })).toEqual({
+      ok: true,
+      revision: 3,
+    });
+    expect(await stored()).toMatchObject({ isActive: false, revision: 3, ops: [wall] });
+    expect(renderPlayersCopyLater.mock.callCount()).toBe(0);
+    expect(mocks.published.publishPictureChanged.mock.callCount()).toBe(0);
+  });
+
+  it("keeps a current players' copy current through a walls-only save, and a behind one behind", async () => {
+    await db.insert(tables.attachmentAnnotations).values({
+      idAttachment: map,
+      width: 400,
+      height: 200,
+      isActive: true,
+      revision: 3,
+      playerRevision: 3,
+      playerUrl: COPY_URL,
+    });
+    await actions.sa_saveAnnotation(map, { baseRevision: 3, keep: 0, append: [wall] });
+    expect(await stored()).toMatchObject({ revision: 4, playerRevision: 4, playerUrl: COPY_URL });
+    expect(renderPlayersCopyLater.mock.callCount()).toBe(0);
+    expect(mocks.published.publishPictureChanged.mock.callCount()).toBe(0);
+    await db
+      .update(tables.attachmentAnnotations)
+      .set({ playerRevision: 2 })
+      .where(eq(tables.attachmentAnnotations.idAttachment, map));
+    await actions.sa_saveAnnotation(map, { baseRevision: 4, keep: 1, append: [wall] });
+    expect(await stored()).toMatchObject({ revision: 5, playerRevision: 2 });
+  });
+
+  // The players' fog and its color are what the players see, so a wall saved
+  // with either is no walls-only save: the copy is rendered afresh from it.
+  it("makes an ordinary save of walls with a change to the players' fog or its color", async () => {
+    await db.insert(tables.attachmentAnnotations).values({
+      idAttachment: map,
+      width: 400,
+      height: 200,
+      isActive: true,
+      revision: 3,
+      playerRevision: 3,
+      playerUrl: COPY_URL,
+    });
+    expect(
+      await actions.sa_saveAnnotation(map, {
+        baseRevision: 3,
+        keep: 0,
+        append: [wall],
+        fogOpacityPlayers: 60,
+      }),
+    ).toEqual({ ok: true, revision: 4 });
+    expect(await stored()).toMatchObject({
+      isActive: true,
+      revision: 4,
+      playerRevision: 3,
+      fogOpacityPlayers: 60,
+    });
+    expect(renderPlayersCopyLater.mock.calls.map((c) => c.arguments)).toEqual([[mine, map]]);
+
+    renderPlayersCopyLater.mock.resetCalls();
+    expect(
+      await actions.sa_saveAnnotation(map, {
+        baseRevision: 4,
+        keep: 1,
+        append: [wall],
+        fogColor: "#e9dcbf",
+      }),
+    ).toEqual({ ok: true, revision: 5 });
+    expect(await stored()).toMatchObject({
+      isActive: true,
+      revision: 5,
+      playerRevision: 3,
+      fogColor: "#e9dcbf",
+    });
+    expect(renderPlayersCopyLater.mock.calls.map((c) => c.arguments)).toEqual([[mine, map]]);
+  });
+
+  it("makes an ordinary save of walls mixed with a flood, and of a flood undone", async () => {
+    await actions.sa_openAnnotation(map);
+    await actions.sa_saveAnnotation(map, { baseRevision: 0, keep: 0, append: [wall, flood] });
+    expect(await stored()).toMatchObject({ isActive: true, revision: 1 });
+    expect(renderPlayersCopyLater.mock.callCount()).toBe(1);
+    await actions.sa_setAnnotated(map, false);
+    renderPlayersCopyLater.mock.resetCalls();
+    await actions.sa_saveAnnotation(map, { baseRevision: 1, keep: 1, append: [] });
+    expect(await stored()).toMatchObject({ isActive: true, ops: [wall] });
+    expect(renderPlayersCopyLater.mock.callCount()).toBe(1);
+  });
+
+  it("refuses a wall eraser that names anything but a wall", async () => {
+    await annotate();
+    await actions.sa_saveAnnotation(map, { baseRevision: 0, keep: 0, append: [pen, wall] });
+    expect(
+      await actions.sa_saveAnnotation(map, {
+        baseRevision: 1,
+        keep: 2,
+        append: [{ t: "wallErase", targets: [0] }],
+      }),
+    ).toEqual({
+      ok: false,
+      error: "A wall eraser can only take away a wall drawn before it.",
+    });
   });
 
   // A copy rendered before the drawing was turned off shows less of what was
@@ -439,7 +567,9 @@ describeWithDb("annotation actions", { email: "annotation-actions@example.test" 
   });
 
   // What the storyteller is shown of a picture: its players' copy while it
-  // is annotated and one is rendered, else the picture itself.
+  // is annotated and one is rendered, else the picture itself, and whether
+  // that copy is covered in fog, as a new drawing's is until something is
+  // revealed.
   it("gives a picture's state as its controls follow it, the copy shown once there is one", async () => {
     expect(await actions.sa_getPictureState(map)).toEqual({
       idAttachment: map,
@@ -447,12 +577,16 @@ describeWithDb("annotation actions", { email: "annotation-actions@example.test" 
       canAnnotate: true,
       hasDrawing: false,
       isAnnotated: false,
+      fogCovered: false,
+      fogActive: false,
       behind: false,
     });
     await annotate();
     expect(await actions.sa_getPictureState(map)).toMatchObject({
       shownUrl: MAP_URL,
       isAnnotated: true,
+      fogCovered: false,
+      fogActive: false,
       behind: true,
     });
     await db
@@ -461,7 +595,31 @@ describeWithDb("annotation actions", { email: "annotation-actions@example.test" 
       .where(eq(tables.attachmentAnnotations.idAttachment, map));
     expect(await actions.sa_getPictureState(map)).toMatchObject({
       shownUrl: COPY_URL,
+      fogCovered: true,
+      fogActive: true,
       behind: false,
+    });
+    await db
+      .update(tables.attachmentAnnotations)
+      .set({ ops: [{ t: "fogAll", mode: "reveal" }] })
+      .where(eq(tables.attachmentAnnotations.idAttachment, map));
+    expect(await actions.sa_getPictureState(map)).toMatchObject({
+      fogCovered: false,
+      fogActive: false,
+    });
+    // Fog laid down after Clear all is active again, though less than the whole picture.
+    await db
+      .update(tables.attachmentAnnotations)
+      .set({
+        ops: [
+          { t: "fogAll", mode: "reveal" },
+          { t: "rect", mode: "cover", x: 0, y: 0, w: 5, h: 5 },
+        ],
+      })
+      .where(eq(tables.attachmentAnnotations.idAttachment, map));
+    expect(await actions.sa_getPictureState(map)).toMatchObject({
+      fogCovered: false,
+      fogActive: true,
     });
     expect(await actions.sa_getPictureState(theirPicture)).toBeNull();
   });

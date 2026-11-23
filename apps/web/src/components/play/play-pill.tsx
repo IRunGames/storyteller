@@ -174,6 +174,8 @@ export function PlayPill({
             tags={[]}
             isCover={false}
             showTags={false}
+            fogCovered={item.fogCovered === true}
+            fogActive={item.fogActive === true}
             actions={
               canAnnotate && item.idSceneElement != null ? (
                 <ScenePictureControls

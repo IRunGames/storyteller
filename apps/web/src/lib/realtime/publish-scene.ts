@@ -59,7 +59,7 @@ export async function publishSceneElement(
           at: stamp(),
           idStory,
           type: "scene_element.upserted",
-          element: toPublicElement(row.element, row.imageUrl, row.link.showInfo),
+          element: toPublicElement(row.element, row.imageUrl, row.link.showInfo, row.fogCovered),
           sceneElement: toPublicSceneElement(row.link, await storyTemplate(idStory)),
         };
   await publishStoryEvent(idStory, event);

@@ -155,6 +155,8 @@ export function PrepElements({
                 <PrepElementPictures
                   name={element.name}
                   coverUrl={element.coverUrl ?? null}
+                  coverFogCovered={element.coverFogCovered === true}
+                  coverFogActive={element.coverFogActive === true}
                   otherPictures={element.otherPictures ?? 0}
                 />
               </HStack>

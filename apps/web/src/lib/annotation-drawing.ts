@@ -1,5 +1,7 @@
-import { isMark, type AnnotationOp, type ShapeKind } from "./annotation-schemas";
-import { FOG_COLOR } from "./annotations";
+import { isMark, type AnnotationOp, type ShapeKind, type WallOp } from "./annotation-schemas";
+import { FOG_COLOR, WALL_CLOSED, WALL_OPEN } from "./annotations";
+import type { Rings, StorytellerView } from "./fog-areas";
+import { toSegment } from "./fog-walls";
 
 // How an annotated picture's drawing is drawn, once, for both places it is
 // seen: the storyteller's annotator lays it over the picture as React SVG
@@ -13,14 +15,22 @@ import { FOG_COLOR } from "./annotations";
 // picture seen through a mask. The mask starts white, the fog
 // showing everywhere, or black after a Clear all; each Reveal paints black on
 // it and each Cover white, in the order they were made, so a later step
-// wins where two overlap. The annotations are under the fog, so a mark in
-// the fog is the players' only once it is revealed.
+// wins where two overlap; a flood paints its area's rings as one even-odd
+// path, black or white the same way. The annotations are under the fog, so a
+// mark in the fog is the players' only once it is revealed.
+//
+// Over the fog, for the storyteller alone, the tree can also hold the fog
+// walls and a deep blue over the fog of the areas the walls enclose
+// (options.storyteller). The server never asks for that part, so the players'
+// copy carries no wall and no wall color; walls and wall erasers draw nothing
+// in the mask or the marks, ever.
 
 /**
  * One SVG element: its tag, its attributes as SVG names them, and what it
- * holds. The drawing's frame (the pen layer, the mask, the fog) carries a
- * key naming its part, which React draws it by: it is built afresh each
- * time, unlike a step's shape, and must still be found again in place.
+ * holds. The drawing's frame (the pen layer, the masks, the fog and the
+ * groups round it, the walls) carries a key naming its part, which React
+ * draws it by: it is built afresh each time, unlike a step's shape, and must
+ * still be found again in place.
  */
 export type SvgNode = {
   tag: string;
@@ -42,9 +52,28 @@ type TreeOptions = {
   fogColor?: string;
   /** The mask's id, unique on the page the tree is drawn into. */
   maskId: string;
+  /**
+   * The walls and enclosed areas to draw for the storyteller, from
+   * storytellerView (lib/fog-areas.ts). Left out, as the server leaves it,
+   * the tree holds nothing of walls.
+   */
+  storyteller?: StorytellerView;
 };
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
+
+/** Rings as path data of straight corners, each ring closed, for one even-odd path. */
+export function ringsPath(rings: Rings): string {
+  return rings
+    .map((ring) => {
+      let d = "";
+      for (let i = 0; i < ring.length; i += 2) {
+        d += `${i === 0 ? "M" : "L"}${round1(ring[i])} ${round1(ring[i + 1])}`;
+      }
+      return `${d}Z`;
+    })
+    .join("");
+}
 
 /**
  * A stroke's points as path data, smoothed by curving through the midpoint
@@ -158,9 +187,53 @@ function shapeOf(op: AnnotationOp): SvgNode | null {
         },
       };
       break;
+    case "flood":
+      shape = {
+        tag: "path",
+        attrs: {
+          d: ringsPath(op.rings),
+          "fill-rule": "evenodd",
+          fill: op.mode === "reveal" ? "black" : "white",
+        },
+      };
+      break;
   }
   if (shape) shapes.set(op, shape);
   return shape;
+}
+
+// A wall's nodes in each state, an outline path then the line over it, built
+// once per wall step so a redraw under a moving pointer reuses them.
+const wallNodes = new WeakMap<WallOp, { open?: SvgNode[]; closed?: SvgNode[] }>();
+
+function wallOf(op: WallOp, closed: boolean): SvgNode[] {
+  const cached = wallNodes.get(op) ?? {};
+  wallNodes.set(op, cached);
+  const key = closed ? "closed" : "open";
+  const known = cached[key];
+  if (known) return known;
+  let d = "";
+  for (let i = 0; i < op.points.length; i += 2) {
+    d += `${i === 0 ? "M" : "L"}${round1(op.points[i])} ${round1(op.points[i + 1])}`;
+  }
+  const look = closed ? WALL_CLOSED : WALL_OPEN;
+  // Straight lines, not strokePath: a wall is what a flood is bounded by, so
+  // it is drawn where it is, not smoothed off its corners.
+  const line = (paint: string, width: number): SvgNode => ({
+    tag: "path",
+    attrs: {
+      d,
+      fill: "none",
+      stroke: paint,
+      "stroke-width": width,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "vector-effect": "non-scaling-stroke",
+    },
+  });
+  const nodes = [line(look.outline, look.width + 2), line(look.color, look.width)];
+  cached[key] = nodes;
+  return nodes;
 }
 
 /**
@@ -197,49 +270,102 @@ export function annotationTree(ops: readonly AnnotationOp[], options: TreeOption
   const penMarks = shownMarks(ops).map((i) => shapeOf(ops[i])!);
   const fogShapes: SvgNode[] = [];
   ops.forEach((op, i) => {
-    if ((op.t === "brush" || op.t === "rect") && i >= fogFrom) fogShapes.push(shapeOf(op)!);
+    if ((op.t === "brush" || op.t === "rect" || op.t === "flood") && i >= fogFrom)
+      fogShapes.push(shapeOf(op)!);
   });
 
   const children: SvgNode[] = [
     { tag: "g", key: "pen", attrs: { "data-layer": "pen" }, children: penMarks },
   ];
   if (fogOpacity > 0) {
-    children.push(
+    const enclosed = options.storyteller?.enclosed ?? [];
+    const enclosedPath = ringsPath(enclosed);
+    const maskOf = (id: string, base: string, paint: string): SvgNode => ({
+      tag: "mask",
+      key: id,
+      attrs: { id, maskUnits: "userSpaceOnUse", x: 0, y: 0, width, height },
+      children: [
+        { tag: "rect", key: "base", attrs: { x: 0, y: 0, width, height, fill: base } },
+        {
+          tag: "path",
+          key: "enclosed",
+          attrs: { d: enclosedPath, "fill-rule": "evenodd", fill: paint },
+        },
+      ],
+    });
+    const fog: SvgNode = {
+      tag: "rect",
+      key: "fog",
+      attrs: {
+        "data-layer": "fog",
+        x: 0,
+        y: 0,
+        width,
+        height,
+        fill: options.fogColor ?? FOG_COLOR,
+        "fill-opacity": fogOpacity / 100,
+        mask: `url(#${maskId})`,
+      },
+    };
+    const masks: SvgNode[] = [
       {
-        tag: "defs",
-        key: "defs",
-        attrs: {},
+        tag: "mask",
+        key: "mask",
+        attrs: { id: maskId, maskUnits: "userSpaceOnUse", x: 0, y: 0, width, height },
         children: [
           {
-            tag: "mask",
-            key: "mask",
-            attrs: { id: maskId, maskUnits: "userSpaceOnUse", x: 0, y: 0, width, height },
-            children: [
-              {
-                tag: "rect",
-                key: "base",
-                attrs: { x: 0, y: 0, width, height, fill: fogStartsClear ? "black" : "white" },
-              },
-              ...fogShapes,
-            ],
+            tag: "rect",
+            key: "base",
+            attrs: { x: 0, y: 0, width, height, fill: fogStartsClear ? "black" : "white" },
           },
+          ...fogShapes,
         ],
       },
-      {
-        tag: "rect",
-        key: "fog",
-        attrs: {
-          "data-layer": "fog",
-          x: 0,
-          y: 0,
-          width,
-          height,
-          fill: options.fogColor ?? FOG_COLOR,
-          "fill-opacity": fogOpacity / 100,
-          mask: `url(#${maskId})`,
+    ];
+    if (enclosed.length === 0) {
+      children.push({ tag: "defs", key: "defs", attrs: {}, children: masks }, fog);
+    } else {
+      // The fog over an enclosed area is drawn in the closed walls' blue instead
+      // of the fog's color: the fog is kept out of those areas by one mask, and
+      // a blue copy of it kept to them by another.
+      masks.push(
+        maskOf(`${maskId}-open`, "white", "black"),
+        maskOf(`${maskId}-enclosed`, "black", "white"),
+      );
+      children.push(
+        { tag: "defs", key: "defs", attrs: {}, children: masks },
+        { tag: "g", key: "fog-open", attrs: { mask: `url(#${maskId}-open)` }, children: [fog] },
+        {
+          tag: "g",
+          key: "fog-enclosed",
+          attrs: { mask: `url(#${maskId}-enclosed)` },
+          children: [
+            {
+              tag: "rect",
+              key: "fog-enclosed-rect",
+              attrs: {
+                x: 0,
+                y: 0,
+                width,
+                height,
+                fill: WALL_CLOSED.color,
+                "fill-opacity": fogOpacity / 100,
+                mask: `url(#${maskId})`,
+              },
+            },
+          ],
         },
-      },
-    );
+      );
+    }
+  }
+
+  if (options.storyteller) {
+    children.push({
+      tag: "g",
+      key: "walls",
+      attrs: { "data-layer": "walls" },
+      children: options.storyteller.walls.flatMap(({ op, closed }) => wallOf(op, closed)),
+    });
   }
 
   return {
@@ -252,15 +378,6 @@ export function annotationTree(ops: readonly AnnotationOp[], options: TreeOption
     },
     children,
   };
-}
-
-// How far a point is from the segment between two others.
-function toSegment(x: number, y: number, ax: number, ay: number, bx: number, by: number) {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const length = dx * dx + dy * dy;
-  const t = length === 0 ? 0 : Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / length));
-  return Math.hypot(x - (ax + t * dx), y - (ay + t * dy));
 }
 
 // How far a point is from a run of corners, joined in order, and round to

@@ -1174,15 +1174,26 @@ describeWithDb("attachment actions", { email: TEST_USER_EMAIL }, (suite) => {
         const listed = await actions.sa_listAttachments("STORY", storyId);
         const row = (id: number) => listed.find((each) => each.idAttachment === id);
         expect(row(map.id)?.drawing).toEqual({ isActive: true });
-        // Shown to the storyteller as the players see it, its copy; a picture
-        // without a drawing as it is.
+        // Shown to the storyteller as the players see it, its copy, which
+        // nothing has been revealed of yet; a picture without a drawing as
+        // it is.
         expect(row(map.id)?.shownUrl).toBe(copyUrl);
+        expect(row(map.id)?.fogCovered).toBe(true);
+        expect(row(map.id)?.fogActive).toBe(true);
         expect(row(plain.id)?.drawing).toBeNull();
         expect(row(plain.id)?.shownUrl).toBe(plainUrl);
+        expect(row(plain.id)?.fogCovered).toBe(false);
+        expect(row(plain.id)?.fogActive).toBe(false);
         const element = await actions.sa_listAttachments("ELEMENT", idElement);
-        expect(element.map((each) => [each.idAttachment, each.drawing, each.shownUrl])).toEqual([
-          [map.id, { isActive: true }, copyUrl],
-        ]);
+        expect(
+          element.map((each) => [
+            each.idAttachment,
+            each.drawing,
+            each.shownUrl,
+            each.fogCovered,
+            each.fogActive,
+          ]),
+        ).toEqual([[map.id, { isActive: true }, copyUrl, true, true]]);
       } finally {
         await db
           .delete(tables.attachments)

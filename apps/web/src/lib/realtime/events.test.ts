@@ -64,7 +64,7 @@ const link: SceneElementRow = {
 
 describe("public rows", () => {
   it("keeps the players' notes, and drops the database's own columns from an element", () => {
-    const pub = toPublicElement(element, "https://blob/zed.png", true);
+    const pub = toPublicElement(element, "https://blob/zed.png", true, false);
 
     expect(pub.notes).toBe("Secretly the villain.");
     expect(pub).not.toHaveProperty("searchText");
@@ -81,12 +81,12 @@ describe("public rows", () => {
   });
 
   it("keeps the description and the links back while the link does not show its info", () => {
-    expect(toPublicElement(element, null, true)).toMatchObject({
+    expect(toPublicElement(element, null, true, false)).toMatchObject({
       description: "Keeps the docks.",
       url: "https://example.com/zed",
       urlText: "Zed's ledger",
     });
-    expect(toPublicElement(element, null, false)).toMatchObject({
+    expect(toPublicElement(element, null, false, false)).toMatchObject({
       description: null,
       url: null,
       urlText: null,
@@ -170,7 +170,7 @@ describe("a link's health for the players", () => {
       at: when.toISOString(),
       idStory: 7,
       type: "scene_element.upserted",
-      element: toPublicElement(element, null, true),
+      element: toPublicElement(element, null, true, false),
       sceneElement: toPublicSceneElement(hurt, template),
     };
     expect(parseStoryEvent(JSON.parse(JSON.stringify(event)))).toEqual(event);
@@ -180,13 +180,49 @@ describe("a link's health for the players", () => {
 });
 
 describe("parseStoryEvent", () => {
+  // The players' copy of a picture nothing has been revealed of is a plain
+  // block of the fog's color, so the pill that shows it says what it is.
+  it("says whether the players' picture is covered in fog, and reads a message from before it did", () => {
+    const event = {
+      v: 1,
+      at: when.toISOString(),
+      idStory: 7,
+      type: "scene_element.upserted",
+      element: toPublicElement(element, "https://blob/zed-copy.webp", true, true),
+      sceneElement: toPublicSceneElement(link, null),
+    };
+    expect(event.element.imageFogCovered).toBe(true);
+    expect(parseStoryEvent(JSON.parse(JSON.stringify(event)))).toEqual(event);
+    const { imageFogCovered: _gone, ...older } = event.element;
+    expect(parseStoryEvent({ ...event, element: older })).not.toBeNull();
+  });
+
+  // The mark in the storyteller's full-size preview is for the storyteller's
+  // own reads: a broadcast never carries it unless it is asked to.
+  it("carries imageFogActive only when asked, so the players' broadcast never has it", () => {
+    const copy = "https://blob/zed-copy.webp";
+    expect(toPublicElement(element, copy, true, false)).not.toHaveProperty("imageFogActive");
+    expect(toPublicElement(element, copy, true, true, false)).not.toHaveProperty("imageFogActive");
+    const active = toPublicElement(element, copy, true, false, true);
+    expect(active.imageFogActive).toBe(true);
+    const event = {
+      v: 1,
+      at: when.toISOString(),
+      idStory: 7,
+      type: "scene_element.upserted",
+      element: active,
+      sceneElement: toPublicSceneElement(link, null),
+    };
+    expect(parseStoryEvent(JSON.parse(JSON.stringify(event)))).toEqual(event);
+  });
+
   it("reads back what the publisher wrote", () => {
     const event = {
       v: 1,
       at: when.toISOString(),
       idStory: 7,
       type: "scene_element.upserted",
-      element: toPublicElement(element, null, true),
+      element: toPublicElement(element, null, true, false),
       sceneElement: toPublicSceneElement(link, null),
     };
 
@@ -231,7 +267,7 @@ describe("storyEventTitle", () => {
       at: "",
       idStory: 7,
       type: "scene_element.upserted",
-      element: toPublicElement(element, null, true),
+      element: toPublicElement(element, null, true, false),
       sceneElement: toPublicSceneElement(link, null),
     });
     expect(title).toBe("scene_element.upserted · Zed (READY)");

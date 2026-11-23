@@ -87,12 +87,14 @@ export function AttachmentCard({
           // Shown whole at the largest size that fits (contain, not cover: a
           // map or a handout is no use with its edges cut off), and pressing
           // it opens the picture full size; an annotated one as the players
-          // see it (shownUrl).
+          // see it (shownUrl), saying so when they see none of it.
           <AttachmentPreview
             url={row.shownUrl ?? row.url}
             label={label}
             tags={row.tags}
             isCover={row.isCover}
+            fogCovered={row.fogCovered === true}
+            fogActive={row.fogActive === true}
             // Editable where the card's own tags button is.
             editTags={canTag ? { canCover, onTagsChange, onCoverChange } : undefined}
           />
@@ -179,7 +181,6 @@ export function AttachmentCard({
             idAttachment={row.idAttachment}
             label={label}
             isAnnotated={row.drawing?.isActive === true}
-            hasDrawing={Boolean(row.drawing)}
             onAnnotatedChange={onAnnotatedChange}
             onPictureChange={onPictureChange}
           />

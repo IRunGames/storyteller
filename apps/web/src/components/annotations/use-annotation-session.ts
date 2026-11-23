@@ -39,8 +39,21 @@ export type AnnotationSession = Drawing & {
   setFogColor: (color: string) => void;
 };
 
-const coordinatesOf = (op: AnnotationOp) =>
-  op.t === "brush" || op.t === "pen" ? op.points.length : op.t === "erase" ? op.targets.length : 4;
+const coordinatesOf = (op: AnnotationOp) => {
+  switch (op.t) {
+    case "brush":
+    case "pen":
+    case "wall":
+      return op.points.length;
+    case "erase":
+    case "wallErase":
+      return op.targets.length;
+    case "flood":
+      return op.rings.reduce((total, ring) => total + ring.length, 0);
+    default:
+      return 4;
+  }
+};
 
 /** The first of the steps waiting that one save may carry: at least one, at most a save's worth. */
 function aSavesWorth(append: AnnotationOp[]): AnnotationOp[] {

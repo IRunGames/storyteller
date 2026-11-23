@@ -110,6 +110,8 @@ type ReadBack = {
   canAnnotate: boolean;
   hasDrawing: boolean;
   isAnnotated: boolean;
+  fogCovered: boolean;
+  fogActive: boolean;
   behind: boolean;
 };
 const sa_getPictureState = mock.fn(async (_picture: number): Promise<ReadBack | null> => null);
@@ -120,6 +122,8 @@ const scenePicture = {
   canAnnotate: true,
   hasDrawing: false,
   isAnnotated: false,
+  fogCovered: false,
+  fogActive: false,
 };
 const sa_getScenePicture = mock.fn(
   async (_story: number, _link: number): Promise<typeof scenePicture | null> => scenePicture,
@@ -1150,7 +1154,7 @@ describe("RunPlayPill", () => {
     expect(within(container).getByRole("img", { name: "Annotated for players" })).toBeVisible();
     await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
     const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
-    const toggle = await within(preview).findByRole("button", { name: "Annotate for players" });
+    const toggle = await within(preview).findByRole("button", { name: "FOG OF WAR ACTIVE" });
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     // The picture is looked up as the preview opens: the link's, else the element's.
     expect(sa_getScenePicture.mock.calls[0].arguments).toEqual([-4, 9]);
@@ -1169,12 +1173,13 @@ describe("RunPlayPill", () => {
 
     await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
     const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
-    const toggle = await within(preview).findByRole("button", { name: "Annotate for players" });
+    const toggle = await within(preview).findByRole("button", { name: "FOG OF WAR OFF" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     await u.click(toggle);
 
     expect(sa_setAnnotated.mock.calls[0].arguments).toEqual([77, true]);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(toggle).toHaveTextContent("FOG OF WAR ACTIVE");
     expect(within(preview).getByRole("button", { name: "Open annotator" })).toBeInTheDocument();
 
     // Closed again, the pill carries the fog mark.
@@ -1201,7 +1206,7 @@ describe("RunPlayPill", () => {
 
     await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
     const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
-    await u.click(await within(preview).findByRole("button", { name: "Annotate for players" }));
+    await u.click(await within(preview).findByRole("button", { name: "FOG OF WAR OFF" }));
     await waitFor(() => expect(sa_getPictureState.mock.callCount()).toBe(1));
 
     await u.click(within(preview).getByRole("button", { name: "Close preview" }));
@@ -1212,6 +1217,107 @@ describe("RunPlayPill", () => {
       "src",
       copy,
     );
+  });
+
+  // A players' copy nothing has been revealed of is a plain block of the
+  // fog's color, so the pill and its preview say what it is.
+  it("says a picture covered in fog is covered, on the pill and full size", async () => {
+    const u = userEvent.setup();
+    const covered = render({
+      ...linked("READY"),
+      imageUrl: "https://x.test/copy.webp",
+      annotated: true,
+      fogCovered: true,
+    });
+    expect(within(covered.container).getByText("Image is covered in fog")).toBeInTheDocument();
+    // Over the picture, the fog mark and the tack still show.
+    expect(
+      within(covered.container).getByRole("img", { name: "Annotated for players" }),
+    ).toBeVisible();
+    expect(
+      within(covered.container).getByRole("button", { name: /^Show A hooded figure/ }),
+    ).toBeInTheDocument();
+
+    await u.click(
+      within(covered.container).getByRole("button", { name: "Preview A hooded figure" }),
+    );
+    const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    expect(within(preview).getByText("Image is covered in fog")).toBeInTheDocument();
+    covered.unmount();
+
+    const shown = render({ ...linked("READY"), imageUrl: "https://x.test/copy.webp" });
+    expect(within(shown.container).queryByText("Image is covered in fog")).toBeNull();
+  });
+
+  it("says the pill's picture is covered in fog once it is read back so", async () => {
+    const copy = "https://abc.public.blob.vercel-storage.com/annotations/77/copy.webp";
+    sa_getPictureState.mock.mockImplementation(async () => ({
+      ...scenePicture,
+      shownUrl: copy,
+      hasDrawing: true,
+      isAnnotated: true,
+      fogCovered: true,
+      behind: false,
+    }));
+    const u = userEvent.setup();
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
+    expect(within(container).queryByText("Image is covered in fog")).toBeNull();
+
+    await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
+    const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    await u.click(await within(preview).findByRole("button", { name: "FOG OF WAR OFF" }));
+    await waitFor(() => expect(sa_getPictureState.mock.callCount()).toBe(1));
+    await u.click(within(preview).getByRole("button", { name: "Close preview" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "A hooded figure" })).not.toBeInTheDocument(),
+    );
+    expect(within(container).getByText("Image is covered in fog")).toBeInTheDocument();
+  });
+
+  // The pill's preview has the annotation controls, whose fog switch says
+  // whether fog is on at the bar's start, so the plain mark is left to it:
+  // FOG OF WAR ACTIVE once, on the switch, and never on the pill itself.
+  it("says FOG OF WAR ACTIVE once in the preview of a picture with fog on it, on its switch", async () => {
+    sa_getScenePicture.mock.mockImplementation(async () => ({
+      ...scenePicture,
+      hasDrawing: true,
+      isAnnotated: true,
+      fogActive: true,
+    }));
+    const u = userEvent.setup();
+    const { container } = render({
+      ...linked("READY"),
+      imageUrl: "https://x.test/copy.webp",
+      annotated: true,
+      fogActive: true,
+    });
+    expect(within(container).queryByText("FOG OF WAR ACTIVE")).toBeNull();
+    await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
+    const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    const pill = await within(preview).findByRole("button", { name: "FOG OF WAR ACTIVE" });
+    expect(within(preview).getAllByText("FOG OF WAR ACTIVE")).toEqual([pill]);
+  });
+
+  it("still says FOG OF WAR ACTIVE once after the switch turns the fog on and the picture is read back", async () => {
+    const copy = "https://abc.public.blob.vercel-storage.com/annotations/77/copy.webp";
+    sa_getPictureState.mock.mockImplementation(async () => ({
+      ...scenePicture,
+      shownUrl: copy,
+      hasDrawing: true,
+      isAnnotated: true,
+      fogActive: true,
+      behind: false,
+    }));
+    const u = userEvent.setup();
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/9.png" });
+
+    await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
+    const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
+    const toggle = await within(preview).findByRole("button", { name: "FOG OF WAR OFF" });
+    await u.click(toggle);
+    await waitFor(() => expect(sa_getPictureState.mock.callCount()).toBe(1));
+    await waitFor(() => expect(toggle).toHaveTextContent("FOG OF WAR ACTIVE"));
+    expect(within(preview).getAllByText("FOG OF WAR ACTIVE")).toHaveLength(1);
   });
 
   it("offers nothing to annotate in the preview of a picture that cannot be drawn on", async () => {
@@ -1225,7 +1331,7 @@ describe("RunPlayPill", () => {
     await u.click(within(container).getByRole("button", { name: "Preview A hooded figure" }));
     const preview = await screen.findByRole("dialog", { name: "A hooded figure" });
     await waitFor(() => expect(sa_getScenePicture.mock.callCount()).toBe(1));
-    expect(within(preview).queryByRole("button", { name: "Annotate for players" })).toBeNull();
+    expect(within(preview).queryByRole("button", { name: /^FOG OF WAR / })).toBeNull();
   });
 
   it("annotates the element's picture for the players from its panel, and the pill follows", async () => {
@@ -1565,6 +1671,39 @@ describe("RunPlayPill", () => {
     expect(
       await within(container).findByRole("button", { name: "Add an image to A hooded figure" }),
     ).toBeInTheDocument();
+  });
+
+  // The link's own pictures for this scene, as the panel's scene card shows
+  // them and hands the pill the one it should show.
+  it("says the link's picture for this scene is covered in fog, in its panel and on the pill once it is the cover", async () => {
+    const u = userEvent.setup();
+    const copy = "https://abc.public.blob.vercel-storage.com/annotations/43/copy.webp";
+    // Annotated, with its players' copy rendered and nothing revealed.
+    const fogged = { drawing: { isActive: true }, shownUrl: copy, fogCovered: true };
+    linkRows = [
+      { ...picture(42, "Lantern.png", "SCENE_ELEMENT"), isCover: true },
+      { ...picture(43, "Rope.png", "SCENE_ELEMENT"), ...fogged },
+    ];
+    const { container } = render({ ...linked("READY"), imageUrl: "https://x.test/42.png" });
+    await u.click(screen.getByRole("button", { name: "About A hooded figure" }));
+    const region = await screen.findByRole("region", { name: "About A hooded figure" });
+    const trigger = await within(region).findByRole("button", { name: "Pictures in this scene" });
+    expect(within(trigger).queryByText("Image is covered in fog")).toBeNull();
+    await u.click(trigger);
+    const popover = await screen.findByRole("dialog", { name: "Pictures in this scene" });
+    const others = await within(popover).findByRole("list", { name: "Other images" });
+    expect(within(others).getByText("Image is covered in fog")).toBeInTheDocument();
+    expect(within(container).queryByText("Image is covered in fog")).toBeNull();
+
+    // Made the cover, the pill, the card's thumbnail and its cover row say so.
+    await u.click(within(popover).getByRole("button", { name: "Cover Rope.png" }));
+    const thumbnail = within(container).getByRole("button", { name: "Preview A hooded figure" });
+    await waitFor(() => expect(thumbnail).toHaveTextContent("Image is covered in fog"));
+    expect(thumbnail.querySelector("img")).toHaveAttribute("src", copy);
+    await waitFor(() => expect(trigger).toHaveTextContent("Image is covered in fog"));
+    expect(
+      await within(popover).findByRole("button", { name: "Preview Rope.png" }),
+    ).toHaveTextContent("Image is covered in fog");
   });
 
   it("adds the story's pictures to the element for this scene from Other images' +", async () => {

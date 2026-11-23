@@ -1,6 +1,12 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "./index";
-import { annotatedForStoryteller, attachmentUrl, sceneElementImageUrl } from "./attachment-url";
+import {
+  annotatedForStoryteller,
+  attachmentUrl,
+  sceneElementFogActive,
+  sceneElementFogCovered,
+  sceneElementImageUrl,
+} from "./attachment-url";
 import { sceneElements, storyScenes, vSceneElements } from "./schema";
 import { ELEMENT_KINDS, isElementKind } from "@/lib/elements";
 import {
@@ -60,6 +66,8 @@ export const linkedColumns = {
   showInfo: vSceneElements.showInfo,
   imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
   annotated: annotatedForStoryteller("v_scene_elements", "v_scene_elements"),
+  fogCovered: sceneElementFogCovered("v_scene_elements", "v_scene_elements"),
+  fogActive: sceneElementFogActive("v_scene_elements", "v_scene_elements"),
   url: vSceneElements.elementUrl,
   urlText: vSceneElements.elementUrlText,
   sceneUrl: vSceneElements.url,
@@ -87,6 +95,8 @@ export type LinkedViewRow = {
   showInfo: boolean | null;
   imageUrl: string | null;
   annotated: boolean | null;
+  fogCovered: boolean | null;
+  fogActive: boolean | null;
   url: string | null;
   urlText: string | null;
   sceneUrl: string | null;
@@ -117,6 +127,10 @@ export type LinkedRow = {
   imageUrl: string | null;
   /** Whether that picture is the element's annotated one (annotatedForStoryteller). */
   annotated: boolean | null;
+  /** Whether that picture is a players' copy covered in fog (sceneElementFogCovered). */
+  fogCovered: boolean | null;
+  /** Whether that picture is a players' copy with fog on it anywhere (sceneElementFogActive). */
+  fogActive: boolean | null;
   /** The element's external link, and the link's own for this scene (pillLink). */
   url: string | null;
   urlText: string | null;
@@ -148,6 +162,8 @@ export function linkedRowOf(
     showInfo: null,
     imageUrl: null,
     annotated: null,
+    fogCovered: null,
+    fogActive: null,
     url: null,
     urlText: null,
     sceneUrl: null,
@@ -183,6 +199,8 @@ export function fromViewRow(
     showInfo: row.showInfo,
     imageUrl: row.imageUrl,
     annotated: row.annotated,
+    fogCovered: row.fogCovered,
+    fogActive: row.fogActive,
     url: row.url,
     urlText: row.urlText,
     sceneUrl: row.sceneUrl,
@@ -219,6 +237,8 @@ export function linkedItem(row: LinkedRow): SceneItem {
     detail,
     imageUrl: row.imageUrl,
     ...(row.annotated ? { annotated: true } : {}),
+    ...(row.fogCovered ? { fogCovered: true } : {}),
+    ...(row.fogActive ? { fogActive: true } : {}),
     sceneTags: row.tags,
     sceneStatus: row.status,
     showInfo: row.showInfo ?? true,

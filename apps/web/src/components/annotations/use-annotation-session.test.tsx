@@ -290,6 +290,20 @@ describe("useAnnotationSession", () => {
     expect(result.current.status).toBe("saved");
   });
 
+  it("counts a flood's outline toward a save's size, so two large ones go in two saves", async () => {
+    const { result } = start();
+    const ring = Array.from({ length: 30_000 }, (_, i) => i % 400);
+    const big: AnnotationOp = { t: "flood", mode: "reveal", rings: [ring] };
+    act(() => {
+      result.current.draw(big);
+      result.current.draw(big);
+    });
+    await elapse(SAVE_DELAY_MS);
+    expect(sa_saveAnnotation.mock.calls.map((call) => call.arguments[1].append.length)).toEqual([
+      1, 1,
+    ]);
+  });
+
   it("undoes nothing when there is nothing to undo", () => {
     const { result } = start();
     expect(result.current.canUndo).toBe(true);

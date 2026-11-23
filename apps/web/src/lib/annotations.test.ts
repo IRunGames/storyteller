@@ -4,6 +4,8 @@ import { expect } from "expect";
 import type { AnnotationOp } from "./annotation-schemas";
 import {
   BRUSH_SIZES,
+  FOG_COLOR,
+  FOG_COLORS,
   PEN_COLORS,
   PEN_WIDTHS,
   brushRadiusPx,
@@ -52,5 +54,22 @@ describe("sizes", () => {
     expect(BRUSH_SIZES.min).toBeLessThanOrEqual(BRUSH_SIZES.initial);
     expect(BRUSH_SIZES.initial).toBeLessThanOrEqual(BRUSH_SIZES.max);
     for (const color of PEN_COLORS) expect(color.value).toMatch(/^#[0-9a-f]{6}$/);
+  });
+});
+
+describe("fog colors", () => {
+  it("keeps Slate as the default fog color and offers the brighter swatches", () => {
+    expect(FOG_COLORS[0]).toEqual({ value: FOG_COLOR, label: "Slate" });
+    expect(FOG_COLOR).toBe("#1b1d23");
+    expect(FOG_COLORS.map((c) => c.value)).toEqual([
+      "#1b1d23",
+      "#000000",
+      "#7b8599",
+      "#2f5fb3",
+      "#3a8f5c",
+      "#e6ebf2",
+      "#f5e6b8",
+      "#ffffff",
+    ]);
   });
 });

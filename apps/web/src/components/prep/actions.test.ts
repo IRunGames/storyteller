@@ -248,9 +248,15 @@ describeWithDb("libraries actions", { email: TEST_USER_EMAIL }, (suite) => {
         { idAttachment: uploading, kind: "ELEMENT", idExternal: vault.idElement },
       ]);
       const [listed] = await actions.sa_listStoryElements(myStory, "PLACE", 0);
-      expect(listed).toMatchObject({ coverUrl: `${store}/uploads/u/vault.png`, otherPictures: 2 });
+      expect(listed).toMatchObject({
+        coverUrl: `${store}/uploads/u/vault.png`,
+        coverFogCovered: false,
+        coverFogActive: false,
+        otherPictures: 2,
+      });
 
-      // An annotated cover with its copy rendered is shown as the players see it.
+      // An annotated cover with its copy rendered is shown as the players
+      // see it, which is covered in fog until something is revealed.
       await db.insert(tables.attachmentAnnotations).values({
         idAttachment: cover,
         width: 10,
@@ -259,6 +265,8 @@ describeWithDb("libraries actions", { email: TEST_USER_EMAIL }, (suite) => {
       });
       const [annotated] = await actions.sa_listStoryElements(myStory, "PLACE", 0);
       expect(annotated.coverUrl).toBe(`${store}/annotations/vault-copy.webp`);
+      expect(annotated.coverFogCovered).toBe(true);
+      expect(annotated.coverFogActive).toBe(true);
     } finally {
       await db
         .delete(tables.attachments)

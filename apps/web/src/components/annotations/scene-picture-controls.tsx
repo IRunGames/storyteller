@@ -51,7 +51,6 @@ export function ScenePictureControls({
       idAttachment={picture.idAttachment}
       label={label}
       isAnnotated={picture.isAnnotated}
-      hasDrawing={picture.hasDrawing}
       onAnnotatedChange={(annotated) => {
         setPicture((shown) =>
           shown

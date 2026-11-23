@@ -1,7 +1,11 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "./index";
-import { playerSceneElementImageUrl } from "./attachment-url";
+import {
+  playerSceneElementImageUrl,
+  sceneElementFogActive,
+  sceneElementFogCovered,
+} from "./attachment-url";
 import { elements, sceneElements, stories, storySessions } from "./schema";
 import { ELEMENT_KINDS } from "@/lib/elements";
 import { SESSION_PLAYING_STATUSES } from "@/lib/status";
@@ -47,6 +51,15 @@ export type SceneItemRow = {
   element: typeof elements.$inferSelect;
   link: typeof sceneElements.$inferSelect;
   imageUrl: string | null;
+  /** Whether that picture is a players' copy covered in fog (sceneElementFogCovered). */
+  fogCovered: boolean;
+  /**
+   * Whether that picture is a players' copy with fog on it anywhere
+   * (sceneElementFogActive). Only sceneItems called with `fogActive` works it
+   * out, for the storyteller's reads; the players' are never told, so it is
+   * false for them.
+   */
+  fogActive: boolean;
 };
 
 /**
@@ -63,12 +76,13 @@ export async function sceneLink(
       element: elements,
       link: sceneElements,
       imageUrl: playerSceneElementImageUrl("scene_elements", "elements"),
+      fogCovered: sceneElementFogCovered("scene_elements", "elements"),
     })
     .from(sceneElements)
     .innerJoin(elements, eq(elements.idElement, sceneElements.idElement))
     .where(and(eq(sceneElements.idSceneElement, idSceneElement), eq(elements.idStory, idStory)))
     .limit(1);
-  return row ?? null;
+  return row ? { ...row, fogActive: false } : null;
 }
 
 /** The ids of an element's links to a scene, an element being in a scene any number of times. */
@@ -116,18 +130,25 @@ export async function sceneLinksShowing(
  * Every element linked to a scene of the story, in the order the
  * storyteller's play space shows them: by kind, People to Ephemera, then by
  * name. Links in the statuses given are left out; the players' table leaves
- * out INVISIBLE ones.
+ * out INVISIBLE ones. `fogActive` also works out whether each picture has
+ * fog on it (SceneItemRow.fogActive), which only the storyteller's reads ask
+ * for: the players' read leaves it false and does not pay for it.
  */
 export async function sceneItems(
   idStory: number,
   idStoryScene: number,
   excludeStatuses: string[] = [],
+  { fogActive = false }: { fogActive?: boolean } = {},
 ): Promise<SceneItemRow[]> {
   const rows = await db
     .select({
       element: elements,
       link: sceneElements,
       imageUrl: playerSceneElementImageUrl("scene_elements", "elements"),
+      fogCovered: sceneElementFogCovered("scene_elements", "elements"),
+      fogActive: fogActive
+        ? sceneElementFogActive("scene_elements", "elements")
+        : sql<boolean>`false`,
     })
     .from(sceneElements)
     .innerJoin(elements, eq(elements.idElement, sceneElements.idElement))

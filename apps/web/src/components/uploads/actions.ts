@@ -5,6 +5,7 @@ import { del } from "@vercel/blob";
 import { z } from "zod";
 import { searchSchema } from "@/lib/schemas";
 import { db, schema } from "@/db";
+import { attachmentFogActive, attachmentFogCovered } from "@/db/attachment-url";
 import { clearCover, setCover, useIsCover } from "@/db/covers";
 import {
   ownedElement,
@@ -479,6 +480,8 @@ export async function sa_listAttachments(
         updatedAt: attachments.updatedAt,
         drawing: drawingOf("attachments"),
         shownUrl: shownUrlOf("attachments"),
+        fogCovered: attachmentFogCovered("attachments"),
+        fogActive: attachmentFogActive("attachments"),
       })
       .from(attachments)
       .leftJoin(
@@ -523,6 +526,8 @@ export async function sa_listAttachments(
       updatedAt: vAttachmentUses.attachmentUpdatedAt,
       drawing: drawingOf("v_attachment_uses"),
       shownUrl: shownUrlOf("v_attachment_uses"),
+      fogCovered: attachmentFogCovered("v_attachment_uses"),
+      fogActive: attachmentFogActive("v_attachment_uses"),
     })
     .from(vAttachmentUses)
     .where(
@@ -551,6 +556,8 @@ export async function sa_listAttachments(
     updatedAt: iso(row.updatedAt),
     drawing: row.drawing,
     shownUrl: row.shownUrl,
+    fogCovered: row.fogCovered,
+    fogActive: row.fogActive,
   }));
 }
 

@@ -123,6 +123,45 @@ describeWithDb("publish-scene", { email: TEST_USER_EMAIL }, (suite) => {
       expect(publishStoryEvent.mock.calls[0].arguments[0]).toBe(story);
     });
 
+    it("sends whether the picture is covered in fog, and never that it has fog active", async () => {
+      await play(docks);
+      const [{ id: idAttachment }] = await db
+        .insert(tables.attachments)
+        .values({
+          idStory: story,
+          status: "READY",
+          url: "https://abc.public.blob.vercel-storage.com/uploads/u/fog-fixture.png",
+          isUploaded: true,
+          idCreatedByUser: testUser,
+        })
+        .returning({ id: tables.attachments.idAttachment });
+      try {
+        await db.insert(tables.attachmentUses).values({
+          idAttachment,
+          kind: "ELEMENT",
+          idExternal: zed,
+          tags: ["cover"],
+          idCreatedByUser: testUser,
+        });
+        await db.insert(tables.attachmentAnnotations).values({
+          idAttachment,
+          width: 100,
+          height: 50,
+          playerUrl: "https://abc.public.blob.vercel-storage.com/annotations/fog-copy.webp",
+          idCreatedByUser: testUser,
+        });
+        await helpers.publishSceneElement(story, docks, zedLink);
+        const [event] = sent();
+        if (event.type !== "scene_element.upserted") throw new Error("not an element event");
+        expect(event.element.imageFogCovered).toBe(true);
+        expect(event.element).not.toHaveProperty("imageFogActive");
+      } finally {
+        await db
+          .delete(tables.attachments)
+          .where(eq(tables.attachments.idAttachment, idAttachment));
+      }
+    });
+
     it("sends how full the link's health indicator is, and none of its stats", async () => {
       await play(docks);
       const pool = {

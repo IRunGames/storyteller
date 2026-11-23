@@ -9,9 +9,11 @@
 -- the next time.
 --
 -- ops is the drawing as an ordered list of steps (brush, rectangle, Cover
--- all / Clear all, pen mark, shape, eraser, Erase all annotations), read and
--- written through the zod schema in apps/web/src/lib/annotation-schemas.ts. Its coordinates are
--- in the picture's own pixels, width by height, as measured upright.
+-- all / Clear all, pen mark, shape, eraser, Erase all annotations, wall, wall
+-- eraser, flood), read and written through the zod schema in
+-- apps/web/src/lib/annotation-schemas.ts. Its coordinates are in the
+-- picture's own pixels, width by height, as measured upright. Walls are the
+-- storyteller's alone and are never drawn into the players' copy.
 --
 -- fog_opacity_players and fog_color are how the fog is drawn in the players'
 -- copy; the color is held to #rrggbb because it is written into SVG.

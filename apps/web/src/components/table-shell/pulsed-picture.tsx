@@ -60,6 +60,7 @@ export function PulsedPicture({ items, idSceneElement, onClose }: Props) {
       tags={[]}
       isCover={false}
       showTags={false}
+      fogCovered={shown.fogCovered === true}
     />
   );
 }

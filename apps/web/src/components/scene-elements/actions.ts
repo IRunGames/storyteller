@@ -7,7 +7,11 @@ import { db, schema } from "@/db";
 import {
   annotatedForStoryteller,
   elementAnnotated,
+  elementPictureFogActive,
+  elementPictureFogCovered,
   elementPictureUrl,
+  sceneElementFogActive,
+  sceneElementFogCovered,
   sceneElementImageUrl,
 } from "@/db/attachment-url";
 import { setCover, storyPictureUrl } from "@/db/covers";
@@ -355,6 +359,8 @@ export async function sa_updateSceneElement(
       showInfo: vSceneElements.showInfo,
       imageUrl: sceneElementImageUrl("v_scene_elements", "v_scene_elements"),
       annotated: annotatedForStoryteller("v_scene_elements", "v_scene_elements"),
+      fogCovered: sceneElementFogCovered("v_scene_elements", "v_scene_elements"),
+      fogActive: sceneElementFogActive("v_scene_elements", "v_scene_elements"),
       hasStatBlocks: linkHasStatBlocks("v_scene_elements"),
       // The edit leaves the stats alone, so the pill keeps its drop.
       statBlocks: linkStatBlocks("v_scene_elements"),
@@ -422,6 +428,8 @@ export async function sa_updateSceneElement(
         label: values.sceneLabel || null,
         imageUrl: current.imageUrl,
         annotated: current.annotated,
+        fogCovered: current.fogCovered,
+        fogActive: current.fogActive,
         url: values.url || null,
         urlText: values.urlText || null,
         sceneUrl: values.sceneUrl || null,
@@ -489,6 +497,8 @@ export async function sa_linkSceneElement(
       title: elements.title,
       imageUrl: elementPictureUrl("elements"),
       annotated: elementAnnotated("elements"),
+      fogCovered: elementPictureFogCovered("elements"),
+      fogActive: elementPictureFogActive("elements"),
       url: elements.url,
       urlText: elements.urlText,
       statBlocks: elements.statBlocks,
@@ -563,6 +573,8 @@ export async function sa_linkSceneElement(
         title: row.title,
         imageUrl: row.imageUrl,
         annotated: row.annotated,
+        fogCovered: row.fogCovered,
+        fogActive: row.fogActive,
         url: row.url,
         urlText: row.urlText,
         sceneUrl: link?.sceneUrl ?? null,

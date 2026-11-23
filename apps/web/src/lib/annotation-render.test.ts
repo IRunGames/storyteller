@@ -104,6 +104,28 @@ describe("composePlayersCopy", () => {
     expectNear(await pixelAt(copy, 100, 100), [255, 0, 0]);
     expectNear(await pixelAt(copy, PLAYERS_COPY_LONG_SIDE - 100, 100), [0x1b, 0x1d, 0x23]);
   });
+
+  it("draws no wall and no enclosed area's blue into the players' copy", async () => {
+    // A closed room: the players' copy must show the picture where its wall runs, and the
+    // fog's own color, not the storyteller's blue, over the area it encloses.
+    const room: AnnotationOp = { t: "wall", points: [10, 10, 100, 10, 100, 100, 10, 100, 10, 10] };
+    const picture = await redPicture(400, 200);
+    const clear = await composePlayersCopy(picture, {
+      width: 400,
+      height: 200,
+      ops: [room],
+      fogOpacityPlayers: 0,
+    });
+    expectNear(await pixelAt(clear, 55, 10), [255, 0, 0]);
+    const fogged = await composePlayersCopy(picture, {
+      width: 400,
+      height: 200,
+      ops: [room],
+      fogOpacityPlayers: 100,
+    });
+    expectNear(await pixelAt(fogged, 55, 55), [0x1b, 0x1d, 0x23]);
+    expectNear(await pixelAt(fogged, 55, 10), [0x1b, 0x1d, 0x23]);
+  });
 });
 
 describe("fetchUploadedPicture", () => {

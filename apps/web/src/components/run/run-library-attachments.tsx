@@ -245,7 +245,6 @@ export function RunAttachments({
                   idAttachment={row.idAttachment}
                   label={item.label}
                   isAnnotated={row.drawing?.isActive === true}
-                  hasDrawing={Boolean(row.drawing)}
                   onAnnotatedChange={(annotated) => setAnnotated(row.idAttachment, annotated)}
                   onPictureChange={setPicture}
                   portalled={false}
@@ -321,6 +320,8 @@ function attachmentItem(row: Attachment): LibraryItem {
     detail: row.url !== null ? null : row.status === "ERROR" ? "Upload failed" : "Uploading…",
     // An annotated picture as the players see it, once its copy is rendered.
     imageUrl: row.url === null ? null : (row.shownUrl ?? row.url),
+    ...(row.fogCovered ? { fogCovered: true } : {}),
+    ...(row.fogActive ? { fogActive: true } : {}),
     attachment: { tags: row.tags, isCover: row.isCover },
   };
 }

@@ -1,6 +1,7 @@
 import { before, describe, it, mock } from "node:test";
 import { expect } from "expect";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders } from "@/test/render";
 import type { SceneItem } from "@/lib/scene-elements";
@@ -56,5 +57,38 @@ describe("PlayPill", () => {
   it("draws no drop for an element with no health to show", () => {
     renderWithProviders(pill(goblin()));
     expect(screen.queryByRole("img", { name: /^Health/ })).not.toBeInTheDocument();
+  });
+
+  // The players' copy of a picture nothing has been revealed of is a plain
+  // block of the fog's color, so the pill says what it is.
+  it("says a picture covered in fog is covered, and nothing over one that shows something", () => {
+    const { unmount } = renderWithProviders(
+      pill(goblin({ imageUrl: "https://x.test/copy.webp", fogCovered: true })),
+    );
+    expect(screen.getByText("Image is covered in fog")).toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(pill(goblin({ imageUrl: "https://x.test/copy.webp" })));
+    expect(screen.getByRole("button", { name: "Preview Goblin 1" })).toBeInTheDocument();
+    expect(screen.queryByText("Image is covered in fog")).not.toBeInTheDocument();
+  });
+
+  // The storyteller's preview page hands the pill what the players' table
+  // never does: that its picture has fog on it, for the preview's bottom bar.
+  it("marks a picture with fog active FOG OF WAR ACTIVE in its preview, never on the pill", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(
+      pill(goblin({ imageUrl: "https://x.test/copy.webp", fogActive: true })),
+    );
+    expect(screen.queryByText("FOG OF WAR ACTIVE")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Preview Goblin 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "Goblin 1" });
+    expect(within(dialog).getByText("FOG OF WAR ACTIVE")).toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(pill(goblin({ imageUrl: "https://x.test/copy.webp" })));
+    await user.click(screen.getByRole("button", { name: "Preview Goblin 1" }));
+    await screen.findByRole("dialog", { name: "Goblin 1" });
+    expect(screen.queryByText("FOG OF WAR ACTIVE")).not.toBeInTheDocument();
   });
 });

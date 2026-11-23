@@ -385,7 +385,7 @@ export async function sa_getPlayScene(idStory: number): Promise<PlayScene | null
     wideTags: scene.wideTags,
     coverUrl: scene.coverUrl,
     items: rows.map((row) => ({
-      element: toPublicElement(row.element, row.imageUrl, row.link.showInfo),
+      element: toPublicElement(row.element, row.imageUrl, row.link.showInfo, row.fogCovered),
       sceneElement: toPublicSceneElement(row.link, template),
     })),
   };

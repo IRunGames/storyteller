@@ -39,13 +39,23 @@ export type SceneItems = {
   /**
    * An element's picture changed, or whether it is annotated: its pill, if it
    * is in play, shows the new one, and opens the annotator from it while it
-   * is annotated (annotated, false unless said).
+   * is annotated (annotated, false unless said), with "Image is covered in
+   * fog" over it while it is a players' copy that shows nothing (fogCovered,
+   * false unless said), and its full-size preview marked "FOG OF WAR ACTIVE"
+   * while that copy has fog on it anywhere (fogActive, false unless said).
    */
-  setImage: (idElement: number, imageUrl: string | null, annotated?: boolean) => void;
+  setImage: (
+    idElement: number,
+    imageUrl: string | null,
+    annotated?: boolean,
+    fogCovered?: boolean,
+    fogActive?: boolean,
+  ) => void;
   /**
    * An element edited as the story holds it: its pill, if it is in play,
-   * takes the new fields, keeps the field it was showing, and moves under
-   * its new kind's key if the kind changed.
+   * takes the new fields and the element's picture, marked annotated,
+   * covered in fog and with fog active as that picture is, keeps the field
+   * it was showing, and moves under its new kind's key if the kind changed.
    */
   editElement: (element: ElementDetail) => void;
   /** An item's status in the scene, by key. */
@@ -107,14 +117,31 @@ export function useSceneItems(initial: SceneItem[]): SceneItems {
     [],
   );
   const setImage = useCallback(
-    (idElement: number, imageUrl: string | null, annotated = false) =>
+    (
+      idElement: number,
+      imageUrl: string | null,
+      annotated = false,
+      fogCovered = false,
+      fogActive = false,
+    ) =>
       setItems((current) =>
         current.map((existing) => {
           if (existing.kind === "ATTACHMENT" || elementIdOf(existing) !== idElement) {
             return existing;
           }
-          const { annotated: _was, ...rest } = existing;
-          return annotated ? { ...rest, imageUrl, annotated: true } : { ...rest, imageUrl };
+          const {
+            annotated: _was,
+            fogCovered: _wasCovered,
+            fogActive: _wasActive,
+            ...rest
+          } = existing;
+          return {
+            ...rest,
+            imageUrl,
+            ...(annotated ? { annotated: true } : {}),
+            ...(fogCovered ? { fogCovered: true } : {}),
+            ...(fogActive ? { fogActive: true } : {}),
+          };
         }),
       ),
     [],
@@ -126,11 +153,24 @@ export function useSceneItems(initial: SceneItem[]): SceneItems {
           if (existing.kind === "ATTACHMENT" || elementIdOf(existing) !== element.idElement) {
             return existing;
           }
+          // The pill takes the element's own picture, so whether it is
+          // annotated and covered in fog is that picture's, as setImage sets
+          // them; the pill's were the picture it showed before, perhaps the
+          // link's own.
+          const {
+            annotated: _was,
+            fogCovered: _wasCovered,
+            fogActive: _wasActive,
+            ...rest
+          } = existing;
           const moved: SceneItem = {
-            ...existing,
+            ...rest,
             key: playItemKey(element.kind, element.idElement, existing.idSceneElement),
             kind: element.kind as SceneItem["kind"],
             imageUrl: element.imageUrl,
+            ...(element.picture?.isAnnotated ? { annotated: true } : {}),
+            ...(element.picture?.fogCovered ? { fogCovered: true } : {}),
+            ...(element.picture?.fogActive ? { fogActive: true } : {}),
           };
           // Something the page alone holds has no fields to choose among.
           if (!existing.fields) return { ...moved, label: element.name, detail: element.title };

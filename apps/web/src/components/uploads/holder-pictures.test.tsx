@@ -136,7 +136,7 @@ describe("HolderPictures, for an element", () => {
     // Turning it off asks first, since the players are then shown the picture.
     await u.click(toggle);
     const ask = await screen.findByRole("dialog", {
-      name: "Show the players the picture as it is?",
+      name: "Show the players the original picture (no fog)?",
     });
     await u.click(within(ask).getByRole("button", { name: "Show it" }));
     expect(sa_setAnnotated.mock.calls[0].arguments).toEqual([1, false]);

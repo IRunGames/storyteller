@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import {
+  Badge,
   Box,
   chakra,
   CloseButton,
@@ -14,7 +15,9 @@ import {
   Wrap,
 } from "@chakra-ui/react";
 import { Star, Tag as TagIcon } from "lucide-react";
+import { FogCoveredNote } from "@/components/annotations/fog-covered-note";
 import { AttachmentTagsPopover } from "./attachment-tags-popover";
+import { PreviewBarContext } from "./preview-bar-context";
 
 type ContentProps = {
   url: string;
@@ -48,11 +51,28 @@ type ContentProps = {
    */
   onStep?: (direction: -1 | 1) => void;
   /**
-   * Controls for the picture, at the foot's far end: the annotation controls,
-   * where the storyteller may draw on it. Mounted only while the preview is
-   * open, so controls that look the picture up do so as it opens.
+   * Controls for the picture, at the start of the foot, before the tags: the
+   * annotation controls, where the storyteller may draw on it, which draw
+   * their fog switch there as a pill saying whether fog is on
+   * (PreviewBarContext), the pencil after it. Mounted only while the preview
+   * is open, so controls that look the picture up do so as it opens.
    */
   actions?: ReactNode;
+  /**
+   * The picture is a players' copy that shows nothing of it, fogged whole
+   * (PictureState.fogCovered): the thumbnail and the full-size preview both
+   * say so (FogCoveredNote).
+   */
+  fogCovered?: boolean;
+  /**
+   * The picture is a players' copy with fog on it somewhere
+   * (PictureState.fogActive): the full-size preview's bottom bar marks it
+   * "FOG OF WAR ACTIVE" at its start, and the thumbnail says nothing of it.
+   * Left to the controls where there are any, since their fog switch says
+   * whether fog is on in the same place. Given by the storyteller's reads
+   * only.
+   */
+  fogActive?: boolean;
 };
 
 type Props = ContentProps;
@@ -67,16 +87,23 @@ type Props = ContentProps;
  * small and may sit anywhere on the page, and a popover attached to it has
  * nowhere to put a large picture without running off the screen.
  */
-export function AttachmentPreview({ url, label, ...rest }: Props) {
+export function AttachmentPreview({ url, label, fogCovered, fogActive, ...rest }: Props) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <AttachmentPreviewButton url={url} label={label} onOpen={() => setOpen(true)} />
+      <AttachmentPreviewButton
+        url={url}
+        label={label}
+        fogCovered={fogCovered}
+        onOpen={() => setOpen(true)}
+      />
       <AttachmentPreviewDialog
         open={open}
         onOpenChange={setOpen}
         url={url}
         label={label}
+        fogCovered={fogCovered}
+        fogActive={fogActive}
         {...rest}
       />
     </>
@@ -92,18 +119,23 @@ export function AttachmentPreview({ url, label, ...rest }: Props) {
 export function AttachmentPreviewButton({
   url,
   label,
+  fogCovered = false,
   onOpen,
 }: {
   url: string;
   label: string;
+  /** The picture is a players' copy fogged whole; see ContentProps. */
+  fogCovered?: boolean;
   onOpen: () => void;
 }) {
   return (
     // A button, and said to be one, so a form round the list (the
     // attachments field's) is not submitted by a press on the picture.
+    // Positioned only to hold the note over a picture covered in fog.
     <chakra.button
       type="button"
       aria-label={`Preview ${label}`}
+      position={fogCovered ? "relative" : undefined}
       w="full"
       h="full"
       cursor="zoom-in"
@@ -111,6 +143,7 @@ export function AttachmentPreviewButton({
       onClick={onOpen}
     >
       <Image src={url} alt={label} w="full" h="full" objectFit="contain" />
+      {fogCovered && <FogCoveredNote />}
     </chakra.button>
   );
 }
@@ -131,8 +164,13 @@ export function AttachmentPreviewDialog({
   showTags = true,
   onStep,
   actions,
+  fogCovered = false,
+  fogActive = false,
 }: ContentProps & { open: boolean; onOpenChange: (open: boolean) => void }) {
   const shownActions = open ? actions : undefined;
+  const picture = (
+    <Image src={url} alt={label} maxW="90vw" maxH="80vh" objectFit="contain" mx="auto" />
+  );
   return (
     <Dialog.Root
       placement="center"
@@ -170,9 +208,42 @@ export function AttachmentPreviewDialog({
                 {label}
               </Dialog.Title>
             </Dialog.Header>
-            <Image src={url} alt={label} maxW="90vw" maxH="80vh" objectFit="contain" mx="auto" />
-            {(showTags || shownActions) && (
-              <HStack gap="2" px="4" py="3" borderTopWidth="1px" align="center">
+            {fogCovered ? (
+              // Framed as tight as the picture, so the note is centered on
+              // it rather than on the dialog.
+              <Box position="relative" w="fit-content" mx="auto">
+                {picture}
+                <FogCoveredNote />
+              </Box>
+            ) : (
+              picture
+            )}
+            {(showTags || shownActions || fogActive) && (
+              <HStack
+                data-testid="preview-foot"
+                gap="2"
+                px="4"
+                py="3"
+                borderTopWidth="1px"
+                align="center"
+              >
+                {shownActions ? (
+                  <PreviewBarContext.Provider value={true}>
+                    {shownActions}
+                  </PreviewBarContext.Provider>
+                ) : (
+                  fogActive && (
+                    <Badge
+                      variant="subtle"
+                      colorPalette="blue"
+                      rounded="full"
+                      px="3"
+                      flexShrink="0"
+                    >
+                      FOG OF WAR ACTIVE
+                    </Badge>
+                  )
+                )}
                 {showTags && (
                   <>
                     {editTags ? (
@@ -214,7 +285,6 @@ export function AttachmentPreviewDialog({
                     )}
                   </>
                 )}
-                {shownActions && <Box ms="auto">{shownActions}</Box>}
               </HStack>
             )}
             <Dialog.CloseTrigger asChild>

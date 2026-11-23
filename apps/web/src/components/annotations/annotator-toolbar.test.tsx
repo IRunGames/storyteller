@@ -28,6 +28,7 @@ const handlers = {
   onCoverAll: mock.fn(() => {}),
   onClearAll: mock.fn(() => {}),
   onEraseAll: mock.fn(() => {}),
+  onFinishWall: mock.fn(() => {}),
 };
 
 function toolbar(props: Partial<Parameters<typeof AnnotatorToolbar>[0]> = {}) {
@@ -43,6 +44,7 @@ function toolbar(props: Partial<Parameters<typeof AnnotatorToolbar>[0]> = {}) {
       ownFog={50}
       playersFog={100}
       fogColor="#1b1d23"
+      wallInProgress={false}
       {...handlers}
       {...props}
     />,
@@ -152,6 +154,63 @@ describe("AnnotatorToolbar", () => {
     expect(slider(bar, "Brush size")).not.toBeNull();
   });
 
+  it("offers the flood among the fog tools, under Reveal or Cover", async () => {
+    const bar = toolbar({ tool: "flood" });
+    const fogTools = within(bar).getByRole("radiogroup", { name: "Fog tool" });
+    expect(
+      within(fogTools)
+        .getAllByRole("radio")
+        .map((radio) => radio.getAttribute("aria-label")),
+    ).toEqual(["Fog brush", "Fog rectangle", "Flood"]);
+    expect(within(fogTools).getByRole("radio", { name: "Flood" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(slider(bar, "Brush size")).toBeNull();
+    // Awaited, so the sliders' updates after the first render land inside act.
+    expect(await within(bar).findByRole("radiogroup", { name: "Fog mode" })).toBeInTheDocument();
+  });
+
+  it("offers the wall pen and wall eraser, without Reveal or Cover", async () => {
+    const user = userEvent.setup();
+    const bar = toolbar({ tool: "wall" });
+    const fog = within(bar).getByRole("group", { name: "Fog" });
+    const wallTools = within(fog).getByRole("radiogroup", { name: "Wall tool" });
+    const clearAll = within(fog).getByRole("button", { name: "Clear all" });
+    expect(
+      clearAll.compareDocumentPosition(wallTools) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(within(wallTools).getByRole("radio", { name: "Wall pen" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(within(wallTools).getByRole("radio", { name: "Wall eraser" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    expect(within(bar).queryByRole("radiogroup", { name: "Fog mode" })).toBeNull();
+
+    await user.click(within(wallTools).getByRole("radio", { name: "Wall eraser" }));
+    expect(handlers.onToolChange.mock.calls.map((call) => call.arguments[0])).toEqual([
+      "wallEraser",
+    ]);
+  });
+
+  it("shows Finish wall only while a wall is being drawn", async () => {
+    const user = userEvent.setup();
+    const idle = toolbar({ tool: "wall" });
+    expect(within(idle).queryByRole("button", { name: "Finish wall" })).toBeNull();
+
+    const drawing = toolbar({ tool: "wall", wallInProgress: true });
+    const finish = within(drawing).getByRole("button", { name: "Finish wall" });
+    const wallTools = within(drawing).getByRole("radiogroup", { name: "Wall tool" });
+    expect(
+      wallTools.compareDocumentPosition(finish) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await user.click(finish);
+    expect(handlers.onFinishWall.mock.callCount()).toBe(1);
+  });
+
   it("leaves out the fog's modes and the brush's size while an annotation tool is in hand", () => {
     const bar = toolbar({ tool: "pen" });
     expect(within(bar).queryByRole("radiogroup", { name: "Fog mode" })).toBeNull();
@@ -179,6 +238,27 @@ describe("AnnotatorToolbar", () => {
     expect(within(bar).getByRole("spinbutton", { name: "Players' fog percentage" })).toHaveValue(
       100,
     );
+  });
+
+  it("offers My fog's slider from 1 to 100 and Players' fog's from 50 to 100", () => {
+    const bar = toolbar();
+    expect(slider(bar, "My fog")).toHaveAttribute("aria-valuemin", "1");
+    expect(slider(bar, "My fog")).toHaveAttribute("aria-valuemax", "100");
+    expect(slider(bar, "Players' fog")).toHaveAttribute("aria-valuemin", "50");
+    expect(slider(bar, "Players' fog")).toHaveAttribute("aria-valuemax", "100");
+  });
+
+  it("takes a fog under 50 typed in, and shows one without committing it", async () => {
+    const user = userEvent.setup();
+    const bar = toolbar({ ownFog: 30 });
+    expect(within(bar).getByRole("spinbutton", { name: "My fog percentage" })).toHaveValue(30);
+    expect(handlers.onOwnFogChange.mock.callCount()).toBe(0);
+    expect(handlers.onPlayersFogChange.mock.callCount()).toBe(0);
+
+    const players = within(bar).getByRole("spinbutton", { name: "Players' fog percentage" });
+    await user.clear(players);
+    await user.type(players, "20{Enter}");
+    expect(handlers.onPlayersFogChange.mock.calls.map((call) => call.arguments[0])).toEqual([20]);
   });
 
   it("takes a fog's percentage typed in once it is entered, and puts back one out of range", async () => {
@@ -219,7 +299,7 @@ describe("AnnotatorToolbar", () => {
     );
     await user.click(within(colors).getByRole("radio", { name: "Parchment" }));
     expect(handlers.onFogColorChange.mock.calls.map((call) => call.arguments[0])).toEqual([
-      "#e9dcbf",
+      "#f5e6b8",
     ]);
   });
 });

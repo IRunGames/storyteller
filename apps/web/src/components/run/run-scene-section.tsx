@@ -31,6 +31,7 @@ import type { RollAs, StatBlockHolder } from "@/components/stat-blocks/actions";
 import { ElementStatBlocks } from "@/components/stat-blocks/stat-block-view";
 import { StatusPill } from "@/components/status/status-pill";
 import { AnnotationControls } from "@/components/annotations/annotation-controls";
+import { FogCoveredNote } from "@/components/annotations/fog-covered-note";
 import { AttachmentPreview } from "@/components/uploads/attachment-preview";
 import { pictureRow } from "@/components/uploads/attachment-list-field";
 import { StoryAttachmentPicker } from "@/components/uploads/story-attachment-picker";
@@ -75,15 +76,27 @@ type Props = {
   onMoved: (item: SceneItem) => void;
   /**
    * The link's picture for this scene, as read on opening: its address, or
-   * null for none, and whether it is annotated.
+   * null for none, whether it is annotated, and whether that address is a
+   * players' copy covered in fog, and whether it has fog on it anywhere.
    */
-  onImageLoaded: (url: string | null, annotated: boolean) => void;
+  onImageLoaded: (
+    url: string | null,
+    annotated: boolean,
+    fogCovered: boolean,
+    fogActive: boolean,
+  ) => void;
   /**
    * The link's picture for this scene has been changed from here, or
-   * annotated or no longer: its address, or null for none, and whether it is
-   * annotated.
+   * annotated or no longer: its address, or null for none, whether it is
+   * annotated, whether that address is a players' copy covered in fog, and
+   * whether it has fog on it anywhere.
    */
-  onImageChange: (url: string | null, annotated: boolean) => void;
+  onImageChange: (
+    url: string | null,
+    annotated: boolean,
+    fogCovered: boolean,
+    fogActive: boolean,
+  ) => void;
 };
 
 /**
@@ -158,7 +171,12 @@ export function RunSceneSection({
         if (!live) return;
         setAttachments(rows);
         const cover = coverOf(rows);
-        onImageLoaded(shown(cover), cover?.drawing?.isActive === true);
+        onImageLoaded(
+          shown(cover),
+          cover?.drawing?.isActive === true,
+          covered(cover),
+          fogActiveOf(cover),
+        );
       })
       .catch(() => live && setAttachments([]));
     return () => {
@@ -208,7 +226,12 @@ export function RunSceneSection({
         return;
       }
       setPickingCover(false);
-      onImageChange(attachment.shownUrl ?? result.url, attachment.drawing?.isActive === true);
+      onImageChange(
+        attachment.shownUrl ?? result.url,
+        attachment.drawing?.isActive === true,
+        covered(attachment),
+        fogActiveOf(attachment),
+      );
       reload();
     } catch {
       toaster.create({ title: "The picture could not be added. Try again.", type: "error" });
@@ -220,7 +243,7 @@ export function RunSceneSection({
     if (!cover) return;
     try {
       await sa_setAttachmentCover("SCENE_ELEMENT", link.idSceneElement, cover.idAttachment, false);
-      onImageChange(null, false);
+      onImageChange(null, false, false, false);
       reload();
     } catch {
       toaster.create({ title: "The cover could not be changed. Try again.", type: "error" });
@@ -240,7 +263,7 @@ export function RunSceneSection({
         toaster.create({ title: result.error, type: "error" });
         return;
       }
-      onImageChange(null, false);
+      onImageChange(null, false, false, false);
       reload();
     } catch {
       toaster.create({ title: "The picture could not be removed. Try again.", type: "error" });
@@ -278,6 +301,8 @@ export function RunSceneSection({
     ) : (
       <RunPictureCell
         imageUrl={shown(cover)}
+        fogCovered={covered(cover)}
+        fogActive={fogActiveOf(cover)}
         label={cover ? attachmentLabel(cover) : name}
         addLabel="Add cover"
         removeLabel="Remove cover"
@@ -292,7 +317,6 @@ export function RunSceneSection({
               idAttachment={cover.idAttachment}
               label={name}
               isAnnotated={cover.drawing?.isActive === true}
-              hasDrawing={Boolean(cover.drawing)}
               onAnnotatedChange={(annotated) => {
                 setAttachments(
                   (rows) =>
@@ -302,7 +326,7 @@ export function RunSceneSection({
                         : row,
                     ) ?? rows,
                 );
-                onImageChange(shown(cover), annotated);
+                onImageChange(shown(cover), annotated, covered(cover), fogActiveOf(cover));
               }}
               onPictureChange={(picture) => {
                 setAttachments(
@@ -313,7 +337,12 @@ export function RunSceneSection({
                         : row,
                     ) ?? rows,
                 );
-                onImageChange(picture.shownUrl, picture.isAnnotated);
+                onImageChange(
+                  picture.shownUrl,
+                  picture.isAnnotated,
+                  picture.fogCovered,
+                  picture.fogActive,
+                );
               }}
             />
           ) : null
@@ -373,6 +402,8 @@ export function RunSceneSection({
                 label={attachmentLabel(row)}
                 tags={row.tags}
                 isCover={false}
+                fogCovered={covered(row)}
+                fogActive={fogActiveOf(row)}
               />
               {!locked && (
                 <RunCoverStar
@@ -404,6 +435,8 @@ export function RunSceneSection({
         <chakra.button
           type="button"
           aria-label="Pictures in this scene"
+          // Positioned only to hold the note over a cover covered in fog.
+          position={covered(cover) ? "relative" : undefined}
           display="inline-flex"
           alignItems="center"
           justifyContent="center"
@@ -419,13 +452,16 @@ export function RunSceneSection({
           _focusVisible={{ outline: "2px solid", outlineColor: "colorPalette.focusRing" }}
         >
           {cover ? (
-            <chakra.img
-              src={shown(cover)!}
-              alt=""
-              boxSize="full"
-              objectFit="cover"
-              data-testid="scene-pictures-cover"
-            />
+            <>
+              <chakra.img
+                src={shown(cover)!}
+                alt=""
+                boxSize="full"
+                objectFit="cover"
+                data-testid="scene-pictures-cover"
+              />
+              {covered(cover) && <FogCoveredNote />}
+            </>
           ) : (
             <ImageIcon size={14} aria-hidden />
           )}
@@ -537,6 +573,16 @@ const isPicture = (row: Attachment) => row.status === "READY" && row.url !== nul
 /** A picture as the storyteller is shown it: as the players see it, once annotated and rendered. */
 function shown(row: Attachment | null): string | null {
   return row ? (row.shownUrl ?? row.url) : null;
+}
+
+/** Whether a picture as it is shown (shown) is a players' copy covered in fog. */
+function covered(row: Attachment | null): boolean {
+  return row?.fogCovered === true;
+}
+
+/** Whether a picture as it is shown (shown) is a players' copy with fog on it anywhere. */
+function fogActiveOf(row: Attachment | null): boolean {
+  return row?.fogActive === true;
 }
 
 function coverOf(rows: Attachment[]): Attachment | null {

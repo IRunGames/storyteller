@@ -53,18 +53,43 @@ export const FOG_COLOR = "#1b1d23";
 /**
  * The fog's colors, picked from swatches: the drawing's own, so the players'
  * copy is drawn in it too. Dark and light both, for a map that is either.
- * Each is #rrggbb, the only form the fog's color takes.
+ * Each is #rrggbb, the only form the fog's color takes. Storm, Night, Forest,
+ * Mist and Parchment are bright enough to stand out from each other and from
+ * a dark map; Slate stays as dark as it was because it is FOG_COLOR, the
+ * column's default and the color of every drawing saved so far, and Black and
+ * White are what they say.
  */
 export const FOG_COLORS = [
   { value: FOG_COLOR, label: "Slate" },
   { value: "#000000", label: "Black" },
-  { value: "#4a5160", label: "Storm" },
-  { value: "#16233d", label: "Night" },
-  { value: "#1d3324", label: "Forest" },
-  { value: "#cfd4dc", label: "Mist" },
-  { value: "#e9dcbf", label: "Parchment" },
+  { value: "#7b8599", label: "Storm" },
+  { value: "#2f5fb3", label: "Night" },
+  { value: "#3a8f5c", label: "Forest" },
+  { value: "#e6ebf2", label: "Mist" },
+  { value: "#f5e6b8", label: "Parchment" },
   { value: "#ffffff", label: "White" },
 ] as const;
+
+/**
+ * How a fog wall looks to the storyteller, in screen pixels (the drawing is
+ * laid over the picture at its own scale, so the width is kept on screen with
+ * a non-scaling stroke). An open wall is a pale line that bounds nothing yet;
+ * a wall in a closed shape is a strong blue. The outline is drawn 2 px wider
+ * under the line so the wall reads on a light or a dark picture. Players never
+ * see walls, so these are not part of the players' copy.
+ */
+export const WALL_OPEN = { color: "#a5f3fc", outline: "#0c4a6e", width: 2 } as const;
+export const WALL_CLOSED = { color: "#1d4ed8", outline: "#ffffff", width: 4 } as const;
+
+/**
+ * The range each fog slider offers. My fog goes down to 1, so the storyteller
+ * can thin their own view of the fog until the picture under it is nearly
+ * clear; the players' fog starts at 50, since below that it is too thin to
+ * hide anything. The typed percentage boxes still take 0 to 100, and a
+ * players' fog under 50 saved earlier or typed in is kept as it is.
+ */
+export const OWN_FOG_SLIDER = { min: 1, max: 100 } as const;
+export const PLAYERS_FOG_SLIDER = { min: 50, max: 100 } as const;
 
 /** How thick the storyteller's own fog is until they choose, light enough to draw through. */
 export const DEFAULT_OWN_FOG_OPACITY = 50;
@@ -123,6 +148,18 @@ export type PictureState = {
   canAnnotate: boolean;
   hasDrawing: boolean;
   isAnnotated: boolean;
+  /**
+   * Whether shownUrl is a players' copy that shows nothing of the picture,
+   * fogged whole (fogCovered in db/attachment-url.ts), so whatever shows it
+   * lays "Image is covered in fog" over it.
+   */
+  fogCovered: boolean;
+  /**
+   * Whether shownUrl is a players' copy with fog on it anywhere (fogActive in
+   * db/attachment-url.ts), so the full-size preview marks it "FOG OF WAR
+   * ACTIVE". Implied by fogCovered.
+   */
+  fogActive: boolean;
 };
 
 /**

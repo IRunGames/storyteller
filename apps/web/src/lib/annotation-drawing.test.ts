@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import { expect } from "expect";
 
-import type { AnnotationOp } from "./annotation-schemas";
+import type { AnnotationOp, WallOp } from "./annotation-schemas";
 import {
   annotationTree,
   marksAt,
@@ -10,7 +10,10 @@ import {
   toSvgString,
   type SvgNode,
 } from "./annotation-drawing";
-import { FOG_COLOR } from "./annotations";
+import { FOG_COLOR, WALL_CLOSED } from "./annotations";
+
+const room: AnnotationOp = { t: "wall", points: [10, 10, 100, 10, 100, 100, 10, 100, 10, 10] };
+const flood: AnnotationOp = { t: "flood", mode: "reveal", rings: [[0, 0, 50, 0, 50, 50, 0, 50]] };
 
 const size = { width: 400, height: 200, fogOpacity: 100, maskId: "fog" };
 
@@ -26,6 +29,53 @@ function parts(tree: SvgNode) {
 }
 
 describe("annotationTree", () => {
+  it("draws a flood into the mask as one even-odd path, and drops it after Cover all", () => {
+    const { mask } = parts(annotationTree([room, flood], size));
+    expect(mask?.children?.slice(1)).toEqual([
+      { tag: "path", attrs: { d: "M0 0L50 0L50 50L0 50Z", "fill-rule": "evenodd", fill: "black" } },
+    ]);
+    const covered = parts(annotationTree([flood, { t: "fogAll", mode: "cover" }], size));
+    expect(covered.mask?.children).toHaveLength(1);
+  });
+
+  it("keeps a flood as it was when a wall it was bounded by is erased", () => {
+    const before = parts(annotationTree([room, flood], size)).mask;
+    const after = parts(annotationTree([room, flood, { t: "wallErase", targets: [0] }], size)).mask;
+    expect(after).toEqual(before);
+  });
+
+  it("leaves walls out unless the storyteller's view is asked for, and draws them above the fog then", () => {
+    expect(parts(annotationTree([room], size)).children.some((n) => n.key === "walls")).toBe(false);
+    const view = { walls: [{ op: room as WallOp, closed: true }], enclosed: [] };
+    const { children, fog } = parts(annotationTree([room], { ...size, storyteller: view }));
+    const walls = children.find((n) => n.key === "walls")!;
+    expect(children.indexOf(walls)).toBeGreaterThan(children.indexOf(fog!));
+    expect(walls.children?.map((n) => n.attrs.stroke)).toEqual([
+      WALL_CLOSED.outline,
+      WALL_CLOSED.color,
+    ]);
+    expect(walls.children?.[1].attrs).toMatchObject({
+      d: "M10 10L100 10L100 100L10 100L10 10",
+      "stroke-width": WALL_CLOSED.width,
+      "vector-effect": "non-scaling-stroke",
+    });
+  });
+
+  it("draws the storyteller's fog over an enclosed area in the closed walls' blue, only while the fog shows", () => {
+    const view = {
+      walls: [{ op: room as WallOp, closed: true }],
+      enclosed: [[10, 10, 100, 10, 100, 100, 10, 100]],
+    };
+    const tree = annotationTree([room], { ...size, fogOpacity: 40, storyteller: view });
+    expect(toSvgString(tree)).toContain(`fill="${WALL_CLOSED.color}" fill-opacity="0.4"`);
+    const bare = annotationTree([room], { ...size, fogOpacity: 0, storyteller: view });
+    expect(toSvgString(bare)).not.toContain(`fill="${WALL_CLOSED.color}"`);
+  });
+
+  it("runs a stroke straight into and out of a point given twice", () => {
+    expect(strokePath([0, 0, 10, 0, 10, 0, 20, 10])).toBe("M0 0Q10 0 10 0Q10 0 15 5L20 10");
+  });
+
   it("draws the picture's own pixels into the size it is shown at", () => {
     const tree = annotationTree([], { ...size, outWidth: 200, outHeight: 100 });
     expect(tree.tag).toBe("svg");

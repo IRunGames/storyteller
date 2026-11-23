@@ -61,6 +61,16 @@ export type StoryElement = {
    * leave it, reads as none.
    */
   coverUrl?: string | null;
+  /**
+   * Whether that cover is a players' copy that shows nothing of the picture,
+   * fogged whole (PictureState.fogCovered); absent reads as not.
+   */
+  coverFogCovered?: boolean;
+  /**
+   * Whether that cover is a players' copy with fog on it anywhere
+   * (PictureState.fogActive), for its full-size preview; absent reads as not.
+   */
+  coverFogActive?: boolean;
   /** How many finished pictures it holds besides its cover; absent reads as none. */
   otherPictures?: number;
 };

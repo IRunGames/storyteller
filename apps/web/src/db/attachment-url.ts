@@ -35,6 +35,69 @@ function pillPicture(linkSource: string, elementSource: string) {
 const shownUrl = sql`case when aa.is_active and aa.player_url is not null
   then aa.player_url else f.url end`;
 
+// Whether the players' copy of the drawing `aa` shows nothing of its
+// picture, for the note laid over it ("Image is covered in fog"): a copy
+// fogged whole is a plain block of the fog's color, and nobody can tell what
+// it is. That is a drawing that is on, whose copy has been rendered, whose
+// fog the players see at full, and with nothing revealed: no reveal among
+// its steps that a later Cover all does not lay the fog back over. A drawing
+// starts fogged whole, so one with no Cover all is covered until a step
+// reveals something, and a Clear all is a reveal too (annotationTree reads
+// the steps the same way). Walls, pen marks and the erasers change no fog.
+// Worked out here from the stored steps, which are never loaded into the
+// app for it; the subquery finding the last Cover all names only `aa`, so it
+// runs once per drawing rather than once per step. False with no drawing,
+// for a left join.
+const fogCovered = sql<boolean>`coalesce(aa.is_active
+  and aa.player_url is not null
+  and aa.fog_opacity_players >= 100
+  and not exists (
+    select 1
+    from jsonb_array_elements(aa.ops) with ordinality as step(op, at)
+    where step.op->>'t' in ('brush', 'rect', 'flood', 'fogAll')
+      and step.op->>'mode' = 'reveal'
+      and step.at > coalesce((
+        select max(cover.at)
+        from jsonb_array_elements(aa.ops) with ordinality as cover(op, at)
+        where cover.op->>'t' = 'fogAll' and cover.op->>'mode' = 'cover'
+      ), 0)
+  ), false)`;
+
+// Whether the players' copy of the drawing `aa` has fog on it anywhere, for
+// the mark in the storyteller's full-size preview ("FOG OF WAR ACTIVE"):
+// the copy is the picture shown (the drawing is on and the copy rendered),
+// the players see the fog at all (fog_opacity_players above 0), and the fog
+// mask is not empty by construction. The last Cover all or Clear all is the
+// reset (annotationTree starts the fog afresh there): with none, or with a
+// Cover all last, the fog starts whole, so it is active; after a Clear all
+// it is active only when a brush, rectangle or flood lays fog after it.
+// A reveal that happens to clear every last pixel by hand still counts as
+// active; the steps are not painted here. A picture covered whole
+// (fogCovered) is always active too. False with no drawing, for a left join.
+const fogActive = sql<boolean>`coalesce(aa.is_active
+  and aa.player_url is not null
+  and aa.fog_opacity_players > 0
+  and (
+    coalesce((
+      select reset.op->>'mode'
+      from jsonb_array_elements(aa.ops) with ordinality as reset(op, at)
+      where reset.op->>'t' = 'fogAll'
+      order by reset.at desc
+      limit 1
+    ), 'cover') = 'cover'
+    or exists (
+      select 1
+      from jsonb_array_elements(aa.ops) with ordinality as step(op, at)
+      where step.op->>'t' in ('brush', 'rect', 'flood')
+        and step.op->>'mode' = 'cover'
+        and step.at > coalesce((
+          select max(reset.at)
+          from jsonb_array_elements(aa.ops) with ordinality as reset(op, at)
+          where reset.op->>'t' = 'fogAll'
+        ), 0)
+    )
+  ), false)`;
+
 /**
  * The picture the storyteller's pill shows for an element in a scene: the
  * cover of the element's link to the scene (its SCENE_ELEMENT use, how it
@@ -88,6 +151,35 @@ export function annotatedForStoryteller(linkSource: string, elementSource: strin
   )`;
 }
 
+/**
+ * Whether the picture a pill shows for an element in a scene is a players'
+ * copy covered in fog (fogCovered). The storyteller's pill and the players'
+ * are both shown that copy then (sceneElementImageUrl,
+ * playerSceneElementImageUrl), so the one flag serves both.
+ */
+export function sceneElementFogCovered(linkSource: string, elementSource: string) {
+  return sql<boolean>`exists (
+    select 1
+    from ${pillPicture(linkSource, elementSource)} p
+    join attachment_annotations aa on aa.id_attachment = p.id_attachment
+    where ${fogCovered}
+  )`;
+}
+
+/**
+ * Whether the picture a pill shows for an element in a scene is a players'
+ * copy with fog on it (fogActive), for the storyteller's full-size preview.
+ * Only the storyteller's reads work it out; the players are never told.
+ */
+export function sceneElementFogActive(linkSource: string, elementSource: string) {
+  return sql<boolean>`exists (
+    select 1
+    from ${pillPicture(linkSource, elementSource)} p
+    join attachment_annotations aa on aa.id_attachment = p.id_attachment
+    where ${fogActive}
+  )`;
+}
+
 /** The element's own finished cover, as the subquery the element reads below look it up from. */
 function elementCover(elementSource: string) {
   return sql`(
@@ -115,6 +207,61 @@ export function elementAnnotated(elementSource: string) {
 }
 
 /**
+ * Whether the element's own picture, as elementPictureUrl shows it, is a
+ * players' copy covered in fog (fogCovered).
+ */
+export function elementPictureFogCovered(elementSource: string) {
+  return sql<boolean>`exists (
+    select 1
+    from ${elementCover(elementSource)} c
+    join attachment_annotations aa on aa.id_attachment = c.id_attachment
+    where ${fogCovered}
+  )`;
+}
+
+/**
+ * Whether the element's own picture, as elementPictureUrl shows it, is a
+ * players' copy with fog on it (fogActive).
+ */
+export function elementPictureFogActive(elementSource: string) {
+  return sql<boolean>`exists (
+    select 1
+    from ${elementCover(elementSource)} c
+    join attachment_annotations aa on aa.id_attachment = c.id_attachment
+    where ${fogActive}
+  )`;
+}
+
+/**
+ * Whether an attachment, as the storyteller is shown it, is a players' copy
+ * covered in fog (fogCovered). The file is named as the outer relation, for
+ * the reason attachmentUrl gives: a bare id_attachment in here would be the
+ * drawing's own.
+ */
+export function attachmentFogCovered(source: string) {
+  return sql<boolean>`exists (
+    select 1
+    from attachment_annotations aa
+    where aa.id_attachment = ${sql.identifier(source)}.id_attachment
+      and ${fogCovered}
+  )`;
+}
+
+/**
+ * Whether an attachment, as the storyteller is shown it, is a players' copy
+ * with fog on it (fogActive), named as the outer relation as
+ * attachmentFogCovered is.
+ */
+export function attachmentFogActive(source: string) {
+  return sql<boolean>`exists (
+    select 1
+    from attachment_annotations aa
+    where aa.id_attachment = ${sql.identifier(source)}.id_attachment
+      and ${fogActive}
+  )`;
+}
+
+/**
  * The PictureState of the file a one-row subquery of (id_attachment, url,
  * is_uploaded) names, as json, or null when it names none: what a picture's
  * annotation controls are drawn from.
@@ -126,7 +273,9 @@ function pictureStateOf(file: SQL) {
       'shownUrl', ${shownUrl},
       'canAnnotate', f.is_uploaded,
       'hasDrawing', aa.id_attachment is not null,
-      'isAnnotated', coalesce(aa.is_active, false))
+      'isAnnotated', coalesce(aa.is_active, false),
+      'fogCovered', ${fogCovered},
+      'fogActive', ${fogActive})
     from ${file} f
     left join attachment_annotations aa on aa.id_attachment = f.id_attachment
   )`;

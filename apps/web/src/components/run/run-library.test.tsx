@@ -472,12 +472,13 @@ describe("RunLibrary", () => {
 
     await user.click(await within(panel).findByRole("button", { name: "Preview Handout 2" }));
     const preview = await screen.findByRole("dialog", { name: "Handout 2" });
-    const toggle = within(preview).getByRole("button", { name: "Annotate for players" });
+    const toggle = within(preview).getByRole("button", { name: "FOG OF WAR OFF" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     await user.click(toggle);
 
     expect(sa_setAnnotated.mock.calls[0].arguments).toEqual([2, true]);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(toggle).toHaveTextContent("FOG OF WAR ACTIVE");
     expect(within(preview).getByRole("button", { name: "Open annotator" })).toBeInTheDocument();
   });
 
@@ -810,11 +811,14 @@ describe("RunLibrary", () => {
     await user.click(await within(dialog).findByRole("button", { name: "Add Handout 1" }));
 
     expect(sa_setElementImage.mock.calls[0].arguments).toEqual([-4, 5, 1]);
-    // The play space hears of it, and the popover shows it with its −.
+    // The play space hears of it, not annotated, not covered in fog and with
+    // no fog active, and the popover shows it with its −.
     await waitFor(() =>
       expect(sceneItems.setImage.mock.calls[0]?.arguments).toEqual([
         5,
         "https://x.test/1.png",
+        false,
+        false,
         false,
       ]),
     );

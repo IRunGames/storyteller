@@ -4,12 +4,13 @@ import { and, eq } from "drizzle-orm";
 import { del } from "@vercel/blob";
 import { db, schema } from "@/db";
 import { annotationOf, type AnnotationRow } from "@/db/attachment-annotations";
-import { scenePicture } from "@/db/attachment-url";
+import { attachmentFogActive, attachmentFogCovered, scenePicture } from "@/db/attachment-url";
 import { ownedSceneElement } from "@/db/story-access";
 import { fetchUploadedPicture, measurePicture } from "@/lib/annotation-render";
 import {
   MAX_ANNOTATION_OPS,
   eraseRefusal,
+  isWallStep,
   saveAnnotationSchema,
   type SaveAnnotationInput,
 } from "@/lib/annotation-schemas";
@@ -177,12 +178,26 @@ export async function sa_getPictureState(idAttachment: number): Promise<PictureS
   if (!picture) return null;
   const row = await annotationOf(picture.idAttachment);
   const annotated = row?.isActive === true;
+  // Whether the copy shows nothing, and whether it has fog on it at all, are
+  // read from the steps in the database (attachmentFogCovered,
+  // attachmentFogActive), as every other read of a picture reads them.
+  const [covered] = annotated
+    ? await db
+        .select({
+          fogCovered: attachmentFogCovered("attachments"),
+          fogActive: attachmentFogActive("attachments"),
+        })
+        .from(attachments)
+        .where(eq(attachments.idAttachment, picture.idAttachment))
+    : [];
   return {
     idAttachment: picture.idAttachment,
     shownUrl: annotated && row.playerUrl ? row.playerUrl : picture.url,
     canAnnotate: picture.status === "READY" && picture.isUploaded,
     hasDrawing: row !== null,
     isAnnotated: annotated,
+    fogCovered: covered?.fogCovered === true,
+    fogActive: covered?.fogActive === true,
     behind: annotated && row.playerRevision !== row.revision,
   };
 }
@@ -280,6 +295,12 @@ export type SaveAnnotationResult =
  * it. A change made in the annotator is the picture annotated: a drawing that
  * was off is turned on with it, and the players' table told.
  *
+ * Walls are the storyteller's alone, never drawn into the players' copy, so
+ * a save of only wall steps (added, or taken off by Undo) that leaves the
+ * players' fog and its color alone leaves what the players see alone too:
+ * the picture is not turned on, nothing is published or rendered, and a
+ * players' copy that was current stays current at the new revision.
+ *
  * A save made from a drawing that has moved on since (another tab, another
  * device) is refused as stale rather than written over it: the annotator
  * loads the drawing again. The row is read locked, so two saves cannot both
@@ -319,6 +340,30 @@ export async function sa_saveAnnotation(
     if (ops.length > MAX_ANNOTATION_OPS) return { ok: false as const, error: DRAWING_TOO_LONG };
     const refusal = eraseRefusal(ops);
     if (refusal) return { ok: false as const, error: refusal };
+    const wallsOnly =
+      !changesOpacity &&
+      !changesColor &&
+      append.every(isWallStep) &&
+      row.ops.slice(keep).every(isWallStep);
+    if (wallsOnly) {
+      const revision = row.revision + 1;
+      const [saved] = await tx
+        .update(attachmentAnnotations)
+        .set({
+          ops,
+          revision,
+          ...(row.playerRevision === row.revision ? { playerRevision: revision } : {}),
+          idUpdatedByUser: user.id,
+        })
+        .where(
+          and(
+            eq(attachmentAnnotations.idAttachment, id),
+            eq(attachmentAnnotations.revision, baseRevision),
+          ),
+        )
+        .returning({ revision: attachmentAnnotations.revision });
+      return { ok: true as const, revision: saved.revision };
+    }
     // A change made in the annotator is the picture annotated for the
     // players: the drawing is turned on with it, if it was not.
     const on = turnOn(row, row.revision + 1);

@@ -705,7 +705,7 @@ describeWithDb(
       }
     });
 
-    it("marks an annotated element's pill as annotated when it is linked and after an edit", async () => {
+    it("marks an annotated element's pill as annotated, and covered in fog, when it is linked and after an edit", async () => {
       const target = await sceneIn("ACTIVE", "Fixture scene for an annotated map");
       const [{ idAttachment }] = await db
         .insert(tables.attachments)
@@ -725,16 +725,20 @@ describeWithDb(
           tags: ["cover"],
           idCreatedByUser: suite.testUser,
         });
+        // Its players' copy rendered, with nothing revealed yet.
         await db.insert(tables.attachmentAnnotations).values({
           idAttachment,
           width: 100,
           height: 50,
+          playerUrl: "https://abc.public.blob.vercel-storage.com/annotations/abbey-copy.webp",
           idCreatedByUser: suite.testUser,
         });
 
         const linked = await actions.sa_linkSceneElement(mine, target, abbey);
         if (!linked.ok) throw new Error("not linked");
         expect(linked.item.annotated).toBe(true);
+        expect(linked.item.fogCovered).toBe(true);
+        expect(linked.item.fogActive).toBe(true);
 
         const edited = await actions.sa_updateSceneElement(
           mine,
@@ -744,6 +748,8 @@ describeWithDb(
         );
         if (!edited.ok) throw new Error("not edited");
         expect(edited.item.annotated).toBe(true);
+        expect(edited.item.fogCovered).toBe(true);
+        expect(edited.item.fogActive).toBe(true);
       } finally {
         // The attachment takes its use and the drawing with it.
         await db

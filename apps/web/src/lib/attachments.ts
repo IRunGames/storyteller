@@ -88,6 +88,18 @@ export type Attachment = {
    * list draws; its link is still the file's. Absent reads as `url`.
    */
   shownUrl?: string | null;
+  /**
+   * Whether shownUrl is a players' copy that shows nothing of the picture
+   * (PictureState.fogCovered), so the card says it is covered in fog.
+   * Absent reads as not.
+   */
+  fogCovered?: boolean;
+  /**
+   * Whether shownUrl is a players' copy with fog on it anywhere
+   * (PictureState.fogActive), so its full-size preview marks it. Absent
+   * reads as not.
+   */
+  fogActive?: boolean;
 };
 
 /**

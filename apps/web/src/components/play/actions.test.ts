@@ -806,6 +806,46 @@ describeWithDb("play table actions", { email: TEST_USER_EMAIL }, (suite) => {
       );
     });
 
+    // The storyteller's full-size preview marks a picture with fog on it; the
+    // players are told whether it is covered whole, and never that.
+    it("gives a picture's copy as covered in fog or not, and never says it has fog active", async () => {
+      await onScene(docks);
+      const [item] = (await actions.sa_getPlayScene(playsIn))!.items;
+      const [{ id: idAttachment }] = await db
+        .insert(tables.attachments)
+        .values({
+          idStory: playsIn,
+          status: "READY",
+          url: "https://abc.public.blob.vercel-storage.com/uploads/u/fog-fixture.png",
+          isUploaded: true,
+          idCreatedByUser: testUser,
+        })
+        .returning({ id: tables.attachments.idAttachment });
+      try {
+        await db.insert(tables.attachmentUses).values({
+          idAttachment,
+          kind: "ELEMENT",
+          idExternal: item.element.idElement,
+          tags: ["cover"],
+          idCreatedByUser: testUser,
+        });
+        await db.insert(tables.attachmentAnnotations).values({
+          idAttachment,
+          width: 100,
+          height: 50,
+          playerUrl: "https://abc.public.blob.vercel-storage.com/annotations/fog-copy.webp",
+          idCreatedByUser: testUser,
+        });
+        const [shown] = (await actions.sa_getPlayScene(playsIn))!.items;
+        expect(shown.element.imageFogCovered).toBe(true);
+        expect(shown.element).not.toHaveProperty("imageFogActive");
+      } finally {
+        await db
+          .delete(tables.attachments)
+          .where(eq(tables.attachments.idAttachment, idAttachment));
+      }
+    });
+
     it("gives each element how full its link's health indicator is, and none of its stats", async () => {
       await onScene(docks);
       const pool = {

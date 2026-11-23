@@ -131,12 +131,15 @@ export function RunElementPanel({
   // undefined while loading, null when there is nothing to show.
   const [loaded, setLoaded] = useState<Loaded | null | undefined>(undefined);
   // The link's own picture for this scene, as the scene card last read or
-  // set it, and whether it is annotated; a null url for none. What the pill
-  // shows over the element's picture.
-  const [sceneImage, setSceneImage] = useState<{ url: string | null; annotated: boolean }>({
-    url: null,
-    annotated: false,
-  });
+  // set it, whether it is annotated, and whether it is a players' copy
+  // covered in fog or with fog on it anywhere; a null url for none. What
+  // the pill shows over the element's picture.
+  const [sceneImage, setSceneImage] = useState<{
+    url: string | null;
+    annotated: boolean;
+    fogCovered: boolean;
+    fogActive: boolean;
+  }>({ url: null, annotated: false, fogCovered: false, fogActive: false });
   const [editing, setEditing] = useState(false);
   // Bumped to load again, after an edit saved in the scene.
   const [loads, setLoads] = useState(0);
@@ -293,15 +296,20 @@ export function RunElementPanel({
                 sceneItems.replace(item);
                 onChanged?.();
               }}
-              onImageLoaded={(url, annotated) => setSceneImage({ url, annotated })}
-              onImageChange={(url, annotated) => {
-                setSceneImage({ url, annotated });
+              onImageLoaded={(url, annotated, fogCovered, fogActive) =>
+                setSceneImage({ url, annotated, fogCovered, fogActive })
+              }
+              onImageChange={(url, annotated, fogCovered, fogActive) => {
+                setSceneImage({ url, annotated, fogCovered, fogActive });
                 // Without a picture of its own, the link shows the element's,
-                // annotated if that picture is.
+                // annotated and covered in fog if that picture is.
+                const own = loaded.element.picture;
                 sceneItems.setImage(
                   idElement,
                   url ?? loaded.element.imageUrl,
-                  url === null ? loaded.element.picture?.isAnnotated === true : annotated,
+                  url === null ? own?.isAnnotated === true : annotated,
+                  url === null ? own?.fogCovered === true : fogCovered,
+                  url === null ? own?.fogActive === true : fogActive,
                 );
               }}
             />
@@ -326,6 +334,8 @@ export function RunElementPanel({
                 idElement,
                 sceneImage.url ?? imageUrl,
                 sceneImage.url === null ? picture?.isAnnotated === true : sceneImage.annotated,
+                sceneImage.url === null ? picture?.fogCovered === true : sceneImage.fogCovered,
+                sceneImage.url === null ? picture?.fogActive === true : sceneImage.fogActive,
               );
             }}
             onPictureChange={(picture) => {
@@ -335,6 +345,8 @@ export function RunElementPanel({
                 idElement,
                 sceneImage.url ?? imageUrl,
                 sceneImage.url === null ? picture.isAnnotated : sceneImage.annotated,
+                sceneImage.url === null ? picture.fogCovered : sceneImage.fogCovered,
+                sceneImage.url === null ? picture.fogActive : sceneImage.fogActive,
               );
             }}
             onAnnotatedChange={(annotated) => {
@@ -349,11 +361,14 @@ export function RunElementPanel({
                 });
               }
               // The pill is marked while its picture is this annotated one,
-              // not the link's own.
+              // not the link's own. Its address is unchanged until the
+              // picture is read back, and so is what that address shows.
               sceneItems.setImage(
                 idElement,
                 sceneImage.url ?? loaded.element.imageUrl,
                 sceneImage.url === null ? annotated : sceneImage.annotated,
+                sceneImage.url === null ? picture?.fogCovered === true : sceneImage.fogCovered,
+                sceneImage.url === null ? picture?.fogActive === true : sceneImage.fogActive,
               );
             }}
           />

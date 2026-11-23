@@ -163,7 +163,7 @@ export function LiveTable({
           {/* The top line: the scene's title at the start on the panel
               colour, part see-through, as the run page has it, with its
               status chip after it and the chevron that opens its title,
-              description and notes at the end; and PREVIEWING in the
+              description and notes at the end; and SCENE BUILDER in the
               middle of the line, on the same colour, since this page
               shows the scene as the players' table will without being
               that table, and a storyteller with both open should never
@@ -252,7 +252,7 @@ export function LiveTable({
               fontWeight="semibold"
               letterSpacing="widest"
             >
-              PREVIEWING
+              SCENE BUILDER
             </Text>
             {/* At the end of the line, the cover's icon, there only while
                 the scene has a cover and is not complete, since a complete

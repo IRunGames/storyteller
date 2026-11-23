@@ -27,7 +27,12 @@ const tags = z.array(z.string());
  * by the players' read model (playerSceneElementImageUrl in
  * db/attachment-url.ts), so the players' table need not ask again: the
  * link's or the element's cover, and for an annotated picture the players'
- * copy, never the raw picture.
+ * copy, never the raw picture. imageFogCovered says that copy shows nothing
+ * of the picture, fogged whole (sceneElementFogCovered), for the note the
+ * pill lays over it. imageFogActive says it has fog on it anywhere
+ * (sceneElementFogActive), for the mark in the storyteller's full-size
+ * preview: only the storyteller's own reads set it, so a broadcast to the
+ * players never carries it.
  */
 export const publicElementSchema = z.object({
   idElement: z.number().int(),
@@ -40,6 +45,9 @@ export const publicElementSchema = z.object({
   description: z.string().nullable(),
   notes: z.string().nullable(),
   imageUrl: z.string().nullable(),
+  // Optional, so a message from a server that predates it still reads.
+  imageFogCovered: z.boolean().optional(),
+  imageFogActive: z.boolean().optional(),
   url: z.string().nullable(),
   urlText: z.string().nullable(),
   tags,
@@ -90,6 +98,8 @@ export function toPublicElement(
   row: ElementRow,
   imageUrl: string | null,
   showInfo: boolean,
+  imageFogCovered: boolean,
+  imageFogActive = false,
 ): PublicElement {
   // Picked field by field rather than spread, so a column added to elements
   // later does not reach the players until someone decides it should.
@@ -104,6 +114,8 @@ export function toPublicElement(
     description: showInfo ? row.description : null,
     notes: row.notes,
     imageUrl,
+    imageFogCovered,
+    ...(imageFogActive ? { imageFogActive: true } : {}),
     url: showInfo ? row.url : null,
     urlText: showInfo ? row.urlText : null,
     tags: row.tags,

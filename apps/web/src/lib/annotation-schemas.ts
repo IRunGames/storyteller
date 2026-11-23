@@ -2,9 +2,10 @@ import { z } from "zod";
 
 // The drawing an annotated picture carries over itself
 // (attachment_annotations.ops): an ordered list of steps, each a fog shape, a
-// fog reset, a pen mark, a shape, an eraser's drag, or an erasing of every
-// annotation. The order is the
-// drawing: a later Cover over an earlier Reveal hides it again, and a Cover
+// fog reset, a pen mark, a shape, an eraser's drag, an erasing of every
+// annotation, a wall, a wall eraser's drag, or a flood. A wall is the
+// storyteller's alone: it steers a flood and is never drawn into the players'
+// copy. The order is the drawing: a later Cover over an earlier Reveal hides it again, and a Cover
 // all or Clear all makes every fog step before it moot. Coordinates are in
 // the picture's own pixels, as measured upright (attachment_annotations.width
 // and height).
@@ -24,6 +25,19 @@ export const MAX_APPENDED_OPS = 100;
 
 /** The most marks one drag of the eraser may take away. */
 export const MAX_ERASE_TARGETS = 500;
+
+/** The most points one wall may hold. */
+export const MAX_WALL_POINTS = 500;
+
+/**
+ * The most rings one flood may hold: the area it fills and the holes in it.
+ * Set well past any map's rooms, since every closed room inside a flood is a
+ * hole it must keep; the points below are what hold a flood to one save.
+ */
+export const MAX_FLOOD_RINGS = 2_000;
+
+/** The most points one flood may hold across all its rings. */
+export const MAX_FLOOD_POINTS = 10_000;
 
 /** The shapes the shape tool draws, each from its centre out. */
 export const SHAPE_KINDS = ["circle", "triangle", "square", "pentagon", "hexagon"] as const;
@@ -111,6 +125,47 @@ const eraseOpSchema = z.object({
 /** Erase all annotations: every pen mark and shape before it is gone. */
 const penClearOpSchema = z.object({ t: z.literal("penClear") });
 
+/**
+ * A fog wall, drawn on the fog by the storyteller: a line a flood stops at.
+ * Points are flat, x then y, as a pen mark's are.
+ */
+const wallOpSchema = z.object({
+  t: z.literal("wall"),
+  points: z
+    .array(coordinateSchema)
+    .min(4)
+    .max(MAX_WALL_POINTS * 2)
+    .refine((points) => points.length % 2 === 0, { error: "A point needs both x and y." }),
+});
+
+/** One drag of the wall eraser: the walls it took away, named like an eraser's marks. */
+const wallEraseOpSchema = z.object({
+  t: z.literal("wallErase"),
+  targets: z.array(z.int().min(0)).min(1).max(MAX_ERASE_TARGETS),
+});
+
+// A flood's rings are the outlines of the area it fills and of the holes in
+// it, each flat x then y. Each ring is bounded alone so one cannot be
+// enormous, and the rings together are held to the step's total.
+const ringSchema = z
+  .array(coordinateSchema)
+  .min(6)
+  .max(MAX_FLOOD_POINTS * 2)
+  .refine((ring) => ring.length % 2 === 0, { error: "A point needs both x and y." });
+
+/** A flood: fog lifted (reveal) or laid down (cover) over the area the click reached. */
+const floodOpSchema = z.object({
+  t: z.literal("flood"),
+  mode: modeSchema,
+  rings: z
+    .array(ringSchema)
+    .min(1)
+    .max(MAX_FLOOD_RINGS)
+    .refine((rings) => rings.reduce((sum, ring) => sum + ring.length / 2, 0) <= MAX_FLOOD_POINTS, {
+      error: "A flood has too many points.",
+    }),
+});
+
 export const annotationOpSchema = z.discriminatedUnion("t", [
   brushOpSchema,
   rectOpSchema,
@@ -119,8 +174,13 @@ export const annotationOpSchema = z.discriminatedUnion("t", [
   shapeOpSchema,
   eraseOpSchema,
   penClearOpSchema,
+  wallOpSchema,
+  wallEraseOpSchema,
+  floodOpSchema,
 ]);
 export type AnnotationOp = z.infer<typeof annotationOpSchema>;
+export type WallOp = Extract<AnnotationOp, { t: "wall" }>;
+export type FloodOp = Extract<AnnotationOp, { t: "flood" }>;
 
 export const annotationOpsSchema = z.array(annotationOpSchema).max(MAX_ANNOTATION_OPS);
 
@@ -133,18 +193,29 @@ export const fogColorSchema = colorSchema;
 /** What a drawing's annotations are: the steps an eraser may take away. */
 export const isMark = (op: AnnotationOp) => op.t === "pen" || op.t === "shape";
 
+/** The steps that concern walls: a wall drawn, or walls taken away. */
+export const isWallStep = (op: AnnotationOp) => op.t === "wall" || op.t === "wallErase";
+
 /**
- * Why a drawing's erasers may not stand, or null when they may: each must
- * name only pen marks and shapes drawn before it. Checked on the drawing
- * whole, as a save makes it, since an eraser names marks by their places.
+ * Why a drawing's erasers may not stand, or null when they may: each eraser
+ * must name only pen marks and shapes drawn before it, and each wall eraser
+ * only walls drawn before it. Checked on the drawing whole, as a save makes
+ * it, since an eraser names steps by their places.
  */
 export function eraseRefusal(ops: readonly AnnotationOp[]): string | null {
   for (let at = 0; at < ops.length; at++) {
     const op = ops[at];
-    if (op.t !== "erase") continue;
-    for (const target of op.targets) {
-      if (target >= at || !isMark(ops[target])) {
-        return "An eraser can only take away a mark drawn before it.";
+    if (op.t === "erase") {
+      for (const target of op.targets) {
+        if (target >= at || !isMark(ops[target])) {
+          return "An eraser can only take away a mark drawn before it.";
+        }
+      }
+    } else if (op.t === "wallErase") {
+      for (const target of op.targets) {
+        if (target >= at || ops[target].t !== "wall") {
+          return "A wall eraser can only take away a wall drawn before it.";
+        }
       }
     }
   }

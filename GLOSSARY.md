@@ -229,7 +229,10 @@ engineering skills consume this file.
   picture in the element panel, in a pill's picture preview on the run and
   live pages and on a scene's preview, and in the run page library's
   preview. Any change made in the annotator turns it on too: annotating a
-  picture is annotating it for the players. Only a picture the app uploaded
+  picture is annotating it for the players. The exception is a change to
+  walls alone (drawing, erasing or taking back a wall), which the players
+  never see: it neither turns the picture on nor asks for a new players'
+  copy, and a copy that was current stays current. Only a picture the app uploaded
   can be, since the server must fetch it to render the players' copy.
   Turned off, the drawing is kept for the next time and the players are
   given the picture again; turned on again with the drawing changed since,
@@ -237,10 +240,12 @@ engineering skills consume this file.
 - **Drawing**: an annotated picture's ordered steps
   (`attachment_annotations.ops`, `lib/annotation-schemas.ts`), in the
   picture's own pixels as it stands upright: fog brush strokes and
-  rectangles, each a Reveal or a Cover, Cover all and Clear all, pen marks,
-  shapes, the eraser's drags, and Erase all annotations. A later step wins
+  rectangles, each a Reveal or a Cover, floods, Cover all and Clear all, walls,
+  the wall eraser's drags, pen marks, shapes, the eraser's drags, and Erase
+  all annotations. A later step wins
   where two overlap, and a Cover all or Clear all (Erase all annotations for
-  the annotations) makes every step before it moot. Its fog has a color of
+  the annotations) makes every step before it moot, walls and the wall
+  eraser's drags aside. Its fog has a color of
   its own (`fog_color`), the players' copy's as well as the annotator's. A drawing is the file's: it stays with the file whatever the
   elements show, and goes only when the file is deleted, once the
   storyteller has been told (`dropDrawing`).
@@ -252,8 +257,13 @@ engineering skills consume this file.
   (Pen, Shape, Eraser, the pen's color and width, Erase all annotations),
   and from the middle the fog (Show fog, My fog and Players' fog as sliders
   with percentages to type, the fog's color, Cover all, Fog brush, Fog
-  rectangle, Reveal or Cover, the brush's size, Clear all). Undo (Ctrl+Z) and
-  whether the drawing is saved sit beside its title. Each change is saved a moment after it is made
+  rectangle, Flood, Reveal or Cover, the brush's size, Clear all, Wall pen and
+  Wall eraser, and Finish wall while a wall is being drawn). Undo (Ctrl+Z) and
+  whether the drawing is saved sit beside its title. It opens with the Flood
+  in hand when the drawing has walls, and with the Fog brush when it has none.
+  Escape finishes a wall being drawn and leaves the annotator open; with no
+  wall in progress it closes the annotator. Ctrl+Z, while a wall is being
+  drawn, takes back its last corner. Each change is saved a moment after it is made
   (`sa_saveAnnotation`), as the steps kept and the steps added, from the
   revision it was drawn on; a save from a drawing changed elsewhere is
   refused and the drawing loaded again.
@@ -268,6 +278,23 @@ engineering skills consume this file.
   and widths.
   The Eraser takes away whole annotations it is dragged across, as one step
   that Undo puts back.
+- **Wall**: a line the storyteller draws on the fog with the Wall pen,
+  corner by corner, every side straight; a click near the picture's edge,
+  another wall or its own first corner lands exactly on it. Closed when both
+  its ends touch the edge, another wall or itself, and open otherwise; walls
+  that touch are one shape, and a shape is closed only when every wall in it
+  is. An open shape's walls are drawn pale, a closed shape's deep blue and
+  thicker, with the storyteller's fog over a closed shape's enclosed areas
+  drawn in that blue. The storyteller always sees walls, with Show fog on or
+  off, and the players never do: not in their copy, nor in any preview. The
+  Wall eraser takes away each whole wall it is dragged across, as one step
+  that Undo puts back; the Eraser, Erase all annotations, Cover all and
+  Clear all never touch walls.
+- **Flood**: the fog tool that reveals or covers, as Reveal or Cover says,
+  the area clicked, bounded by every wall and the picture's edges. It
+  reaches under its walls, so two neighboring areas both revealed leave no
+  strip of fog between them. It is saved as the area's outline, so walls
+  drawn or erased later never change an area already flooded.
 - **Show fog**: the switch between Hide and Show for whether the
   storyteller sees the fog in the annotator at all, to look at the picture
   plain; this sitting's only, and nothing to the players' copy.
@@ -275,7 +302,8 @@ engineering skills consume this file.
   My fog is the storyteller's own view in the annotator, light enough to
   draw through, and kept among their preferences; Players' fog is the
   drawing's (`fog_opacity_players`), what the players' copy is rendered
-  with.
+  with. My fog's slider runs from 1 to 100 and Players' fog's from 50 to
+  100; a number typed in beside either takes 0 to 100.
 - **Players' copy**: the picture with the drawing over it at the players'
   fog, rendered on the server with sharp after each save and uploaded to
   Blob (`lib/players-copy.ts`), one render at a time per drawing. While a
@@ -283,7 +311,14 @@ engineering skills consume this file.
   shows it (`playerSceneElementImageUrl`): nothing until the first copy is
   ready, never the raw picture (ADR 0002). The storyteller's own pills,
   cards, previews and panels show it too once it is rendered, so they see
-  what the players see; the annotator keeps the raw picture under My fog. Two ways the raw picture still
+  what the players see; the annotator keeps the raw picture under My fog.
+  At the start of a full-size preview's bottom bar, where the storyteller
+  can annotate the picture, the fog switch is a pill: a filled cloud and
+  FOG OF WAR ACTIVE while the picture is annotated, an outline cloud and
+  FOG OF WAR OFF while it is not, pressed to turn it on or, after asking,
+  off; the annotator's pencil follows it. A preview without those controls
+  marks a copy with fog on it FOG OF WAR ACTIVE in the same place
+  (`fogActive` in `db/attachment-url.ts`). Two ways the raw picture still
   reaches players: the same file used as a scene's, a session's or the
   story's cover, or among a scene's or a link's other pictures, is shown as
   it is there; and a player who loaded the picture before it was annotated
